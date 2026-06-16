@@ -1,0 +1,267 @@
+import { useState } from 'react';
+
+interface TutorialPageProps {
+  onBack: () => void;
+  onShowAuthor?: () => void;
+}
+
+interface TutorialStep {
+  title: string;
+  description: string;
+}
+
+interface TutorialTopic {
+  id: string;
+  icon: string;
+  title: string;
+  summary: string;
+  steps: TutorialStep[];
+}
+
+const TUTORIAL_TOPICS: TutorialTopic[] = [
+  {
+    id: 'basics',
+    icon: '🎲',
+    title: '基础操作',
+    summary: '创建作品、编辑段落、插入骰子',
+    steps: [
+      { title: '1. 创建你的第一个安科作品', description: '在首页点击「新建安科」，输入标题后点击「创建」。新建的作品会自动保存，下次启动应用时可以从「已有作品」中重新打开。' },
+      { title: '2. 编辑正文内容', description: '在编辑器中，每个章节都有独立的富文本编辑区。直接输入文字，按回车键换行。点击上方工具栏可以设置加粗、斜体、删除线、文本颜色等样式。' },
+      { title: '3. 插入骰子', description: '在工具栏找到「🎲 骰子」按钮，点击后弹出骰子配置面板。选择数值骰子或选项骰子。数值骰子支持简单模式（NdM±K）和表达式模式（四则运算，如 <code>2*3d100</code>、<code>1d10+2d50</code>、<code>1d100+50</code>），选项骰子可自定义面数和选项命中内容。配置后点击确定，骰子卡片会插入到光标位置。点击卡片上的「投掷」按钮即可模拟掷骰。' },
+      { title: '4. 管理章节', description: '左侧章节列表可以新增（「+ 新章节」）、重命名（点击章节标题编辑）、删除和调整顺序。点击章节会切换到该章节的编辑内容。' },
+      { title: '5. 保存你的作品', description: '内容修改后会自动保存。可以点击左上角的「← 返回首页」回到作品列表，作品不会丢失。所有数据保存在本地 SQLite 数据库中。' },
+    ],
+  },
+  {
+    id: 'images',
+    icon: '🖼️',
+    title: '图片与差分',
+    summary: '插入图片、管理人物差分图、从模板导入',
+    steps: [
+      { title: '1. 插入图片', description: '点击工具栏的「🖼️ 图片」按钮，选择方式有两种：① 本地上传（从电脑选择图片文件）；② URL 粘贴（粘贴图片链接后点击确定）。图片会以原子块的形式插入到光标位置。' },
+      { title: '2. 添加人物', description: '在左侧「👤 人物角色」视图中，点击「+ 新建角色」创建新人物。可以设置头像、性格描述、属性（如身高、年龄等）和备注。' },
+      { title: '3. 添加差分图', description: '进入人物编辑详情，找到「差分图」区域，点击「添加图片」上传差分（比如：开心、生气、惊讶等不同表情/场景）。每个差分可以设置备注说明。' },
+      { title: '4. 插入差分到编辑器', description: '在人物编辑页面中，每个差分图旁边都有「插入」按钮。点击该按钮，差分图会以图片原子块的形式插入到当前章节的光标位置。在右侧人物面板中也可以点击差分缩略图快捷插入。' },
+      { title: '5. 从模板库导入人物', description: '在左侧人物面板中，点击「📋 导入」按钮，会显示所有可用的人物模板。点击任意模板即可直接导入到当前作品中（自动重命名避免冲突）。模板可以在首页「模板库」中预先编辑。' },
+    ],
+  },
+  {
+    id: 'lists',
+    icon: '📋',
+    title: '列表与引用',
+    summary: '有序/无序列表、引用块',
+    steps: [
+      { title: '1. 有序列表（1. 2. 3.）', description: '先选中一段或多行文字，点击工具栏的「1. 有序」按钮，选中内容会被包装成有序列表。每一行作为一个列表项。导出为 NGA BBCode 时会自动转换为 [list=1]...[/list]。' },
+      { title: '2. 无序列表（• 列表项）', description: '选中多行文字，点击工具栏的「• 无序」按钮。导出为 NGA BBCode 时会自动转换为 [list]...[/list]。' },
+      { title: '3. 清除列表', description: '如果想把列表恢复为普通段落，选中列表项后再次点击对应的「有序」或「无序」按钮即可取消列表格式。' },
+      { title: '4. 引用块', description: '选中文字后点击工具栏的「❝ 引用」按钮，选中内容会被包装为灰色背景的引用块。导出为 NGA BBCode 时会自动转换为 [quote]...[/quote]。再次点击该按钮可取消引用格式。' },
+    ],
+  },
+  {
+    id: 'collapsible',
+    icon: '🧱',
+    title: '折叠与代码块',
+    summary: '插入折叠块、编辑标题、选中内容折叠、多行代码块',
+    steps: [
+      { title: '1. 插入折叠块', description: '将光标放在要插入折叠块的位置，点击工具栏的「🔽 折叠」按钮，会插入一个带标题的可折叠块。默认标题为「折叠块」，可以直接点击标题文字进行编辑。' },
+      { title: '2. 编辑折叠标题', description: '折叠块的标题文字是可编辑的。直接点击标题区域（非左侧的 +/− 图标）即可修改文字。修改会自动同步，导出时以标题文本为准。' },
+      { title: '3. 选中内容折叠', description: '先在编辑器中用鼠标选中一段文字内容，然后点击工具栏的「🔽 折叠」按钮。选中的内容会被自动包装成一个折叠块，而不是在光标位置插入空白折叠块。' },
+      { title: '4. 拖动折叠块', description: '折叠块是可拖动的原子块。按住折叠块拖动可以像图片一样把整个折叠块移动到其他位置。' },
+      { title: '5. 多行代码块', description: '选中多行文字（例如脚本或数据列表），点击工具栏的「&lt; &gt; 代码」按钮。选中的多行内容会被包装在一个保留换行的代码块中，不会被压缩成一行。导出为 NGA BBCode 时自动转换为 [code]...[/code]。' },
+    ],
+  },
+  {
+    id: 'worldbuilding',
+    icon: '🌐',
+    title: '世界观与模板',
+    summary: '世界观设定、模板库管理、预置模板',
+    steps: [
+      { title: '1. 世界观设定', description: '在编辑页面中，可以添加世界观设定条目（如魔法体系、地理环境、社会制度等）。每个条目有标题和内容，方便在创作时查阅参考。' },
+      { title: '2. 模板库', description: '在首页点击「模板库」进入模板管理页面。模板分为两类：世界观模板和人物模板。模板独立于具体作品，可以被任意作品引用。' },
+      { title: '3. 创建自定义模板', description: '在模板库页面中，点击「+ 新建」按钮创建新的世界观或人物模板。编辑模板的内容、属性等信息后保存，之后在任何作品中都可以导入使用。' },
+      { title: '4. 使用预置模板', description: '应用内置了常用的世界观模板和人物模板。首次打开应用时这些模板会自动加载到模板库中，带有「预置」标签。预置模板不可编辑或删除，但你可以直接导入到作品中使用，导入后的副本可以自由修改。' },
+    ],
+  },
+  {
+    id: 'tables',
+    icon: '📊',
+    title: '表格',
+    summary: '插入表格、编辑单元格',
+    steps: [
+      { title: '1. 插入表格', description: '点击工具栏的「📊 表格」按钮，在弹出的面板中设置行数和列数，点击确定后在光标位置插入空白表格。' },
+      { title: '2. 编辑单元格', description: '直接点击任意单元格即可输入或编辑内容。表格单元格支持普通文本。' },
+      { title: '3. 导出到 NGA', description: '整个表格会被转换为 NGA BBCode 的 [table] 格式，每个单元格对应 [td] 标签，每一行对应 [tr] 标签。' },
+    ],
+  },
+  {
+    id: 'links',
+    icon: '🔗',
+    title: '链接与分割线',
+    summary: '插入超链接、水平分割线',
+    steps: [
+      { title: '1. 插入超链接', description: '先在编辑器中选中要作为链接显示的文字，点击工具栏的「🔗 链接」按钮。在弹出的输入框中粘贴完整的 URL，点击确定后选中文字会变成可点击的超链接。' },
+      { title: '2. 在应用内打开链接', description: '点击编辑器中的超链接会在系统默认浏览器中打开目标网址。导出为 NGA BBCode 时会自动转换为 [url=...]文字[/url] 格式。' },
+      { title: '3. 插入分割线', description: '将光标放在要插入分割线的位置，点击工具栏的「— 分割线」按钮，会插入一条水平分割线。' },
+    ],
+  },
+  {
+    id: 'export',
+    icon: '📤',
+    title: '导出为 NGA 格式',
+    summary: '导出当前节 BBCode、复制到剪贴板',
+    steps: [
+      { title: '1. 打开导出对话框', description: '在编辑页面右上角找到「📤 导出」按钮，点击打开导出面板。' },
+      { title: '2. 导出当前节', description: '导出面板会显示当前正在编辑的节的内容，自动转换为 NGA 论坛兼容的 BBCode 格式。图片会变为 [img] 标签，列表变为 [list] 标签，折叠块变为 [collapse] 标签，骰子按类型输出，代码块变为 [code] 标签等。' },
+      { title: '3. 复制到剪贴板', description: '点击「复制本节」按钮，完整 BBCode 会被复制到系统剪贴板，直接粘贴到 NGA 论坛即可。也可以点击「保存为 .txt」将 BBCode 保存为文本文件。' },
+    ],
+  },
+  {
+    id: 'drag-tips',
+    icon: '✏️',
+    title: '拖动与排版技巧',
+    summary: '选中原子块、像文本一样拖动、调整位置',
+    steps: [
+      { title: '1. 图片、骰子、折叠都是原子块', description: '编辑器中的图片、骰子卡片、折叠块、代码块等都是独立的「原子块」。它们在文本中表现为可移动的独立单位，类似一个大号字符。' },
+      { title: '2. 拖动原子块', description: '鼠标点击并按住一个原子块（例如图片），然后将其拖到其他位置释放即可。原子块像文本一样支持在段落内前后移动，也可以移动到段落之间。' },
+      { title: '3. 删除原子块', description: '选中图片/骰子/折叠/代码块后按 Delete 或 Backspace 键可以删除。对于折叠块，建议先展开查看内容再决定是否删除，防止误删重要信息。' },
+    ],
+  },
+];
+
+export function TutorialPage({ onBack, onShowAuthor }: TutorialPageProps) {
+  const [expandedId, setExpandedId] = useState<string | null>('basics');
+
+  return (
+    <div
+      className="h-full w-full flex flex-col items-center overflow-y-auto"
+      style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}
+    >
+      <div className="w-full max-w-3xl px-6 py-8">
+        {/* 顶部导航 */}
+        <div className="flex items-center gap-3 mb-6">
+          <button
+            onClick={onBack}
+            className="inline-flex items-center gap-1 px-4 py-2 rounded-xl text-sm font-medium transition-all"
+            style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
+          >
+            ← 返回首页
+          </button>
+          <h1 className="text-2xl font-bold">📘 安科创作教程</h1>
+          {onShowAuthor && (
+            <button
+              onClick={onShowAuthor}
+              className="inline-flex items-center gap-1 px-4 py-2 rounded-xl text-sm font-medium transition-all ml-auto"
+              style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
+            >
+              ℹ️ 关于作者
+            </button>
+          )}
+        </div>
+
+        {/* 说明条 */}
+        <div
+          className="px-5 py-4 mb-6 rounded-2xl"
+          style={{ background: 'var(--accent-bg)', border: '1px solid var(--accent)', color: 'var(--text-primary)' }}
+        >
+          <div className="text-sm font-semibold mb-1" style={{ color: 'var(--accent)' }}>快速上手</div>
+          <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+            点击下方任意主题卡片展开详细步骤指南，共 9 个主题，涵盖从创建作品到导出 NGA BBCode 的完整创作流程。
+          </div>
+        </div>
+
+        {/* 教程卡片网格 */}
+        <div className="space-y-3">
+          {TUTORIAL_TOPICS.map((topic) => {
+            const isExpanded = expandedId === topic.id;
+            return (
+              <div
+                key={topic.id}
+                className="rounded-2xl overflow-hidden"
+                style={{
+                  background: 'var(--bg-card)',
+                  border: `1px solid ${isExpanded ? 'var(--accent)' : 'var(--border-color)'}`,
+                  boxShadow: isExpanded ? '0 4px 16px -4px rgba(0,0,0,0.15)' : 'none',
+                }}
+              >
+                {/* 卡片头部（可点击展开/收起） */}
+                <button
+                  onClick={() => setExpandedId(isExpanded ? null : topic.id)}
+                  className="w-full px-5 py-4 flex items-center gap-3 transition-colors"
+                  style={{ background: 'transparent' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                >
+                  <span className="text-xl">{topic.icon}</span>
+                  <div className="flex-1 text-left">
+                    <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                      {topic.title}
+                    </div>
+                    <div className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                      {topic.summary}
+                    </div>
+                  </div>
+                  <span
+                    className="text-sm font-bold transition-transform"
+                    style={{
+                      color: isExpanded ? 'var(--accent)' : 'var(--text-secondary)',
+                      transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                      display: 'inline-block',
+                    }}
+                  >
+                    ▼
+                  </span>
+                </button>
+
+                {/* 展开内容（步骤列表） */}
+                {isExpanded && (
+                  <div
+                    className="px-5 pb-5"
+                    style={{ borderTop: '1px solid var(--border-color)' }}
+                  >
+                    <div className="pt-4 space-y-2">
+                      {topic.steps.map((step, idx) => (
+                        <div
+                          key={idx}
+                          className="p-3 rounded-xl flex gap-3"
+                          style={{ background: 'var(--bg-base)', border: '1px solid var(--border-color)' }}
+                        >
+                          <div
+                            className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold"
+                            style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
+                          >
+                            {idx + 1}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-semibold mb-1" style={{ color: 'var(--accent)' }}>
+                              {step.title.replace(/^\d+\.\s*/, '')}
+                            </div>
+                            <div
+                              className="text-xs leading-relaxed"
+                              style={{ color: 'var(--text-primary)' }}
+                              dangerouslySetInnerHTML={{ __html: step.description }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* 底部提示 */}
+        <div className="mt-8 text-center">
+          <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+            💡 提示：所有创作内容保存在本地数据目录，关闭应用后不会丢失。
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

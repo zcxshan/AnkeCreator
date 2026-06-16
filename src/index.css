@@ -1,0 +1,498 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ================================
+   主题：日间 / 夜间（VS Code 风格）
+   通过 [data-theme] 属性切换
+   ================================ */
+
+:root,
+[data-theme='light'] {
+  /* === VS Code Light+ 风格 === */
+  --bg-base: #ffffff;
+  --bg-sidebar: #f3f3f3;
+  --bg-sidebar-header: #ececec;
+  --bg-editor: #ffffff;
+  --bg-toolbar: #f3f3f3;
+  --bg-card: #ffffff;
+  --bg-hover: #e8e8e8;
+  --bg-active: #e8e8e8;
+  --bg-active-border: #007acc;
+  --bg-input: #ffffff;
+  --bg-tooltip: #f3f3f3;
+  --bg-overlay: rgba(15, 23, 42, 0.45);
+
+  --text-primary: #333333;
+  --text-secondary: #6a6a6a;
+  --text-muted: #999999;
+  --text-link: #0066bf;
+  --text-on-accent: #ffffff;
+
+  --border-color: #e0e0e0;
+  --border-light: #eeeeee;
+
+  --accent: #007acc;
+  --accent-hover: #005a9e;
+  --accent-bg: #dbeaf9;
+
+  --success: #388a34;
+  --success-bg: #e6f4e4;
+  --warning: #bf8803;
+  --warning-bg: #fff8e8;
+  --error: #f44747;
+  --error-bg: #fde7e9;
+
+  --shadow: rgba(0, 0, 0, 0.08);
+
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: #c5c5c5;
+  --scrollbar-thumb-hover: #a5a5a5;
+
+  --editor-scrollbar-track: #f5f5f5;
+  --editor-scrollbar-thumb: #cccccc;
+  --editor-scrollbar-thumb-hover: #aaaaaa;
+
+  --caret-color: #333333;
+  --selection-bg: #add6ff;
+  --selection-fg: #1e1e1e;
+
+  /* 兼容旧变量名 — 映射到新变量 */
+  --bg-page: var(--bg-base);
+  --prose-heading: #1f1f1f;
+  --prose-subheading: #2b2b2b;
+  --prose-subheading-3: #333333;
+  --prose-placeholder: #aaaaaa;
+  --prose-quote-bg: #f3f3f3;
+  --prose-quote-fg: #555555;
+  --prose-quote-border: #c0c0c0;
+  --prose-hr: #d0d0d0;
+  --prose-link: #0066bf;
+  --prose-link-hover: #005a9e;
+
+  --accent-soft: var(--accent-bg);
+  --accent-contrast: #ffffff;
+  --amber: #bf8803;
+  --amber-soft: var(--warning-bg);
+  --amber-border: #e5c97d;
+  --amber-ink: #7a5100;
+
+  --dice-card-bg: #fffbeb;
+  --dice-card-border: #fcd34d;
+  --dice-card-ink: #1f2937;
+  --dice-card-kind-bg: #fde68a;
+  --dice-card-kind-fg: #78350f;
+  --dice-card-roll-bg: #f59e0b;
+  --dice-card-roll-hover: #d97706;
+
+  --danger: #f44747;
+  --danger-hover: #c72d2d;
+  --danger-soft: var(--error-bg);
+}
+
+[data-theme='dark'] {
+  /* === VS Code Dark+ 风格 === */
+  --bg-base: #1e1e1e;
+  --bg-sidebar: #252526;
+  --bg-sidebar-header: #37373d;
+  --bg-editor: #1e1e1e;
+  --bg-toolbar: #323233;
+  --bg-card: #252526;
+  --bg-hover: #2a2d2e;
+  --bg-active: #094771;
+  --bg-active-border: #007acc;
+  --bg-input: #3c3c3c;
+  --bg-tooltip: #252526;
+  --bg-overlay: rgba(0, 0, 0, 0.7);
+
+  --text-primary: #cccccc;
+  --text-secondary: #858585;
+  --text-muted: #6b6b6b;
+  --text-link: #3794ff;
+  --text-on-accent: #ffffff;
+
+  --border-color: #3c3c3c;
+  --border-light: #2d2d2d;
+
+  --accent: #007acc;
+  --accent-hover: #1290ff;
+  --accent-bg: #094771;
+
+  --success: #4ec9b0;
+  --success-bg: #1b3b2b;
+  --warning: #d7ba7d;
+  --warning-bg: #3a2e00;
+  --error: #f48771;
+  --error-bg: #3a1d1d;
+
+  --shadow: rgba(0, 0, 0, 0.4);
+
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: #424242;
+  --scrollbar-thumb-hover: #505050;
+
+  --editor-scrollbar-track: #1a1a1a;
+  --editor-scrollbar-thumb: #3a3a3a;
+  --editor-scrollbar-thumb-hover: #525252;
+
+  --caret-color: #aeafad;
+  --selection-bg: #264f78;
+  --selection-fg: #ffffff;
+
+  /* 兼容旧变量名 */
+  --bg-page: var(--bg-base);
+  --prose-heading: #e8e8e8;
+  --prose-subheading: #d4d4d4;
+  --prose-subheading-3: #cccccc;
+  --prose-placeholder: #6b6b6b;
+  --prose-quote-bg: #2d2d2d;
+  --prose-quote-fg: #cccccc;
+  --prose-quote-border: #3c3c3c;
+  --prose-hr: #3c3c3c;
+  --prose-link: #3794ff;
+  --prose-link-hover: #60a5fa;
+
+  --accent-soft: var(--accent-bg);
+  --accent-contrast: #ffffff;
+  --amber: #d7ba7d;
+  --amber-soft: var(--warning-bg);
+  --amber-border: #5a4320;
+  --amber-ink: #f5d885;
+
+  --dice-card-bg: #252526;
+  --dice-card-border: #3c3c3c;
+  --dice-card-ink: #e2e8f0;
+  --dice-card-kind-bg: #37373d;
+  --dice-card-kind-fg: #d7ba7d;
+  --dice-card-roll-bg: #0e639c;
+  --dice-card-roll-hover: #1177bb;
+
+  --danger: #f48771;
+  --danger-hover: #e05a40;
+  --danger-soft: var(--error-bg);
+}
+
+/* ================================
+   全局
+   ================================ */
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--bg-base);
+  color: var(--text-primary);
+}
+
+body {
+  font-family: 'Microsoft YaHei', '微软雅黑', -apple-system, BlinkMacSystemFont,
+    'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* contenteditable 输入光标可见性 */
+[contenteditable='true'] {
+  caret-color: var(--caret-color);
+}
+
+/* 选中文本高亮 */
+::selection {
+  background: var(--selection-bg);
+  color: var(--selection-fg);
+}
+
+/* ================================
+   富文本编辑区
+   ================================ */
+
+.anke-editor-content {
+  color: var(--text-primary);
+  background: var(--bg-editor);
+}
+
+/* 列表样式（contenteditable 编辑器） */
+.anke-editor-content ul {
+  list-style-type: disc;
+  padding-left: 24px;
+  margin: 6px 0;
+}
+.anke-editor-content ol {
+  list-style-type: decimal;
+  padding-left: 24px;
+  margin: 6px 0;
+}
+.anke-editor-content li {
+  line-height: 1.8;
+  color: var(--text-primary);
+}
+
+.anke-editor-content .ProseMirror {
+  min-height: 600px;
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--text-primary);
+  outline: none;
+  word-break: break-word;
+  white-space: normal;
+}
+
+.anke-editor-content .ProseMirror p {
+  margin: 0 0 12px 0;
+  text-indent: 0;
+}
+
+.anke-editor-content .ProseMirror p.is-editor-empty::before,
+.anke-editor-content .ProseMirror h1.is-editor-empty::before,
+.anke-editor-content .ProseMirror h2.is-editor-empty::before,
+.anke-editor-content .ProseMirror h3.is-editor-empty::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--prose-placeholder);
+  pointer-events: none;
+  height: 0;
+}
+
+.anke-editor-content .ProseMirror h1 {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.4;
+  margin: 20px 0 14px 0;
+  color: var(--prose-heading);
+  border-bottom: 2px solid var(--border-color);
+  padding-bottom: 8px;
+}
+
+.anke-editor-content .ProseMirror h2 {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.5;
+  margin: 18px 0 12px 0;
+  color: var(--prose-subheading);
+}
+
+.anke-editor-content .ProseMirror h3 {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.6;
+  margin: 16px 0 10px 0;
+  color: var(--prose-subheading-3);
+}
+
+.anke-editor-content .ProseMirror ul,
+.anke-editor-content .ProseMirror ol {
+  padding-left: 28px;
+  margin: 8px 0 12px 0;
+}
+
+.anke-editor-content .ProseMirror ul {
+  list-style-type: disc;
+}
+
+.anke-editor-content .ProseMirror ol {
+  list-style-type: decimal;
+}
+
+.anke-editor-content .ProseMirror li {
+  margin: 4px 0;
+  line-height: 1.8;
+  color: var(--text-primary);
+}
+
+.anke-editor-content .ProseMirror li p {
+  margin: 0;
+}
+
+.anke-editor-content .ProseMirror blockquote {
+  border-left: 4px solid var(--prose-quote-border);
+  padding: 8px 16px;
+  margin: 12px 0;
+  background: var(--prose-quote-bg);
+  color: var(--prose-quote-fg);
+  font-style: normal;
+  border-radius: 0 4px 4px 0;
+}
+
+.anke-editor-content .ProseMirror blockquote p {
+  margin: 0 0 6px 0;
+}
+
+.anke-editor-content .ProseMirror blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+.anke-editor-content .ProseMirror hr {
+  border: none;
+  border-top: 1px dashed var(--prose-hr);
+  margin: 18px 0;
+}
+
+.anke-editor-content .ProseMirror a {
+  color: var(--prose-link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.anke-editor-content .ProseMirror a:hover {
+  color: var(--prose-link-hover);
+}
+
+.anke-editor-content .ProseMirror [data-text-align='left'] {
+  text-align: left;
+}
+
+.anke-editor-content .ProseMirror [data-text-align='center'] {
+  text-align: center;
+}
+
+.anke-editor-content .ProseMirror [data-text-align='right'] {
+  text-align: right;
+}
+
+.anke-editor-content .ProseMirror [data-text-align='justify'] {
+  text-align: justify;
+}
+
+/* 图片和骰子节点容器 */
+.anke-editor-content .ProseMirror .image-block,
+.anke-editor-content .ProseMirror .dice-card {
+  margin: 14px 0;
+}
+
+/* 编辑区内滚动条美化（CSS 变量驱动） */
+.anke-editor-content::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.anke-editor-content::-webkit-scrollbar-track {
+  background: var(--editor-scrollbar-track);
+}
+
+.anke-editor-content::-webkit-scrollbar-thumb {
+  background: var(--editor-scrollbar-thumb);
+  border-radius: 5px;
+}
+
+.anke-editor-content::-webkit-scrollbar-thumb:hover {
+  background: var(--editor-scrollbar-thumb-hover);
+}
+
+/* 外层全局滚动条（CSS 变量驱动） */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+textarea {
+  outline: none;
+  resize: none;
+}
+
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* ================================
+   通用组件样式（覆盖 tailwind）
+   ================================ */
+
+.anke-surface-page {
+  background: var(--bg-base);
+  color: var(--text-primary);
+}
+
+.anke-surface-sidebar {
+  background: var(--bg-sidebar);
+  color: var(--text-primary);
+  border-color: var(--border-color);
+}
+
+.anke-surface-card {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.anke-surface-editor {
+  background: var(--bg-editor);
+  color: var(--text-primary);
+}
+
+.anke-surface-toolbar {
+  background: var(--bg-toolbar);
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.anke-text-primary {
+  color: var(--text-primary);
+}
+
+.anke-text-secondary {
+  color: var(--text-secondary);
+}
+
+.anke-text-muted {
+  color: var(--text-muted);
+}
+
+.anke-border {
+  border-color: var(--border-color);
+}
+
+.anke-btn-accent {
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border: 1px solid var(--accent);
+}
+
+.anke-btn-accent:hover {
+  background: var(--accent-hover);
+}
+
+/* 对话框/遮罩 */
+.anke-overlay {
+  background: var(--bg-overlay);
+}
+
+/* 通用表单控件（输入框、按钮等）暗色友好 */
+.anke-input {
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.anke-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.anke-btn {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.anke-btn:hover {
+  background: var(--bg-hover);
+}

@@ -1,0 +1,2523 @@
+// ============================================================
+// contenteditable 富文本工具集
+// 依赖 document.execCommand + Selection API
+// ============================================================
+
+import {
+  NGA_IMAGE_SIZES,
+  NGA_DEFAULT_IMAGE_SIZE,
+  NGA_QUOTE_BG,
+  NGA_COLLAPSE_HEAD_BG,
+  NGA_COLLAPSE_BODY_BG,
+  NGA_CODE_BG,
+  NGA_FONTS,
+  NGA_FONT_SIZES,
+  NGA_COLORS,
+  NGA_LINK_COLOR,
+} from '../../types';
+
+/** 把 <font> / <b> / <i> / <u> / <s> 等旧标签规范化为带 style 的 <span>。
+ *  这里我们保持原生 execCommand 的输出（浏览器默认产出 b/i/u 等），
+ *  只有颜色/字号/字体用我们自实现的 span 包裹，以便激活状态能稳定读取。 */
+
+export function isNodeInsideEditor(
+  node: Node | null | undefined,
+  editor: HTMLElement,
+): boolean {
+  if (!node) return false;
+  let cur: Node | null = node;
+  while (cur) {
+    if (cur === editor) return true;
+    cur = cur.parentNode;
+  }
+  return false;
+}
+
+export function focusEditor(editor: HTMLElement): void {
+  editor.focus();
+}
+
+/** 手动派发 input 事件，触发 onChangeContent 保存 */
+export function dispatchInput(editor: HTMLElement): void {
+  const ev = new Event('input', { bubbles: true, cancelable: true });
+  editor.dispatchEvent(ev);
+}
+
+// ------------------------------------------------------------
+// 基础 execCommand
+// ------------------------------------------------------------
+export function exec(
+  editor: HTMLElement,
+  command: string,
+  value?: string,
+): boolean {
+  focusEditor(editor);
+  const ok = document.execCommand(command, false, value);
+  if (ok) dispatchInput(editor);
+  return ok;
+}
+
+export function execBold(editor: HTMLElement): boolean {
+  return exec(editor, 'bold');
+}
+export function execItalic(editor: HTMLElement): boolean {
+  return exec(editor, 'italic');
+}
+export function execUnderline(editor: HTMLElement): boolean {
+  return exec(editor, 'underline');
+}
+export function execStrikeThrough(editor: HTMLElement): boolean {
+  return exec(editor, 'strikeThrough');
+}
+export function execUndo(editor: HTMLElement): boolean {
+  focusEditor(editor);
+  return document.execCommand('undo', false);
+}
+export function execRedo(editor: HTMLElement): boolean {
+  focusEditor(editor);
+  return document.execCommand('redo', false);
+}
+export function execRemoveFormat(editor: HTMLElement): boolean {
+  focusEditor(editor);
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return false;
+  const range = sel.getRangeAt(0);
+
+  // 0) 选区/光标在 quote-block 内的整块移除：直接在 editor 范围操作以避免 extractContents 后丢祖先
+  //    检测祖先链中是否有 [data-type="quote-block"]（覆盖 blockquote / div 两种渲染形态）
+  const findQuoteBlockAncestor = (node: Node | null): HTMLElement | null => {
+    let n: Node | null = node;
+    while (n && n !== editor) {
+      if (n.nodeType === Node.ELEMENT_NODE) {
+        const el = n as HTMLElement;
+        if (el.dataset?.type === 'quote-block') return el;
+      }
+      n = n.parentNode;
+    }
+    return null;
+  };
+
+  // 1) 遍历选区范围内的元素：
+  //    - ul/ol 转换为普通段落
+  //    - span.inline-quote / span[data-type="quote"] 解除包裹 → 纯文本
+  //    - blockquote / div[data-type="quote-block"] → 转为 <p>（保留子节点，去掉引用样式）
+  //    - div[data-type="collapse-block"] 删除
+  //    - 其他内联样式 span / color 也解除
+  if (!range.collapsed) {
+    // 自底向上处理：先把 range 内的所有 span 解除
+    const frag = range.extractContents();
+    // - a) 对于 ul/ol 的处理：拆成若干 <p>
+    const lists = Array.from(frag.querySelectorAll('ul, ol'));
+    lists.forEach((list) => {
+      const items = Array.from(list.children);
+      const paragraphs: HTMLElement[] = [];
+      items.forEach((li) => {
+        const p = document.createElement('p');
+        p.innerHTML = (li as HTMLElement).innerHTML;
+        paragraphs.push(p);
+      });
+      paragraphs.forEach((p) => list.parentNode!.insertBefore(p, list));
+      list.remove();
+    });
+
+    // b) 解除内联 span（包括 inline-quote / data-type="quote" / color/size/font）
+    const spans = Array.from(frag.querySelectorAll('span'));
+    spans.forEach((s) => {
+      const parent = s.parentNode!;
+      while (s.firstChild) parent.insertBefore(s.firstChild, s);
+      s.remove();
+    });
+
+    // c) blockquote / div[data-type="quote-block"] → <p>（保留子节点，去除引用背景）
+    const blockquotes = Array.from(frag.querySelectorAll('blockquote, div[data-type="quote-block"]'));
+    blockquotes.forEach((bq) => {
+      const p = document.createElement('p');
+      p.innerHTML = (bq as HTMLElement).innerHTML;
+      bq.parentNode!.insertBefore(p, bq);
+      bq.remove();
+    });
+
+    // d) pre.code-block → <p>（保留纯文本）
+    const pre_blocks = Array.from(frag.querySelectorAll('pre'));
+    pre_blocks.forEach((pre) => {
+      const p = document.createElement('p');
+      p.textContent = pre.textContent;
+      pre.parentNode!.insertBefore(p, pre);
+      pre.remove();
+    });
+
+    // e) div[data-type="collapse-block"] → 删除折叠块
+    const collapses = Array.from(frag.querySelectorAll('div[data-type="collapse-block"]'));
+    collapses.forEach((c) => c.remove());
+
+    // f) 处理 li 内部残余：如果 frag 的顶层节点是 li，将其内容提升
+    const topLis = Array.from(frag.childNodes).filter(
+      (n) => n.nodeType === Node.ELEMENT_NODE && (n as HTMLElement).tagName === 'LI',
+    );
+    topLis.forEach((li) => {
+      const p = document.createElement('p');
+      p.innerHTML = (li as HTMLElement).innerHTML;
+      frag.replaceChild(p, li);
+    });
+
+    range.insertNode(frag);
+  } else {
+    // 1.5) collapsed 选区：若光标在 quote-block 内部，把该块转为普通 <p>，保留子节点
+    const quoteBlock = findQuoteBlockAncestor(range.startContainer);
+    if (quoteBlock && quoteBlock.parentNode) {
+      const p = document.createElement('p');
+      p.innerHTML = quoteBlock.innerHTML;
+      quoteBlock.parentNode.replaceChild(p, quoteBlock);
+      const r = document.createRange();
+      r.selectNodeContents(p);
+      r.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(r);
+    }
+  }
+
+  // 2) 清除 execCommand 清理其他残余的 b/i/u/s
+  try {
+    document.execCommand('removeFormat', false);
+    document.execCommand('unlink', false);
+  } catch {}
+
+  // 3) 额外清理：如果光标在 li 内且没有选区，把 li 内容提到外层 p
+  if (range.collapsed) {
+    const container = range.startContainer;
+    const el = container.nodeType === Node.ELEMENT_NODE ? container as HTMLElement : container.parentElement;
+    if (el && el.tagName === 'LI' && el.parentNode) {
+      const p = document.createElement('p');
+      p.innerHTML = el.innerHTML;
+      el.parentNode.replaceChild(p, el);
+      // 光标移到新 p 内
+      const r = document.createRange();
+      r.selectNodeContents(p);
+      r.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(r);
+    }
+  }
+
+  dispatchInput(editor);
+  return true;
+}
+export function execInsertHorizontalRule(editor: HTMLElement): boolean {
+  return exec(editor, 'insertHorizontalRule');
+}
+export function execInsertUnorderedList(editor: HTMLElement): boolean {
+  return exec(editor, 'insertUnorderedList');
+}
+export function execInsertOrderedList(editor: HTMLElement): boolean {
+  return exec(editor, 'insertOrderedList');
+}
+
+// ------------------------------------------------------------
+// 激活状态：粗体/斜体/下划线/删除线
+// ------------------------------------------------------------
+export function isCommandActive(command: string): boolean {
+  try {
+    return document.queryCommandState(command);
+  } catch {
+    return false;
+  }
+}
+export function isBoldActive(): boolean {
+  return isCommandActive('bold');
+}
+export function isItalicActive(): boolean {
+  return isCommandActive('italic');
+}
+export function isUnderlineActive(): boolean {
+  return isCommandActive('underline');
+}
+export function isStrikeActive(): boolean {
+  return isCommandActive('strikeThrough');
+}
+
+// ------------------------------------------------------------
+// 获取选区内某个 CSS 属性的有效值（从 anchorNode 向上遍历）
+// ------------------------------------------------------------
+function getComputedInSelection(
+  editor: HTMLElement,
+  styleProp: string,
+): string | null {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || !editor.contains(sel.anchorNode)) {
+    return null;
+  }
+  let node: Node | null = sel.anchorNode;
+  while (node && node !== editor) {
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const el = node as HTMLElement;
+      const v = (el.style as any)[styleProp];
+      if (v && v !== '') return v;
+    }
+    node = node.parentNode;
+  }
+  return null;
+}
+
+export function getActiveColor(editor: HTMLElement): string | null {
+  return getComputedInSelection(editor, 'color');
+}
+export function getActiveFontSize(editor: HTMLElement): string | null {
+  return getComputedInSelection(editor, 'fontSize');
+}
+export function getActiveFontFamily(editor: HTMLElement): string | null {
+  return getComputedInSelection(editor, 'fontFamily');
+}
+
+// V2：NGA 友好的 active 读取（识别 NGA 字体表、字号百分比、24 字色名）
+// 工具栏用 NGA_FONTS/NGA_COLORS/NGA_FONT_SIZES 显示 label
+// 这里通过 _ngaColorValue / _ngaFontValue / _ngaSizePercent 提供。
+
+// ------------------------------------------------------------
+// 获取当前块级元素（用于段落 / 标题 / 对齐 / 列表判断）
+// ------------------------------------------------------------
+const BLOCK_TAGS = new Set([
+  'P',
+  'DIV',
+  'H1',
+  'H2',
+  'H3',
+  'H4',
+  'H5',
+  'H6',
+  'LI',
+  'BLOCKQUOTE',
+  'PRE',
+]);
+
+export function getCurrentBlock(
+  editor: HTMLElement,
+): HTMLElement | null {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || !editor.contains(sel.anchorNode)) {
+    return null;
+  }
+  let node: Node | null = sel.anchorNode;
+  while (node && node !== editor) {
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const el = node as HTMLElement;
+      if (BLOCK_TAGS.has(el.tagName)) return el;
+    }
+    node = node.parentNode;
+  }
+  // 如果没找到 block，则把整段 root 作为一个段落容器处理
+  return editor;
+}
+
+export function getCurrentBlockAlign(editor: HTMLElement): string {
+  const block = getCurrentBlock(editor);
+  if (!block) return 'left';
+  const v = block.style.textAlign;
+  return v && v !== '' ? v : 'left';
+}
+
+export function isInsideList(editor: HTMLElement, tag: 'UL' | 'OL'): boolean {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || !editor.contains(sel.anchorNode)) {
+    return false;
+  }
+  let node: Node | null = sel.anchorNode;
+  while (node && node !== editor) {
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const el = node as HTMLElement;
+      if (el.tagName === tag) return true;
+    }
+    node = node.parentNode;
+  }
+  return false;
+}
+
+// ------------------------------------------------------------
+// 对齐：给当前 block 设 style.textAlign
+// ------------------------------------------------------------
+export function setBlockAlign(editor: HTMLElement, align: string): void {
+  focusEditor(editor);
+  const block = getCurrentBlock(editor);
+  if (!block) return;
+  block.style.textAlign = align;
+  dispatchInput(editor);
+}
+
+// ------------------------------------------------------------
+// 行内样式（颜色 / 字号 / 字体）：用 Selection + span 包裹
+// ------------------------------------------------------------
+function getSelectionRangeIn(
+  editor: HTMLElement,
+): Range | null {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return null;
+  const range = sel.getRangeAt(0);
+  if (!editor.contains(range.startContainer) || !editor.contains(range.endContainer)) {
+    return null;
+  }
+  if (range.collapsed) return null;
+  return range;
+}
+
+/** 展开 range 的边界，使它完整覆盖所在的 textNode。
+ *  这里不做展开，直接使用用户实际选中的 range。 */
+
+/** 尝试在 range 周围包裹一个 <span style="...">，
+ *  如果 range 跨多个 block，则退化为对每个文本节点逐段包裹。 */
+export function applyInlineStyle(
+  editor: HTMLElement,
+  styles: Record<string, string>,
+): boolean {
+  focusEditor(editor);
+  const range = getSelectionRangeIn(editor);
+  if (!range) return false;
+
+  // 先尝试直接 surroundContents：仅在选区是单一节点时成功
+  try {
+    const span = document.createElement('span');
+    for (const k of Object.keys(styles)) {
+      (span.style as any)[k] = styles[k];
+    }
+    span.appendChild(range.extractContents());
+    range.insertNode(span);
+    // 保持选区：选中新 span 的内容
+    const newRange = document.createRange();
+    newRange.selectNodeContents(span);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(newRange);
+    dispatchInput(editor);
+    return true;
+  } catch {
+    // surroundContents 失败：退化为对每个文本节点独立包 span
+  }
+
+  // 收集 range 内的所有文本节点
+  const textNodes: Text[] = [];
+  const walker = document.createTreeWalker(
+    editor,
+    NodeFilter.SHOW_TEXT,
+    {
+      acceptNode(n: Node): number {
+        return range.intersectsNode(n)
+          ? NodeFilter.FILTER_ACCEPT
+          : NodeFilter.FILTER_REJECT;
+      },
+    },
+  );
+  let cur = walker.nextNode();
+  while (cur) {
+    textNodes.push(cur as Text);
+    cur = walker.nextNode();
+  }
+
+  if (textNodes.length === 0) return false;
+
+  let firstRange: Range | null = null;
+  for (const tn of textNodes) {
+    try {
+      const r = document.createRange();
+      // 只包裹这个文本节点中与 range 相交的部分
+      const nodeStartOffset = 0;
+      const nodeEndOffset = tn.textContent?.length ?? 0;
+      const rStart =
+        tn === range.startContainer ? range.startOffset : nodeStartOffset;
+      const rEnd =
+        tn === range.endContainer ? range.endOffset : nodeEndOffset;
+      if (rStart >= rEnd) continue;
+      r.setStart(tn, rStart);
+      r.setEnd(tn, rEnd);
+
+      const span = document.createElement('span');
+      for (const k of Object.keys(styles)) {
+        (span.style as any)[k] = styles[k];
+      }
+      span.appendChild(r.extractContents());
+      r.insertNode(span);
+      if (!firstRange) {
+        firstRange = document.createRange();
+        firstRange.selectNodeContents(span);
+      }
+    } catch {
+      // 忽略单个节点异常
+    }
+  }
+
+  if (firstRange) {
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(firstRange);
+  }
+  dispatchInput(editor);
+  return true;
+}
+
+/** 清除指定的行内样式：向上查找带 style 的 span 并移除该属性，
+ *  如果 span 因此变成空 style，则把 span 打开展平。 */
+export function removeInlineStyle(
+  editor: HTMLElement,
+  styleProps: string[],
+): boolean {
+  focusEditor(editor);
+  const range = getSelectionRangeIn(editor);
+  if (!range) return false;
+
+  // 简单策略：遍历 range 内的所有元素节点，对每个 span 清掉指定属性
+  const walker = document.createTreeWalker(
+    editor,
+    NodeFilter.SHOW_ELEMENT,
+    {
+      acceptNode(n: Node): number {
+        return range.intersectsNode(n)
+          ? NodeFilter.FILTER_ACCEPT
+          : NodeFilter.FILTER_REJECT;
+      },
+    },
+  );
+  const candidates: HTMLElement[] = [];
+  let cur = walker.nextNode();
+  while (cur) {
+    const el = cur as HTMLElement;
+    if (el.tagName === 'SPAN') candidates.push(el);
+    cur = walker.nextNode();
+  }
+
+  for (const span of candidates) {
+    for (const p of styleProps) {
+      span.style.removeProperty(p);
+    }
+    // 如果 span 没有任何 style 和属性，展平
+    if (
+      !span.getAttribute('style') ||
+      span.getAttribute('style')?.trim() === ''
+    ) {
+      if (span.attributes.length === 0) {
+        const parent = span.parentNode;
+        if (parent) {
+          while (span.firstChild) parent.insertBefore(span.firstChild, span);
+          parent.removeChild(span);
+        }
+      }
+    }
+  }
+  dispatchInput(editor);
+  return true;
+}
+
+/** 颜色：若传空值则清除 color；否则用 span 包裹。 */
+export function applyColor(editor: HTMLElement, color: string | '' | null): void {
+  if (!color) {
+    removeInlineStyle(editor, ['color']);
+    return;
+  }
+  applyInlineStyle(editor, { color });
+}
+
+export function applyFontSize(
+  editor: HTMLElement,
+  fontSize: string | '' | null,
+): void {
+  if (!fontSize) {
+    removeInlineStyle(editor, ['fontSize']);
+    return;
+  }
+  applyInlineStyle(editor, { fontSize });
+}
+
+export function applyFontFamily(
+  editor: HTMLElement,
+  fontFamily: string | '' | null,
+): void {
+  if (!fontFamily) {
+    removeInlineStyle(editor, ['fontFamily']);
+    return;
+  }
+  applyInlineStyle(editor, { fontFamily });
+}
+
+// ============================================================
+// 图片块：image-block
+// ============================================================
+
+const IMAGE_BLOCK_SELECTOR = 'div[data-type="image-block"]';
+
+export function isImageBlock(el: HTMLElement | null | undefined): boolean {
+  return !!(el && el.dataset && el.dataset.type === 'image-block');
+}
+
+/** 从节点向上查找最近的 image-block 容器（含自身） */
+export function findImageBlockAncestor(
+  node: Node | null | undefined,
+  editor: HTMLElement,
+): HTMLElement | null {
+  if (!node) return null;
+  let cur: Node | null = node;
+  while (cur && cur !== editor) {
+    if (cur.nodeType === Node.ELEMENT_NODE) {
+      const el = cur as HTMLElement;
+      if (isImageBlock(el)) return el;
+    }
+    cur = cur.parentNode;
+  }
+  return null;
+}
+
+/** 取消所有图片块的选中态 */
+export function clearImageSelection(editor: HTMLElement): void {
+  const list = editor.querySelectorAll<HTMLElement>(IMAGE_BLOCK_SELECTOR);
+  list.forEach((el) => el.removeAttribute('data-selected'));
+}
+
+/** 选中指定图片块（高亮蓝色 outline），返回该元素 */
+export function selectImageBlock(
+  editor: HTMLElement,
+  block: HTMLElement,
+): void {
+  clearImageSelection(editor);
+  block.setAttribute('data-selected', 'true');
+}
+
+/** 返回当前选中的图片块（如果有） */
+export function getSelectedImageBlock(editor: HTMLElement): HTMLElement | null {
+  const list = editor.querySelectorAll<HTMLElement>(IMAGE_BLOCK_SELECTOR);
+  for (let i = 0; i < list.length; i++) {
+    if (list[i].getAttribute('data-selected') === 'true') return list[i];
+  }
+  return null;
+}
+
+/** 在光标位置插入 image-block（NGA 5 档尺寸预设），光标落块后 */
+export function insertImageBlock(
+  editor: HTMLElement,
+  src: string,
+  opts?: { size?: string },
+): HTMLElement | null {
+  focusEditor(editor);
+  const sel = window.getSelection();
+  if (!sel) return null;
+
+  const sizeValue = opts?.size ?? NGA_DEFAULT_IMAGE_SIZE;
+  const sizeInfo = NGA_IMAGE_SIZES.find((s) => s.value === sizeValue) ?? NGA_IMAGE_SIZES[0];
+
+  let range: Range;
+  if (sel.rangeCount === 0 || !editor.contains(sel.anchorNode)) {
+    range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false);
+  } else {
+    range = sel.getRangeAt(0).cloneRange();
+    range.collapse(true);
+  }
+
+  const wrapper = document.createElement('div');
+  wrapper.setAttribute('data-type', 'image-block');
+  wrapper.setAttribute('data-size', sizeInfo.value);
+  wrapper.setAttribute('contenteditable', 'false');
+  wrapper.setAttribute('contentEditable', 'false');
+  wrapper.setAttribute('draggable', 'true');
+  wrapper.setAttribute('tabindex', '-1');
+  wrapper.style.display = 'inline-block';
+  wrapper.style.margin = '2px 4px';
+  wrapper.style.verticalAlign = 'middle';
+  wrapper.style.outline = 'none';
+  wrapper.style.userSelect = 'auto';
+  wrapper.style.cursor = 'grab';
+
+  const img = document.createElement('img');
+  img.src = src;
+  img.alt = src;
+  img.style.maxWidth = '100%';
+  img.style.height = 'auto';
+  img.style.display = 'inline-block';
+  img.style.cursor = 'pointer';
+  img.style.userSelect = 'auto';
+  img.style.pointerEvents = 'none';
+  if (sizeInfo.width) img.style.width = `${sizeInfo.width}px`;
+  if (sizeInfo.height) img.style.height = `${sizeInfo.height}px`;
+
+  img.addEventListener('error', () => {
+    img.style.minHeight = '60px';
+    img.style.background = 'var(--bg-hover, #f0f0f0)';
+    img.alt = `图片加载失败: ${src.slice(0, 80)}`;
+    if (!img.nextSibling || !(img.nextSibling as HTMLElement).classList?.contains('img-error-hint')) {
+      const hint = document.createElement('span');
+      hint.className = 'img-error-hint';
+      hint.textContent = '[图片无法加载]';
+      hint.style.cssText = 'display:block;color:#999;font-size:12px;padding:4px;';
+      img.parentNode?.insertBefore(hint, img.nextSibling);
+    }
+  });
+  img.addEventListener('load', () => {
+    const hint = img.nextElementSibling;
+    if (hint && (hint as HTMLElement).classList?.contains('img-error-hint')) {
+      hint.remove();
+    }
+  });
+
+  wrapper.setAttribute('data-width', sizeInfo.width ? String(sizeInfo.width) : '');
+  wrapper.setAttribute('data-height', sizeInfo.height ? String(sizeInfo.height) : '');
+
+  wrapper.appendChild(img);
+
+  range.insertNode(wrapper);
+
+  const newRange = document.createRange();
+  newRange.setStartAfter(wrapper);
+  newRange.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(newRange);
+
+  dispatchInput(editor);
+  return wrapper;
+}
+
+/** 获取图片块的当前尺寸 */
+export function getImageBlockSize(block: HTMLElement): { width: number; height: number } {
+  const img = block.querySelector('img');
+  if (!img) return { width: 400, height: 0 };
+  const w = parseInt(block.getAttribute('data-width') || '', 10);
+  const h = parseInt(block.getAttribute('data-height') || '', 10);
+  return {
+    width: isNaN(w) ? img.clientWidth || 400 : w,
+    height: isNaN(h) ? img.clientHeight || 0 : h,
+  };
+}
+
+/** 设置图片块的尺寸（按 NGA 预设 size value） */
+export function setImageBlockSize(
+  editor: HTMLElement,
+  block: HTMLElement,
+  size: string,
+): void {
+  const img = block.querySelector('img');
+  if (!img) return;
+  const sizeInfo = NGA_IMAGE_SIZES.find((s) => s.value === size) ?? NGA_IMAGE_SIZES[0];
+  if (sizeInfo.width) img.style.width = `${sizeInfo.width}px`;
+  else img.style.width = 'auto';
+  if (sizeInfo.height) img.style.height = `${sizeInfo.height}px`;
+  else img.style.height = 'auto';
+  img.style.maxWidth = '100%';
+  block.setAttribute('data-size', sizeInfo.value);
+  block.setAttribute('data-width', sizeInfo.width ? String(sizeInfo.width) : '');
+  block.setAttribute('data-height', sizeInfo.height ? String(sizeInfo.height) : '');
+  dispatchInput(editor);
+}
+
+/** 更新选中图片块的 src、data-size 并应用尺寸 */
+export function updateSelectedImage(
+  editor: HTMLElement,
+  block: HTMLElement,
+  opts: { src?: string; size?: string },
+): void {
+  const img = block.querySelector('img');
+  if (!img) return;
+  if (opts.src !== undefined) {
+    img.setAttribute('src', opts.src);
+  }
+  if (opts.size !== undefined) {
+    block.setAttribute('data-size', opts.size);
+    const sizeInfo = NGA_IMAGE_SIZES.find((s) => s.value === opts.size);
+    if (sizeInfo) {
+      if (sizeInfo.width) img.style.width = `${sizeInfo.width}px`;
+      else img.style.width = 'auto';
+      if (sizeInfo.height) img.style.height = `${sizeInfo.height}px`;
+      else img.style.height = 'auto';
+      img.style.maxWidth = '100%';
+      block.setAttribute('data-width', String(sizeInfo.width || ''));
+      block.setAttribute('data-height', String(sizeInfo.height || ''));
+    }
+  }
+  dispatchInput(editor);
+}
+
+/** 删除指定 image-block，并把光标放在它原来的位置（前面的段落末尾） */
+export function removeImageBlock(editor: HTMLElement, block: HTMLElement): void {
+  if (!block.parentNode) return;
+  const parent = block.parentNode;
+  const prev = block.previousSibling;
+  parent.removeChild(block);
+
+  // 尽量把光标放到前一个兄弟节点末尾，否则放到 parent 末尾
+  const newRange = document.createRange();
+  if (prev) {
+    try {
+      newRange.selectNodeContents(prev);
+      newRange.collapse(false);
+    } catch {
+      newRange.selectNodeContents(editor);
+      newRange.collapse(false);
+    }
+  } else {
+    newRange.selectNodeContents(editor);
+    newRange.collapse(false);
+  }
+  const sel = window.getSelection();
+  sel?.removeAllRanges();
+  focusEditor(editor);
+  sel?.addRange(newRange);
+
+  dispatchInput(editor);
+}
+
+/** 清除图片块上的 resize 手柄和删除按钮 */
+function clearImageBlockHandles(block: HTMLElement): void {
+  const handles = block.querySelectorAll<HTMLElement>('[data-role="image-handle"], [data-role="image-delete"]');
+  handles.forEach((h) => h.remove());
+}
+
+/** 清除所有图片块上的手柄 */
+function clearAllImageBlockHandles(editor: HTMLElement): void {
+  const list = editor.querySelectorAll<HTMLElement>(IMAGE_BLOCK_SELECTOR);
+  list.forEach((b) => clearImageBlockHandles(b));
+}
+
+/** 在选中的图片块上添加四角手柄和删除按钮 */
+function renderImageBlockHandles(
+  editor: HTMLElement,
+  block: HTMLElement,
+): void {
+  clearImageBlockHandles(block);
+  const img = block.querySelector('img');
+  if (!img) return;
+
+  // 图片容器是 block，但 img 本身是 inline-block 居中显示
+  // 需要用一个 wrapper 来确定 img 的位置信息
+  const wrapper = block;
+  wrapper.style.position = 'relative';
+
+  // 创建四角手柄
+  const positions: Array<{
+    key: string;
+    style: Partial<CSSStyleDeclaration>;
+    cursor: string;
+  }> = [
+    { key: 'nw', style: { top: '-6px', left: '-6px' }, cursor: 'nwse-resize' },
+    { key: 'ne', style: { top: '-6px', right: '-6px' }, cursor: 'nesw-resize' },
+    { key: 'sw', style: { bottom: '-6px', left: '-6px' }, cursor: 'nesw-resize' },
+    { key: 'se', style: { bottom: '-6px', right: '-6px' }, cursor: 'nwse-resize' },
+  ];
+
+  positions.forEach(({ key, style, cursor }) => {
+    const handle = document.createElement('span');
+    handle.setAttribute('data-role', 'image-handle');
+    handle.setAttribute('data-handle', key);
+    handle.contentEditable = 'false';
+    Object.assign(handle.style, {
+      position: 'absolute',
+      width: '12px',
+      height: '12px',
+      background: 'var(--accent)',
+      border: '2px solid var(--text-on-accent)',
+      borderRadius: '50%',
+      boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+      zIndex: '5',
+      cursor: cursor,
+      ...style,
+    } as CSSStyleDeclaration);
+
+    handle.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      startImageResize(editor, block, img, key, e.clientX, e.clientY);
+    });
+
+    wrapper.appendChild(handle);
+  });
+
+  // 删除按钮
+  const deleteBtn = document.createElement('button');
+  deleteBtn.setAttribute('data-role', 'image-delete');
+  deleteBtn.contentEditable = 'false';
+  deleteBtn.textContent = '×';
+  Object.assign(deleteBtn.style, {
+    position: 'absolute',
+    top: '-10px',
+    right: '-10px',
+    width: '24px',
+    height: '24px',
+    background: 'var(--danger, #ef4444)',
+    color: 'var(--text-on-accent, #fff)',
+    border: '2px solid var(--text-on-accent, #fff)',
+    borderRadius: '50%',
+    fontSize: '14px',
+    lineHeight: '1',
+    fontWeight: '700',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+    zIndex: '6',
+    padding: '0',
+  } as CSSStyleDeclaration);
+
+  deleteBtn.addEventListener('mousedown', (e) => e.preventDefault());
+  deleteBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    removeImageBlock(editor, block);
+    // 通知外层选中状态取消
+    const ev = new CustomEvent('anke-image-deselected', { bubbles: true });
+    editor.dispatchEvent(ev);
+  });
+
+  wrapper.appendChild(deleteBtn);
+}
+
+/** 计算图片的宽高比（优先从图片本身读取） */
+function getImageAspectRatio(img: HTMLImageElement): number {
+  const datasetRatio = parseFloat(img.parentElement?.getAttribute('data-ratio') || '');
+  if (!isNaN(datasetRatio) && datasetRatio > 0) return datasetRatio;
+  if (img.naturalWidth && img.naturalHeight) {
+    const r = img.naturalWidth / img.naturalHeight;
+    if (img.parentElement) img.parentElement.setAttribute('data-ratio', String(r));
+    return r;
+  }
+  if (img.width && img.height) {
+    return img.width / img.height;
+  }
+  return 1.5; // 默认值
+}
+
+/** 开始拖拽调整图片大小 */
+function startImageResize(
+  editor: HTMLElement,
+  block: HTMLElement,
+  img: HTMLImageElement,
+  handle: string,
+  startX: number,
+  startY: number,
+): void {
+  const startWidth = img.clientWidth || 400;
+  const aspectRatio = getImageAspectRatio(img);
+
+  // 如果图片还在加载中，等待一下并存储原始尺寸
+  if (!img.naturalWidth || !img.naturalHeight) {
+    img.onload = () => {
+      block.setAttribute('data-ratio', String(img.naturalWidth / img.naturalHeight));
+    };
+  }
+
+  let latestWidth = startWidth;
+
+  const onMove = (ev: MouseEvent) => {
+    const dx = ev.clientX - startX;
+    const dy = ev.clientY - startY;
+
+    // 根据手柄位置决定放大/缩小方向
+    // nw: 左上 → 右/下拖动为缩小
+    // ne: 右上 → 左/下拖动为缩小
+    // sw: 左下 → 右/上拖动为缩小
+    // se: 右下 → 右/下拖动为放大
+    let deltaW = 0;
+    if (handle === 'se' || handle === 'ne') deltaW = dx;
+    else deltaW = -dx;
+
+    // 结合 dy 计算（保持宽高比，取绝对值较大的维度）
+    const absByH = Math.abs(dy) * aspectRatio;
+    const absByW = Math.abs(dx);
+    const effectiveDelta = absByH > absByW ? (dy > 0 ? absByH : -absByH) : deltaW;
+
+    let newWidth = startWidth + effectiveDelta;
+    newWidth = Math.max(80, Math.min(2000, newWidth));
+    latestWidth = newWidth;
+
+    img.style.width = `${Math.round(newWidth)}px`;
+    img.style.height = 'auto';
+    block.setAttribute('data-width', String(Math.round(newWidth)));
+  };
+
+  const onUp = () => {
+    window.removeEventListener('mousemove', onMove);
+    window.removeEventListener('mouseup', onUp);
+
+    const newHeight = Math.round(latestWidth / aspectRatio);
+    block.setAttribute('data-height', String(newHeight));
+    img.style.height = `${newHeight}px`;
+
+    // 通知外层尺寸变化
+    const ev = new CustomEvent('anke-image-size-changed', {
+      bubbles: true,
+      detail: { width: Math.round(latestWidth), height: newHeight },
+    });
+    editor.dispatchEvent(ev);
+
+    dispatchInput(editor);
+  };
+
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup', onUp);
+}
+
+/** 给编辑器挂载图片块的交互：点击选中 + 拖拽手柄 + Delete/Backspace 删除 */
+export function attachImageBlockHandlers(
+  editor: HTMLElement,
+): () => void {
+  const onMouseDown = (e: MouseEvent) => {
+    const target = e.target as Node | null;
+    if (!target || !editor.contains(target)) return;
+
+    // 如果点在手柄或删除按钮上，不做选中处理（由它们自己的事件处理）
+    const targetEl = target as HTMLElement;
+    if (targetEl.dataset?.role === 'image-handle' || targetEl.dataset?.role === 'image-delete') {
+      return;
+    }
+
+    const block = findImageBlockAncestor(target, editor);
+    if (block) {
+      // 不调用 e.preventDefault()！否则浏览器不会触发 dragstart。
+      // 只设置自定义选中态和"忽略文本选区"（通过 selectstart 事件）
+      selectImageBlock(editor, block);
+      renderImageBlockHandles(editor, block);
+      const size = getImageBlockSize(block);
+      const img = block.querySelector('img');
+      const src = img?.getAttribute('src') || '';
+      const dataSize = block.getAttribute('data-size') || 'original';
+      const ev = new CustomEvent('anke-image-selected', {
+        bubbles: true,
+        detail: { width: size.width, height: size.height, src, dataSize },
+      });
+      editor.dispatchEvent(ev);
+      return;
+    }
+
+    // 点击其他地方：清除图片选中态
+    clearImageSelection(editor);
+    clearAllImageBlockHandles(editor);
+    const ev = new CustomEvent('anke-image-deselected', { bubbles: true });
+    editor.dispatchEvent(ev);
+  };
+
+  // 用 selectstart 阻止文本选区出现在图片块内（不阻止 dragstart）
+  const onSelectStart = (e: Event) => {
+    const target = e.target as Node | null;
+    if (!target || !editor.contains(target)) return;
+    if (findImageBlockAncestor(target, editor)) {
+      e.preventDefault();
+    }
+  };
+
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+    const selected = getSelectedImageBlock(editor);
+    if (selected) {
+      e.preventDefault();
+      removeImageBlock(editor, selected);
+      const ev = new CustomEvent('anke-image-deselected', { bubbles: true });
+      editor.dispatchEvent(ev);
+      return;
+    }
+    // 若光标刚好贴在某个 image-block 旁边（前后），按 Backspace/Delete 也删
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return;
+    const range = sel.getRangeAt(0);
+    if (!editor.contains(range.startContainer)) return;
+    const container = range.startContainer;
+    const offset = range.startOffset;
+
+    if (container.nodeType === Node.ELEMENT_NODE) {
+      const el = container as HTMLElement;
+      if (e.key === 'Backspace') {
+        const target = el.childNodes[offset - 1] as HTMLElement | undefined;
+        if (target && target.nodeType === Node.ELEMENT_NODE && isImageBlock(target)) {
+          e.preventDefault();
+          removeImageBlock(editor, target);
+          return;
+        }
+      } else {
+        const target = el.childNodes[offset] as HTMLElement | undefined;
+        if (target && target.nodeType === Node.ELEMENT_NODE && isImageBlock(target)) {
+          e.preventDefault();
+          removeImageBlock(editor, target);
+          return;
+        }
+      }
+    }
+
+    if (container.nodeType === Node.TEXT_NODE) {
+      const parent = container.parentNode as HTMLElement | null;
+      if (!parent) return;
+      const idx = Array.prototype.indexOf.call(parent.childNodes, container);
+      if (e.key === 'Backspace' && offset === 0) {
+        const prev = parent.childNodes[idx - 1] as HTMLElement | undefined;
+        if (prev && prev.nodeType === Node.ELEMENT_NODE && isImageBlock(prev)) {
+          e.preventDefault();
+          removeImageBlock(editor, prev);
+          return;
+        }
+      } else if (
+        e.key === 'Delete' &&
+        offset === (container.textContent?.length ?? 0)
+      ) {
+        const next = parent.childNodes[idx + 1] as HTMLElement | undefined;
+        if (next && next.nodeType === Node.ELEMENT_NODE && isImageBlock(next)) {
+          e.preventDefault();
+          removeImageBlock(editor, next);
+          return;
+        }
+      }
+    }
+  };
+
+  editor.addEventListener('mousedown', onMouseDown, true);
+  editor.addEventListener('selectstart', onSelectStart, true);
+  editor.addEventListener('keydown', onKeyDown, true);
+  return () => {
+    editor.removeEventListener('mousedown', onMouseDown, true);
+    editor.removeEventListener('selectstart', onSelectStart, true);
+    editor.removeEventListener('keydown', onKeyDown, true);
+  };
+}
+
+// ============================================================
+// 骰子卡片：dice-card
+// ============================================================
+
+const DICE_CARD_SELECTOR = 'div[data-type="dice-card"]';
+
+export function isDiceCard(el: HTMLElement | null | undefined): boolean {
+  return !!(el && el.dataset && el.dataset.type === 'dice-card');
+}
+
+/** 从节点向上查找最近的 dice-card */
+export function findDiceCardAncestor(
+  node: Node | null | undefined,
+  editor: HTMLElement,
+): HTMLElement | null {
+  if (!node) return null;
+  let cur: Node | null = node;
+  while (cur && cur !== editor) {
+    if (cur.nodeType === Node.ELEMENT_NODE) {
+      const el = cur as HTMLElement;
+      if (isDiceCard(el)) return el;
+    }
+    cur = cur.parentNode;
+  }
+  return null;
+}
+
+/** 读取 payload（用 try/catch 保护 dataset.payload 可能为旧值 / 空） */
+export function getDicePayload(block: HTMLElement): {
+  payload: any;
+  payloadStr: string;
+} {
+  const raw = block.getAttribute('data-payload') || '{}';
+  try {
+    return { payload: JSON.parse(raw), payloadStr: raw };
+  } catch {
+    return {
+      payload: { version: 2, config: { id: '', kind: 'option', name: '骰子' }, lastResult: null },
+      payloadStr: raw,
+    };
+  }
+}
+
+/** 写入 payload（同时更新 data-payload），返回 JSON 字符串 */
+export function setDicePayload(block: HTMLElement, payload: any): string {
+  const str = JSON.stringify(payload);
+  block.setAttribute('data-payload', str);
+  return str;
+}
+
+/** 选中态管理 */
+export function clearDiceSelection(editor: HTMLElement): void {
+  const list = editor.querySelectorAll<HTMLElement>(DICE_CARD_SELECTOR);
+  list.forEach((el) => el.removeAttribute('data-selected'));
+}
+
+export function selectDiceCard(editor: HTMLElement, block: HTMLElement): void {
+  clearDiceSelection(editor);
+  block.setAttribute('data-selected', 'true');
+}
+
+export function getSelectedDiceCard(editor: HTMLElement): HTMLElement | null {
+  const list = editor.querySelectorAll<HTMLElement>(DICE_CARD_SELECTOR);
+  for (let i = 0; i < list.length; i++) {
+    if (list[i].getAttribute('data-selected') === 'true') return list[i];
+  }
+  return null;
+}
+
+/** 渲染 / 刷新 dice-card 的 DOM。用 data-payload 驱动。 */
+export function renderDiceCard(block: HTMLElement): void {
+  const { payload } = getDicePayload(block);
+  const cfg: any = (payload && payload.config) || { name: '骰子', kind: 'option' };
+  const kind: string = cfg.kind || 'option';
+  const lastResult: any = payload?.lastResult || null;
+
+  // 为元素设置一些基础样式（第一次）
+  if (!block.dataset.initialized) {
+    block.setAttribute('contenteditable', 'false');
+    block.setAttribute('contentEditable', 'false');
+    block.style.margin = '12px 0';
+    block.style.padding = '12px 14px';
+    block.style.borderRadius = '10px';
+    block.style.background = 'var(--dice-card-bg)';
+    block.style.border = '1px solid var(--dice-card-border)';
+    block.style.fontSize = '13px';
+    block.style.lineHeight = '1.6';
+    block.style.color = 'var(--dice-card-ink)';
+    block.style.outline = 'none';
+    block.style.userSelect = 'auto'; // 允许被选中以便拖动
+    block.dataset.initialized = '1';
+  }
+
+  // 名称
+  const nameEl = block.querySelector<HTMLElement>('[data-slot="name"]');
+  const kindEl = block.querySelector<HTMLElement>('[data-slot="kind"]');
+  const optionsEl = block.querySelector<HTMLElement>('[data-slot="options"]');
+  const resultEl = block.querySelector<HTMLElement>('[data-slot="result"]');
+
+  // 首次构建内部结构
+  let ensureName = nameEl;
+  if (!ensureName) {
+    const head = document.createElement('div');
+    head.style.display = 'flex';
+    head.style.alignItems = 'center';
+    head.style.justifyContent = 'space-between';
+    head.style.gap = '8px';
+
+    const left = document.createElement('div');
+    left.style.display = 'flex';
+    left.style.alignItems = 'baseline';
+    left.style.gap = '8px';
+
+    const name = document.createElement('div');
+    name.setAttribute('data-slot', 'name');
+    name.style.fontWeight = '600';
+    name.style.fontSize = '13px';
+    name.style.color = 'var(--dice-card-ink)';
+
+    const kindLabel = document.createElement('div');
+    kindLabel.setAttribute('data-slot', 'kind');
+    kindLabel.style.fontSize = '11px';
+    kindLabel.style.padding = '2px 8px';
+    kindLabel.style.borderRadius = '999px';
+    kindLabel.style.background = 'var(--dice-card-kind-bg)';
+    kindLabel.style.color = 'var(--dice-card-kind-fg)';
+    kindLabel.style.fontWeight = '500';
+
+    left.appendChild(name);
+    left.appendChild(kindLabel);
+
+    const rollBtn = document.createElement('button');
+    rollBtn.setAttribute('data-role', 'roll');
+    rollBtn.textContent = '🎲 掷骰';
+    rollBtn.style.fontSize = '12px';
+    rollBtn.style.fontWeight = '500';
+    rollBtn.style.padding = '4px 10px';
+    rollBtn.style.borderRadius = '6px';
+    rollBtn.style.border = '1px solid var(--dice-card-roll-bg)';
+    rollBtn.style.background = 'var(--dice-card-roll-bg)';
+    rollBtn.style.color = 'var(--text-on-accent)';
+    rollBtn.style.cursor = 'pointer';
+    rollBtn.style.userSelect = 'none';
+    rollBtn.addEventListener('mouseenter', () => {
+      rollBtn.style.background = 'var(--dice-card-roll-hover)';
+      rollBtn.style.borderColor = 'var(--dice-card-roll-hover)';
+    });
+    rollBtn.addEventListener('mouseleave', () => {
+      rollBtn.style.background = 'var(--dice-card-roll-bg)';
+      rollBtn.style.borderColor = 'var(--dice-card-roll-bg)';
+    });
+
+    head.appendChild(left);
+    head.appendChild(rollBtn);
+    block.appendChild(head);
+
+    // 选项区
+    const options = document.createElement('div');
+    options.setAttribute('data-slot', 'options');
+    options.style.marginTop = '8px';
+    options.style.display = 'flex';
+    options.style.flexDirection = 'column';
+    options.style.gap = '4px';
+    block.appendChild(options);
+
+    // 结果区
+    const result = document.createElement('div');
+    result.setAttribute('data-slot', 'result');
+    result.style.marginTop = '10px';
+    result.style.padding = '8px 10px';
+    result.style.background = 'var(--dice-card-kind-bg)';
+    result.style.border = '1px dashed var(--dice-card-border)';
+    result.style.borderRadius = '8px';
+    result.style.color = 'var(--dice-card-kind-fg)';
+    result.style.fontSize = '12px';
+    result.style.display = 'none';
+    block.appendChild(result);
+  }
+
+  // 填值：名称
+  const finalNameEl = block.querySelector<HTMLElement>('[data-slot="name"]');
+  if (finalNameEl) finalNameEl.textContent = cfg.name || '未命名骰子';
+
+  // 填值：类型标签
+  const finalKindEl = block.querySelector<HTMLElement>('[data-slot="kind"]');
+  if (finalKindEl) {
+    finalKindEl.textContent =
+      kind === 'numeric'
+        ? `数值 · ${formatNumericExpressionFromConfig(cfg)}`
+        : `选项 · D${cfg.faces ?? 2}`;
+  }
+
+  // 填值：选项（仅选项骰子）
+  const finalOptionsEl = block.querySelector<HTMLElement>('[data-slot="options"]');
+  if (finalOptionsEl) {
+    finalOptionsEl.innerHTML = '';
+    if (kind === 'option') {
+      const opts: any[] = cfg.options || [];
+      const hitId: string | null = lastResult?.hitOptionId || null;
+      opts.forEach((opt) => {
+        const row = document.createElement('div');
+        row.setAttribute('data-option-id', opt.id);
+        row.style.display = 'flex';
+        row.style.alignItems = 'center';
+        row.style.gap = '8px';
+        row.style.padding = '3px 6px';
+        row.style.borderRadius = '6px';
+        if (hitId && opt.id === hitId) {
+          row.style.background = 'var(--dice-card-roll-bg)';
+          row.style.color = 'var(--text-on-accent)';
+          row.style.fontWeight = '600';
+        } else {
+          row.style.background = 'var(--dice-card-bg)';
+          row.style.color = 'var(--dice-card-ink)';
+        }
+        const val = document.createElement('span');
+        val.textContent = opt.displayValue || '';
+        val.style.fontSize = '11px';
+        val.style.fontFamily = 'Consolas, Menlo, monospace';
+        val.style.padding = '1px 6px';
+        val.style.borderRadius = '4px';
+        val.style.background = hitId && opt.id === hitId ? 'var(--dice-card-roll-hover)' : 'var(--dice-card-kind-bg)';
+        val.style.color = hitId && opt.id === hitId ? 'var(--text-on-accent)' : 'var(--dice-card-kind-fg)';
+        val.style.fontWeight = '600';
+        val.style.minWidth = '36px';
+        val.style.textAlign = 'center';
+
+        const content = document.createElement('span');
+        content.textContent = opt.content || '';
+        content.style.fontSize = '12px';
+        content.style.flex = '1';
+
+        row.appendChild(val);
+        row.appendChild(content);
+        finalOptionsEl.appendChild(row);
+      });
+    }
+  }
+
+  // 填值：结果
+  const finalResultEl = block.querySelector<HTMLElement>('[data-slot="result"]');
+  if (finalResultEl) {
+    if (!lastResult) {
+      finalResultEl.style.display = 'none';
+      finalResultEl.textContent = '';
+    } else {
+      finalResultEl.style.display = 'block';
+      const headText = lastResult.displayText || '';
+      let bodyText = '';
+      if (lastResult.kind === 'option') {
+        bodyText = lastResult.hitOptionContent
+          ? `命中：${lastResult.hitOptionContent}`
+          : '未命中任何选项';
+      } else {
+        bodyText = `结果：${lastResult.total}`;
+      }
+      finalResultEl.innerHTML =
+        `<div style="font-family:Consolas,Menlo,monospace;font-size:12px;margin-bottom:4px;">${escapeHtml(
+          headText,
+        )}</div>` + `<div>${escapeHtml(bodyText)}</div>`;
+    }
+  }
+}
+
+/** 把数值骰子的配置格式化为 "3d6+2" 或表达式 */
+function formatNumericExpressionFromConfig(cfg: any): string {
+  if (cfg.expression) return cfg.expression;
+  const count = Math.max(1, Math.floor(cfg.count ?? 1));
+  const faces = Math.max(1, Math.floor(cfg.numericFaces ?? 100));
+  const modifier = Math.floor(cfg.modifier ?? 0);
+  const mod = modifier === 0 ? '' : modifier > 0 ? `+${modifier}` : `${modifier}`;
+  return `${count}d${faces}${mod}`;
+}
+
+function escapeHtml(s: string | null | undefined): string {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/** 在光标处插入 dice-card，后补空段落并把光标落进去 */
+export function insertDiceCard(
+  editor: HTMLElement,
+  payload: any,
+): HTMLElement | null {
+  focusEditor(editor);
+  const sel = window.getSelection();
+  if (!sel) return null;
+
+  let range: Range;
+  if (sel.rangeCount === 0 || !editor.contains(sel.anchorNode)) {
+    range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false);
+  } else {
+    range = sel.getRangeAt(0).cloneRange();
+    range.collapse(true);
+  }
+
+  const wrapper = document.createElement('div');
+  wrapper.setAttribute('data-type', 'dice-card');
+  wrapper.setAttribute('draggable', 'true');
+  wrapper.setAttribute('tabindex', '-1');
+  wrapper.style.userSelect = 'auto';
+  wrapper.style.cursor = 'grab';
+  wrapper.style.outline = 'none';
+  wrapper.style.display = 'inline-block';
+  setDicePayload(wrapper, payload);
+  renderDiceCard(wrapper);
+
+  range.insertNode(wrapper);
+
+  const newRange = document.createRange();
+  newRange.setStartAfter(wrapper);
+  newRange.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(newRange);
+
+  dispatchInput(editor);
+  return wrapper;
+}
+
+/** 删除指定 dice-card，光标落到前一个兄弟末尾，触发 input */
+export function removeDiceCard(editor: HTMLElement, block: HTMLElement): void {
+  if (!block.parentNode) return;
+  const prev = block.previousSibling;
+  block.parentNode.removeChild(block);
+
+  const newRange = document.createRange();
+  if (prev) {
+    try {
+      newRange.selectNodeContents(prev);
+      newRange.collapse(false);
+    } catch {
+      newRange.selectNodeContents(editor);
+      newRange.collapse(false);
+    }
+  } else {
+    newRange.selectNodeContents(editor);
+    newRange.collapse(false);
+  }
+  const sel = window.getSelection();
+  sel?.removeAllRanges();
+  focusEditor(editor);
+  sel?.addRange(newRange);
+  dispatchInput(editor);
+}
+
+/** 对 dice-card 执行掷骰：读取 payload → rollDice → 更新 payload → 重渲染 → dispatchInput */
+export function rollDiceOnCard(editor: HTMLElement, block: HTMLElement): void {
+  const { payload } = getDicePayload(block);
+  if (!payload || !payload.config) return;
+  const cfg: any = payload.config;
+
+  const result: any = rollDicePure(cfg);
+  const history: any[] = Array.isArray(payload.history) ? [...payload.history, result] : [result];
+  const nextPayload = {
+    ...payload,
+    lastResult: result,
+    history: history.slice(-20),
+  };
+  setDicePayload(block, nextPayload);
+  renderDiceCard(block);
+  dispatchInput(editor);
+
+  // 通知外层（例如 RichTextEditor）：骰子被掷出
+  try {
+    editor.dispatchEvent(
+      new CustomEvent('anke-dice-rolled', {
+        bubbles: true,
+        detail: { payload: nextPayload, blockElement: block },
+      }),
+    );
+  } catch {
+    // ignore
+  }
+}
+
+/** 纯函数版 rollDice：不依赖 store，直接用 diceEngine */
+function rollDicePure(cfg: any): any {
+  const kind: string = cfg.kind || 'option';
+  if (kind === 'numeric') {
+    const count = Math.max(1, Math.min(10, Math.floor(cfg.count ?? 1)));
+    const faces = Math.max(1, Math.min(1000, Math.floor(cfg.numericFaces ?? 100)));
+    const modifier = Math.floor(cfg.modifier ?? 0);
+    const rolls: number[] = [];
+    for (let i = 0; i < count; i++) rolls.push(rollOnePure(faces));
+    const total = rolls.reduce((a, b) => a + b, 0) + modifier;
+    const head = `${count > 1 ? count : ''}D${faces}${
+      modifier === 0 ? '' : modifier > 0 ? `+${modifier}` : modifier
+    }`;
+    let tail: string;
+    if (count === 1 && modifier === 0) {
+      tail = `=${total}`;
+    } else {
+      tail = `=${rolls.join('+')}${
+        modifier === 0 ? '' : modifier > 0 ? `+${modifier}` : modifier
+      }=${total}`;
+    }
+    return {
+      configId: cfg.id,
+      kind: 'numeric',
+      rolls,
+      total,
+      modifier,
+      displayText: `[${head}${tail}]`,
+      timestamp: Date.now(),
+    };
+  }
+  // option
+  const faces = Math.max(1, Math.floor(cfg.faces ?? 2));
+  const value = rollOnePure(faces);
+  const opts: any[] = cfg.options || [];
+  let hitId: string | null = null;
+  let hitContent: string | null = null;
+  for (const opt of opts) {
+    if (Array.isArray(opt.values) && opt.values.includes(value)) {
+      hitId = opt.id;
+      hitContent = opt.content;
+      break;
+    }
+  }
+  return {
+    configId: cfg.id,
+    kind: 'option',
+    rolls: [value],
+    total: value,
+    modifier: 0,
+    displayText: `[1D${faces}=${value}]`,
+    hitOptionId: hitId,
+    hitOptionContent: hitContent,
+    timestamp: Date.now(),
+  };
+}
+
+function rollOnePure(faces: number): number {
+  const safe = Math.max(1, Math.floor(faces));
+  return Math.floor(Math.random() * safe) + 1;
+}
+
+/** 给编辑器挂载 dice-card 交互：点击选中、Delete/Backspace 删除、掷骰按钮；并对所有已有 dice-card 重渲染 */
+export function attachDiceCardHandlers(editor: HTMLElement): () => void {
+  // 首次挂载：对已有的 dice-card（从 innerHTML 恢复出来）重渲染以确保内部结构
+  const existing = editor.querySelectorAll<HTMLElement>(DICE_CARD_SELECTOR);
+  existing.forEach((el) => {
+    el.innerHTML = '';
+    el.removeAttribute('data-initialized');
+    renderDiceCard(el);
+  });
+
+  const onMouseDown = (e: MouseEvent) => {
+    const target = e.target as Node | null;
+    if (!target || !editor.contains(target)) return;
+    // 点击到掷骰按钮：不做选中（click 事件会处理）
+    const btn = findAncestorWithAttr(target as HTMLElement, 'data-role', 'roll');
+    if (btn) return;
+    const block = findDiceCardAncestor(target, editor);
+    if (block) {
+      // 不调用 e.preventDefault()！否则浏览器不会触发 dragstart。
+      selectDiceCard(editor, block);
+      return;
+    }
+    clearDiceSelection(editor);
+  };
+
+  // 用 selectstart 阻止文本选区出现在骰子卡片内（不阻止 dragstart）
+  const onSelectStart = (e: Event) => {
+    const target = e.target as Node | null;
+    if (!target || !editor.contains(target)) return;
+    if (findDiceCardAncestor(target, editor)) {
+      e.preventDefault();
+    }
+  };
+
+  const onClick = (e: MouseEvent) => {
+    const target = e.target as Node | null;
+    if (!target || !editor.contains(target)) return;
+    const btn = findAncestorWithAttr(target as HTMLElement, 'data-role', 'roll');
+    if (!btn) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const block = findDiceCardAncestor(target, editor);
+    if (!block) return;
+    rollDiceOnCard(editor, block);
+  };
+
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+    const selected = getSelectedDiceCard(editor);
+    if (selected) {
+      e.preventDefault();
+      removeDiceCard(editor, selected);
+      return;
+    }
+    // 光标在紧邻位置按 Backspace/Delete 也删除
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return;
+    const range = sel.getRangeAt(0);
+    if (!editor.contains(range.startContainer)) return;
+    const container = range.startContainer;
+    const offset = range.startOffset;
+
+    if (container.nodeType === Node.ELEMENT_NODE) {
+      const el = container as HTMLElement;
+      if (e.key === 'Backspace') {
+        const target = el.childNodes[offset - 1] as HTMLElement | undefined;
+        if (target && target.nodeType === Node.ELEMENT_NODE && isDiceCard(target)) {
+          e.preventDefault();
+          removeDiceCard(editor, target);
+          return;
+        }
+      } else {
+        const target = el.childNodes[offset] as HTMLElement | undefined;
+        if (target && target.nodeType === Node.ELEMENT_NODE && isDiceCard(target)) {
+          e.preventDefault();
+          removeDiceCard(editor, target);
+          return;
+        }
+      }
+    }
+
+    if (container.nodeType === Node.TEXT_NODE) {
+      const parent = container.parentNode as HTMLElement | null;
+      if (!parent) return;
+      const idx = Array.prototype.indexOf.call(parent.childNodes, container);
+      if (e.key === 'Backspace' && offset === 0) {
+        const prev = parent.childNodes[idx - 1] as HTMLElement | undefined;
+        if (prev && prev.nodeType === Node.ELEMENT_NODE && isDiceCard(prev)) {
+          e.preventDefault();
+          removeDiceCard(editor, prev);
+          return;
+        }
+      } else if (
+        e.key === 'Delete' &&
+        offset === (container.textContent?.length ?? 0)
+      ) {
+        const next = parent.childNodes[idx + 1] as HTMLElement | undefined;
+        if (next && next.nodeType === Node.ELEMENT_NODE && isDiceCard(next)) {
+          e.preventDefault();
+          removeDiceCard(editor, next);
+          return;
+        }
+      }
+    }
+  };
+
+  editor.addEventListener('mousedown', onMouseDown, true);
+  editor.addEventListener('selectstart', onSelectStart, true);
+  editor.addEventListener('click', onClick, true);
+  editor.addEventListener('keydown', onKeyDown, true);
+  return () => {
+    editor.removeEventListener('mousedown', onMouseDown, true);
+    editor.removeEventListener('selectstart', onSelectStart, true);
+    editor.removeEventListener('click', onClick, true);
+    editor.removeEventListener('keydown', onKeyDown, true);
+  };
+}
+
+/** 给定历史记录的 payload JSON 字符串，在编辑器中找到对应的 dice-card 并滚动到它，选中并闪烁高亮 */
+export function scrollToDiceCard(editor: HTMLElement, payloadSnapshot: string): boolean {
+  if (!editor || !payloadSnapshot) return false;
+  let snapshot: any = null;
+  try {
+    snapshot = JSON.parse(payloadSnapshot);
+  } catch {
+    return false;
+  }
+  const snapshotId: string =
+    (snapshot && snapshot.config && (snapshot.config.id || snapshot.config.name)) || '';
+  const snapshotTimestamp: number | null =
+    snapshot && snapshot.lastResult && typeof snapshot.lastResult.timestamp === 'number'
+      ? snapshot.lastResult.timestamp
+      : null;
+
+  const candidates = editor.querySelectorAll<HTMLElement>(DICE_CARD_SELECTOR);
+  if (candidates.length === 0) return false;
+
+  let best: HTMLElement | null = null;
+  let bestScore = -1;
+
+  candidates.forEach((el) => {
+    let cur: any = null;
+    try {
+      cur = JSON.parse(el.getAttribute('data-payload') || '{}');
+    } catch {
+      return;
+    }
+    const curId: string =
+      (cur && cur.config && (cur.config.id || cur.config.name)) || '';
+    const curTimestamp: number | null =
+      cur && cur.lastResult && typeof cur.lastResult.timestamp === 'number'
+        ? cur.lastResult.timestamp
+        : null;
+
+    let score = 0;
+    if (snapshotId && curId === snapshotId) score += 100;
+    if (
+      snapshotTimestamp != null &&
+      curTimestamp != null &&
+      Math.abs(curTimestamp - snapshotTimestamp) < 1000
+    ) {
+      score += 50;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      best = el;
+    }
+  });
+
+  if (!best) {
+    // 降级策略：找编辑器中第一个 dice-card
+    best = candidates[0] || null;
+  }
+
+  if (best) {
+    selectDiceCard(editor, best);
+    try {
+      (best as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } catch {
+      // ignore
+    }
+    // 简单高亮闪烁
+    const original = (best as HTMLElement).style.boxShadow;
+    (best as HTMLElement).style.boxShadow = '0 0 0 3px var(--accent-bg)';
+    window.setTimeout(() => {
+      if (best) (best as HTMLElement).style.boxShadow = original;
+    }, 1200);
+    return true;
+  }
+  return false;
+}
+
+function findAncestorWithAttr(
+  node: HTMLElement | null | undefined,
+  attr: string,
+  value: string,
+): HTMLElement | null {
+  let cur: HTMLElement | null = node ?? null;
+  while (cur) {
+    if (cur.nodeType === Node.ELEMENT_NODE && cur.getAttribute(attr) === value) return cur;
+    cur = cur.parentElement;
+  }
+  return null;
+}
+
+// ============================================================
+// 折叠块：collapse-block（支持删除、撤销）
+// ============================================================
+
+const COLLAPSE_BLOCK_SELECTOR = 'div[data-type="collapse-block"]';
+
+export function isCollapseBlock(el: HTMLElement | null | undefined): boolean {
+  return !!(el && el.dataset && el.dataset.type === 'collapse-block');
+}
+
+/** 从节点向上查找最近的 collapse-block */
+export function findCollapseBlockAncestor(
+  node: Node | null | undefined,
+  editor: HTMLElement,
+): HTMLElement | null {
+  if (!node) return null;
+  let cur: Node | null = node;
+  while (cur && cur !== editor) {
+    if (cur.nodeType === Node.ELEMENT_NODE) {
+      const el = cur as HTMLElement;
+      if (isCollapseBlock(el)) return el;
+    }
+    cur = cur.parentNode;
+  }
+  return null;
+}
+
+/** 删除指定 collapse-block，光标落到前一个兄弟末尾 */
+export function removeCollapseBlock(editor: HTMLElement, block: HTMLElement): void {
+  if (!block.parentNode) return;
+  const prev = block.previousSibling;
+  block.parentNode.removeChild(block);
+
+  const newRange = document.createRange();
+  if (prev) {
+    try {
+      newRange.selectNodeContents(prev);
+      newRange.collapse(false);
+    } catch {
+      newRange.selectNodeContents(editor);
+      newRange.collapse(false);
+    }
+  } else {
+    newRange.selectNodeContents(editor);
+    newRange.collapse(false);
+  }
+  const sel = window.getSelection();
+  sel?.removeAllRanges();
+  focusEditor(editor);
+  sel?.addRange(newRange);
+  dispatchInput(editor);
+}
+
+/** 给编辑器挂载 collapse-block 交互：点击选中、Delete/Backspace 删除 */
+export function attachCollapseBlockHandlers(
+  editor: HTMLElement,
+): () => void {
+  // 对已有的 collapse-block 设置 draggable
+  const existing = editor.querySelectorAll<HTMLElement>(COLLAPSE_BLOCK_SELECTOR);
+  existing.forEach((el) => { if (!el.hasAttribute('draggable')) el.setAttribute('draggable', 'true'); });
+
+  const onMouseDown = (e: MouseEvent) => {
+    const target = e.target as Node | null;
+    if (!target || !editor.contains(target)) return;
+    const targetEl = target as HTMLElement;
+    // 点击到 head/title 或其子元素不做选中，允许正常编辑标题
+    if (targetEl.classList?.contains('collapse-head')) return;
+    if (targetEl.classList?.contains('collapse-title')) return;
+    if (targetEl.closest?.('.collapse-head')) return;
+    const block = findCollapseBlockAncestor(target, editor);
+    if (block) {
+      // 不调用 e.preventDefault()，允许 HTML5 拖动正常启动
+      clearCollapseSelection(editor);
+      selectCollapseBlock(editor, block);
+      return;
+    }
+    clearCollapseSelection(editor);
+  };
+
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+    const selected = getSelectedCollapseBlock(editor);
+    if (selected) {
+      e.preventDefault();
+      removeCollapseBlock(editor, selected);
+      return;
+    }
+    // 光标在紧邻位置按 Backspace/Delete 也删除
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return;
+    const range = sel.getRangeAt(0);
+    if (!editor.contains(range.startContainer)) return;
+    const container = range.startContainer;
+    const offset = range.startOffset;
+
+    if (container.nodeType === Node.ELEMENT_NODE) {
+      const el = container as HTMLElement;
+      if (e.key === 'Backspace') {
+        const target = el.childNodes[offset - 1] as HTMLElement | undefined;
+        if (target && target.nodeType === Node.ELEMENT_NODE && isCollapseBlock(target)) {
+          e.preventDefault();
+          removeCollapseBlock(editor, target);
+          return;
+        }
+      } else {
+        const target = el.childNodes[offset] as HTMLElement | undefined;
+        if (target && target.nodeType === Node.ELEMENT_NODE && isCollapseBlock(target)) {
+          e.preventDefault();
+          removeCollapseBlock(editor, target);
+          return;
+        }
+      }
+    }
+
+    if (container.nodeType === Node.TEXT_NODE) {
+      const parent = container.parentNode as HTMLElement | null;
+      if (!parent) return;
+      const idx = Array.prototype.indexOf.call(parent.childNodes, container);
+      if (e.key === 'Backspace' && offset === 0) {
+        const prev = parent.childNodes[idx - 1] as HTMLElement | undefined;
+        if (prev && prev.nodeType === Node.ELEMENT_NODE && isCollapseBlock(prev)) {
+          e.preventDefault();
+          removeCollapseBlock(editor, prev);
+          return;
+        }
+      } else if (
+        e.key === 'Delete' &&
+        offset === (container.textContent?.length ?? 0)
+      ) {
+        const next = parent.childNodes[idx + 1] as HTMLElement | undefined;
+        if (next && next.nodeType === Node.ELEMENT_NODE && isCollapseBlock(next)) {
+          e.preventDefault();
+          removeCollapseBlock(editor, next);
+          return;
+        }
+      }
+    }
+  };
+
+  editor.addEventListener('mousedown', onMouseDown, true);
+  editor.addEventListener('keydown', onKeyDown, true);
+  return () => {
+    editor.removeEventListener('mousedown', onMouseDown, true);
+    editor.removeEventListener('keydown', onKeyDown, true);
+  };
+}
+
+/** 清除所有折叠块的选中态 */
+function clearCollapseSelection(editor: HTMLElement): void {
+  const list = editor.querySelectorAll<HTMLElement>(COLLAPSE_BLOCK_SELECTOR);
+  list.forEach((el) => el.removeAttribute('data-selected'));
+}
+
+/** 选中指定折叠块 */
+function selectCollapseBlock(editor: HTMLElement, block: HTMLElement): void {
+  clearCollapseSelection(editor);
+  block.setAttribute('data-selected', 'true');
+}
+
+/** 返回当前选中的折叠块 */
+function getSelectedCollapseBlock(editor: HTMLElement): HTMLElement | null {
+  const list = editor.querySelectorAll<HTMLElement>(COLLAPSE_BLOCK_SELECTOR);
+  for (let i = 0; i < list.length; i++) {
+    if (list[i].getAttribute('data-selected') === 'true') return list[i];
+  }
+  return null;
+}
+
+// ============================================================
+// BBCode 标签工具（NGA 论坛风格）
+//  - 在光标处插入一段 BBCode 文本并保持光标位置
+//  - 包装选中文本为 [tag]…[/tag]
+// ============================================================
+
+/**
+ * 获取编辑器内当前可用的 Range（即使 collapsed 也返回）。
+ * 若没有可用选区（编辑器未聚焦），则在编辑器末尾创建一个 collapsed range。
+ * 注意：不在此调 focusEditor，以免破坏已有的光标位置。
+ */
+function getInsertionRange(editor: HTMLElement): Range {
+  const sel = window.getSelection();
+  if (sel && sel.rangeCount > 0) {
+    const r = sel.getRangeAt(0);
+    if (editor.contains(r.startContainer)) return r.cloneRange();
+  }
+  const r = document.createRange();
+  r.selectNodeContents(editor);
+  r.collapse(false);
+  return r;
+}
+
+/**
+ * 取消链接：若选区/光标在 <a> 内，把 [url=…]…[/url] 形式的纯文本剥掉（保留 innerText）。
+ * 若是 execCommand 创建的 <a> 真实 DOM，则用 execCommand('unlink')。
+ */
+export function removeLinkAtCursor(editor: HTMLElement): void {
+  focusEditor(editor);
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return;
+  const node = sel.anchorNode;
+  if (!node) return;
+
+  // 1) 优先处理 contenteditable 真实 <a>
+  const a = findAncestorA(node as HTMLElement, editor);
+  if (a) {
+    // 把 <a> 内的文本取出替换
+    const text = a.textContent || '';
+    const tn = document.createTextNode(text);
+    a.parentNode?.replaceChild(tn, a);
+    // 选中文字
+    const r = document.createRange();
+    r.setStart(tn, 0);
+    r.setEnd(tn, text.length);
+    sel.removeAllRanges();
+    sel.addRange(r);
+    dispatchInput(editor);
+    return;
+  }
+
+  // 2) 退回：尝试用 execCommand
+  try {
+    document.execCommand('unlink', false);
+  } catch {
+    /* ignore */
+  }
+  dispatchInput(editor);
+}
+
+function findAncestorA(node: HTMLElement, editor: HTMLElement): HTMLAnchorElement | null {
+  let cur: Node | null = node;
+  while (cur && cur !== editor) {
+    if (cur.nodeType === Node.ELEMENT_NODE && (cur as HTMLElement).tagName === 'A') {
+      return cur as HTMLAnchorElement;
+    }
+    cur = cur.parentNode;
+  }
+  return null;
+}
+
+// ============================================================
+// V2 工具：NGA 风格的切换 / 自定义节点插入 / NGA 导入
+// ============================================================
+
+/** 从光标处选区提取有效 font-family（NGA 字体值或 cssFamily）；
+ *  与现有 getActiveFontFamily 不同：本函数识别 NGA 字体表与"含空格"的多字体 */
+export function getEffectiveFontFamilyValue(editor: HTMLElement): string | null {
+  const v = getActiveFontFamily(editor);
+  if (!v) return null;
+  // 找到 NGA 字体表里匹配 cssFamily 的项
+  for (const f of NGA_FONTS) {
+    if (f.cssFamily === v || v.includes(f.value) || f.value === v) return f.value;
+  }
+  return v;
+}
+
+export function getEffectiveFontSizePercent(editor: HTMLElement): number | null {
+  const v = getActiveFontSize(editor);
+  if (!v) return null;
+  // 取第一项 '12pt' / '13.2pt'
+  const m = v.match(/^([0-9.]+)\s*(pt|px)?/i);
+  if (!m) return null;
+  const val = parseFloat(m[1]);
+  if (isNaN(val)) return null;
+  const pct = Math.round((val * 100) / 12);
+  // 找最接近的 NGA 档
+  for (const s of NGA_FONT_SIZES) {
+    if (s.percent === pct) return pct;
+  }
+  return pct;
+}
+
+export function getEffectiveColorName(editor: HTMLElement): string | null {
+  const v = getActiveColor(editor);
+  if (!v) return null;
+  for (const c of NGA_COLORS) {
+    if (c.cssColor === v.toLowerCase()) return c.value;
+  }
+  return v;
+}
+
+/** 切换 font-family：若当前是 value，则移除；否则应用 */
+export function toggleFontFamily(editor: HTMLElement, value: string): void {
+  const cur = getEffectiveFontFamilyValue(editor);
+  if (cur === value) {
+    removeInlineStyle(editor, ['fontFamily']);
+  } else {
+    const target = NGA_FONTS.find((f) => f.value === value) ?? NGA_FONTS[0];
+    applyInlineStyle(editor, { fontFamily: target.cssFamily });
+  }
+}
+
+export function toggleFontSize(editor: HTMLElement, percent: number): void {
+  const cur = getEffectiveFontSizePercent(editor);
+  if (cur === percent) {
+    removeInlineStyle(editor, ['fontSize']);
+  } else {
+    const target = NGA_FONT_SIZES.find((s) => s.percent === percent) ?? NGA_FONT_SIZES[0];
+    applyInlineStyle(editor, { fontSize: target.cssSize });
+  }
+}
+
+export function toggleColor(editor: HTMLElement, value: string): void {
+  const cur = getEffectiveColorName(editor);
+  if (cur === value) {
+    removeInlineStyle(editor, ['color']);
+  } else {
+    const target = NGA_COLORS.find((c) => c.value === value) ?? NGA_COLORS[0];
+    applyInlineStyle(editor, { color: target.cssColor });
+  }
+}
+
+// ------------------------------------------------------------
+// 内联引用（类似 Word 的引用高亮）：
+//   - 选文字 → 点击「引用」→ 用 span.inline-quote 包裹（背景 #f2eddf）
+//   - 再次点击 → 取消包裹（如果选区完全在一个 inline-quote 内）
+//   - 支持撤销（通过 extractContents + insertNode 是原生 DOM 操作，浏览器会记录撤销栈）
+//   - 清格式可以删除引用 span
+// ------------------------------------------------------------
+
+/** 对选中文本应用引用（blockquote），Ctrl+Z 可撤销。 */
+export function insertQuoteBlock(editor: HTMLElement): void {
+  focusEditor(editor);
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return;
+  const range = sel.getRangeAt(0);
+
+  // 1) 取消引用：检查光标/选区是否在 quote-block 内
+  let quoteAncestor: HTMLElement | null = null;
+  let checkNode: Node | null = range.startContainer;
+  while (checkNode && checkNode !== editor) {
+    if (checkNode.nodeType === Node.ELEMENT_NODE) {
+      const el = checkNode as HTMLElement;
+      const dt = el.dataset?.type;
+      if (dt === 'quote-block' || el.classList?.contains('inline-quote') || dt === 'quote') {
+        let endInside = false;
+        let n: Node | null = range.endContainer;
+        while (n && n !== editor) {
+          if (n === el) { endInside = true; break; }
+          n = n.parentNode;
+        }
+        if (endInside) { quoteAncestor = el; break; }
+      }
+    }
+    checkNode = checkNode.parentNode;
+  }
+  if (quoteAncestor) {
+    const parent = quoteAncestor.parentNode!;
+    while (quoteAncestor.firstChild) parent.insertBefore(quoteAncestor.firstChild, quoteAncestor);
+    parent.removeChild(quoteAncestor);
+    dispatchInput(editor);
+    return;
+  }
+
+  const blockquoteStyle = `background:${NGA_QUOTE_BG};padding:8px 12px;border-left:3px solid #c8b88a;border-radius:4px;margin:6px 0;`;
+
+  if (range.collapsed) {
+    // 2) 折叠光标：插入空 blockquote
+    const html = `<blockquote data-type="quote-block" style="${blockquoteStyle}"><br></blockquote>`;
+    document.execCommand('insertHTML', false, html);
+  } else {
+    // 3) 有选区：先 extractContents，再用 insertHTML 替换
+    const frag = range.extractContents();
+    const tmp = document.createElement('div');
+    tmp.appendChild(frag);
+    const inner = tmp.innerHTML || '<br>';
+    const html = `<blockquote data-type="quote-block" style="${blockquoteStyle}">${inner}</blockquote>`;
+    document.execCommand('insertHTML', false, html);
+  }
+
+  dispatchInput(editor);
+}
+
+// ------------------------------------------------------------
+// 自定义 DOM 节点：collapse-block（标题 + 内容）
+// ------------------------------------------------------------
+
+/** 在光标处插入一个 collapse-block，标题为 title；若有选区则把选区内容放进折叠块中
+ *  使用 range.insertNode() 避免 execCommand('insertHTML') 将块级元素包裹在 <p> 中 */
+export function insertCollapseBlock(editor: HTMLElement, title: string): void {
+  focusEditor(editor);
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return;
+  const range = getInsertionRange(editor);
+
+  const safeTitle = (title || '折叠').replace(/"/g, '&quot;');
+
+  // 收集选区内容（如果有）
+  let bodyContent = '<br>';
+  if (!range.collapsed) {
+    const frag = range.extractContents();
+    const div = document.createElement('div');
+    div.appendChild(frag);
+    bodyContent = div.innerHTML || '<br>';
+  }
+
+  const block = document.createElement('div');
+  block.setAttribute('data-type', 'collapse-block');
+  block.setAttribute('data-title', safeTitle);
+  block.setAttribute('tabindex', '-1');
+  block.setAttribute('draggable', 'true');
+  block.style.display = 'block';
+  block.style.margin = '6px 0';
+  block.style.borderRadius = '4px';
+  block.style.overflow = 'hidden';
+  block.style.outline = 'none';
+  block.style.cursor = 'grab';
+  block.style.userSelect = 'auto';
+
+  const head = document.createElement('div');
+  head.className = 'collapse-head';
+  head.style.background = NGA_COLLAPSE_HEAD_BG;
+  head.style.padding = '6px 10px';
+  head.style.fontWeight = '600';
+  head.style.display = 'flex';
+  head.style.alignItems = 'center';
+  head.style.gap = '4px';
+
+  const toggle = document.createElement('span');
+  toggle.className = 'collapse-toggle';
+  toggle.setAttribute('contenteditable', 'false');
+  toggle.style.cursor = 'pointer';
+  toggle.style.userSelect = 'none';
+  toggle.style.flexShrink = '0';
+  toggle.textContent = '−';
+
+  const titleEl = document.createElement('span');
+  titleEl.className = 'collapse-title';
+  titleEl.setAttribute('contenteditable', 'true');
+  titleEl.style.outline = 'none';
+  titleEl.style.flex = '1';
+  titleEl.style.minWidth = '0';
+  titleEl.textContent = safeTitle;
+
+  head.appendChild(toggle);
+  head.appendChild(titleEl);
+
+  const body = document.createElement('div');
+  body.className = 'collapse-body';
+  body.setAttribute('contenteditable', 'true');
+  body.style.background = NGA_COLLAPSE_BODY_BG;
+  body.style.padding = '8px 12px';
+  body.style.display = 'block';
+  body.style.whiteSpace = 'normal';
+  body.innerHTML = bodyContent;
+
+  block.appendChild(head);
+  block.appendChild(body);
+
+  range.deleteContents();
+  range.insertNode(block);
+
+  // 光标落到折叠块之后
+  const newRange = document.createRange();
+  newRange.setStartAfter(block);
+  newRange.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(newRange);
+
+  initCollapseBlockEvents(block, safeTitle);
+  dispatchInput(editor);
+}
+
+/** 为折叠块初始化展开/折叠事件 */
+function initCollapseBlockEvents(block: HTMLElement, title: string): void {
+  block.dataset.collapseInit = '1';
+  const toggle = block.querySelector<HTMLElement>('.collapse-toggle');
+  const body = block.querySelector<HTMLElement>('.collapse-body');
+  const titleEl = block.querySelector<HTMLElement>('.collapse-title');
+  if (!toggle || !body) return;
+
+  let expanded = true;
+  toggle.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    expanded = !expanded;
+    body.style.display = expanded ? 'block' : 'none';
+    toggle.textContent = expanded ? '−' : '+';
+  });
+  toggle.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+  });
+
+  // 标题编辑时同步更新 data-title 属性（供序列化/导出使用）
+  if (titleEl) {
+    titleEl.addEventListener('input', () => {
+      const newTitle = (titleEl.textContent || '').trim();
+      block.setAttribute('data-title', newTitle || title);
+    });
+    titleEl.addEventListener('blur', () => {
+      const newTitle = (titleEl.textContent || '').trim();
+      block.setAttribute('data-title', newTitle || title);
+      if (!newTitle) {
+        titleEl.textContent = title;
+      }
+    });
+  }
+}
+
+// ------------------------------------------------------------
+// 自定义 DOM 节点：table
+// ------------------------------------------------------------
+
+/** 在光标处插入 rows x cols 的可编辑表格 */
+export function insertTable(editor: HTMLElement, rows: number, cols: number): void {
+  const r = Math.max(1, Math.min(20, Math.floor(rows)));
+  const c = Math.max(1, Math.min(20, Math.floor(cols)));
+  focusEditor(editor);
+  const sel = window.getSelection();
+  if (!sel) return;
+  const range = getInsertionRange(editor);
+
+  const wrapper = document.createElement('div');
+  wrapper.setAttribute('data-type', 'table-block');
+  wrapper.style.margin = '8px 0';
+  wrapper.style.overflowX = 'auto';
+
+  const table = document.createElement('table');
+  table.setAttribute('contenteditable', 'true');
+  table.setAttribute('contentEditable', 'true');
+  table.style.borderCollapse = 'collapse';
+  table.style.width = 'auto';
+  for (let i = 0; i < r; i++) {
+    const tr = document.createElement('tr');
+    for (let j = 0; j < c; j++) {
+      const td = document.createElement('td');
+      td.setAttribute('contenteditable', 'true');
+      td.setAttribute('contentEditable', 'true');
+      td.style.border = '1px solid #c8b88a';
+      td.style.padding = '4px 8px';
+      td.style.minWidth = '32px';
+      td.textContent = '';
+      td.appendChild(document.createElement('br'));
+      tr.appendChild(td);
+    }
+    table.appendChild(tr);
+  }
+  wrapper.appendChild(table);
+  range.insertNode(wrapper);
+
+  // 后面补空段落
+  const trailing = document.createElement('p');
+  trailing.appendChild(document.createElement('br'));
+  if (wrapper.parentNode) {
+    wrapper.parentNode.insertBefore(trailing, wrapper.nextSibling);
+  }
+  // 光标放到第一个 td
+  const firstTd = table.querySelector('td');
+  if (firstTd) {
+    const rr = document.createRange();
+    rr.selectNodeContents(firstTd);
+    rr.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(rr);
+  }
+  dispatchInput(editor);
+}
+
+// ------------------------------------------------------------
+// 自定义 DOM 节点：code-block
+// ------------------------------------------------------------
+
+/** 在光标处插入一个 pre.code-block（保留 \n 换行，使用 DOM 插入避免 insertHTML 吞换行） */
+export function insertCodeBlock(editor: HTMLElement, code: string): void {
+  focusEditor(editor);
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return;
+  const range = sel.getRangeAt(0);
+
+  let innerText = code || '';
+  if (!range.collapsed) {
+    const frag = range.extractContents();
+    const div = document.createElement('div');
+    div.appendChild(frag);
+    // innerText 保留块级元素之间的换行（与 textContent 不同）
+    innerText = div.innerText || innerText;
+  }
+  if (innerText === '') innerText = '';
+
+  // 构建 pre > code DOM 结构
+  const pre = document.createElement('pre');
+  pre.setAttribute('data-type', 'code-block');
+  pre.className = 'code-block';
+  pre.setAttribute('contenteditable', 'true');
+  pre.style.background = NGA_CODE_BG;
+  pre.style.padding = '8px 12px';
+  pre.style.borderRadius = '4px';
+  pre.style.fontFamily = 'Consolas, Menlo, monospace';
+  pre.style.fontSize = '13px';
+  pre.style.whiteSpace = 'pre-wrap';
+  pre.style.wordBreak = 'break-all';
+  pre.style.margin = '6px 0';
+  pre.style.color = 'var(--text-primary)';
+  pre.style.border = '1px solid var(--border-color)';
+  pre.style.outline = 'none';
+  const codeEl = document.createElement('code');
+  // 将 \n 替换为 <br>，确保 insertHTML 不会吞掉换行
+  const lines = innerText.split('\n');
+  lines.forEach((line, idx) => {
+    codeEl.appendChild(document.createTextNode(line));
+    if (idx < lines.length - 1) {
+      codeEl.appendChild(document.createElement('br'));
+    }
+  });
+  pre.appendChild(codeEl);
+
+  // 使用 DOM 插入而非 insertHTML，避免浏览器 HTML 解析器把 \n 当空格
+  range.deleteContents();
+  range.insertNode(pre);
+
+  // 将光标移到代码块末尾
+  const afterRange = document.createRange();
+  afterRange.setStartAfter(pre);
+  afterRange.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(afterRange);
+
+  dispatchInput(editor);
+}
+
+// ------------------------------------------------------------
+// 分割线 → <hr data-h="1">
+// ------------------------------------------------------------
+
+/** 插入 NGA 风格的分割线 <hr data-h="1"> */
+export function insertHorizontalRuleNGA(editor: HTMLElement): void {
+  focusEditor(editor);
+  // 用 insertHTML 避免被通用 execCommand 改成简单 hr
+  const html = '<hr data-h="1"><p><br></p>';
+  document.execCommand('insertHTML', false, html);
+  dispatchInput(editor);
+}
+
+// ------------------------------------------------------------
+// 链接 → <a style="color:#0000ee;text-decoration:underline">
+// ------------------------------------------------------------
+
+/** 插入 NGA 风格的链接 */
+export function insertNgaLink(editor: HTMLElement, url: string, label?: string): void {
+  const safeUrl = (url || '').trim();
+  if (!safeUrl) return;
+  focusEditor(editor);
+  const sel = window.getSelection();
+  if (!sel) return;
+  const range = getInsertionRange(editor);
+  const safeLabel = (label || '').trim() || safeUrl;
+  // 有选区：把选区包成链接；无选区：插入链接并把光标放中间
+  if (range.collapsed) {
+    const html = `<a href="${escapeAttr(safeUrl)}" style="color:${NGA_LINK_COLOR};text-decoration:underline">${escapeHtml(safeLabel)}</a>`;
+    document.execCommand('insertHTML', false, html);
+  } else {
+    const selText = range.toString();
+    const html = `<a href="${escapeAttr(safeUrl)}" style="color:${NGA_LINK_COLOR};text-decoration:underline">${escapeHtml(selText)}</a>`;
+    range.deleteContents();
+    document.execCommand('insertHTML', false, html);
+  }
+  dispatchInput(editor);
+}
+
+function escapeAttr(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+// ------------------------------------------------------------
+// 图片块（带尺寸下拉）：复用现有 insertImageBlock，再加 data-size
+// ------------------------------------------------------------
+
+/** 插入带尺寸的 image-block（NGA 5 档预设 size value） */
+export function insertImageBlockWithSize(
+  editor: HTMLElement,
+  src: string,
+  size: typeof NGA_IMAGE_SIZES[number]['value'],
+): HTMLElement | null {
+  return insertImageBlock(editor, src, { size });
+}
+
+/** 设置当前选中（或光标紧邻）的 image-block 的对齐方式
+ *  align: 'left' | 'center' | 'right'
+ */
+export function setImageBlockAlign(editor: HTMLElement, align: 'left' | 'center' | 'right'): void {
+  focusEditor(editor);
+  const block = findSelectedImageBlock(editor);
+  if (!block) return;
+  // 找到或创建一个包含该 block 的块级父容器来控制对齐
+  let blockParent = block.parentElement;
+  // 若父容器是编辑器本身，则创建一个 <p> 将 block 包起来
+  if (blockParent === editor) {
+    const p = document.createElement('p');
+    block.parentNode?.insertBefore(p, block);
+    p.appendChild(block);
+    blockParent = p;
+  }
+  if (blockParent && blockParent !== editor) {
+    blockParent.style.textAlign = align;
+  }
+  dispatchInput(editor);
+}
+
+/** 在编辑器内查找当前选区或光标邻近的 image-block */
+function findSelectedImageBlock(editor: HTMLElement): HTMLElement | null {
+  const sel = window.getSelection();
+  if (!sel) return null;
+
+  const closestFrom = (node: Node | null): HTMLElement | null => {
+    if (!node) return null;
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const el = node as HTMLElement;
+      if (el.getAttribute?.('data-type') === 'image-block') return el;
+    }
+    let cur: Node | null = node;
+    while (cur && cur !== editor) {
+      if (cur.nodeType === Node.ELEMENT_NODE) {
+        const el = cur as HTMLElement;
+        if (el.getAttribute?.('data-type') === 'image-block') return el;
+      }
+      cur = cur.parentNode;
+    }
+    return null;
+  };
+
+  // 1) 从选区锚点/焦点向上冒泡查找
+  const anchorHit = closestFrom(sel.anchorNode);
+  if (anchorHit) return anchorHit;
+  if (sel.focusNode && sel.focusNode !== sel.anchorNode) {
+    const focusHit = closestFrom(sel.focusNode);
+    if (focusHit) return focusHit;
+  }
+
+  // 2) 选区非折叠时：扫描 range 共同祖先内的子节点，找 image-block
+  if (sel.rangeCount > 0) {
+    const range = sel.getRangeAt(0);
+    if (!range.collapsed) {
+      const root = range.commonAncestorContainer;
+      const container =
+        root.nodeType === Node.ELEMENT_NODE ? (root as HTMLElement) : (root.parentElement ?? editor);
+      const walker = document.createTreeWalker(container, NodeFilter.SHOW_ELEMENT, {
+        acceptNode(n) {
+          if ((n as HTMLElement).getAttribute?.('data-type') === 'image-block') {
+            return NodeFilter.FILTER_ACCEPT;
+          }
+          // 忽略嵌套的 contenteditable 子编辑器
+          if ((n as HTMLElement).getAttribute?.('contenteditable') === 'true' && n !== editor) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          return NodeFilter.FILTER_SKIP;
+        },
+      });
+      let node: Node | null = walker.nextNode();
+      while (node) {
+        if (range.intersectsNode(node)) return node as HTMLElement;
+        node = walker.nextNode();
+      }
+    } else {
+      // 3) 光标紧邻一个 image-block（前/后兄弟节点）
+      const start = range.startContainer;
+      const startOffset = range.startOffset;
+      if (start.nodeType === Node.ELEMENT_NODE) {
+        const el = start as HTMLElement;
+        const children = el.children;
+        // 检查光标位置的前后孩子是否是 image-block
+        const prev = children[startOffset - 1] as HTMLElement | undefined;
+        const next = children[startOffset] as HTMLElement | undefined;
+        if (prev && prev.getAttribute?.('data-type') === 'image-block') return prev;
+        if (next && next.getAttribute?.('data-type') === 'image-block') return next;
+      } else if (start.nodeType === Node.TEXT_NODE) {
+        // 文本节点紧贴其 parent 的前后兄弟也可
+        const parent = start.parentElement;
+        if (parent) {
+          const pPrev = parent.previousElementSibling as HTMLElement | null;
+          const pNext = parent.nextElementSibling as HTMLElement | null;
+          if (pPrev && pPrev.getAttribute?.('data-type') === 'image-block') return pPrev;
+          if (pNext && pNext.getAttribute?.('data-type') === 'image-block') return pNext;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+// ------------------------------------------------------------
+// NGA 导入：BBCode → HTML → 插入到光标处
+// ------------------------------------------------------------
+
+import { bbcodeToHtml } from '../../utils/ngaBBCodeToHtml';
+
+/** 把 NGA BBCode 文本解析为 HTML 并插入到光标处 */
+export function importNGAAtCursor(editor: HTMLElement, bbcode: string): void {
+  const html = bbcodeToHtml(bbcode);
+  if (!html) return;
+  focusEditor(editor);
+  const sel = window.getSelection();
+  if (!sel) return;
+  const range = getInsertionRange(editor);
+  if (!range.collapsed) range.deleteContents();
+  // 用 insertHTML：浏览器解析 html 字符串并塞进光标处
+  document.execCommand('insertHTML', false, html);
+  // 给新建的 image-block 重新挂上 data-size（bbcode 解析时已写入）
+  dispatchInput(editor);
+}
+

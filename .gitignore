@@ -1,0 +1,77 @@
+# ==============================
+# AI 助手与 IDE 配置 (AI & IDE Configs)
+# 必须忽略，避免上传个人设置和缓存
+# ==============================
+.trae/                # Trae IDE 的配置与缓存
+.codebuddy/           # CodeBuddy 的配置与缓存
+.vscode/              # VSCode 工作区设置
+.idea/                # JetBrains 系列 IDE 设置
+*.swp                 # Vim 交换文件
+*.swo
+*~                    # 编辑器备份文件
+
+# ==============================
+# 依赖包 (Dependencies)
+# ==============================
+node_modules/
+jspm_packages/
+
+# ==============================
+# 构建产物 (Build Outputs)
+# Vite 和 Electron 的输出目录
+# ==============================
+dist/                 # Vite 默认打包目录
+dist-electron/        # Electron 相关构建输出
+build/                # 通用构建目录
+release/              # 发布包目录
+out/                  # Electron-builder 常用输出目录
+
+# ==============================
+# 环境变量 (Environment Variables)
+# 重要：防止 API Key 和密码泄露！
+# ==============================
+.env
+.env.local
+.env.*.local
+
+# ==============================
+# 数据库 (Database) - 重点调整
+# ==============================
+# 策略：保留 schema.sql (表结构)，忽略所有数据文件
+database/*.db         # SQLite 数据库文件
+database/*.sqlite     # SQLite 数据库文件
+database/*.sqlite3    # SQLite 数据库文件
+database/data/        # 如果以后有存放数据的子文件夹
+database/*.dump       # 数据库导出文件
+!database/schema.sql  # 【强制保留】表结构定义文件，这个要提交
+
+# ==============================
+# 操作系统文件 (OS Files)
+# ==============================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ==============================
+# 日志与临时文件 (Logs & Temp)
+# ==============================
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# 你的项目中出现的临时文件
+temp.md               # 根目录下的临时笔记
+*.md.tmp              # 其他可能的临时 Markdown 文件
+*.log                 # 通用日志文件
+
+# ==============================
+# Electron 特有 (Electron Specific)
+# ==============================
+electron/dist/        # 如果 electron 文件夹内有独立的 dist
+*.exe                 # Windows 安装包
+*.dmg                 # Mac 安装包
+*.AppImage            # Linux 安装包
+*.deb                 # Debian 包
+*.rpm                 # RedHat 包
