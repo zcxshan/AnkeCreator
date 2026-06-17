@@ -17,6 +17,7 @@ import * as db from '../db/database';
 
 interface StoryState {
   stories: Story[];
+  trashedStories: Story[];
   activeStoryId: string | null;
 
   volumes: Volume[];
@@ -34,11 +35,15 @@ interface StoryState {
   expandedChapterIds: Record<string, boolean>;
 
   loadStories: () => Promise<void>;
+  loadTrashedStories: () => Promise<void>;
   createStory: (title: string, description?: string, category?: string) => Promise<string>;
   renameStory: (id: string, title: string) => Promise<void>;
   updateStoryDescription: (id: string, description: string) => Promise<void>;
   updateStoryCategory: (id: string, category: string) => Promise<void>;
   deleteStory: (id: string) => Promise<void>;
+  softDeleteStory: (id: string) => Promise<void>;
+  restoreStory: (id: string) => Promise<void>;
+  permanentlyDeleteStory: (id: string) => Promise<void>;
   setStoryOrder: (id: string, order_index: number) => Promise<void>;
   toggleStarred: (id: string) => Promise<void>;
   togglePinned: (id: string) => Promise<void>;
@@ -86,10 +91,12 @@ interface StoryState {
 
 // 加载指定故事的卷/章节/节/大纲数据
 async function loadStoryData(set: (patch: Partial<StoryState>) => void, storyId: string) {
-  const volumes = await db.listVolumes(storyId);
-  const chapters = await db.listChapters(storyId);
+  const [volumes, chapters, outlines] = await Promise.all([
+    db.listVolumes(storyId),
+    db.listChapters(storyId),
+    db.listOutlines(storyId),
+  ]);
   const sections: Section[] = (await Promise.all(chapters.map((ch) => db.listSections(ch.id)))).flat();
-  const outlines = await db.listOutlines(storyId);
   const expandedVolumes: Record<string, boolean> = {};
   const expandedChapters: Record<string, boolean> = {};
   volumes.forEach((v) => (expandedVolumes[v.id] = true));
@@ -109,6 +116,7 @@ async function loadStoryData(set: (patch: Partial<StoryState>) => void, storyId:
 
 export const useStoryStore = create<StoryState>((set, get) => ({
   stories: [],
+  trashedStories: [],
   activeStoryId: null,
   volumes: [],
   chapters: [],
@@ -128,6 +136,11 @@ export const useStoryStore = create<StoryState>((set, get) => ({
       set({ activeStoryId: first.id });
       await loadStoryData(set, first.id);
     }
+  },
+
+  loadTrashedStories: async () => {
+    const trashedStories = await db.listTrashedStories();
+    set({ trashedStories });
   },
 
   createStory: async (title, description, category) => {
@@ -215,6 +228,57 @@ export const useStoryStore = create<StoryState>((set, get) => ({
       }
       return next;
     });
+  },
+
+  softDeleteStory: async (id) => {
+    await db.softDeleteStory(id);
+    const now = new Date().toISOString();
+    set((state) => {
+      const target = state.stories.find((s) => s.id === id);
+      const remaining = state.stories.filter((s) => s.id !== id);
+      const nextActive =
+        state.activeStoryId === id
+          ? remaining.length > 0
+            ? remaining[0].id
+            : null
+          : state.activeStoryId;
+      const next: Partial<StoryState> = {
+        stories: remaining,
+        activeStoryId: nextActive,
+        trashedStories: target
+          ? [{ ...target, is_deleted: true, deleted_at: now, updated_at: now }, ...state.trashedStories]
+          : state.trashedStories,
+      };
+      if (state.activeStoryId === id) {
+        next.chapters = [];
+        next.sections = [];
+        next.activeChapterId = null;
+        next.activeSectionId = null;
+      }
+      return next;
+    });
+  },
+
+  restoreStory: async (id) => {
+    await db.restoreStory(id);
+    set((state) => {
+      const target = state.trashedStories.find((s) => s.id === id);
+      const remaining = state.trashedStories.filter((s) => s.id !== id);
+      const restored: Story | null = target
+        ? { ...target, is_deleted: false, deleted_at: undefined, updated_at: new Date().toISOString() }
+        : null;
+      return {
+        trashedStories: remaining,
+        stories: restored ? [restored, ...state.stories] : state.stories,
+      };
+    });
+  },
+
+  permanentlyDeleteStory: async (id) => {
+    await db.permanentlyDeleteStory(id);
+    set((state) => ({
+      trashedStories: state.trashedStories.filter((s) => s.id !== id),
+    }));
   },
 
   setActiveStory: async (id) => {
@@ -612,25 +676,3 @@ export const useStoryStore = create<StoryState>((set, get) => ({
 
 // 启动时自动加载故事列表
 useStoryStore.getState().loadStories();
-
-// ============================================================
-// 工具: 选择器
-// ============================================================
-export function selectChapterTree(chapters: Chapter[], sections: Section[]) {
-  return chapters
-    .slice()
-    .sort((a, b) => a.order_index - b.order_index)
-    .map((ch) => ({
-      ...ch,
-      sections: sections
-        .filter((s) => s.chapter_id === ch.id)
-        .sort((a, b) => a.order_index - b.order_index)
-        .map((sec) => ({ ...sec, blocks: [] as AnyContentBlock[] })),
-    }));
-}
-
-export function selectSectionsOfChapter(sections: Section[], chapterId: string) {
-  return sections
-    .filter((s) => s.chapter_id === chapterId)
-    .sort((a, b) => a.order_index - b.order_index);
-}

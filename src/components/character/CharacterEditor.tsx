@@ -1,13 +1,17 @@
 import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import type { Character } from '../../types';
-import type { AttributeType } from './AttributeTable';
 import { useMetaStore } from '../../store/metaStore';
 import { useStoryStore } from '../../store/storyStore';
 import { CharacterCard } from './CharacterCard';
 import { AttributeTable } from './AttributeTable';
 import type { RichTextEditorCommands } from '../editor/RichTextEditor';
 import { NGA_DEFAULT_IMAGE_SIZE } from '../../types';
+import { ConfirmDialog } from '../common/ConfirmDialog';
+import { InputDialog } from '../common/InputDialog';
+import { UploadProgressDialog } from '../common/UploadProgressDialog';
+import { useToastStore } from '../../store/toastStore';
+import { uploadImagesWithProgress, type UploadProgressEvent } from '../../utils/uploadImage';
 
 export function CharacterPanel({
   richTextEditorCommandsRef,
@@ -22,8 +26,77 @@ export function CharacterPanel({
   const editingCharacterId = useMetaStore((s) => s.editingCharacterId);
   const showEditor = useMetaStore((s) => s.showCharacterEditor);
   const toggleCharacterEditor = useMetaStore((s) => s.toggleCharacterEditor);
+  const reorderCharacters = useMetaStore((s) => s.reorderCharacters);
 
   const editing = characters.find((c) => c.id === editingCharacterId) ?? null;
+  const [pendingDeleteCharacter, setPendingDeleteCharacter] = useState<{ id: string; name: string } | null>(null);
+
+  // 多选 + 拖动状态
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [pendingBatchDelete, setPendingBatchDelete] = useState<{
+    ids: string[];
+    names: string[];
+  } | null>(null);
+
+  // 按 story 过滤 + order_index 排序（排除正在编辑的）
+  const filtered = activeStoryId
+    ? characters
+        .filter((c) => c.story_id === activeStoryId && c.id !== editingCharacterId)
+        .slice()
+        .sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
+    : [];
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAll = () => {
+    setSelectedIds(new Set(filtered.map((c) => c.id)));
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const handleBatchDelete = async () => {
+    if (!pendingBatchDelete) return;
+    const target = pendingBatchDelete;
+    setPendingBatchDelete(null);
+    let deleted = 0;
+    for (const id of target.ids) {
+      await deleteCharacter(id);
+      deleted++;
+    }
+    useToastStore.getState().showToast(`已批量删除 ${deleted} 个角色`, 'success');
+    setSelectedIds(new Set());
+  };
+
+  const handleDrop = (dropTargetId: string) => {
+    if (!dragId || !activeStoryId || dragId === dropTargetId) {
+      setDragId(null);
+      setDragOverId(null);
+      return;
+    }
+    const ids = filtered.map((c) => c.id);
+    const fromIdx = ids.indexOf(dragId);
+    const toIdx = ids.indexOf(dropTargetId);
+    if (fromIdx < 0 || toIdx < 0) {
+      setDragId(null);
+      setDragOverId(null);
+      return;
+    }
+    const next = ids.slice();
+    next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, dragId);
+    reorderCharacters(activeStoryId, next);
+    setDragId(null);
+    setDragOverId(null);
+  };
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden" style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}>
@@ -33,15 +106,55 @@ export function CharacterPanel({
       >
         <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>👤 人物角色</div>
         <div className="flex items-center gap-1">
-          <ImportCharacterTemplateButton />
-          <button
-            onClick={() => activeStoryId && createCharacter(activeStoryId)}
-            disabled={!activeStoryId}
-            className="text-xs px-2 py-1 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{ background: 'var(--success)', color: 'var(--text-on-accent)' }}
-          >
-            + 新建角色
-          </button>
+          {selectedIds.size > 0 ? (
+            <>
+              <span className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>
+                已选 {selectedIds.size}
+              </span>
+              <button
+                onClick={() => {
+                  const names = filtered
+                    .filter((c) => selectedIds.has(c.id))
+                    .map((c) => c.name);
+                  setPendingBatchDelete({ ids: Array.from(selectedIds), names });
+                }}
+                className="text-xs px-2 py-1 rounded"
+                style={{ background: 'var(--danger)', color: '#fff' }}
+                title="删除所选"
+              >
+                🗑 批量删除
+              </button>
+              <button
+                onClick={clearSelection}
+                className="text-xs px-2 py-1 rounded"
+                style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+              >
+                取消
+              </button>
+            </>
+          ) : (
+            <>
+              {filtered.length > 0 && (
+                <button
+                  onClick={selectAll}
+                  className="text-xs px-2 py-1 rounded"
+                  style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                  title="全选"
+                >
+                  全选
+                </button>
+              )}
+              <ImportCharacterTemplateButton />
+              <button
+                onClick={() => activeStoryId && createCharacter(activeStoryId)}
+                disabled={!activeStoryId}
+                className="text-xs px-2 py-1 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ background: 'var(--success)', color: 'var(--text-on-accent)' }}
+              >
+                + 新建角色
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -51,25 +164,36 @@ export function CharacterPanel({
             请先选择或创建一个故事
           </div>
         )}
-        {activeStoryId && characters.length === 0 && (
+        {activeStoryId && filtered.length === 0 && (
           <div className="text-xs italic py-4 text-center" style={{ color: 'var(--text-secondary)' }}>
             暂无角色，点击右上角"新建角色"
           </div>
         )}
 
         <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(180px,1fr))]">
-          {characters.map((ch) => (
+          {filtered.map((ch) => (
             <CharacterCard
               key={ch.id}
               character={ch}
               isActive={ch.id === editingCharacterId}
+              selected={selectedIds.has(ch.id)}
+              isDragOver={dragOverId === ch.id && dragId !== ch.id}
               onClick={() => setEditingCharacter(ch.id)}
               onEdit={() => setEditingCharacter(ch.id)}
               onDelete={() => {
-                if (window.confirm(`删除角色"${ch.name}"？`)) {
-                  deleteCharacter(ch.id);
-                }
+                setPendingDeleteCharacter({ id: ch.id, name: ch.name });
               }}
+              onToggleSelect={() => toggleSelect(ch.id)}
+              onDragStart={() => setDragId(ch.id)}
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (dragId && dragId !== ch.id) setDragOverId(ch.id);
+              }}
+              onDragEnd={() => {
+                setDragId(null);
+                setDragOverId(null);
+              }}
+              onDrop={() => handleDrop(ch.id)}
             />
           ))}
         </div>
@@ -80,6 +204,32 @@ export function CharacterPanel({
           character={editing}
           onClose={() => toggleCharacterEditor(false)}
           richTextEditorCommandsRef={richTextEditorCommandsRef}
+        />
+      )}
+
+      {pendingDeleteCharacter && (
+        <ConfirmDialog
+          open={true}
+          title="删除确认"
+          message={`确定删除角色"${pendingDeleteCharacter.name}"？此操作不可撤销。`}
+          danger
+          onConfirm={() => {
+            deleteCharacter(pendingDeleteCharacter.id);
+            useToastStore.getState().showToast('已删除', 'success');
+            setPendingDeleteCharacter(null);
+          }}
+          onCancel={() => setPendingDeleteCharacter(null)}
+        />
+      )}
+
+      {pendingBatchDelete && (
+        <ConfirmDialog
+          open={true}
+          title="批量删除角色"
+          message={`确定删除以下 ${pendingBatchDelete.ids.length} 个角色？${pendingBatchDelete.names.length <= 5 ? `\n• ${pendingBatchDelete.names.join('\n• ')}` : ''}\n此操作不可撤销。`}
+          danger
+          onConfirm={handleBatchDelete}
+          onCancel={() => setPendingBatchDelete(null)}
         />
       )}
     </div>
@@ -159,10 +309,8 @@ function ImportCharacterTemplateButton() {
   const filtered = search.trim()
     ? templates.filter((t) => t.name.toLowerCase().includes(search.toLowerCase()))
     : templates;
-  const presetTemplates = filtered.filter((t) => t.is_preset);
-  const customTemplates = filtered.filter((t) => !t.is_preset);
 
-  const renderTemplateItem = (t: { id: string; name: string; avatar?: string; personality?: string; is_preset?: number }) => (
+  const renderTemplateItem = (t: { id: string; name: string; avatar?: string; personality?: string }) => (
     <button
       key={t.id}
       onClick={() => importOne(t as any)}
@@ -182,7 +330,7 @@ function ImportCharacterTemplateButton() {
           </div>
         )}
         <span className="truncate font-bold" style={{ fontSize: 12 }}>
-          {t.is_preset ? '📚 ' : '🗂️ '}{t.name}
+          🗂️ {t.name}
         </span>
       </div>
       {t.personality && (
@@ -241,25 +389,7 @@ function ImportCharacterTemplateButton() {
         </div>
       ) : (
         <div className="overflow-y-auto pb-1 px-1" style={{ maxHeight: 380 }}>
-          {presetTemplates.length > 0 && (
-            <>
-              <div className="px-3 py-1 text-[10px] font-medium" style={{ color: 'var(--text-secondary)' }}>
-                预置模板
-              </div>
-              {presetTemplates.map(renderTemplateItem)}
-            </>
-          )}
-          {customTemplates.length > 0 && (
-            <>
-              {presetTemplates.length > 0 && (
-                <div className="mx-3 my-1" style={{ borderTop: '1px solid var(--border-color)' }} />
-              )}
-              <div className="px-3 py-1 text-[10px] font-medium" style={{ color: 'var(--text-secondary)' }}>
-                自定义模板
-              </div>
-              {customTemplates.map(renderTemplateItem)}
-            </>
-          )}
+          {filtered.map(renderTemplateItem)}
         </div>
       )}
     </div>
@@ -298,25 +428,36 @@ function CharacterEditorModal({
   const [avatar, setAvatar] = useState(character.avatar || '');
   const [personality, setPersonality] = useState(character.personality || '');
   const [notes, setNotes] = useState(character.notes || '');
-  const [attrTypes, setAttrTypes] = useState<Record<string, AttributeType>>(() => {
-    const t: Record<string, AttributeType> = {};
-    for (const [k, v] of Object.entries(character.attributes || {})) {
-      if (typeof v === 'number') t[k] = 'number';
-      else t[k] = 'text';
-    }
-    return t;
-  });
+  const [pendingDelete, setPendingDelete] = useState(false);
+  const [pendingDeleteVariant, setPendingDeleteVariant] = useState<{ id: string; name: string } | null>(null);
+  const [batchVariantOpen, setBatchVariantOpen] = useState(false);
+  const [batchAttrOpen, setBatchAttrOpen] = useState(false);
+
+  /**
+   * 解析批量输入文本。每行以 "key:value" 形式，相邻多对用逗号或换行分隔。
+   * 返回 [{key, value}]，自动忽略空行/无效行。
+   */
+  const parseBatchEntries = (text: string): { key: string; value: string }[] => {
+    return text
+      .split(/[\n;,，；;]/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const idx = line.indexOf(':');
+        if (idx < 0) return null;
+        const key = line.slice(0, idx).trim();
+        const value = line.slice(idx + 1).trim();
+        if (!key) return null;
+        return { key, value };
+      })
+      .filter((x): x is { key: string; value: string } => !!x);
+  };
 
   useEffect(() => {
     setName(character.name);
     setAvatar(character.avatar || '');
     setPersonality(character.personality || '');
     setNotes(character.notes || '');
-    const t: Record<string, AttributeType> = {};
-    for (const [k, v] of Object.entries(character.attributes || {})) {
-      t[k] = typeof v === 'number' ? 'number' : 'text';
-    }
-    setAttrTypes(t);
   }, [character.id]);
 
   const addVariant = useMetaStore((s) => s.addCharacterVariant);
@@ -329,6 +470,10 @@ function CharacterEditorModal({
   const newVariantFileRef = useRef<HTMLInputElement | null>(null);
   const batchUploadRef = useRef<HTMLInputElement | null>(null);
 
+  // 上传进度弹窗状态
+  const [uploadTasks, setUploadTasks] = useState<UploadProgressEvent[]>([]);
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+
   const handleAddVariant = () => {
     const url = newVariantUrl.trim();
     if (!url) return;
@@ -339,48 +484,86 @@ function CharacterEditorModal({
   };
 
   const handleVariantFile = async (file: File) => {
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const dataUrl = String(reader.result || '');
-      // 尝试保存到本地文件系统（Electron 环境），避免 base64 超长
-      if (window.electronAPI?.saveImage) {
-        const savedPath = await window.electronAPI.saveImage(dataUrl);
-        setNewVariantUrl(savedPath || dataUrl);
-      } else {
-        setNewVariantUrl(dataUrl);
-      }
-    };
-    reader.readAsDataURL(file);
+    setUploadTasks([
+      {
+        taskId: `${Date.now()}_0`,
+        fileName: file.name || 'variant',
+        status: 'pending',
+        progress: 0,
+      },
+    ]);
+    setUploadDialogOpen(true);
+    const [res] = await uploadImagesWithProgress([file], (e) => {
+      setUploadTasks((prev) =>
+        prev.map((t) => (t.taskId === e.taskId ? { ...t, ...e } : t)),
+      );
+    });
+    if (res.ok && res.url) {
+      setNewVariantUrl(res.url);
+      // 默认差分名 = 图片文件名（去后缀）
+      const defaultName = file.name.replace(/\.[^.]+$/, '');
+      if (defaultName) setNewVariantName(defaultName);
+      useToastStore.getState().showToast('差分图片就绪', 'success');
+    } else {
+      useToastStore
+        .getState()
+        .showToast(`图片上传失败：${res.error || '未知错误'}，请检查网络后重新选择`, 'error');
+    }
   };
 
   const handleBatchUpload = async (files: FileList) => {
     const fileArray = Array.from(files).slice(0, 50);
     if (fileArray.length === 0) return;
+    setUploadTasks(
+      fileArray.map((f, i) => ({
+        taskId: `${Date.now()}_${i}`,
+        fileName: f.name || `image_${i}`,
+        status: 'pending',
+        progress: 0,
+      })),
+    );
+    setUploadDialogOpen(true);
+    const results = await uploadImagesWithProgress(fileArray, (e) => {
+      setUploadTasks((prev) =>
+        prev.map((t) => (t.taskId === e.taskId ? { ...t, ...e } : t)),
+      );
+    });
     const items: { name: string; url: string }[] = [];
-    for (const file of fileArray) {
-      const dataUrl = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result || ''));
-        reader.readAsDataURL(file);
-      });
-      let finalUrl = dataUrl;
-      if (window.electronAPI?.saveImage) {
-        const savedPath = await window.electronAPI.saveImage(dataUrl);
-        finalUrl = savedPath || dataUrl;
+    let successCount = 0;
+    let failCount = 0;
+    results.forEach((r, i) => {
+      if (r.ok && r.url) {
+        const name = fileArray[i]?.name?.replace(/\.[^.]+$/, '') || `差分 ${i + 1}`;
+        items.push({ name, url: r.url });
+        successCount++;
+      } else {
+        failCount++;
       }
-      const name = file.name.replace(/\.[^.]+$/, '');
-      items.push({ name, url: finalUrl });
+    });
+    if (items.length > 0) {
+      if (window.dbAPI?.createCharacterVariantsBatch) {
+        await window.dbAPI.createCharacterVariantsBatch(character.id, items);
+      } else {
+        const state = useMetaStore.getState();
+        for (const item of items) {
+          state.addCharacterVariant(character.id, { name: item.name, url: item.url });
+        }
+      }
+      if (activeStoryId) {
+        useMetaStore.getState().loadMetaForStory(activeStoryId);
+      }
     }
-    if (window.dbAPI?.createCharacterVariantsBatch) {
-      await window.dbAPI.createCharacterVariantsBatch(character.id, items);
+    if (failCount === 0) {
+      useToastStore
+        .getState()
+        .showToast(`已批量添加 ${successCount} 个差分`, 'success');
     } else {
-      const state = useMetaStore.getState();
-      for (const item of items) {
-        state.addCharacterVariant(character.id, { name: item.name, url: item.url });
-      }
-    }
-    if (activeStoryId) {
-      useMetaStore.getState().loadMetaForStory(activeStoryId);
+      useToastStore
+        .getState()
+        .showToast(
+          `部分失败：成功 ${successCount}，失败 ${failCount}。失败项未保存，请检查网络后重新上传。`,
+          'warning',
+        );
     }
   };
 
@@ -397,7 +580,7 @@ function CharacterEditorModal({
   const save = () => {
     const trimmed = name.trim();
     if (!trimmed) {
-      alert('姓名不能为空');
+      useToastStore.getState().showToast('姓名不能为空', 'error');
       return;
     }
     // 检查名称唯一性（排除自身）
@@ -406,7 +589,7 @@ function CharacterEditorModal({
       (c) => c.id !== character.id && c.name.toLowerCase() === trimmed.toLowerCase(),
     );
     if (duplicate) {
-      alert(`已存在同名角色"${duplicate.name}"，请使用不同的名称`);
+      useToastStore.getState().showToast(`已存在同名角色"${duplicate.name}"，请使用不同的名称`, 'error');
       return;
     }
     updateCharacter(character.id, {
@@ -420,33 +603,84 @@ function CharacterEditorModal({
   };
 
   const handleDelete = () => {
-    if (window.confirm(`删除角色"${character.name}"？`)) {
-      deleteCharacter(character.id);
-      onClose();
-    }
+    setPendingDelete(true);
   };
 
-  const handleAttrChange = (
-    next: Record<string, string | number>,
-    nextTypes: Record<string, AttributeType>,
-  ) => {
-    setAttrTypes(nextTypes);
+  const handleAttrChange = (next: Record<string, string | number>) => {
     updateCharacter(character.id, { attributes: next });
   };
 
-  const handleAvatarFromFile = async (file: File) => {
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const dataUrl = reader.result as string;
-      // 尝试保存到本地文件系统（Electron 环境），避免 base64 超长
-      if (window.electronAPI?.saveImage) {
-        const savedPath = await window.electronAPI.saveImage(dataUrl);
-        setAvatar(savedPath || dataUrl);
+  /**
+   * 批量添加属性：解析"key:value"多行输入，合并到现有 attributes 中。
+   * 已存在的 key 会被覆盖。
+   */
+  const handleBatchAddAttributes = (text: string) => {
+    const entries = parseBatchEntries(text);
+    if (entries.length === 0) {
+      useToastStore.getState().showToast('没有解析到有效属性', 'warning');
+      setBatchAttrOpen(false);
+      return;
+    }
+    const merged: Record<string, string | number> = { ...(character.attributes || {}) };
+    let added = 0;
+    for (const { key, value } of entries) {
+      const num = Number(value);
+      if (value !== '' && !isNaN(num) && /^-?\d+(\.\d+)?$/.test(value)) {
+        merged[key] = num;
       } else {
-        setAvatar(dataUrl);
+        merged[key] = value;
       }
-    };
-    reader.readAsDataURL(file);
+      added++;
+    }
+    updateCharacter(character.id, { attributes: merged });
+    useToastStore.getState().showToast(`已批量添加 ${added} 条属性`, 'success');
+    setBatchAttrOpen(false);
+  };
+
+  /**
+   * 批量添加差分：解析"差分名:url"多行输入，逐条新增 variant。
+   */
+  const handleBatchAddVariants = (text: string) => {
+    const entries = parseBatchEntries(text);
+    if (entries.length === 0) {
+      useToastStore.getState().showToast('没有解析到有效差分', 'warning');
+      setBatchVariantOpen(false);
+      return;
+    }
+    const state = useMetaStore.getState();
+    for (const { key, value } of entries) {
+      state.addCharacterVariant(character.id, { name: key, url: value });
+    }
+    if (activeStoryId) {
+      state.loadMetaForStory(activeStoryId);
+    }
+    useToastStore.getState().showToast(`已批量添加 ${entries.length} 个差分`, 'success');
+    setBatchVariantOpen(false);
+  };
+
+  const handleAvatarFromFile = async (file: File) => {
+    setUploadTasks([
+      {
+        taskId: `${Date.now()}_0`,
+        fileName: file.name || 'avatar',
+        status: 'pending',
+        progress: 0,
+      },
+    ]);
+    setUploadDialogOpen(true);
+    const [res] = await uploadImagesWithProgress([file], (e) => {
+      setUploadTasks((prev) =>
+        prev.map((t) => (t.taskId === e.taskId ? { ...t, ...e } : t)),
+      );
+    });
+    if (res.ok && res.url) {
+      setAvatar(res.url);
+      useToastStore.getState().showToast('头像已更新', 'success');
+    } else {
+      useToastStore
+        .getState()
+        .showToast(`图片上传失败：${res.error || '未知错误'}，请检查网络后重新选择`, 'error');
+    }
   };
 
   const inputStyle = { background: 'var(--bg-input)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' } as React.CSSProperties;
@@ -581,10 +815,23 @@ function CharacterEditorModal({
           </div>
 
           <div>
-            <label className="text-xs block mb-1" style={{ color: labelColor }}>属性表</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs" style={{ color: labelColor }}>属性表</label>
+              <button
+                onClick={() => setBatchAttrOpen(true)}
+                className="text-[10px] px-2 py-0.5 rounded whitespace-nowrap"
+                style={{
+                  background: 'var(--bg-sidebar)',
+                  color: 'var(--text-secondary)',
+                  border: '1px solid var(--border-color)',
+                }}
+                title="批量添加属性"
+              >
+                批量添加
+              </button>
+            </div>
             <AttributeTable
               attributes={character.attributes || {}}
-              valueTypes={attrTypes}
               onChange={handleAttrChange}
             />
           </div>
@@ -595,9 +842,23 @@ function CharacterEditorModal({
               <label className="text-xs" style={{ color: labelColor }}>
                 人物差分（表情/姿势/服饰等图片变体）
               </label>
-              <span className="text-[10px]" style={{ color: labelColor }}>
-                共 {(character.variants || []).length} 个
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px]" style={{ color: labelColor }}>
+                  共 {(character.variants || []).length} 个
+                </span>
+                <button
+                  onClick={() => setBatchVariantOpen(true)}
+                  className="text-[10px] px-2 py-0.5 rounded whitespace-nowrap"
+                  style={{
+                    background: 'var(--bg-sidebar)',
+                    color: 'var(--text-secondary)',
+                    border: '1px solid var(--border-color)',
+                  }}
+                  title="批量添加差分（差分名:url，每行一个）"
+                >
+                  批量添加
+                </button>
+              </div>
             </div>
 
             {/* 现有差分列表 */}
@@ -668,7 +929,7 @@ function CharacterEditorModal({
                   </button>
                   <button
                     onClick={() => {
-                      if (window.confirm(`删除差分"${v.name}"？`)) deleteVariant(v.id);
+                      setPendingDeleteVariant({ id: v.id, name: v.name });
                     }}
                     className="text-xs px-1.5 py-0.5 rounded"
                     style={{ background: 'var(--danger-soft)', color: 'var(--danger)' }}
@@ -817,6 +1078,65 @@ function CharacterEditorModal({
           </div>
         </div>
       </div>
+
+      {pendingDelete && (
+        <ConfirmDialog
+          open={true}
+          title="删除确认"
+          message={`确定删除角色"${character.name}"？此操作不可撤销。`}
+          danger
+          onConfirm={() => {
+            deleteCharacter(character.id);
+            useToastStore.getState().showToast('已删除', 'success');
+            setPendingDelete(false);
+            onClose();
+          }}
+          onCancel={() => setPendingDelete(false)}
+        />
+      )}
+
+      {pendingDeleteVariant && (
+        <ConfirmDialog
+          open={true}
+          title="删除确认"
+          message={`确定删除差分"${pendingDeleteVariant.name}"？`}
+          danger
+          onConfirm={() => {
+            deleteVariant(pendingDeleteVariant.id);
+            setPendingDeleteVariant(null);
+          }}
+          onCancel={() => setPendingDeleteVariant(null)}
+        />
+      )}
+
+      <InputDialog
+        open={batchAttrOpen}
+        title="批量添加属性"
+        placeholder={'姓名:李华,\n年龄:18,\nHP:100'}
+        defaultValue=""
+        multiline
+        confirmText="添加"
+        onConfirm={handleBatchAddAttributes}
+        onCancel={() => setBatchAttrOpen(false)}
+      />
+
+      <InputDialog
+        open={batchVariantOpen}
+        title="批量添加差分"
+        placeholder={'差分1:https://example.com/1.png,\n差分2:https://example.com/2.png'}
+        defaultValue=""
+        multiline
+        confirmText="添加"
+        onConfirm={handleBatchAddVariants}
+        onCancel={() => setBatchVariantOpen(false)}
+      />
+
+      {/* 上传进度弹窗 */}
+      <UploadProgressDialog
+        open={uploadDialogOpen}
+        tasks={uploadTasks}
+        onClose={() => setUploadDialogOpen(false)}
+      />
     </div>
   );
 }

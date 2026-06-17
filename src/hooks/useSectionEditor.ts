@@ -78,13 +78,3 @@ export function useSectionEditor(activeSectionId: string | null): UseSectionEdit
     currentSectionId: sectionId,
   };
 }
-
-// 便捷函数：外部需要立即保存当前节时可用
-export function flushCurrentSection(): void {
-  flushDebouncedSave();
-  const cur = useEditorStore.getState();
-  if (cur.sectionId && cur.sectionContent != null) {
-    db.setSectionContent(cur.sectionId, cur.sectionContent).catch(() => {});
-    cur.markSaved?.();
-  }
-}

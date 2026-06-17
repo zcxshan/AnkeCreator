@@ -20,6 +20,8 @@ export interface Story extends Entity {
   order_index?: number;
   is_starred?: boolean;
   is_pinned?: boolean;
+  is_deleted?: boolean;
+  deleted_at?: string;
 }
 
 export interface WorldSetting extends Entity {
@@ -63,14 +65,14 @@ export interface CharacterRelation extends Entity {
 // 模板（独立表，不属于具体作品）
 // ============================================================
 
-/** 世界观设定模板。结构与 WorldSetting 相同但无 story_id / order_index */
+/** 世界观设定模板。结构与 WorldSetting 类似但无 story_id；含 order_index 用于拖动排序 */
 export interface WorldSettingTemplate extends Entity {
   title: string;
   content?: string;
-  is_preset?: number;
+  order_index: number;
 }
 
-/** 人物模板。结构与 Character 相同但无 story_id / order_index */
+/** 人物模板。结构与 Character 类似但无 story_id；含 order_index 用于拖动排序 */
 export interface CharacterTemplate extends Entity {
   name: string;
   avatar?: string;
@@ -78,7 +80,7 @@ export interface CharacterTemplate extends Entity {
   attributes?: Record<string, string | number>;
   notes?: string;
   variants?: CharacterVariant[];
-  is_preset?: number;
+  order_index: number;
 }
 
 export type OutlineTargetType = 'volume' | 'chapter';

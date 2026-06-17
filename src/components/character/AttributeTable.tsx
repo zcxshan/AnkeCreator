@@ -12,13 +12,8 @@ export interface AttributeRow {
 interface AttributeTableProps {
   /** 当前属性（键值对） */
   attributes?: Record<string, string | number>;
-  /** 属性类型记录：哪些属性被标记为数字 */
-  valueTypes?: Record<string, AttributeType>;
-  /** 变更回调 —— 返回新的 attributes 与 valueTypes */
-  onChange: (
-    next: Record<string, string | number>,
-    nextTypes: Record<string, AttributeType>,
-  ) => void;
+  /** 变更回调 —— 返回新的 attributes */
+  onChange: (next: Record<string, string | number>) => void;
 }
 
 /** 生成稳定的唯一 ID，不依赖属性名，避免输入时 key 变化导致 input 重建失焦 */
@@ -28,35 +23,24 @@ function stableId(): string {
 }
 
 /**
- * 把 attributes + valueTypes 序列化为可比较字符串。
+ * 把 attributes 序列化为可比较字符串。
  * 仅在父组件传入的对象引用对应的字符串与本地最新一次发出的字符串不同时才同步。
  */
-function serializeAttrsState(
-  attributes: Record<string, string | number>,
-  valueTypes: Record<string, AttributeType>,
-): string {
-  const types = valueTypes || {};
-  // 仅序列化的 key 顺序需稳定：用 Object.keys 的顺序 + 内部 values
+function serializeAttrsState(attributes: Record<string, string | number>): string {
   const attrPairs = Object.keys(attributes)
     .sort()
     .map((k) => `${k}=${String(attributes[k] ?? '')}`);
-  const typePairs = Object.keys(types)
-    .sort()
-    .map((k) => `${k}:${types[k] ?? 'text'}`);
-  return `A|${attrPairs.join(',')}|T|${typePairs.join(',')}`;
+  return `A|${attrPairs.join(',')}`;
 }
 
-function toRows(
-  attributes: Record<string, string | number>,
-  valueTypes: Record<string, AttributeType>,
-): AttributeRow[] {
+function toRows(attributes: Record<string, string | number>): AttributeRow[] {
   const rows: AttributeRow[] = [];
   for (const [name, rawValue] of Object.entries(attributes)) {
     rows.push({
       id: stableId(),
       name,
       value: String(rawValue),
-      type: valueTypes[name] ?? detectType(rawValue),
+      type: detectType(rawValue),
     });
   }
   return rows;
@@ -70,10 +54,8 @@ function detectType(value: string | number): AttributeType {
 
 function rowsToState(rows: AttributeRow[]): {
   attrs: Record<string, string | number>;
-  types: Record<string, AttributeType>;
 } {
   const attrs: Record<string, string | number> = {};
-  const types: Record<string, AttributeType> = {};
   rows.forEach((r) => {
     if (!r.name.trim()) return;
     if (r.type === 'number' && r.value !== '') {
@@ -82,9 +64,8 @@ function rowsToState(rows: AttributeRow[]): {
     } else {
       attrs[r.name] = r.value;
     }
-    types[r.name] = r.type;
   });
-  return { attrs, types };
+  return { attrs };
 }
 
 /**
@@ -97,49 +78,49 @@ function rowsToState(rows: AttributeRow[]): {
  *
  * - 支持随时添加/删除行
  * - 每行可切换类型（数字/文本），数字类型值校验为数字
+ * - valueTypes 由组件内部从 rows 派生，不再从外部 prop 同步——避免外部不同步导致
+ *   useEffect 误触发 setRows 清空正在编辑的行（参考 2026-06-17 失焦 bug 修复）
  * - 变更实时通过 onChange 回调通知父组件
  */
-export function AttributeTable({ attributes, valueTypes, onChange }: AttributeTableProps) {
-  const [rows, setRows] = useState<AttributeRow[]>(() =>
-    toRows(attributes ?? {}, valueTypes ?? {}),
-  );
+export function AttributeTable({ attributes, onChange }: AttributeTableProps) {
+  const [rows, setRows] = useState<AttributeRow[]>(() => toRows(attributes ?? {}));
 
   /**
-   * 记录本地最近一次通过 onChange 发出的 attributes+valueTypes 序列化值。
+   * 记录本地最近一次通过 onChange 发出的 attributes 序列化值。
    * 父组件会把这个状态存进 store 再以新引用回传，我们用 lastEmittedRef 来识别
    * "这次是回流的自己"还是"外部真的改了"——前者不同步（避免 input 重建失焦），
    * 后者同步（例如切换到另一个角色 / 模板导入 / 程序化更新）。
    */
   const lastEmittedRef = useRef<string>('');
-  // 记录上次主动 setRows 时对应的序列化值（用于"重置回原始"
+  // 记录上次主动 setRows 时对应的序列化值（用于"重置回原始"）
   const lastSyncedRef = useRef<string>('');
 
   // 外部传入变更时同步。判断标准：序列化后的状态与"上一次本地发出"和"上一次同步"都不同。
   useEffect(() => {
-    const sig = serializeAttrsState(attributes ?? {}, valueTypes ?? {});
+    const sig = serializeAttrsState(attributes ?? {});
     // 本次就是我们刚刚 emit 的回流 → 跳过
     if (sig === lastEmittedRef.current) return;
     // 跟上次同步的状态一致 → 也不需要重新 setRows
     if (sig === lastSyncedRef.current) return;
     lastSyncedRef.current = sig;
-    setRows(toRows(attributes ?? {}, valueTypes ?? {}));
-  }, [attributes, valueTypes]);
+    setRows(toRows(attributes ?? {}));
+  }, [attributes]);
 
   const updateRow = (id: string, patch: Partial<AttributeRow>) => {
     const next = rows.map((r) => (r.id === id ? { ...r, ...patch } : r));
     setRows(next);
-    const { attrs, types } = rowsToState(next);
+    const { attrs } = rowsToState(next);
     // 同步更新 lastEmittedRef，避免父组件回流时 useEffect 误以为是外部修改
-    lastEmittedRef.current = serializeAttrsState(attrs, types);
-    onChange(attrs, types);
+    lastEmittedRef.current = serializeAttrsState(attrs);
+    onChange(attrs);
   };
 
   const deleteRow = (id: string) => {
     const next = rows.filter((r) => r.id !== id);
     setRows(next);
-    const { attrs, types } = rowsToState(next);
-    lastEmittedRef.current = serializeAttrsState(attrs, types);
-    onChange(attrs, types);
+    const { attrs } = rowsToState(next);
+    lastEmittedRef.current = serializeAttrsState(attrs);
+    onChange(attrs);
   };
 
   const addRow = () => {

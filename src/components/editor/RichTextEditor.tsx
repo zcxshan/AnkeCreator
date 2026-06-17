@@ -11,7 +11,10 @@ import {
   updateSelectedImage,
   dispatchInput,
   attachCollapseBlockHandlers,
+  getCurrentStyles,
+  applyActiveStylesToInsertion,
 } from './contenteditableUtils';
+import { useEditorStore } from '../../store/editorStore';
 import type { DiceBlockPayloadV2 } from '../../types';
 
 interface RichTextEditorProps {
@@ -55,6 +58,8 @@ export function RichTextEditor({
   const savedRangeRef = useRef<Range | null>(null);
 
   // 持续保存编辑器内的光标位置（工具栏按钮点击后编辑器失焦时恢复用）
+  // 同时把光标处的样式同步到 useEditorStore.cursorStyles（供工具栏展示）
+  // 注意：不同步到 activeStyles —— activeStyles 是用户主动激活的状态，保留用户意图
   useEffect(() => {
     const el = divRef.current;
     if (!el) return;
@@ -64,6 +69,23 @@ export function RichTextEditor({
       const r = sel.getRangeAt(0);
       if (el.contains(r.startContainer)) {
         savedRangeRef.current = r.cloneRange();
+        // 同步光标处样式到 cursorStyles（仅展示用，不影响新输入）
+        const cur = getCurrentStyles(el);
+        const store = useEditorStore.getState();
+        const c = store.cursorStyles;
+        const same =
+          c.color === cur.color &&
+          c.fontSize === cur.fontSize &&
+          c.fontFamily === cur.fontFamily &&
+          !!c.bold === !!cur.bold &&
+          !!c.italic === !!cur.italic &&
+          !!c.underline === !!cur.underline &&
+          !!c.strike === !!cur.strike &&
+          !!c.sup === !!cur.sup &&
+          !!c.sub === !!cur.sub;
+        if (!same) {
+          useEditorStore.setState({ cursorStyles: cur });
+        }
       }
     };
     document.addEventListener('selectionchange', onSelectionChange);
@@ -147,6 +169,54 @@ export function RichTextEditor({
     if (html === lastContentRef.current) return;
     lastContentRef.current = html;
     onChangeContent(html);
+  };
+
+  // 拦截 input 事件：把活动样式应用到即将插入的字符上
+  // 支持：
+  //   - insertText：普通字符输入 + IME 合成结束后的最终文本
+  //   - insertReplacementText：替换选中文本（如自动更正）
+  // 不处理：
+  //   - insertCompositionText：IME 合成中（让浏览器原生处理，避免干扰中文输入法）
+  //   - insertFromPaste：粘贴保持原内容，不被 activeStyles 覆盖
+  const handleBeforeInput = (e: React.FormEvent<HTMLDivElement>) => {
+    const ev = e.nativeEvent as InputEvent;
+    const SUPPORTED_TYPES = new Set(['insertText', 'insertReplacementText']);
+    if (!SUPPORTED_TYPES.has(ev.inputType) || !ev.data) return;
+    const el = divRef.current;
+    if (!el) return;
+    const active = useEditorStore.getState().activeStyles;
+    const hasStyle =
+      active.color ||
+      active.fontSize ||
+      active.fontFamily ||
+      active.bold ||
+      active.italic ||
+      active.underline ||
+      active.strike ||
+      active.sup ||
+      active.sub;
+    if (!hasStyle) return;
+    // 只在光标折叠且选区内无文本时接管
+    const sel = window.getSelection();
+    if (!sel || !sel.isCollapsed) return;
+    e.preventDefault();
+    if (applyActiveStylesToInsertion(el, active, ev.data)) {
+      // 触发 input 事件让 onChangeContent 保存
+      handleInput();
+    }
+  };
+
+  const handleKeyUp = () => {
+    const el = divRef.current;
+    if (!el) return;
+    const cur = getCurrentStyles(el);
+    useEditorStore.setState({ activeStyles: cur });
+  };
+  const handleMouseUp = () => {
+    const el = divRef.current;
+    if (!el) return;
+    const cur = getCurrentStyles(el);
+    useEditorStore.setState({ activeStyles: cur });
   };
 
   const handleInsertImage = (src: string, size?: string) => {
@@ -726,7 +796,10 @@ export function RichTextEditor({
         contentEditable={editable}
         suppressContentEditableWarning
         onInput={handleInput}
+        onBeforeInput={handleBeforeInput}
         onKeyDown={handleKeyDown}
+        onKeyUp={handleKeyUp}
+        onMouseUp={handleMouseUp}
         onClick={handleClick}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}

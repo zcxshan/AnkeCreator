@@ -20,6 +20,11 @@ import { RelationshipPanel } from '../editor/RelationshipPanel';
 import { OutlineTree } from '../outline/OutlineTree';
 import { OutlineEditor } from '../outline/OutlineEditor';
 import { SyncDialog } from '../common/SyncDialog';
+import { ConfirmDialog } from '../common/ConfirmDialog';
+import { InputDialog } from '../common/InputDialog';
+import { useToastStore } from '../../store/toastStore';
+import { uploadImagesWithProgress, type UploadProgressEvent } from '../../utils/uploadImage';
+import { UploadProgressDialog } from '../common/UploadProgressDialog';
 import {
   computeDiff,
   buildOutlineStructure,
@@ -337,6 +342,17 @@ export function EditorPage({ onBack, onExport }: EditorPageProps) {
   const story = stories.find((s) => s.id === activeStoryId);
   const section = sections.find((s) => s.id === activeSectionId);
 
+  // 面包屑路径：section → chapter → volume
+  const activeChapter = chapters.find((c) => c.id === section?.chapter_id);
+  const activeVolume = volumes.find((v) => v.id === activeChapter?.volume_id);
+  const volIdx = volumes.findIndex((v) => v.id === activeVolume?.id);
+  const chapterListInVolume = activeVolume
+    ? chapters.filter((c) => c.volume_id === activeVolume.id)
+    : [];
+  const chIdx = activeChapter
+    ? chapterListInVolume.findIndex((c) => c.id === activeChapter.id)
+    : -1;
+
   const [sectionStats, setSectionStats] = useState<Record<string, { words: number; dice: number }>>({});
 
   useEffect(() => {
@@ -573,24 +589,33 @@ export function EditorPage({ onBack, onExport }: EditorPageProps) {
             className="flex-1 flex flex-col overflow-hidden"
             style={{ borderLeft: '1px solid var(--border-color)', borderRight: '1px solid var(--border-color)', minHeight: 0 }}
           >
-            {section ? (
-              <RichTextEditor
-                content={sectionContent ?? ''}
-                onChangeContent={setSectionContent}
-                onInsertDiceRequest={() => diceStore.openDialog()}
-                onDiceRolled={(payload) => {
-                  const rec = buildDiceHistoryRecord({
-                    payload,
-                    sectionId: section.id,
-                    sectionTitle: section.title,
-                  });
-                  if (rec) useDiceHistoryStore.getState().addRecord(rec);
-                }}
-                onImageSelected={(info) => setSelectedImage(info)}
-                commandsRef={richTextEditorCommandsRef}
-                editable={true}
-                onShowToast={(msg) => setToast(msg)}
-              />
+            {section && activeChapter && activeVolume && volIdx >= 0 && chIdx >= 0 ? (
+              <>
+                <EditorBreadcrumb
+                  volumeIdx={volIdx}
+                  volumeTitle={activeVolume.title}
+                  chapterIdx={chIdx}
+                  chapterTitle={activeChapter.title}
+                  sectionTitle={section.title}
+                />
+                <RichTextEditor
+                  content={sectionContent ?? ''}
+                  onChangeContent={setSectionContent}
+                  onInsertDiceRequest={() => diceStore.openDialog()}
+                  onDiceRolled={(payload) => {
+                    const rec = buildDiceHistoryRecord({
+                      payload,
+                      sectionId: section.id,
+                      sectionTitle: section.title,
+                    });
+                    if (rec) useDiceHistoryStore.getState().addRecord(rec);
+                  }}
+                  onImageSelected={(info) => setSelectedImage(info)}
+                  commandsRef={richTextEditorCommandsRef}
+                  editable={true}
+                  onShowToast={(msg) => setToast(msg)}
+                />
+              </>
             ) : (
               <div
                 className="flex-1 flex items-center justify-center text-xs"
@@ -903,6 +928,7 @@ function DiceHistoryPanel({
 }) {
   const records = useDiceHistoryStore((s) => s.records);
   const clearAll = useDiceHistoryStore((s) => s.clearAll);
+  const [pendingClearDice, setPendingClearDice] = useState(false);
 
   const formatTime = (ts: number): string => {
     try {
@@ -924,9 +950,7 @@ function DiceHistoryPanel({
         </div>
         {records.length > 0 && (
           <button
-            onClick={() => {
-              if (confirm('确定清空全部骰点记录？')) clearAll();
-            }}
+            onClick={() => setPendingClearDice(true)}
             className="text-[10px] px-2 py-1 rounded-md border transition-colors"
             style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}
             onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--danger)'; e.currentTarget.style.borderColor = 'var(--danger)'; }}
@@ -987,6 +1011,21 @@ function DiceHistoryPanel({
           ))}
         </div>
       )}
+
+      {pendingClearDice && (
+        <ConfirmDialog
+          open={true}
+          title="清空确认"
+          message="确定清空全部骰点记录？此操作不可撤销。"
+          danger
+          onConfirm={() => {
+            clearAll();
+            useToastStore.getState().showToast('已清空', 'success');
+            setPendingClearDice(false);
+          }}
+          onCancel={() => setPendingClearDice(false)}
+        />
+      )}
     </div>
   );
 }
@@ -1002,9 +1041,38 @@ function CompactWorldSettingPanel({
   const worldSettings = useMetaStore((s) => s.worldSettings);
   const editingWorldId = useMetaStore((s) => s.editingWorldId);
   const createWorldSetting = useMetaStore((s) => s.createWorldSetting);
+  const deleteWorldSetting = useMetaStore((s) => s.deleteWorldSetting);
   const setEditingWorldId = useMetaStore((s) => s.setEditingWorldId);
 
   const editing = worldSettings.find((w) => w.id === editingWorldId) ?? null;
+
+  // 多选状态（紧凑面板不显示拖动）
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [pendingBatchDelete, setPendingBatchDelete] = useState<{ ids: string[]; names: string[] } | null>(null);
+
+  const filtered = activeStoryId
+    ? worldSettings
+        .filter((w) => w.story_id === activeStoryId)
+        .slice()
+        .sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
+    : [];
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+  const clearSelection = () => setSelectedIds([]);
+  const handleBatchDelete = async () => {
+    if (!pendingBatchDelete) return;
+    const target = pendingBatchDelete;
+    setPendingBatchDelete(null);
+    let deleted = 0;
+    for (const id of target.ids) {
+      await deleteWorldSetting(id);
+      deleted++;
+    }
+    useToastStore.getState().showToast(`已批量删除 ${deleted} 条世界观`, 'success');
+    clearSelection();
+  };
 
   return (
     <div className="flex flex-col h-full" style={{ background: 'var(--bg-card)' }}>
@@ -1014,14 +1082,38 @@ function CompactWorldSettingPanel({
         style={{ background: 'var(--bg-toolbar)', borderColor: 'var(--border-color)' }}
       >
         <div className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>世界观设定</div>
-        <button
-          onClick={() => activeStoryId && createWorldSetting(activeStoryId)}
-          disabled={!activeStoryId}
-          className="text-[10px] px-2 py-1 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
-        >
-          + 新建
-        </button>
+        {selectedIds.length > 0 ? (
+          <div className="flex items-center gap-1">
+            <span className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>已选 {selectedIds.length}</span>
+            <button
+              onClick={() => {
+                const names = filtered.filter((w) => selectedIds.includes(w.id)).map((w) => w.title || '未命名');
+                setPendingBatchDelete({ ids: [...selectedIds], names });
+              }}
+              className="text-[10px] px-2 py-1 rounded transition-colors"
+              style={{ background: 'var(--danger)', color: '#fff' }}
+              title="删除所选"
+            >
+              🗑 批量删除
+            </button>
+            <button
+              onClick={clearSelection}
+              className="text-[10px] px-2 py-1 rounded transition-colors"
+              style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+            >
+              取消
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => activeStoryId && createWorldSetting(activeStoryId)}
+            disabled={!activeStoryId}
+            className="text-[10px] px-2 py-1 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
+          >
+            + 新建
+          </button>
+        )}
       </div>
 
       {/* 条目列表 */}
@@ -1029,33 +1121,56 @@ function CompactWorldSettingPanel({
         {!activeStoryId && (
           <div className="text-[10px] italic px-2 py-3 text-center" style={{ color: 'var(--text-secondary)' }}>请先选择一个故事</div>
         )}
-        {activeStoryId && worldSettings.length === 0 && (
+        {activeStoryId && filtered.length === 0 && (
           <div className="text-[10px] italic px-2 py-3 text-center" style={{ color: 'var(--text-secondary)' }}>
             暂无条目，点击上方"新建"
           </div>
         )}
-        {activeStoryId && worldSettings.length > 0 && (
+        {activeStoryId && filtered.length > 0 && (
           <div className="space-y-1">
-            {worldSettings.map((ws) => {
+            {filtered.map((ws) => {
               const isActive = ws.id === editingWorldId;
+              const isSel = selectedIds.includes(ws.id);
               return (
-                <button
+                <div
                   key={ws.id}
-                  onClick={() => setEditingWorldId(isActive ? null : ws.id)}
-                  className="w-full text-left px-2 py-1.5 text-xs rounded transition-colors border"
+                  className="w-full text-left px-2 py-1.5 text-xs rounded transition-colors border flex items-start gap-1"
                   style={{
-                    background: isActive ? 'var(--accent-soft)' : 'transparent',
-                    color: isActive ? 'var(--accent)' : 'var(--text-primary)',
-                    borderColor: isActive ? 'var(--accent)' : 'transparent',
+                    background: isSel
+                      ? 'var(--accent-bg)'
+                      : isActive
+                      ? 'var(--accent-soft)'
+                      : 'transparent',
+                    color: isSel || isActive ? 'var(--accent)' : 'var(--text-primary)',
+                    borderColor: isSel || isActive ? 'var(--accent)' : 'transparent',
                   }}
-                  onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = 'var(--bg-hover)'; }}
-                  onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
+                  onMouseEnter={(e) => {
+                    if (!isSel && !isActive) e.currentTarget.style.background = 'var(--bg-hover)';
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isSel && !isActive) e.currentTarget.style.background = 'transparent';
+                  }}
                 >
-                  <div className="font-medium truncate">{ws.title || '未命名'}</div>
-                  <div className="text-[10px] truncate" style={{ color: 'var(--text-secondary)' }}>
-                    {(ws.content || '').slice(0, 50)}
-                  </div>
-                </button>
+                  <input
+                    type="checkbox"
+                    checked={isSel}
+                    onChange={() => toggleSelect(ws.id)}
+                    onClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onDragStart={(e) => e.preventDefault()}
+                    style={{ marginTop: 2, cursor: 'pointer' }}
+                    title="勾选以加入批量删除"
+                  />
+                  <button
+                    onClick={() => setEditingWorldId(isActive ? null : ws.id)}
+                    className="flex-1 text-left"
+                  >
+                    <div className="font-medium truncate">{ws.title || '未命名'}</div>
+                    <div className="text-[10px] truncate" style={{ color: 'var(--text-secondary)' }}>
+                      {(ws.content || '').slice(0, 50)}
+                    </div>
+                  </button>
+                </div>
               );
             })}
           </div>
@@ -1074,6 +1189,17 @@ function CompactWorldSettingPanel({
           </div>
         )}
       </div>
+
+      {pendingBatchDelete && (
+        <ConfirmDialog
+          open={true}
+          title="批量删除世界观"
+          message={`确定删除以下 ${pendingBatchDelete.ids.length} 条世界观？${pendingBatchDelete.names.length <= 5 ? `\n• ${pendingBatchDelete.names.join('\n• ')}` : ''}\n此操作不可撤销。`}
+          danger
+          onConfirm={handleBatchDelete}
+          onCancel={() => setPendingBatchDelete(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1086,6 +1212,7 @@ function WorldSettingEditorInline({ setting, onShowToast }: { setting: WorldSett
 
   const [title, setTitle] = useState(setting.title || '');
   const [content, setContent] = useState(setting.content || '');
+  const [pendingDelete, setPendingDelete] = useState(false);
 
   useEffect(() => {
     setTitle(setting.title || '');
@@ -1097,10 +1224,7 @@ function WorldSettingEditorInline({ setting, onShowToast }: { setting: WorldSett
   };
 
   const handleDelete = () => {
-    if (window.confirm(`删除"${title || '未命名'}"？`)) {
-      deleteWorldSetting(setting.id);
-      setEditingWorldId(null);
-    }
+    setPendingDelete(true);
   };
 
   return (
@@ -1154,6 +1278,22 @@ function WorldSettingEditorInline({ setting, onShowToast }: { setting: WorldSett
           删除条目
         </button>
       </div>
+
+      {pendingDelete && (
+        <ConfirmDialog
+          open={true}
+          title="删除确认"
+          message={`确定删除"${title || '未命名'}"？此操作不可撤销。`}
+          danger
+          onConfirm={() => {
+            deleteWorldSetting(setting.id);
+            setEditingWorldId(null);
+            useToastStore.getState().showToast('已删除', 'success');
+            setPendingDelete(false);
+          }}
+          onCancel={() => setPendingDelete(false)}
+        />
+      )}
     </div>
   );
 }
@@ -1172,8 +1312,36 @@ function CompactCharacterPanel({
   const editingCharacterId = useMetaStore((s) => s.editingCharacterId);
   const createCharacter = useMetaStore((s) => s.createCharacter);
   const setEditingCharacter = useMetaStore((s) => s.setEditingCharacter);
+  const deleteCharacter = useMetaStore((s) => s.deleteCharacter);
 
   const editing = characters.find((c) => c.id === editingCharacterId) ?? null;
+
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [pendingBatchDelete, setPendingBatchDelete] = useState<{ ids: string[]; names: string[] } | null>(null);
+
+  const filtered = activeStoryId
+    ? characters
+        .filter((c) => c.story_id === activeStoryId)
+        .slice()
+        .sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
+    : [];
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+  const clearSelection = () => setSelectedIds([]);
+  const handleBatchDelete = async () => {
+    if (!pendingBatchDelete) return;
+    const target = pendingBatchDelete;
+    setPendingBatchDelete(null);
+    let deleted = 0;
+    for (const id of target.ids) {
+      await deleteCharacter(id);
+      deleted++;
+    }
+    useToastStore.getState().showToast(`已批量删除 ${deleted} 个角色`, 'success');
+    clearSelection();
+  };
 
   const handleInsertVariant = (variantName: string, url: string) => {
     if (!richTextEditorCommandsRef.current) {
@@ -1192,82 +1360,142 @@ function CompactCharacterPanel({
         style={{ background: 'var(--bg-toolbar)', borderColor: 'var(--border-color)' }}
       >
         <div className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>人物角色</div>
-        <button
-          onClick={() => activeStoryId && createCharacter(activeStoryId)}
-          disabled={!activeStoryId}
-          className="text-[10px] px-2 py-1 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
-        >
-          + 新建角色
-        </button>
+        {selectedIds.length > 0 ? (
+          <div className="flex items-center gap-1">
+            <span className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>已选 {selectedIds.length}</span>
+            <button
+              onClick={() => {
+                const names = filtered.filter((c) => selectedIds.includes(c.id)).map((c) => c.name || '未命名');
+                setPendingBatchDelete({ ids: [...selectedIds], names });
+              }}
+              className="text-[10px] px-2 py-1 rounded transition-colors"
+              style={{ background: 'var(--danger)', color: '#fff' }}
+              title="删除所选"
+            >
+              🗑 批量删除
+            </button>
+            <button
+              onClick={clearSelection}
+              className="text-[10px] px-2 py-1 rounded transition-colors"
+              style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+            >
+              取消
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => activeStoryId && createCharacter(activeStoryId)}
+            disabled={!activeStoryId}
+            className="text-[10px] px-2 py-1 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
+          >
+            + 新建角色
+          </button>
+        )}
       </div>
 
       {/* 角色卡片列表 */}
-      <div 
+      <div
         className="shrink-0 p-2 border-b max-h-48 overflow-y-auto"
         style={{ borderColor: 'var(--border-color)' }}
       >
         {!activeStoryId && (
           <div className="text-[10px] italic px-2 py-3 text-center" style={{ color: 'var(--text-secondary)' }}>请先选择一个故事</div>
         )}
-        {activeStoryId && characters.length === 0 && (
+        {activeStoryId && filtered.length === 0 && (
           <div className="text-[10px] italic px-2 py-3 text-center" style={{ color: 'var(--text-secondary)' }}>
             暂无角色，点击上方"新建"
           </div>
         )}
-        {activeStoryId && characters.length > 0 && (
-          <div className="space-y-1">
-            {characters.map((ch) => {
+        {activeStoryId && filtered.length > 0 && (
+          <div className="space-y-1.5">
+            {filtered.map((ch) => {
               const isActive = ch.id === editingCharacterId;
+              const isSel = selectedIds.includes(ch.id);
               const variants = ch.variants || [];
               return (
                 <div
                   key={ch.id}
-                  className="rounded transition-colors border"
+                  className="rounded-lg transition-colors border relative overflow-hidden"
                   style={{
-                    background: isActive ? 'var(--accent-bg)' : 'transparent',
-                    color: isActive ? 'var(--accent)' : 'var(--text-primary)',
-                    borderColor: isActive ? 'var(--accent)' : 'transparent',
+                    background: isSel ? 'var(--accent-bg)' : isActive ? 'var(--accent-bg)' : 'var(--bg-page)',
+                    color: isSel || isActive ? 'var(--accent)' : 'var(--text-primary)',
+                    borderColor: isSel || isActive ? 'var(--accent)' : 'var(--border-color)',
                   }}
                   onMouseEnter={(e) => {
-                    if (!isActive) e.currentTarget.style.background = 'var(--bg-hover)';
+                    if (!isSel && !isActive) e.currentTarget.style.background = 'var(--bg-hover)';
                   }}
                   onMouseLeave={(e) => {
-                    if (!isActive) e.currentTarget.style.background = 'transparent';
+                    if (!isSel && !isActive) e.currentTarget.style.background = 'var(--bg-page)';
                   }}
                 >
-                  <button
-                    onClick={() => setEditingCharacter(isActive ? null : ch.id)}
-                    className="w-full flex items-center gap-2 text-left px-2 py-1.5"
-                  >
-                    {ch.avatar ? (
-                      <img
-                        src={ch.avatar}
-                        alt={ch.name}
-                        className="w-7 h-7 rounded-md shrink-0 object-cover"
-                        onError={(e) => {
-                          (e.currentTarget as HTMLImageElement).style.display = 'none';
-                        }}
-                      />
-                    ) : (
-                      <div
-                        className="w-7 h-7 rounded-md shrink-0 flex items-center justify-center text-xs"
-                        style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
-                      >
-                        🧑
+                  {/* 选中态左侧色条 */}
+                  {(isActive || isSel) && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: 0,
+                        top: 0,
+                        bottom: 0,
+                        width: 3,
+                        background: 'var(--accent)',
+                      }}
+                    />
+                  )}
+                  <div className="flex items-center gap-2 px-2.5 py-2">
+                    <input
+                      type="checkbox"
+                      checked={isSel}
+                      onChange={() => toggleSelect(ch.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onDragStart={(e) => e.preventDefault()}
+                      style={{ cursor: 'pointer' }}
+                      title="勾选以加入批量删除"
+                    />
+                    <button
+                      onClick={() => setEditingCharacter(isActive ? null : ch.id)}
+                      className="flex-1 flex items-center gap-2.5 text-left"
+                    >
+                      {ch.avatar ? (
+                        <img
+                          src={ch.avatar}
+                          alt={ch.name}
+                          className="w-9 h-9 rounded-full shrink-0 object-cover"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLImageElement).style.display = 'none';
+                          }}
+                        />
+                      ) : (
+                        <div
+                          className="w-9 h-9 rounded-full shrink-0 flex items-center justify-center text-sm"
+                          style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
+                        >
+                          🧑
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-semibold truncate">{ch.name || '未命名'}</div>
+                        <div className="text-[10px] truncate mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                          {(ch.personality || '暂无角色描述').slice(0, 30)}
+                        </div>
                       </div>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-medium truncate">{ch.name || '未命名'}</div>
-                      <div className="text-[10px] truncate" style={{ color: 'var(--text-secondary)' }}>
-                        {(ch.personality || '暂无角色描述').slice(0, 30)}
-                        {variants.length > 0 && ` · 差分 ${variants.length}`}
-                      </div>
-                    </div>
-                  </button>
+                      {variants.length > 0 && (
+                        <span
+                          className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0"
+                          style={{
+                            background: 'var(--bg-tag, var(--bg-hover))',
+                            color: 'var(--text-secondary)',
+                          }}
+                        >
+                          差分 {variants.length}
+                        </span>
+                      )}
+                    </button>
+                  </div>
                   {/* 差分缩略图条 */}
                   {variants.length > 0 && (
-                    <div className="flex flex-wrap gap-1 px-2 pb-1.5">
+                    <div className="flex flex-wrap gap-1 px-2.5 pb-2">
                       {variants.map((v) => (
                         <button
                           key={v.id}
@@ -1310,6 +1538,17 @@ function CompactCharacterPanel({
           </div>
         )}
       </div>
+
+      {pendingBatchDelete && (
+        <ConfirmDialog
+          open={true}
+          title="批量删除角色"
+          message={`确定删除以下 ${pendingBatchDelete.ids.length} 个角色？${pendingBatchDelete.names.length <= 5 ? `\n• ${pendingBatchDelete.names.join('\n• ')}` : ''}\n此操作不可撤销。`}
+          danger
+          onConfirm={handleBatchDelete}
+          onCancel={() => setPendingBatchDelete(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1357,6 +1596,14 @@ function CharacterEditorInline({
 
   const [newVariantName, setNewVariantName] = useState('');
   const [newVariantUrl, setNewVariantUrl] = useState('');
+  const [pendingDelete, setPendingDelete] = useState(false);
+  const [pendingDeleteVariant, setPendingDeleteVariant] = useState<{ id: string; name: string } | null>(null);
+  const [pendingNewAttr, setPendingNewAttr] = useState(false);
+  const [newAttrName, setNewAttrName] = useState('');
+
+  // 上传进度弹窗状态
+  const [uploadTasks, setUploadTasks] = useState<UploadProgressEvent[]>([]);
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
 
   useEffect(() => {
     setName(character.name || '');
@@ -1370,42 +1617,61 @@ function CharacterEditorInline({
   };
 
   const handleDelete = () => {
-    if (window.confirm(`删除角色"${name || '未命名'}"？`)) {
-      deleteCharacter(character.id);
-      setEditingCharacter(null);
-    }
+    setPendingDelete(true);
   };
 
   const handleAvatarFile = async (file: File) => {
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const dataUrl = reader.result as string;
-      // 尝试保存到本地文件系统（Electron 环境），避免 base64 超长
-      if (window.electronAPI?.saveImage) {
-        const savedPath = await window.electronAPI.saveImage(dataUrl);
-        setAvatar(savedPath || dataUrl);
-        updateCharacter(character.id, { avatar: savedPath || dataUrl });
-      } else {
-        setAvatar(dataUrl);
-        updateCharacter(character.id, { avatar: dataUrl });
-      }
-    };
-    reader.readAsDataURL(file);
+    setUploadTasks([
+      {
+        taskId: `${Date.now()}_0`,
+        fileName: file.name || 'avatar',
+        status: 'pending',
+        progress: 0,
+      },
+    ]);
+    setUploadDialogOpen(true);
+    const [res] = await uploadImagesWithProgress([file], (e) => {
+      setUploadTasks((prev) =>
+        prev.map((t) => (t.taskId === e.taskId ? { ...t, ...e } : t)),
+      );
+    });
+    if (res.ok && res.url) {
+      setAvatar(res.url);
+      updateCharacter(character.id, { avatar: res.url });
+      useToastStore.getState().showToast('头像已更新', 'success');
+    } else {
+      useToastStore
+        .getState()
+        .showToast(`图片上传失败：${res.error || '未知错误'}，请检查网络后重新选择`, 'error');
+    }
   };
 
   const handleVariantFile = async (file: File) => {
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const dataUrl = String(reader.result || '');
-      // 尝试保存到本地文件系统（Electron 环境），避免 base64 超长
-      if (window.electronAPI?.saveImage) {
-        const savedPath = await window.electronAPI.saveImage(dataUrl);
-        setNewVariantUrl(savedPath || dataUrl);
-      } else {
-        setNewVariantUrl(dataUrl);
-      }
-    };
-    reader.readAsDataURL(file);
+    setUploadTasks([
+      {
+        taskId: `${Date.now()}_0`,
+        fileName: file.name || 'variant',
+        status: 'pending',
+        progress: 0,
+      },
+    ]);
+    setUploadDialogOpen(true);
+    const [res] = await uploadImagesWithProgress([file], (e) => {
+      setUploadTasks((prev) =>
+        prev.map((t) => (t.taskId === e.taskId ? { ...t, ...e } : t)),
+      );
+    });
+    if (res.ok && res.url) {
+      setNewVariantUrl(res.url);
+      // 默认差分名 = 图片文件名（去后缀）
+      const defaultName = file.name.replace(/\.[^.]+$/, '');
+      if (defaultName) setNewVariantName(defaultName);
+      useToastStore.getState().showToast('差分图片就绪', 'success');
+    } else {
+      useToastStore
+        .getState()
+        .showToast(`图片上传失败：${res.error || '未知错误'}，请检查网络后重新选择`, 'error');
+    }
   };
 
   const handleAddVariant = () => {
@@ -1517,21 +1783,12 @@ function CharacterEditorInline({
               {Object.keys(attributes || {}).length} 项
             </span>
             <button
-              onClick={() => {
-                const key = prompt('输入新属性名：');
-                if (!key?.trim()) return;
-                const k = key.trim();
-                if (attributes[k] !== undefined) {
-                  onShowToast?.(`属性"${k}"已存在`);
-                  return;
-                }
-                updateAttributes({ ...attributes, [k]: '' });
-              }}
-              className="text-[10px] px-1.5 py-0.5 rounded transition-colors"
-              style={{ background: 'var(--accent-bg)', color: 'var(--accent)', border: '1px solid var(--accent)' }}
+              onClick={() => setPendingNewAttr(true)}
+              className="text-[10px] px-2 py-0.5 rounded transition-colors font-medium inline-flex items-center gap-0.5"
+              style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
               title="添加新属性"
             >
-              + 添加
+              + 添加属性
             </button>
           </div>
         </div>
@@ -1675,7 +1932,7 @@ function CharacterEditorInline({
               </button>
               <button
                 onClick={() => {
-                  if (window.confirm(`删除差分"${v.name}"？`)) deleteVariant(v.id);
+                  setPendingDeleteVariant({ id: v.id, name: v.name });
                 }}
                 className="text-[10px] px-1 py-0.5 rounded"
                 style={{ background: 'var(--danger-soft)', color: 'var(--danger)' }}
@@ -1769,6 +2026,71 @@ function CharacterEditorInline({
           ✓ 保存
         </button>
       </div>
+
+      {pendingDelete && (
+        <ConfirmDialog
+          open={true}
+          title="删除确认"
+          message={`确定删除角色"${name || '未命名'}"？此操作不可撤销。`}
+          danger
+          onConfirm={() => {
+            deleteCharacter(character.id);
+            setEditingCharacter(null);
+            useToastStore.getState().showToast('已删除', 'success');
+            setPendingDelete(false);
+          }}
+          onCancel={() => setPendingDelete(false)}
+        />
+      )}
+
+      {pendingDeleteVariant && (
+        <ConfirmDialog
+          open={true}
+          title="删除确认"
+          message={`确定删除差分"${pendingDeleteVariant.name}"？`}
+          danger
+          onConfirm={() => {
+            deleteVariant(pendingDeleteVariant.id);
+            setPendingDeleteVariant(null);
+          }}
+          onCancel={() => setPendingDeleteVariant(null)}
+        />
+      )}
+
+      {pendingNewAttr && (
+        <InputDialog
+          open={true}
+          title="添加属性"
+          placeholder="属性名（如：HP、力量、职业…）"
+          defaultValue={newAttrName}
+          confirmText="添加"
+          onConfirm={(value: string) => {
+            const k = value.trim();
+            if (!k) {
+              setPendingNewAttr(false);
+              return;
+            }
+            if (attributes[k] !== undefined) {
+              onShowToast?.(`属性"${k}"已存在`);
+              return;
+            }
+            updateAttributes({ ...attributes, [k]: '' });
+            setNewAttrName('');
+            setPendingNewAttr(false);
+          }}
+          onCancel={() => {
+            setNewAttrName('');
+            setPendingNewAttr(false);
+          }}
+        />
+      )}
+
+      {/* 上传进度弹窗 */}
+      <UploadProgressDialog
+        open={uploadDialogOpen}
+        tasks={uploadTasks}
+        onClose={() => setUploadDialogOpen(false)}
+      />
     </div>
   );
 }
@@ -1776,6 +2098,46 @@ function CharacterEditorInline({
 interface BottomStatusBarProps {
   onExport: () => void;
   onFlushContent?: () => void;
+}
+
+// ========== 节编辑区上方面包屑（卷·章·节路径） ==========
+function EditorBreadcrumb({
+  volumeIdx,
+  volumeTitle,
+  chapterIdx,
+  chapterTitle,
+  sectionTitle,
+}: {
+  volumeIdx: number;
+  volumeTitle: string;
+  chapterIdx: number;
+  chapterTitle: string;
+  sectionTitle: string;
+}) {
+  return (
+    <div
+      className="shrink-0 flex items-center gap-1.5 px-4 py-1.5 text-[11px] flex-wrap"
+      style={{
+        background: 'var(--bg-card)',
+        borderBottom: '1px solid var(--border-color)',
+        color: 'var(--text-secondary)',
+      }}
+    >
+      <span style={{ color: 'var(--text-secondary)' }}>第{volumeIdx + 1}卷</span>
+      <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
+        {volumeTitle || '未命名卷'}
+      </span>
+      <span style={{ color: 'var(--border-color)' }}>›</span>
+      <span style={{ color: 'var(--text-secondary)' }}>第{chapterIdx + 1}章</span>
+      <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
+        {chapterTitle || '未命名章'}
+      </span>
+      <span style={{ color: 'var(--border-color)' }}>›</span>
+      <span className="font-semibold" style={{ color: 'var(--accent)' }}>
+        {sectionTitle || '未命名节'}
+      </span>
+    </div>
+  );
 }
 
 function BottomStatusBar({

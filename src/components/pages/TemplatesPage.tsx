@@ -6,7 +6,11 @@ import type {
   CharacterTemplate,
 } from '../../types';
 import { AttributeTable } from '../character/AttributeTable';
-import type { AttributeType } from '../character/AttributeTable';
+import { ConfirmDialog } from '../common/ConfirmDialog';
+import { InputDialog } from '../common/InputDialog';
+import { UploadProgressDialog } from '../common/UploadProgressDialog';
+import { useToastStore } from '../../store/toastStore';
+import { uploadImagesWithProgress, type UploadProgressEvent } from '../../utils/uploadImage';
 
 interface TemplatesPageProps {
   onBack: () => void;
@@ -102,30 +106,115 @@ function WorldTemplatesPanel() {
   const create = useMetaStore((s) => s.createWorldSettingTemplate);
   const update = useMetaStore((s) => s.updateWorldSettingTemplate);
   const remove = useMetaStore((s) => s.deleteWorldSettingTemplate);
+  const batchRemove = useMetaStore((s) => s.batchDeleteWorldSettingTemplates);
+  const reorder = useMetaStore((s) => s.reorderWorldSettingTemplates);
 
   const [editing, setEditing] = useState<WorldSettingTemplate | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [pendingBatchDelete, setPendingBatchDelete] = useState<{ ids: string[]; names: string[] } | null>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+
+  const allSelectableSelected = templates.length > 0 && templates.every((t) => selectedIds.includes(t.id));
+
+  const toggleSelectAll = () => {
+    if (allSelectableSelected) setSelectedIds([]);
+    else setSelectedIds(templates.map((t) => t.id));
+  };
+
+  const toggleSelect = (id: string, sel: boolean) => {
+    setSelectedIds((prev) => (sel ? [...new Set([...prev, id])] : prev.filter((x) => x !== id)));
+  };
+
+  const handleBatchDelete = async () => {
+    if (!pendingBatchDelete) return;
+    const target = pendingBatchDelete;
+    setPendingBatchDelete(null);
+    try {
+      const res = await batchRemove(target.ids);
+      useToastStore.getState().showToast(`已删除 ${res.deleted} 个模板`, 'success');
+      setSelectedIds((prev) => prev.filter((id) => !target.ids.includes(id)));
+    } catch (err) {
+      useToastStore.getState().showToast((err as Error).message, 'error');
+    }
+  };
 
   const handleCreate = async () => {
     const id = await create({ title: '新的世界观模板', content: '' });
     const t = useMetaStore.getState().worldSettingTemplates.find((x) => x.id === id);
     if (t) setEditing(t);
-    setCreating(false);
+  };
+
+  const handleDrop = (dropTargetId: string) => {
+    if (!dragId || dragId === dropTargetId) {
+      setDragId(null);
+      setDragOverId(null);
+      return;
+    }
+    const ids = templates.map((t) => t.id);
+    const fromIdx = ids.indexOf(dragId);
+    const toIdx = ids.indexOf(dropTargetId);
+    if (fromIdx < 0 || toIdx < 0) {
+      setDragId(null);
+      setDragOverId(null);
+      return;
+    }
+    const next = ids.slice();
+    next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, dragId);
+    reorder(next);
+    setDragId(null);
+    setDragOverId(null);
   };
 
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
-        <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-          共 {templates.length} 条世界观模板
+        <div className="text-sm flex items-center gap-3" style={{ color: 'var(--text-secondary)' }}>
+          <span>共 {templates.length} 条世界观模板</span>
+          {selectedIds.length > 0 && (
+            <span style={{ color: 'var(--accent)' }}>已选 {selectedIds.length} 项</span>
+          )}
         </div>
-        <button
-          onClick={handleCreate}
-          className="px-4 py-1.5 text-sm rounded-md transition-colors"
-          style={{ background: 'var(--accent-bg)', color: 'var(--accent)', border: '1px solid var(--accent)' }}
-        >
-          + 新建模板
-        </button>
+        <div className="flex items-center gap-2">
+          {templates.length > 0 && (
+            <button
+              onClick={toggleSelectAll}
+              className="px-3 py-1.5 text-sm rounded-md transition-colors"
+              style={{
+                background: 'transparent',
+                color: 'var(--text-secondary)',
+                border: '1px solid var(--border-color)',
+              }}
+            >
+              {allSelectableSelected ? '取消全选' : '全选'}
+            </button>
+          )}
+          {selectedIds.length > 0 && (
+            <button
+              onClick={() => {
+                const names = templates.filter((t) => selectedIds.includes(t.id)).map((t) => t.title);
+                setPendingBatchDelete({ ids: [...selectedIds], names });
+              }}
+              className="px-3 py-1.5 text-sm rounded-md transition-colors"
+              style={{
+                background: 'var(--danger, #d33)',
+                color: '#fff',
+                border: '1px solid var(--danger, #d33)',
+              }}
+            >
+              批量删除 ({selectedIds.length})
+            </button>
+          )}
+          <button
+            onClick={handleCreate}
+            className="px-4 py-1.5 text-sm rounded-md transition-colors"
+            style={{ background: 'var(--accent-bg)', color: 'var(--accent)', border: '1px solid var(--accent)' }}
+          >
+            + 新建模板
+          </button>
+        </div>
       </div>
 
       {templates.length === 0 ? (
@@ -139,10 +228,23 @@ function WorldTemplatesPanel() {
             <WorldTemplateCard
               key={t.id}
               template={t}
+              selected={selectedIds.includes(t.id)}
+              isDragOver={dragOverId === t.id && dragId !== t.id}
+              onSelectChange={(sel) => toggleSelect(t.id, sel)}
               onEdit={() => setEditing(t)}
               onDelete={() => {
-                if (confirm(`确认删除模板「${t.title}」？`)) remove(t.id);
+                setPendingDelete({ id: t.id, name: t.title });
               }}
+              onDragStart={() => setDragId(t.id)}
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (dragId && dragId !== t.id) setDragOverId(t.id);
+              }}
+              onDragEnd={() => {
+                setDragId(null);
+                setDragOverId(null);
+              }}
+              onDrop={() => handleDrop(t.id)}
             />
           ))}
         </div>
@@ -158,37 +260,115 @@ function WorldTemplatesPanel() {
           }}
         />
       )}
+
+      {pendingDelete && (
+        <ConfirmDialog
+          open={true}
+          title="删除确认"
+          message={`确定删除模板「${pendingDelete.name}」？此操作不可撤销。`}
+          danger
+          onConfirm={() => {
+            remove(pendingDelete.id);
+            useToastStore.getState().showToast('模板已删除', 'success');
+            setPendingDelete(null);
+          }}
+          onCancel={() => setPendingDelete(null)}
+        />
+      )}
+
+      {pendingBatchDelete && (
+        <ConfirmDialog
+          open={true}
+          title="批量删除确认"
+          message={`确定删除以下 ${pendingBatchDelete.ids.length} 个模板？${pendingBatchDelete.ids.length <= 5 ? `\n• ${pendingBatchDelete.names.join('\n• ')}` : ''}\n此操作不可撤销。`}
+          danger
+          onConfirm={handleBatchDelete}
+          onCancel={() => setPendingBatchDelete(null)}
+        />
+      )}
     </div>
   );
 }
 
 function WorldTemplateCard({
   template,
+  selected,
+  isDragOver,
+  onSelectChange,
   onEdit,
   onDelete,
+  onDragStart,
+  onDragOver,
+  onDragEnd,
+  onDrop,
 }: {
   template: WorldSettingTemplate;
+  selected: boolean;
+  isDragOver?: boolean;
+  onSelectChange: (sel: boolean) => void;
   onEdit: () => void;
   onDelete: () => void;
+  onDragStart?: () => void;
+  onDragOver?: (e: React.DragEvent) => void;
+  onDragEnd?: () => void;
+  onDrop?: () => void;
 }) {
-  const isPreset = !!template.is_preset;
+  const isDraggable = !!onDragStart;
   return (
     <div
-      className="rounded-xl p-4 transition-shadow hover:shadow-md"
-      style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
+      draggable={isDraggable}
+      onDragStart={isDraggable ? onDragStart : undefined}
+      onDragOver={isDraggable ? onDragOver : undefined}
+      onDragEnd={isDraggable ? onDragEnd : undefined}
+      onDrop={isDraggable ? onDrop : undefined}
+      className="rounded-xl p-4 transition-shadow hover:shadow-md relative"
+      style={{
+        background: selected ? 'var(--accent-bg)' : 'var(--bg-card)',
+        border: `1px solid ${isDragOver ? 'var(--accent)' : selected ? 'var(--accent)' : 'var(--border-color)'}`,
+        borderTopWidth: isDragOver ? 3 : 1,
+        borderTopColor: isDragOver ? 'var(--accent)' : (selected ? 'var(--accent)' : 'var(--border-color)'),
+        cursor: isDraggable ? 'grab' : undefined,
+      }}
     >
-      <div className="flex items-center gap-2">
+      {/* 多选复选框（左上角） */}
+      <label
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        style={{ position: 'absolute', top: 8, left: 8, cursor: 'pointer', lineHeight: 0 }}
+        title="勾选以加入批量删除"
+      >
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={(e) => onSelectChange(e.target.checked)}
+          onDragStart={(e) => e.preventDefault()}
+          style={{ width: 16, height: 16, cursor: 'pointer' }}
+        />
+      </label>
+      {/* 拖动 handle */}
+      {isDraggable && (
+        <span
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          style={{
+            position: 'absolute',
+            top: 8,
+            left: 28,
+            cursor: 'grab',
+            color: 'var(--text-secondary)',
+            fontSize: 12,
+            userSelect: 'none',
+          }}
+          title="按住拖动以重排序"
+        >
+          ⋮⋮
+        </span>
+      )}
+
+      <div className="flex items-center gap-2 pr-2" style={{ paddingLeft: isDraggable ? 48 : 24 }}>
         <div className="font-medium truncate" style={{ color: 'var(--text-primary)' }}>
           {template.title}
         </div>
-        {isPreset && (
-          <span
-            className="text-[10px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0"
-            style={{ background: 'var(--accent-bg)', color: 'var(--accent)', border: '1px solid var(--accent)' }}
-          >
-            预置
-          </span>
-        )}
       </div>
       <div className="mt-1.5 text-xs line-clamp-3" style={{ color: 'var(--text-secondary)' }}>
         {(template.content || '').replace(/<[^>]+>/g, '').slice(0, 120) || '（无内容）'}
@@ -196,26 +376,24 @@ function WorldTemplateCard({
       <div className="mt-3 text-xs" style={{ color: 'var(--text-muted)' }}>
         更新于 {new Date(template.updated_at).toLocaleString()}
       </div>
-      {!isPreset && (
-        <div className="mt-3 flex justify-end gap-2">
-          <button
-            onClick={onEdit}
-            className="text-xs px-2.5 py-1 rounded-md transition-colors"
-            style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
-          >
-            编辑
-          </button>
-          <button
-            onClick={onDelete}
-            className="text-xs px-2.5 py-1 rounded-md transition-colors"
-            style={{ background: 'transparent', color: 'var(--text-secondary)' }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)' }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
-          >
-            删除
-          </button>
-        </div>
-      )}
+      <div className="mt-3 flex justify-end gap-2">
+        <button
+          onClick={onEdit}
+          className="text-xs px-2.5 py-1 rounded-md transition-colors"
+          style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
+        >
+          编辑
+        </button>
+        <button
+          onClick={onDelete}
+          className="text-xs px-2.5 py-1 rounded-md transition-colors"
+          style={{ background: 'transparent', color: 'var(--text-secondary)' }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)' }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+        >
+          删除
+        </button>
+      </div>
     </div>
   );
 }
@@ -278,8 +456,39 @@ function CharacterTemplatesPanel() {
   const create = useMetaStore((s) => s.createCharacterTemplate);
   const update = useMetaStore((s) => s.updateCharacterTemplate);
   const remove = useMetaStore((s) => s.deleteCharacterTemplate);
+  const batchRemove = useMetaStore((s) => s.batchDeleteCharacterTemplates);
+  const reorder = useMetaStore((s) => s.reorderCharacterTemplates);
 
   const [editing, setEditing] = useState<CharacterTemplate | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [pendingBatchDelete, setPendingBatchDelete] = useState<{ ids: string[]; names: string[] } | null>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+
+  const allSelectableSelected = templates.length > 0 && templates.every((t) => selectedIds.includes(t.id));
+
+  const toggleSelectAll = () => {
+    if (allSelectableSelected) setSelectedIds([]);
+    else setSelectedIds(templates.map((t) => t.id));
+  };
+
+  const toggleSelect = (id: string, sel: boolean) => {
+    setSelectedIds((prev) => (sel ? [...new Set([...prev, id])] : prev.filter((x) => x !== id)));
+  };
+
+  const handleBatchDelete = async () => {
+    if (!pendingBatchDelete) return;
+    const target = pendingBatchDelete;
+    setPendingBatchDelete(null);
+    try {
+      const res = await batchRemove(target.ids);
+      useToastStore.getState().showToast(`已删除 ${res.deleted} 个模板`, 'success');
+      setSelectedIds((prev) => prev.filter((id) => !target.ids.includes(id)));
+    } catch (err) {
+      useToastStore.getState().showToast((err as Error).message, 'error');
+    }
+  };
 
   const handleCreate = async () => {
     const id = await create({ name: '新人物模板' });
@@ -287,19 +496,75 @@ function CharacterTemplatesPanel() {
     if (t) setEditing(t);
   };
 
+  const handleDrop = (dropTargetId: string) => {
+    if (!dragId || dragId === dropTargetId) {
+      setDragId(null);
+      setDragOverId(null);
+      return;
+    }
+    const ids = templates.map((t) => t.id);
+    const fromIdx = ids.indexOf(dragId);
+    const toIdx = ids.indexOf(dropTargetId);
+    if (fromIdx < 0 || toIdx < 0) {
+      setDragId(null);
+      setDragOverId(null);
+      return;
+    }
+    const next = ids.slice();
+    next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, dragId);
+    reorder(next);
+    setDragId(null);
+    setDragOverId(null);
+  };
+
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
-        <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-          共 {templates.length} 个人物模板
+        <div className="text-sm flex items-center gap-3" style={{ color: 'var(--text-secondary)' }}>
+          <span>共 {templates.length} 个人物模板</span>
+          {selectedIds.length > 0 && (
+            <span style={{ color: 'var(--accent)' }}>已选 {selectedIds.length} 项</span>
+          )}
         </div>
-        <button
-          onClick={handleCreate}
-          className="px-4 py-1.5 text-sm rounded-md transition-colors"
-          style={{ background: 'var(--accent-bg)', color: 'var(--accent)', border: '1px solid var(--accent)' }}
-        >
-          + 新建模板
-        </button>
+        <div className="flex items-center gap-2">
+          {templates.length > 0 && (
+            <button
+              onClick={toggleSelectAll}
+              className="px-3 py-1.5 text-sm rounded-md transition-colors"
+              style={{
+                background: 'transparent',
+                color: 'var(--text-secondary)',
+                border: '1px solid var(--border-color)',
+              }}
+            >
+              {allSelectableSelected ? '取消全选' : '全选'}
+            </button>
+          )}
+          {selectedIds.length > 0 && (
+            <button
+              onClick={() => {
+                const names = templates.filter((t) => selectedIds.includes(t.id)).map((t) => t.name);
+                setPendingBatchDelete({ ids: [...selectedIds], names });
+              }}
+              className="px-3 py-1.5 text-sm rounded-md transition-colors"
+              style={{
+                background: 'var(--danger, #d33)',
+                color: '#fff',
+                border: '1px solid var(--danger, #d33)',
+              }}
+            >
+              批量删除 ({selectedIds.length})
+            </button>
+          )}
+          <button
+            onClick={handleCreate}
+            className="px-4 py-1.5 text-sm rounded-md transition-colors"
+            style={{ background: 'var(--accent-bg)', color: 'var(--accent)', border: '1px solid var(--accent)' }}
+          >
+            + 新建模板
+          </button>
+        </div>
       </div>
 
       {templates.length === 0 ? (
@@ -313,10 +578,23 @@ function CharacterTemplatesPanel() {
             <CharacterTemplateCard
               key={t.id}
               template={t}
+              selected={selectedIds.includes(t.id)}
+              isDragOver={dragOverId === t.id && dragId !== t.id}
+              onSelectChange={(sel) => toggleSelect(t.id, sel)}
               onEdit={() => setEditing(t)}
               onDelete={() => {
-                if (confirm(`确认删除模板「${t.name}」？`)) remove(t.id);
+                setPendingDelete({ id: t.id, name: t.name });
               }}
+              onDragStart={() => setDragId(t.id)}
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (dragId && dragId !== t.id) setDragOverId(t.id);
+              }}
+              onDragEnd={() => {
+                setDragId(null);
+                setDragOverId(null);
+              }}
+              onDrop={() => handleDrop(t.id)}
             />
           ))}
         </div>
@@ -332,26 +610,112 @@ function CharacterTemplatesPanel() {
           }}
         />
       )}
+
+      {pendingDelete && (
+        <ConfirmDialog
+          open={true}
+          title="删除确认"
+          message={`确定删除模板「${pendingDelete.name}」？此操作不可撤销。`}
+          danger
+          onConfirm={() => {
+            remove(pendingDelete.id);
+            useToastStore.getState().showToast('模板已删除', 'success');
+            setPendingDelete(null);
+          }}
+          onCancel={() => setPendingDelete(null)}
+        />
+      )}
+
+      {pendingBatchDelete && (
+        <ConfirmDialog
+          open={true}
+          title="批量删除确认"
+          message={`确定删除以下 ${pendingBatchDelete.ids.length} 个模板？${pendingBatchDelete.ids.length <= 5 ? `\n• ${pendingBatchDelete.names.join('\n• ')}` : ''}\n此操作不可撤销。`}
+          danger
+          onConfirm={handleBatchDelete}
+          onCancel={() => setPendingBatchDelete(null)}
+        />
+      )}
     </div>
   );
 }
 
 function CharacterTemplateCard({
   template,
+  selected,
+  isDragOver,
+  onSelectChange,
   onEdit,
   onDelete,
+  onDragStart,
+  onDragOver,
+  onDragEnd,
+  onDrop,
 }: {
   template: CharacterTemplate;
+  selected: boolean;
+  isDragOver?: boolean;
+  onSelectChange: (sel: boolean) => void;
   onEdit: () => void;
   onDelete: () => void;
+  onDragStart?: () => void;
+  onDragOver?: (e: React.DragEvent) => void;
+  onDragEnd?: () => void;
+  onDrop?: () => void;
 }) {
-  const isPreset = !!template.is_preset;
+  const isDraggable = !!onDragStart;
   return (
     <div
-      className="rounded-xl p-4 transition-shadow hover:shadow-md"
-      style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
+      draggable={isDraggable}
+      onDragStart={isDraggable ? onDragStart : undefined}
+      onDragOver={isDraggable ? onDragOver : undefined}
+      onDragEnd={isDraggable ? onDragEnd : undefined}
+      onDrop={isDraggable ? onDrop : undefined}
+      className="rounded-xl p-4 transition-shadow hover:shadow-md relative"
+      style={{
+        background: selected ? 'var(--accent-bg)' : 'var(--bg-card)',
+        border: `1px solid ${isDragOver ? 'var(--accent)' : selected ? 'var(--accent)' : 'var(--border-color)'}`,
+        borderTopWidth: isDragOver ? 3 : 1,
+        borderTopColor: isDragOver ? 'var(--accent)' : (selected ? 'var(--accent)' : 'var(--border-color)'),
+        cursor: isDraggable ? 'grab' : undefined,
+      }}
     >
-      <div className="flex items-center gap-3">
+      {/* 多选复选框（左上角） */}
+      <label
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        style={{ position: 'absolute', top: 8, left: 8, cursor: 'pointer', lineHeight: 0 }}
+        title="勾选以加入批量删除"
+      >
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={(e) => onSelectChange(e.target.checked)}
+          onDragStart={(e) => e.preventDefault()}
+          style={{ width: 16, height: 16, cursor: 'pointer' }}
+        />
+      </label>
+      {/* 拖动 handle */}
+      {isDraggable && (
+        <span
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          style={{
+            position: 'absolute',
+            top: 8,
+            left: 28,
+            cursor: 'grab',
+            color: 'var(--text-secondary)',
+            fontSize: 12,
+            userSelect: 'none',
+          }}
+          title="按住拖动以重排序"
+        >
+          ⋮⋮
+        </span>
+      )}
+
+      <div className="flex items-center gap-3" style={{ paddingLeft: isDraggable ? 48 : 24 }}>
         <div
           className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0"
           style={{ background: 'var(--bg-hover)' }}
@@ -376,14 +740,6 @@ function CharacterTemplateCard({
             <div className="font-medium truncate" style={{ color: 'var(--text-primary)' }}>
               {template.name}
             </div>
-            {isPreset && (
-              <span
-                className="text-[10px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0"
-                style={{ background: 'var(--accent-bg)', color: 'var(--accent)', border: '1px solid var(--accent)' }}
-              >
-                预置
-              </span>
-            )}
           </div>
           <div className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>
             {template.personality || '（无性格描述）'}
@@ -393,24 +749,22 @@ function CharacterTemplateCard({
       <div className="mt-3 text-xs" style={{ color: 'var(--text-muted)' }}>
         更新于 {new Date(template.updated_at).toLocaleString()}
       </div>
-      {!isPreset && (
-        <div className="mt-3 flex justify-end gap-2">
-          <button
-            onClick={onEdit}
-            className="text-xs px-2.5 py-1 rounded-md transition-colors"
-            style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
-          >
-            编辑
-          </button>
-          <button
-            onClick={onDelete}
-            className="text-xs px-2.5 py-1 rounded-md transition-colors"
-            style={{ background: 'transparent', color: 'var(--text-secondary)' }}
-          >
-            删除
-          </button>
-        </div>
-      )}
+      <div className="mt-3 flex justify-end gap-2">
+        <button
+          onClick={onEdit}
+          className="text-xs px-2.5 py-1 rounded-md transition-colors"
+          style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
+        >
+          编辑
+        </button>
+        <button
+          onClick={onDelete}
+          className="text-xs px-2.5 py-1 rounded-md transition-colors"
+          style={{ background: 'transparent', color: 'var(--text-secondary)' }}
+        >
+          删除
+        </button>
+      </div>
     </div>
   );
 }
@@ -428,14 +782,13 @@ function CharacterTemplateEditor({
   const [avatar, setAvatar] = useState(template.avatar || '');
   const [personality, setPersonality] = useState(template.personality || '');
   const [notes, setNotes] = useState(template.notes || '');
-  const [attrTypes, setAttrTypes] = useState<Record<string, AttributeType>>(() => {
-    const t: Record<string, AttributeType> = {};
-    for (const [k, v] of Object.entries(template.attributes || {})) {
-      if (typeof v === 'number') t[k] = 'number';
-      else t[k] = 'text';
-    }
-    return t;
-  });
+  /**
+   * 实时维护模板的属性（用户在 AttributeTable 里编辑时同步更新，save 时使用）。
+   * 不再与外部 attrTypes state 同步，根除属性失焦 bug（参考 2026-06-17 失焦修复）。
+   */
+  const [liveAttributes, setLiveAttributes] = useState<Record<string, string | number>>(
+    () => template.attributes || {},
+  );
 
   const [variants, setVariants] = useState<{ id?: string; name: string; url: string }[]>(
     (template.variants || []).map((v) => ({ id: v.id, name: v.name, url: v.url }))
@@ -443,6 +796,24 @@ function CharacterTemplateEditor({
   const [newVariantName, setNewVariantName] = useState('');
   const [newVariantUrl, setNewVariantUrl] = useState('');
   const newVariantFileRef = useRef<HTMLInputElement | null>(null);
+  const batchUploadRef = useRef<HTMLInputElement | null>(null);
+  const [pendingDeleteVariant, setPendingDeleteVariant] = useState<number | null>(null);
+  const [pendingDeleteTemplate, setPendingDeleteTemplate] = useState(false);
+  const [batchAttrOpen, setBatchAttrOpen] = useState(false);
+  const [batchVariantOpen, setBatchVariantOpen] = useState(false);
+
+  // 上传进度弹窗状态
+  const [uploadTasks, setUploadTasks] = useState<UploadProgressEvent[]>([]);
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+
+  useEffect(() => {
+    setName(template.name);
+    setAvatar(template.avatar || '');
+    setPersonality(template.personality || '');
+    setNotes(template.notes || '');
+    setLiveAttributes(template.attributes || {});
+    setVariants((template.variants || []).map((v) => ({ id: v.id, name: v.name, url: v.url })));
+  }, [template.id]);
 
   const handleAddVariant = () => {
     const url = newVariantUrl.trim();
@@ -453,12 +824,85 @@ function CharacterTemplateEditor({
     setNewVariantUrl('');
   };
 
-  const handleVariantFile = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      setNewVariantUrl(String(reader.result || ''));
-    };
-    reader.readAsDataURL(file);
+  const handleVariantFile = async (file: File) => {
+    setUploadTasks([
+      {
+        taskId: `${Date.now()}_0`,
+        fileName: file.name || 'variant',
+        status: 'pending',
+        progress: 0,
+      },
+    ]);
+    setUploadDialogOpen(true);
+    const [res] = await uploadImagesWithProgress([file], (e) => {
+      setUploadTasks((prev) =>
+        prev.map((t) => (t.taskId === e.taskId ? { ...t, ...e } : t)),
+      );
+    });
+    if (res.ok && res.url) {
+      setNewVariantUrl(res.url);
+      useToastStore.getState().showToast('差分图片就绪', 'success');
+    } else {
+      useToastStore
+        .getState()
+        .showToast(
+          `${res.error || '图片上传失败'}，请检查网络后重新选择`,
+          'error',
+        );
+    }
+  };
+
+  /**
+   * 批量上传多张图片，差分名默认取文件名（去扩展名），最多 50 张
+   */
+  const handleBatchUploadVariants = async (files: FileList) => {
+    const list = Array.from(files);
+    if (list.length === 0) return;
+    if (list.length > 50) {
+      useToastStore.getState().showToast('批量上传最多 50 张图片', 'warning');
+    }
+    const accepted = list.slice(0, 50);
+    setUploadTasks(
+      accepted.map((f, i) => ({
+        taskId: `${Date.now()}_${i}`,
+        fileName: f.name || `image_${i}`,
+        status: 'pending',
+        progress: 0,
+      })),
+    );
+    setUploadDialogOpen(true);
+    const results = await uploadImagesWithProgress(accepted, (e) => {
+      setUploadTasks((prev) =>
+        prev.map((t) => (t.taskId === e.taskId ? { ...t, ...e } : t)),
+      );
+    });
+    const successes: { name: string; url: string }[] = [];
+    const failures: { name: string; reason: string }[] = [];
+    results.forEach((r, i) => {
+      const fname = accepted[i]?.name || `image_${i}`;
+      if (r.ok && r.url) {
+        const dotIdx = fname.lastIndexOf('.');
+        const name = dotIdx > 0 ? fname.slice(0, dotIdx) : fname;
+        successes.push({ name, url: r.url });
+      } else {
+        failures.push({
+          name: fname,
+          reason: r.error || '上传失败',
+        });
+      }
+    });
+    if (successes.length > 0) {
+      setVariants([...variants, ...successes]);
+    }
+    if (failures.length === 0) {
+      useToastStore.getState().showToast(`已批量上传 ${successes.length} 张差分`, 'success');
+    } else if (successes.length > 0) {
+      useToastStore
+        .getState()
+        .showToast(`上传完成：成功 ${successes.length}，失败 ${failures.length}（${failures[0].name}: ${failures[0].reason}）`, 'warning');
+    } else {
+      useToastStore.getState().showToast(`批量上传失败：${failures[0].reason}`, 'error');
+    }
   };
 
   const updateVariant = (index: number, updates: { name?: string; url?: string }) => {
@@ -468,9 +912,7 @@ function CharacterTemplateEditor({
   };
 
   const deleteVariant = (index: number) => {
-    if (window.confirm(`删除差分"${variants[index].name}"？`)) {
-      setVariants(variants.filter((_, i) => i !== index));
-    }
+    setPendingDeleteVariant(index);
   };
 
   const moveVariant = (index: number, dir: -1 | 1) => {
@@ -490,17 +932,64 @@ function CharacterTemplateEditor({
     reader.readAsDataURL(file);
   };
 
-  const handleAttrChange = (
-    next: Record<string, string | number>,
-    nextTypes: Record<string, AttributeType>,
-  ) => {
-    setAttrTypes(nextTypes);
+  const handleAttrChange = (next: Record<string, string | number>) => {
+    setLiveAttributes(next);
+  };
+
+  /** 批量添加属性：解析"key:value"多行/逗号分隔输入，合并到 liveAttributes */
+  const handleBatchAddAttributes = (text: string) => {
+    const entries = parseBatchEntries(text);
+    if (entries.length === 0) {
+      useToastStore.getState().showToast('没有解析到有效属性', 'warning');
+      setBatchAttrOpen(false);
+      return;
+    }
+    const merged: Record<string, string | number> = { ...liveAttributes };
+    for (const { key, value } of entries) {
+      const num = Number(value);
+      if (value !== '' && !isNaN(num) && /^-?\d+(\.\d+)?$/.test(value)) {
+        merged[key] = num;
+      } else {
+        merged[key] = value;
+      }
+    }
+    setLiveAttributes(merged);
+    useToastStore.getState().showToast(`已批量添加 ${entries.length} 条属性`, 'success');
+    setBatchAttrOpen(false);
+  };
+
+  /** 批量添加差分：解析"差分名:图片URL"多行输入 */
+  const handleBatchAddVariants = (text: string) => {
+    const entries = parseBatchEntries(text);
+    if (entries.length === 0) {
+      useToastStore.getState().showToast('没有解析到有效差分', 'warning');
+      setBatchVariantOpen(false);
+      return;
+    }
+    const urlRe = /^https?:\/\//i;
+    const accepted: { name: string; url: string }[] = [];
+    const skipped: string[] = [];
+    for (const { key, value } of entries) {
+      if (!urlRe.test(value)) {
+        skipped.push(key);
+        continue;
+      }
+      accepted.push({ name: key, url: value });
+    }
+    if (accepted.length > 0) {
+      setVariants([...variants, ...accepted]);
+      useToastStore.getState().showToast(`已批量添加 ${accepted.length} 条差分`, 'success');
+    }
+    if (skipped.length > 0) {
+      useToastStore.getState().showToast(`已跳过 ${skipped.length} 条无效 URL 的差分`, 'warning');
+    }
+    setBatchVariantOpen(false);
   };
 
   const save = () => {
     const trimmed = name.trim();
     if (!trimmed) {
-      alert('姓名不能为空');
+      useToastStore.getState().showToast('姓名不能为空', 'error');
       return;
     }
     onSave({
@@ -508,7 +997,7 @@ function CharacterTemplateEditor({
       avatar: avatar.trim(),
       personality,
       notes,
-      attributes: template.attributes || {},
+      attributes: liveAttributes,
       variants: variants.map((v, idx) => ({
         id: v.id || crypto.randomUUID(),
         name: v.name,
@@ -648,10 +1137,19 @@ function CharacterTemplateEditor({
           </div>
 
           <div>
-            <label className="text-xs block mb-1" style={{ color: labelColor }}>属性表</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs" style={{ color: labelColor }}>属性表</label>
+              <button
+                onClick={() => setBatchAttrOpen(true)}
+                className="text-[10px] px-2 py-0.5 rounded"
+                style={{ background: 'var(--bg-sidebar)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                title="批量添加属性，每行格式：属性名:属性值"
+              >
+                批量添加
+              </button>
+            </div>
             <AttributeTable
-              attributes={template.attributes || {}}
-              valueTypes={attrTypes}
+              attributes={liveAttributes}
               onChange={handleAttrChange}
             />
           </div>
@@ -662,9 +1160,40 @@ function CharacterTemplateEditor({
               <label className="text-xs" style={{ color: labelColor }}>
                 人物差分（表情/姿势/服饰等图片变体）
               </label>
-              <span className="text-[10px]" style={{ color: labelColor }}>
-                共 {variants.length} 个
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px]" style={{ color: labelColor }}>
+                  共 {variants.length} 个
+                </span>
+                <button
+                  onClick={() => setBatchVariantOpen(true)}
+                  className="text-[10px] px-2 py-0.5 rounded"
+                  style={{ background: 'var(--bg-sidebar)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                  title="批量添加差分，每行格式：差分名:图片URL"
+                >
+                  批量添加
+                </button>
+                <button
+                  onClick={() => batchUploadRef.current?.click()}
+                  className="text-[10px] px-2 py-0.5 rounded"
+                  style={{ background: 'var(--bg-sidebar)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                  title="从本机选择多张图片批量上传到 sm.ms，差分名取文件名"
+                >
+                  📂 批量上传
+                </button>
+                <input
+                  ref={batchUploadRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files.length > 0) {
+                      handleBatchUploadVariants(e.target.files);
+                    }
+                    e.target.value = '';
+                  }}
+                />
+              </div>
             </div>
 
             {/* 现有差分列表 */}
@@ -785,12 +1314,7 @@ function CharacterTemplateEditor({
           style={{ borderTop: '1px solid var(--border-color)', background: 'var(--bg-sidebar)' }}
         >
           <button
-            onClick={() => {
-              if (window.confirm(`删除模板"${template.name}"？`)) {
-                useMetaStore.getState().deleteCharacterTemplate(template.id);
-                onClose();
-              }
-            }}
+            onClick={() => setPendingDeleteTemplate(true)}
             className="text-xs px-2 py-1 rounded transition-colors"
             style={{ background: 'var(--danger-soft)', color: 'var(--danger)' }}
             onMouseEnter={(e) => {
@@ -826,22 +1350,90 @@ function CharacterTemplateEditor({
           </div>
         </div>
       </div>
+
+      {pendingDeleteVariant !== null && (
+        <ConfirmDialog
+          open={true}
+          title="删除确认"
+          message={`确定删除差分"${variants[pendingDeleteVariant].name}"？`}
+          danger
+          onConfirm={() => {
+            setVariants(variants.filter((_, i) => i !== pendingDeleteVariant));
+            setPendingDeleteVariant(null);
+          }}
+          onCancel={() => setPendingDeleteVariant(null)}
+        />
+      )}
+
+      {pendingDeleteTemplate && (
+        <ConfirmDialog
+          open={true}
+          title="删除确认"
+          message={`确定删除模板"${template.name}"？此操作不可撤销。`}
+          danger
+          onConfirm={() => {
+            useMetaStore.getState().deleteCharacterTemplate(template.id);
+            useToastStore.getState().showToast('模板已删除', 'success');
+            setPendingDeleteTemplate(false);
+            onClose();
+          }}
+          onCancel={() => setPendingDeleteTemplate(false)}
+        />
+      )}
+
+      <InputDialog
+        open={batchAttrOpen}
+        title="批量添加属性"
+        placeholder="每行一条，格式：属性名:属性值&#10;示例：&#10;HP:100&#10;MP:50&#10;好感度:80"
+        onConfirm={handleBatchAddAttributes}
+        onCancel={() => setBatchAttrOpen(false)}
+      />
+
+      <InputDialog
+        open={batchVariantOpen}
+        title="批量添加差分"
+        placeholder="每行一条，格式：差分名:图片URL&#10;示例：&#10;微笑:https://example.com/smile.png&#10;哭泣:https://example.com/cry.png"
+        onConfirm={handleBatchAddVariants}
+        onCancel={() => setBatchVariantOpen(false)}
+      />
+
+      {/* 上传进度弹窗 */}
+      <UploadProgressDialog
+        open={uploadDialogOpen}
+        tasks={uploadTasks}
+        onClose={() => setUploadDialogOpen(false)}
+      />
     </div>
   );
 }
 
-function parseAttrText(s: string): Record<string, string | number> {
-  const out: Record<string, string | number> = {};
-  s.split(/\r?\n/).forEach((line) => {
-    const m = line.match(/^([^=]+?)\s*=\s*(.*)$/);
-    if (!m) return;
-    const k = m[1].trim();
-    const v = m[2].trim();
-    if (!k) return;
-    const num = Number(v);
-    out[k] = !isNaN(num) && v !== '' && /^-?\d+(\.\d+)?$/.test(v) ? num : v;
-  });
-  return out;
+/**
+ * 解析 "key:value" 多行/逗号输入，返回 [{ key, value }, ...] 数组。
+ * 用于"批量添加属性 / 差分"对话框。
+ *  - 支持换行分隔与逗号分隔
+ *  - 兼容空白
+ *  - 自动忽略空行
+ */
+function parseBatchEntries(text: string): { key: string; value: string }[] {
+  const result: { key: string; value: string }[] = [];
+  if (!text) return result;
+  // 先按行分割，每行再按逗号分割（兼容多行 + 单行逗号）
+  for (const line of text.split(/\r?\n/)) {
+    const trimmedLine = line.trim();
+    if (!trimmedLine) continue;
+    for (const seg of trimmedLine.split(',')) {
+      const segTrim = seg.trim();
+      if (!segTrim) continue;
+      // 第一个冒号分隔 key/value
+      const colonIdx = segTrim.indexOf(':');
+      if (colonIdx <= 0) continue;  // 必须有冒号且 key 非空
+      const key = segTrim.slice(0, colonIdx).trim();
+      const value = segTrim.slice(colonIdx + 1).trim();
+      if (!key) continue;
+      result.push({ key, value });
+    }
+  }
+  return result;
 }
 
 // ============================================================

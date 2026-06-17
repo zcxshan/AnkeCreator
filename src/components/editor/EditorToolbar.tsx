@@ -8,6 +8,9 @@ import {
   NGA_DEFAULT_FONT_SIZE,
   NGA_DEFAULT_COLOR,
   NGA_DEFAULT_IMAGE_SIZE,
+  ngaColorToCSS,
+  ngaSizeToCSS,
+  ngaFontToCSS,
 } from '../../types';
 import {
   execBold,
@@ -23,6 +26,8 @@ import {
   isItalicActive,
   isUnderlineActive,
   isStrikeActive,
+  isSupActive,
+  isSubActive,
   getEffectiveColorName,
   getEffectiveFontSizePercent,
   getEffectiveFontFamilyValue,
@@ -32,16 +37,32 @@ import {
   toggleFontFamily,
   toggleFontSize,
   toggleColor,
+  applyColor,
+  applyFontSize,
+  applyFontFamily,
   insertCollapseBlock,
   insertQuoteBlock,
   insertTable,
   insertCodeBlock,
   insertHorizontalRuleNGA,
   insertNgaLink,
+  insertImageBlock,
   insertImageBlockWithSize,
   setImageBlockAlign,
   removeLinkAtCursor,
 } from './contenteditableUtils';
+import { useEditorStore } from '../../store/editorStore';
+import { useToastStore } from '../../store/toastStore';
+import { useDiceStore } from '../../store/diceStore';
+import { uploadImagesWithProgress, type UploadProgressEvent } from '../../utils/uploadImage';
+import { UploadProgressDialog } from '../common/UploadProgressDialog';
+import { DiceNGAImportDialog } from '../dice/DiceNGAImportDialog';
+import {
+  cssColorToNga,
+  cssFontToNga,
+  ptToSizePercent,
+  nearestFontSize,
+} from '../../utils/ngaHtmlToBBCode';
 
 interface EditorToolbarProps {
   editorElRef: React.MutableRefObject<HTMLElement | null>;
@@ -273,18 +294,76 @@ export function EditorToolbar({
   const [colorPickerOpen, setColorPickerOpen] = useState(false);
   const colorPickerRef = useDismiss(colorPickerOpen, () => setColorPickerOpen(false));
 
-  // 激活状态
-  const activeBold = editor ? isBoldActive() : false;
-  const activeItalic = editor ? isItalicActive() : false;
-  const activeUnderline = editor ? isUnderlineActive() : false;
-  const activeStrike = editor ? isStrikeActive() : false;
-  const activeColor = editor ? getEffectiveColorName(editor) ?? NGA_DEFAULT_COLOR : NGA_DEFAULT_COLOR;
-  const activeFontSize = editor
-    ? getEffectiveFontSizePercent(editor) ?? NGA_DEFAULT_FONT_SIZE
-    : NGA_DEFAULT_FONT_SIZE;
-  const activeFont = editor
-    ? getEffectiveFontFamilyValue(editor) ?? NGA_DEFAULT_FONT
-    : NGA_DEFAULT_FONT;
+  // 上传进度弹窗状态
+  const [uploadTasks, setUploadTasks] = useState<UploadProgressEvent[]>([]);
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+
+  // NGA 安价导入弹窗状态
+  const [showNGAImport, setShowNGAImport] = useState(false);
+
+  // 激活状态 —— Word 行为：
+  //   - 优先读 activeStyles（用户主动点击设置的）
+  //   - 兜底读 cursorStyles（光标处/选区起点的实时样式，由 onSelectionChange 同步）
+  //   - 最后 fallback 到 NGA 默认
+  const activeStylesFromStore = useEditorStore((s) => s.activeStyles);
+  const cursorStylesFromStore = useEditorStore((s) => s.cursorStyles);
+
+  const activeBold =
+    activeStylesFromStore.bold ?? cursorStylesFromStore.bold ?? false;
+  const activeItalic =
+    activeStylesFromStore.italic ?? cursorStylesFromStore.italic ?? false;
+  const activeUnderline =
+    activeStylesFromStore.underline ?? cursorStylesFromStore.underline ?? false;
+  const activeStrike =
+    activeStylesFromStore.strike ?? cursorStylesFromStore.strike ?? false;
+  const activeSup =
+    activeStylesFromStore.sup ?? cursorStylesFromStore.sup ?? false;
+  const activeSub =
+    activeStylesFromStore.sub ?? cursorStylesFromStore.sub ?? false;
+
+  // 颜色：activeStyles.color (CSS) → cssColorToNga → NGA name；fallback cursorStyles 反查
+  const activeColorNgaName = (() => {
+    if (activeStylesFromStore.color) {
+      const n = cssColorToNga(activeStylesFromStore.color);
+      if (n) return n;
+    }
+    if (cursorStylesFromStore.color) {
+      const n = cssColorToNga(cursorStylesFromStore.color);
+      if (n) return n;
+    }
+    return NGA_DEFAULT_COLOR;
+  })();
+  // 字号：activeStyles.fontSize (CSS) → ptToSizePercent → nearestFontSize；fallback cursorStyles
+  const activeFontSizePct = (() => {
+    if (activeStylesFromStore.fontSize) {
+      const pct = ptToSizePercent(activeStylesFromStore.fontSize);
+      if (pct != null) {
+        const n = nearestFontSize(pct);
+        if (n) return n.percent;
+      }
+    }
+    if (cursorStylesFromStore.fontSize) {
+      const pct = ptToSizePercent(cursorStylesFromStore.fontSize);
+      if (pct != null) {
+        const n = nearestFontSize(pct);
+        if (n) return n.percent;
+      }
+    }
+    return NGA_DEFAULT_FONT_SIZE;
+  })();
+  // 字体：activeStyles.fontFamily (CSS) → cssFontToNga → NGA value；fallback cursorStyles
+  const activeFontNga = (() => {
+    if (activeStylesFromStore.fontFamily) {
+      const n = cssFontToNga(activeStylesFromStore.fontFamily);
+      if (n) return n;
+    }
+    if (cursorStylesFromStore.fontFamily) {
+      const n = cssFontToNga(cursorStylesFromStore.fontFamily);
+      if (n) return n;
+    }
+    return NGA_DEFAULT_FONT;
+  })();
+
   const activeAlign = editor ? getCurrentBlockAlign(editor) : 'left';
   const activeUL = editor ? isInsideList(editor, 'UL') : false;
   const activeOL = editor ? isInsideList(editor, 'OL') : false;
@@ -304,41 +383,98 @@ export function EditorToolbar({
     fn(el);
   };
 
+  // 判断当前编辑器选区是否折叠（无选区或光标处）
+  const isCollapsedSelection = (): boolean => {
+    const sel = window.getSelection();
+    if (!sel) return true;
+    if (sel.isCollapsed) return true;
+    return false;
+  };
+
+  // 简单样式切换：在无选区时主动翻转 activeStyles，让下一次输入自动应用
+  const toggleSimpleActiveStyle = (key: 'bold' | 'italic' | 'underline' | 'strike'): void => {
+    if (!isCollapsedSelection()) return; // 有选区由 execCommand 处理
+    const cur = useEditorStore.getState().activeStyles;
+    useEditorStore.getState().setActiveStyles({ [key]: !cur[key] } as any);
+  };
+
   const showToast = (msg: string) => {
     onShowToast?.(msg);
   };
 
-  const handlePickFile = () => {
+  const handlePickFile = async () => {
     const hasElectronAPI =
       typeof (window as any).electronAPI !== 'undefined' &&
       typeof (window as any).electronAPI.selectImage === 'function';
     if (hasElectronAPI) {
-      (window as any).electronAPI
-        .selectImage()
-        .then((src: string | null) => {
-          if (src) handleInsertImageWithSize(src);
-        })
-        .catch(() => {
-          fileInputRef.current?.click();
-        });
+      try {
+        const sel: { buffer: string; filename: string; mimeType: string } | null =
+          await (window as any).electronAPI.selectImage();
+        if (!sel) return;
+        // 把 base64 buffer 转回 File 再走统一进度流程
+        const byteChars = atob(sel.buffer);
+        const bytes = new Uint8Array(byteChars.length);
+        for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+        const file = new File([bytes], sel.filename, { type: sel.mimeType });
+        await runUploadWithProgress([file], sel.filename);
+      } catch (e) {
+        useToastStore
+          .getState()
+          .showToast(
+            `图片上传失败：${(e as Error).message || '未知错误'}，请检查网络后重新选择`,
+            'error',
+          );
+      }
       return;
     }
     fileInputRef.current?.click();
   };
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      handleInsertImageWithSize(String(reader.result || ''));
-    };
-    reader.readAsDataURL(file);
+    const files = e.target.files ? Array.from(e.target.files) : [];
     e.target.value = '';
+    if (files.length === 0) return;
+    runUploadWithProgress(files, files[0]?.name);
   };
 
-  const handleInsertImageWithSize = (src: string) => {
+  /**
+   * 走统一进度流程：弹窗 + 串行上传 + 成功后插入图片
+   */
+  const runUploadWithProgress = async (files: File[], firstName?: string) => {
+    setUploadTasks(
+      files.map((f, i) => ({
+        taskId: `${Date.now()}_${i}`,
+        fileName: f.name || firstName || `image_${i}`,
+        status: 'pending',
+        progress: 0,
+      })),
+    );
+    setUploadDialogOpen(true);
+    const results = await uploadImagesWithProgress(files, (e) => {
+      setUploadTasks((prev) =>
+        prev.map((t) => (t.taskId === e.taskId ? { ...t, ...e } : t)),
+      );
+    });
+    // 第一张成功：插入到编辑器
+    const ok = results.find((r) => r.ok && r.url);
+    if (ok && ok.url) {
+      const name = files[0]?.name || firstName;
+      handleInsertImageWithSize(ok.url, name);
+      useToastStore.getState().showToast('图片已插入', 'success');
+    } else {
+      const firstErr = results.find((r) => !r.ok)?.error || '未知错误';
+      useToastStore
+        .getState()
+        .showToast(
+          `图片上传失败：${firstErr}，请检查网络后重新选择`,
+          'error',
+        );
+    }
+  };
+
+  const handleInsertImageWithSize = (src: string, name?: string) => {
     if (!src) return;
-    withEditor((ed) => insertImageBlockWithSize(ed, src, imageSize));
+    // 透传 name 到 insertImageBlock（alt 用可读名字）
+    withEditor((ed) => insertImageBlock(ed, src, { size: imageSize, name }));
   };
 
   const handleUrlConfirm = () => {
@@ -424,7 +560,18 @@ export function EditorToolbar({
         <div style={groupContainer}>
           <ToolbarBtn
             title="粗体 (Ctrl+B)"
-            onClick={() => withEditor(execBold)}
+            onClick={() => {
+              if (isCollapsedSelection()) {
+                toggleSimpleActiveStyle('bold');
+              } else {
+                withEditor(execBold);
+                // 有选区：执行 execBold 后，从当前光标位置同步 activeStyles.bold
+                const el = editorElRef.current;
+                if (el) {
+                  useEditorStore.getState().setActiveStyles({ bold: isBoldActive() });
+                }
+              }
+            }}
             active={activeBold}
             style={{ fontWeight: 700, fontSize: 13 }}
           >
@@ -432,7 +579,17 @@ export function EditorToolbar({
           </ToolbarBtn>
           <ToolbarBtn
             title="斜体 (Ctrl+I)"
-            onClick={() => withEditor(execItalic)}
+            onClick={() => {
+              if (isCollapsedSelection()) {
+                toggleSimpleActiveStyle('italic');
+              } else {
+                withEditor(execItalic);
+                const el = editorElRef.current;
+                if (el) {
+                  useEditorStore.getState().setActiveStyles({ italic: isItalicActive() });
+                }
+              }
+            }}
             active={activeItalic}
             style={{ fontStyle: 'italic', fontSize: 13 }}
           >
@@ -440,7 +597,17 @@ export function EditorToolbar({
           </ToolbarBtn>
           <ToolbarBtn
             title="下划线 (Ctrl+U)"
-            onClick={() => withEditor(execUnderline)}
+            onClick={() => {
+              if (isCollapsedSelection()) {
+                toggleSimpleActiveStyle('underline');
+              } else {
+                withEditor(execUnderline);
+                const el = editorElRef.current;
+                if (el) {
+                  useEditorStore.getState().setActiveStyles({ underline: isUnderlineActive() });
+                }
+              }
+            }}
             active={activeUnderline}
             style={{ textDecoration: 'underline', fontSize: 13 }}
           >
@@ -448,7 +615,17 @@ export function EditorToolbar({
           </ToolbarBtn>
           <ToolbarBtn
             title="删除线 [del]…[/del]"
-            onClick={() => withEditor(execStrikeThrough)}
+            onClick={() => {
+              if (isCollapsedSelection()) {
+                toggleSimpleActiveStyle('strike');
+              } else {
+                withEditor(execStrikeThrough);
+                const el = editorElRef.current;
+                if (el) {
+                  useEditorStore.getState().setActiveStyles({ strike: isStrikeActive() });
+                }
+              }
+            }}
             active={activeStrike}
             style={{ textDecoration: 'line-through' }}
           >
@@ -456,14 +633,51 @@ export function EditorToolbar({
           </ToolbarBtn>
           <ToolbarBtn
             title="上标 [sup]…[/sup]"
-            onClick={() => withEditor((ed) => document.execCommand('superscript', false))}
+            active={activeSup}
+            onClick={() => {
+              if (isCollapsedSelection()) {
+                // 折叠光标：翻转 activeStyles，下一次输入自动应用；sup/sub 互斥
+                const cur = useEditorStore.getState().activeStyles;
+                useEditorStore
+                  .getState()
+                  .setActiveStyles({ sup: !cur.sup, sub: false });
+              } else {
+                withEditor((ed) => document.execCommand('superscript', false));
+                // 有选区：执行后从当前光标位置同步 sup/sub 状态
+                const el = editorElRef.current;
+                if (el) {
+                  useEditorStore.getState().setActiveStyles({
+                    sup: isSupActive(),
+                    sub: isSubActive(),
+                  });
+                }
+              }
+            }}
             style={{ fontSize: 11 }}
           >
             X²
           </ToolbarBtn>
           <ToolbarBtn
             title="下标 [sub]…[/sub]"
-            onClick={() => withEditor((ed) => document.execCommand('subscript', false))}
+            active={activeSub}
+            onClick={() => {
+              if (isCollapsedSelection()) {
+                // 折叠光标：翻转 activeStyles，下一次输入自动应用；sup/sub 互斥
+                const cur = useEditorStore.getState().activeStyles;
+                useEditorStore
+                  .getState()
+                  .setActiveStyles({ sub: !cur.sub, sup: false });
+              } else {
+                withEditor((ed) => document.execCommand('subscript', false));
+                const el = editorElRef.current;
+                if (el) {
+                  useEditorStore.getState().setActiveStyles({
+                    sup: isSupActive(),
+                    sub: isSubActive(),
+                  });
+                }
+              }
+            }}
             style={{ fontSize: 11 }}
           >
             X₂
@@ -486,7 +700,7 @@ export function EditorToolbar({
                   width: 12,
                   height: 12,
                   borderRadius: 3,
-                  background: NGA_COLORS.find((c) => c.value === activeColor)?.cssColor || '#000',
+                  background: NGA_COLORS.find((c) => c.value === activeColorNgaName)?.cssColor || '#000',
                   border: '1px solid var(--border-color)',
                   verticalAlign: 'middle',
                   marginRight: 2,
@@ -500,7 +714,11 @@ export function EditorToolbar({
                   <button
                     key={c.value}
                     onClick={() => {
-                      withEditor((ed) => toggleColor(ed, c.value));
+                      // Word 模式：
+                      // 1. 有选区：直接应用颜色（不切换），与 toggleColor 不同
+                      // 2. 无选区：仅同步 activeStyles，下一次输入自动应用
+                      withEditor((ed) => applyColor(ed, c.cssColor));
+                      useEditorStore.getState().setActiveStyles({ color: c.cssColor });
                       setColorPickerOpen(false);
                     }}
                     title={c.label}
@@ -509,7 +727,7 @@ export function EditorToolbar({
                       height: 28,
                       borderRadius: 4,
                       background: c.cssColor,
-                      border: c.value === activeColor ? '2px solid var(--accent)' : '1px solid var(--border-color)',
+                      border: c.value === activeColorNgaName ? '2px solid var(--accent)' : '1px solid var(--border-color)',
                       cursor: 'pointer',
                       outline: 'none',
                     }}
@@ -521,11 +739,14 @@ export function EditorToolbar({
 
           {/* 字号：6 档百分比 */}
           <select
-            value={String(activeFontSize)}
+            value={String(activeFontSizePct)}
             onChange={(e) => {
               const v = parseInt(e.target.value, 10);
               if (isNaN(v)) return;
-              withEditor((ed) => toggleFontSize(ed, v));
+              const cssSize = ngaSizeToCSS(v);
+              // Word 模式：直接应用字号（不切换），无选区时仅同步 activeStyles
+              withEditor((ed) => applyFontSize(ed, cssSize));
+              useEditorStore.getState().setActiveStyles({ fontSize: cssSize });
             }}
             style={selectNga}
             title="字号"
@@ -539,11 +760,14 @@ export function EditorToolbar({
 
           {/* 字体：16 字体 */}
           <select
-            value={activeFont}
+            value={activeFontNga}
             onChange={(e) => {
               const v = e.target.value;
               if (!v) return;
-              withEditor((ed) => toggleFontFamily(ed, v));
+              const cssFamily = ngaFontToCSS(v);
+              // Word 模式：直接应用字体（不切换），无选区时仅同步 activeStyles
+              withEditor((ed) => applyFontFamily(ed, cssFamily));
+              useEditorStore.getState().setActiveStyles({ fontFamily: cssFamily });
             }}
             style={{ ...selectNga, minWidth: 96 }}
             title="字体"
@@ -685,6 +909,13 @@ export function EditorToolbar({
 
         <ToolbarBtn title="插入骰子" onClick={onInsertDice}>
           🎲 骰子
+        </ToolbarBtn>
+
+        <ToolbarBtn
+          title="从 NGA 文本导入选项（粘贴收集的安价文本，自动生成选项骰子）"
+          onClick={() => setShowNGAImport(true)}
+        >
+          📥 导入安价
         </ToolbarBtn>
 
         <GroupDivider />
@@ -935,6 +1166,29 @@ export function EditorToolbar({
           </div>
         )}
       </div>
+
+      {/* 上传进度弹窗 */}
+      <UploadProgressDialog
+        open={uploadDialogOpen}
+        tasks={uploadTasks}
+        onClose={() => setUploadDialogOpen(false)}
+      />
+
+      {/* NGA 安价导入弹窗 */}
+      <DiceNGAImportDialog
+        open={showNGAImport}
+        onClose={() => setShowNGAImport(false)}
+        onConfirm={(options) => {
+          setShowNGAImport(false);
+          // 打开骰子配置弹窗（由父组件 EditorPage 渲染）
+          // - store 中预填选项（DiceConfigDialog 会自动读 store 中的 draft）
+          // - faces 自动 = options.length
+          useDiceStore.getState().openDialog({
+            initialKind: 'option',
+            initialOptions: options,
+          });
+        }}
+      />
     </div>
   );
 }

@@ -6,13 +6,30 @@ export function CharacterCard({
   onEdit,
   onDelete,
   isActive,
+  selected,
+  isDragOver,
+  onToggleSelect,
+  onDragStart,
+  onDragOver,
+  onDragEnd,
+  onDrop,
 }: {
   character: Character;
   onClick?: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
   isActive?: boolean;
+  selected?: boolean;
+  isDragOver?: boolean;
+  onToggleSelect?: () => void;
+  onDragStart?: () => void;
+  onDragOver?: (e: React.DragEvent) => void;
+  onDragEnd?: () => void;
+  onDrop?: () => void;
 }) {
+  const isSelectable = !!onToggleSelect;
+  const isDraggable = !!onDragStart;
+
   const personalityPreview = (character.personality || '').replace(/\s+/g, ' ').trim();
   const shortPersonality =
     personalityPreview.length > 40
@@ -21,28 +38,85 @@ export function CharacterCard({
 
   const topAttrs = Object.entries(character.attributes || {}).slice(0, 3);
 
+  // 视觉态：选中 > 拖动悬停 > 激活 > 默认
+  const isHighlighted = selected || isActive;
+  const bg = isHighlighted ? 'var(--accent-bg)' : 'var(--bg-card)';
+  const borderColor = isDragOver
+    ? 'var(--accent)'
+    : isHighlighted
+    ? 'var(--accent)'
+    : 'var(--border-color)';
+  const titleColor = isHighlighted ? 'var(--accent)' : 'var(--text-primary)';
+
   return (
     <div
       onClick={onClick}
-      className="group relative rounded-lg border p-3 cursor-pointer transition flex flex-col"
+      draggable={isDraggable}
+      onDragStart={isDraggable ? onDragStart : undefined}
+      onDragOver={isDraggable ? onDragOver : undefined}
+      onDragEnd={isDraggable ? onDragEnd : undefined}
+      onDrop={isDraggable ? onDrop : undefined}
+      className="group relative rounded-lg border p-3 transition flex flex-col"
       style={{
-        background: isActive ? 'var(--accent-bg)' : 'var(--bg-card)',
-        borderColor: isActive ? 'var(--accent)' : 'var(--border-color)',
-        color: isActive ? 'var(--accent)' : 'var(--text-primary)',
+        background: bg,
+        borderColor,
+        color: titleColor,
+        borderTopWidth: isDragOver ? 3 : 1,
+        borderTopColor: isDragOver ? 'var(--accent)' : borderColor,
+        cursor: isDraggable ? 'grab' : undefined,
       }}
       onMouseEnter={(e) => {
-        if (!isActive) e.currentTarget.style.borderColor = 'var(--accent)';
+        if (!isHighlighted) e.currentTarget.style.borderColor = 'var(--accent)';
       }}
       onMouseLeave={(e) => {
-        if (!isActive) e.currentTarget.style.borderColor = 'var(--border-color)';
+        if (!isHighlighted) e.currentTarget.style.borderColor = 'var(--border-color)';
       }}
     >
+      {/* 多选复选框（仅当可选） */}
+      {isSelectable && (
+        <label
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          style={{ position: 'absolute', top: 6, left: 6, cursor: 'pointer', lineHeight: 0, zIndex: 2 }}
+          title="勾选以加入批量删除"
+        >
+          <input
+            type="checkbox"
+            checked={!!selected}
+            onChange={() => onToggleSelect?.()}
+            onDragStart={(e) => e.preventDefault()}
+            style={{ width: 16, height: 16, cursor: 'pointer' }}
+          />
+        </label>
+      )}
+      {/* 拖动 handle（仅当可拖） */}
+      {isDraggable && (
+        <span
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          style={{
+            position: 'absolute',
+            top: 6,
+            left: isSelectable ? 24 : 6,
+            cursor: 'grab',
+            color: 'var(--text-secondary)',
+            fontSize: 12,
+            zIndex: 2,
+            userSelect: 'none',
+          }}
+          title="按住拖动以重排序"
+        >
+          ⋮⋮
+        </span>
+      )}
+
       {/* 头像 */}
       <div
         className="w-24 h-24 mx-auto mb-2 rounded-full overflow-hidden flex items-center justify-center text-4xl select-none"
         style={{
           background: isActive ? 'var(--accent-bg)' : 'var(--bg-toolbar)',
           border: '1px solid var(--border-color)',
+          marginTop: isDraggable || isSelectable ? 14 : 0,
         }}
       >
         {character.avatar ? (

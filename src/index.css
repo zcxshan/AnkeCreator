@@ -23,9 +23,9 @@
   --bg-tooltip: #f3f3f3;
   --bg-overlay: rgba(15, 23, 42, 0.45);
 
-  --text-primary: #333333;
-  --text-secondary: #6a6a6a;
-  --text-muted: #999999;
+  --text-primary: #000000;
+  --text-secondary: #555555;
+  --text-muted: #888888;
   --text-link: #0066bf;
   --text-on-accent: #ffffff;
 
@@ -53,7 +53,7 @@
   --editor-scrollbar-thumb: #cccccc;
   --editor-scrollbar-thumb-hover: #aaaaaa;
 
-  --caret-color: #333333;
+  --caret-color: #000000;
   --selection-bg: #add6ff;
   --selection-fg: #1e1e1e;
 
@@ -105,9 +105,9 @@
   --bg-tooltip: #252526;
   --bg-overlay: rgba(0, 0, 0, 0.7);
 
-  --text-primary: #cccccc;
-  --text-secondary: #858585;
-  --text-muted: #6b6b6b;
+  --text-primary: #ffffff;
+  --text-secondary: #bbbbbb;
+  --text-muted: #888888;
   --text-link: #3794ff;
   --text-on-accent: #ffffff;
 
@@ -135,7 +135,7 @@
   --editor-scrollbar-thumb: #3a3a3a;
   --editor-scrollbar-thumb-hover: #525252;
 
-  --caret-color: #aeafad;
+  --caret-color: #ffffff;
   --selection-bg: #264f78;
   --selection-fg: #ffffff;
 

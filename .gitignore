@@ -8,6 +8,9 @@
 .idea/                # JetBrains 系列 IDE 设置
 *.swp                 # Vim 交换文件
 *.swo
+agent.md
+Agent.md
+!AGENT.md
 *~                    # 编辑器备份文件
 
 # ==============================

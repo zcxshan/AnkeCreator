@@ -14,6 +14,7 @@ interface WorkCardProps {
   onDelete: (id: string) => void;
   onRename: (id: string) => void;
   onExport: (id: string) => void;
+  onSaveAs?: (id: string) => void;
   onDuplicate: (id: string) => void;
   onStarred?: (id: string) => void;
   onPinned?: (id: string) => void;
@@ -25,6 +26,7 @@ export function WorkCard({
   onDelete,
   onRename,
   onExport,
+  onSaveAs,
   onDuplicate,
   onStarred,
   onPinned,
@@ -155,10 +157,14 @@ export function WorkCard({
             style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)' }}
           >
             <MenuItem icon="✏️" label="重命名" onClick={() => { onRename(work.id); setMenuOpen(false); }} />
-            <MenuItem icon="📤" label="导出 JSON" onClick={() => { onExport(work.id); setMenuOpen(false); }} />
+            {onSaveAs && (
+              <MenuItem
+                icon="💾"
+                label="另存为安科文件"
+                onClick={() => { onSaveAs(work.id); setMenuOpen(false); }}
+              />
+            )}
             <MenuItem icon="📋" label="复制副本" onClick={() => { onDuplicate(work.id); setMenuOpen(false); }} />
-            <div className="my-1 border-t" style={{ borderColor: 'var(--border-color)' }} />
-            <MenuItem icon="🗑️" label="删除" danger onClick={() => setConfirmDelete(true)} />
           </div>
         )}
       </div>
@@ -193,7 +199,7 @@ export function WorkCard({
               onStarred(work.id);
             }}
             className="w-6 h-6 rounded-full flex items-center justify-center text-xs border transition-opacity opacity-100"
-            title={isStarred ? '取消标星' : '标星'}
+            title={isStarred ? '取消标星' : '标星（收藏）'}
             style={{
               background: isStarred ? 'var(--accent-soft)' : 'var(--bg-hover)',
               borderColor: 'var(--border-color)',
@@ -205,14 +211,38 @@ export function WorkCard({
             {isStarred ? '⭐' : '☆'}
           </button>
         )}
-        {/* 删除图标 */}
+        {/* 📤 导出按钮（始终可见） */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onExport(work.id);
+          }}
+          className="w-6 h-6 rounded-full flex items-center justify-center text-xs border transition-opacity opacity-100"
+          title="导出安科作品全部数据"
+          style={{
+            background: 'var(--bg-hover)',
+            borderColor: 'var(--border-color)',
+            color: 'var(--text-secondary)',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'var(--accent-bg)';
+            e.currentTarget.style.color = 'var(--accent)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'var(--bg-hover)';
+            e.currentTarget.style.color = 'var(--text-secondary)';
+          }}
+        >
+          📤
+        </button>
+        {/* 🗑 删除按钮（始终可见，醒目颜色） */}
         <button
           onClick={(e) => {
             e.stopPropagation();
             setConfirmDelete(true);
           }}
-          className="w-6 h-6 rounded-full flex items-center justify-center text-xs border transition-opacity opacity-0 group-hover:opacity-100"
-          title="删除作品"
+          className="w-6 h-6 rounded-full flex items-center justify-center text-xs border transition-opacity opacity-100"
+          title="删除到回收站"
           style={{
             background: 'var(--bg-hover)',
             borderColor: 'var(--border-color)',
@@ -220,14 +250,14 @@ export function WorkCard({
           }}
           onMouseEnter={(e) => {
             e.currentTarget.style.background = 'var(--danger-soft)';
-            e.currentTarget.style.opacity = '1';
+            e.currentTarget.style.opacity = '0.85';
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.background = 'var(--bg-hover)';
             e.currentTarget.style.opacity = '1';
           }}
         >
-          🗑️
+          🗑
         </button>
       </div>
 

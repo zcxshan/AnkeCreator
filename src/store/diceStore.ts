@@ -118,6 +118,13 @@ interface DiceStoreState {
     draft?: DiceConfig;
     targetBlockId?: string;
     initialKind?: DiceKind;
+    /**
+     * 从外部传入的选项列表（如 NGA 安价文本解析结果）
+     * - 若提供，则忽略 draft，按 initialOptions 构建新 draft
+     * - faces 自动设为 options.length
+     * - kind 强制设为 'option'
+     */
+    initialOptions?: { displayValue: string; content: string }[];
   }) => void;
   closeDialog: () => void;
   setDraft: (draft: DiceConfig) => void;
@@ -162,13 +169,36 @@ export const useDiceStore = create<DiceStoreState>((set, get) => ({
   dialog: initialDialog(),
 
   openDialog: (opts) => {
+    // 优先级：initialOptions > draft > 默认
+    let baseDraft: DiceConfig;
+    if (opts?.initialOptions && opts.initialOptions.length > 0) {
+      // 从 NGA 文本导入：构建选项骰子 draft
+      const incoming = opts.initialOptions;
+      const options: DiceOptionValue[] = incoming.map((o) => ({
+        id: createOptionId(),
+        values: parseValueExpression(o.displayValue),
+        displayValue: o.displayValue,
+        content: o.content,
+      }));
+      baseDraft = {
+        id: Math.random().toString(36).slice(2, 10),
+        kind: 'option',
+        name: '安价选项',
+        faces: incoming.length,
+        options,
+      };
+    } else if (opts?.draft) {
+      baseDraft = JSON.parse(JSON.stringify(opts.draft));
+    } else {
+      const kind = opts?.initialKind || 'option';
+      baseDraft =
+        kind === 'numeric' ? createDefaultNumericDice() : createDefaultOptionDice();
+    }
     const kind = opts?.initialKind || 'option';
-    const defaultDraft =
-      kind === 'numeric' ? createDefaultNumericDice() : createDefaultOptionDice();
     set({
       dialog: {
         open: true,
-        draft: opts?.draft ? JSON.parse(JSON.stringify(opts.draft)) : defaultDraft,
+        draft: baseDraft,
         targetBlockId: opts?.targetBlockId ?? null,
         initialKind: kind,
       },

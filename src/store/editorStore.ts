@@ -23,6 +23,22 @@ import * as db from '../db/database';
 
 type SaveStatus = 'idle' | 'saving' | 'saved';
 
+/**
+ * 活动样式（contenteditable 内联编辑用）
+ * 记录最近一次切换/光标位置上的样式，下一次输入新文本时自动应用
+ */
+export interface ActiveEditorStyles {
+  color?: string;       // CSS 颜色（含 #hex / rgb(...) / 颜色名）
+  fontSize?: string;    // CSS font-size（px/pt/%）
+  fontFamily?: string;  // CSS font-family
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  strike?: boolean;
+  sup?: boolean;        // 上标（与 sub 互斥）
+  sub?: boolean;        // 下标（与 sup 互斥）
+}
+
 interface EditorState {
   // 当前节（内存缓存）
   sectionId: string | null;
@@ -35,6 +51,13 @@ interface EditorState {
 
   // 文本样式工具栏状态（用于新块 & 选中块的样式）
   toolbarStyles: TextStyles;
+
+  // 活动样式：选区/光标位置上的样式 + 用户最近一次切换，下一次输入会延续
+  activeStyles: ActiveEditorStyles;
+
+  // 光标/选区起点的样式（仅用于工具栏展示，由 RichTextEditor.onSelectionChange 同步）
+  // 与 activeStyles 区别：cursorStyles 反映"光标处是什么样"，activeStyles 反映"用户激活的状态"
+  cursorStyles: ActiveEditorStyles;
 
   // 保存状态
   saveStatus: SaveStatus;
@@ -63,6 +86,13 @@ interface EditorState {
   // 工具栏
   setToolbarStyle: (patch: Partial<TextStyles>) => void;
   resetToolbar: () => void;
+
+  // 活动样式（contenteditable）
+  setActiveStyles: (patch: Partial<ActiveEditorStyles>) => void;
+  clearActiveStyles: () => void;
+
+  // 光标处样式（contenteditable 工具栏展示用）
+  setCursorStyles: (patch: Partial<ActiveEditorStyles>) => void;
 
   // 手动保存
   markSaving: () => void;
@@ -143,6 +173,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     size: 12,
     font: 'simsun',
   },
+  activeStyles: {},
+  cursorStyles: {},
   saveStatus: 'idle',
   lastSavedAt: null,
 
@@ -294,6 +326,18 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       },
     }),
 
+  setActiveStyles: (patch) =>
+    set((state) => ({
+      activeStyles: { ...state.activeStyles, ...patch },
+    })),
+
+  clearActiveStyles: () => set({ activeStyles: {} }),
+
+  setCursorStyles: (patch) =>
+    set((state) => ({
+      cursorStyles: { ...state.cursorStyles, ...patch },
+    })),
+
   markSaving: () => set({ saveStatus: 'saving' }),
   markSaved: () =>
     set({ saveStatus: 'saved', lastSavedAt: new Date().toISOString() }),
@@ -309,18 +353,3 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     get().updateBlockPayload(blockId, nextPayload);
   },
 }));
-
-// 默认样式：Word 风格的宋体 + 小四(12pt)
-export const DEFAULT_TEXT_STYLES: TextStyles = {
-  bold: false,
-  italic: false,
-  underline: false,
-  size: 12,
-  font: 'simsun',
-};
-
-export function useSelectedBlock(): AnyContentBlock | null {
-  const { blocks, selectedBlockId } = useEditorStore();
-  if (!selectedBlockId) return null;
-  return blocks.find((b) => b.id === selectedBlockId) ?? null;
-}

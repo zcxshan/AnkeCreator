@@ -4,16 +4,18 @@ import { WorksListPage } from './components/pages/WorksListPage';
 import { EditorPage } from './components/pages/EditorPage';
 import { TemplatesPage } from './components/pages/TemplatesPage';
 import { TutorialPage } from './components/pages/TutorialPage';
+import { AnjiaPage } from './components/pages/AnjiaPage';
 import { TitleBar } from './components/common/TitleBar';
 import { AuthorInfo } from './components/common/AuthorInfo';
 import { ExportDialog } from './components/common/ExportDialog';
+import { ToastContainer } from './components/common/Toast';
 import { useStoryStore } from './store/storyStore';
 import { useEditorStore } from './store/editorStore';
 import { useMetaStore } from './store/metaStore';
 import { initDatabase } from './db/database';
 import './index.css';
 
-type Route = 'home' | 'works' | 'editor' | 'templates' | 'tutorial';
+type Route = 'home' | 'works' | 'editor' | 'templates' | 'tutorial' | 'anjia';
 
 function App() {
   const { activeSectionId, activeStoryId } = useStoryStore();
@@ -25,7 +27,7 @@ function App() {
   // 打开导出弹窗时记录当时的 activeSectionId（避免后续 active 变化影响）
   const [exportSectionId, setExportSectionId] = useState<string | null>(null);
 
-  const [route, setRoute] = useState<Route>(activeStoryId ? 'editor' : 'home');
+  const [route, setRoute] = useState<Route>('home');
 
   useEffect(() => {
     const init = async () => {
@@ -63,6 +65,7 @@ function App() {
     >
       <TitleBar />
       <div className="flex-1 overflow-hidden">{content}</div>
+      <ToastContainer />
     </div>
   );
 
@@ -77,6 +80,7 @@ function App() {
           onShowTemplates={() => setRoute('templates')}
           onShowTutorial={() => setRoute('tutorial')}
           onShowAuthor={() => setShowAuthor(true)}
+          onShowAnjia={() => setRoute('anjia')}
         />
         {authorModal}
       </>,
@@ -107,6 +111,12 @@ function App() {
         <WorksListPage onOpenStory={handleOpenStory} onBack={() => setRoute('home')} onShowAuthor={() => setShowAuthor(true)} />
         {authorModal}
       </>,
+    );
+  }
+
+  if (route === 'anjia') {
+    return renderWithTitleBar(
+      <AnjiaPage onBack={() => setRoute('home')} />,
     );
   }
 

@@ -1,8 +1,16 @@
 // © 点点星辰 | 开发时间: 2026-06-17 | 唯一标识: AnkeCreator_20260617_XXXX
 // 本应用由本人独立开发，保留所有权利 | 非授权禁止商用
-import { app, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, protocol, shell } from 'electron'
 import path from 'path'
 import fs from 'fs'
+import crypto from 'crypto'
+import {
+  parseThreadUrl,
+  computePageRange,
+  extractPostsFromHtml,
+  filterAnjiaPosts,
+  type CollectResult,
+} from '../src/utils/ngaCrawler'
 
 // ============================================================
 // 数据库（JSON 文件存储，位于 userData/AnkeCreatorData）
@@ -16,23 +24,43 @@ const RENDERER_DIST = path.join(appRoot, 'dist')
 
 process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(appRoot, 'public') : RENDERER_DIST
 
-let win: BrowserWindow | null
-
 // ============================================================
-// 图片选择 + 保存
+// 本地图片存储目录（用于"本地保存"模式）
+// 路径：userData/images/，文件名 = sha256(buffer)[:16] + ext
 // ============================================================
-function ensureImagesDir(): string {
-  const base = VITE_DEV_SERVER_URL ? path.join(appRoot, 'public') : RENDERER_DIST
-  const imagesDir = path.join(base, 'assets', 'images')
-  try {
-    if (!fs.existsSync(imagesDir)) {
-      fs.mkdirSync(imagesDir, { recursive: true })
-    }
-  } catch (e) {
-    console.error('创建 images 目录失败:', e)
-  }
-  return imagesDir
+const imagesDir = path.join(app.getPath('userData'), 'images')
+try {
+  fs.mkdirSync(imagesDir, { recursive: true })
+} catch (e) {
+  console.error('[imagesDir] 创建失败:', e)
 }
+
+// 注册 local:// 为特权协议，使其支持 fetch / <img src="local://...">
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'local',
+    privileges: {
+      standard: true,
+      supportFetchAPI: true,
+      stream: true,
+      bypassCSP: true,
+    },
+  },
+])
+
+/** 根据扩展名推断 MIME */
+function getMimeByExt(fileName: string): string {
+  const ext = path.extname(fileName).toLowerCase()
+  if (ext === '.png') return 'image/png'
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg'
+  if (ext === '.gif') return 'image/gif'
+  if (ext === '.webp') return 'image/webp'
+  if (ext === '.bmp') return 'image/bmp'
+  if (ext === '.svg') return 'image/svg+xml'
+  return 'application/octet-stream'
+}
+
+let win: BrowserWindow | null
 
 function createWindow() {
   const iconPath = path.join(appRoot, 'icon.png')
@@ -96,6 +124,40 @@ app.on('activate', () => {
 app.whenReady().then(() => {
   // 启动时初始化数据库
   db.initMainDatabase()
+
+  // 注册 local:// 协议：把 local://<hash>.<ext> 映射到 userData/images/ 下的文件
+  // 浏览器/渲染端用 <img src="local://xxx.png"> 时，由 Electron 拦截并返回文件内容
+  protocol.handle('local', async (request) => {
+    try {
+      const url = new URL(request.url)
+      // local://hash.png → hostname='hash.png'
+      // 也兼容 local:///hash.png → pathname='/hash.png'
+      let fileName = url.hostname || url.pathname.replace(/^\/+/, '')
+      // URL 解码（防止扩展名含特殊字符）
+      try {
+        fileName = decodeURIComponent(fileName)
+      } catch {
+        // ignore
+      }
+      const filePath = path.join(imagesDir, fileName)
+      // 防路径穿越：必须位于 imagesDir 内
+      const normalized = path.normalize(filePath)
+      if (!normalized.startsWith(path.normalize(imagesDir) + path.sep) && normalized !== path.normalize(imagesDir)) {
+        return new Response('Forbidden', { status: 403 })
+      }
+      const data = await fs.promises.readFile(normalized)
+      return new Response(data, {
+        status: 200,
+        headers: {
+          'Content-Type': getMimeByExt(normalized),
+          'Cache-Control': 'no-cache',
+        },
+      })
+    } catch (e) {
+      return new Response('Not found', { status: 404 })
+    }
+  })
+
   createWindow()
 })
 
@@ -112,51 +174,110 @@ ipcMain.on('window:close', () => { win?.close() })
 // ============================================================
 // 图片处理
 // ============================================================
-ipcMain.handle('image:select', async (): Promise<string | null> => {
-  if (!win) return null
-  const result = await dialog.showOpenDialog(win, {
-    title: '选择图片',
-    properties: ['openFile'],
-    filters: [{ name: '图片文件', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'] }],
-  })
-  if (result.canceled || !result.filePaths[0]) return null
-  const srcPath = result.filePaths[0]
-  const imagesDir = ensureImagesDir()
-  const ext = path.extname(srcPath).toLowerCase().replace(/^\./, '') || 'png'
-  const fileName = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8) + '.' + ext
-  const destPath = path.join(imagesDir, fileName)
-  try {
-    fs.copyFileSync(srcPath, destPath)
-    return 'assets/images/' + fileName
-  } catch (e) {
-    console.error('复制图片失败:', e)
+// image:select：弹系统选图对话框，直接读文件返回 base64+filename+mimeType
+// image:upload：把 base64 buffer 上传到 sm.ms 图床，返回 URL
+// **不**写本地文件，**不**写 base64 data URL
+ipcMain.handle(
+  'image:select',
+  async (): Promise<{ buffer: string; filename: string; mimeType: string } | null> => {
+    if (!win) return null
+    const result = await dialog.showOpenDialog(win, {
+      title: '选择图片',
+      properties: ['openFile'],
+      filters: [
+        { name: '图片文件', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'] },
+      ],
+    })
+    if (result.canceled || !result.filePaths[0]) return null
+    const p = result.filePaths[0]
     try {
-      const data = fs.readFileSync(srcPath)
-      const mime = `image/${ext === 'jpg' ? 'jpeg' : ext}`
-      return `data:${mime};base64,${data.toString('base64')}`
-    } catch {
+      const data = fs.readFileSync(p)
+      const extRaw = path.extname(p).toLowerCase().replace(/^\./, '') || 'png'
+      const ext = extRaw === 'jpg' ? 'jpeg' : extRaw
+      return {
+        buffer: data.toString('base64'),
+        filename: path.basename(p),
+        mimeType: `image/${ext}`,
+      }
+    } catch (e) {
+      console.error('读取图片失败:', e)
       return null
     }
-  }
-})
+  },
+)
 
-ipcMain.handle('image:save', async (_event, dataUrl: string): Promise<string | null> => {
-  try {
-    const match = dataUrl.match(/^data:image\/([\w+]+);base64,(.+)$/)
-    if (!match) return null
-    const rawExt = match[1] === 'jpeg' ? 'jpg' : match[1].replace('+', '')
-    const ext = rawExt || 'png'
-    const base64Data = match[2]
-    const imagesDir = ensureImagesDir()
-    const fileName = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8) + '.' + ext
-    const destPath = path.join(imagesDir, fileName)
-    fs.writeFileSync(destPath, Buffer.from(base64Data, 'base64'))
-    return 'assets/images/' + fileName
-  } catch (e) {
-    console.error('保存图片失败:', e)
-    return null
-  }
-})
+ipcMain.handle(
+  'image:upload',
+  async (
+    _e,
+    payload: { buffer: string; filename: string; mimeType: string },
+  ): Promise<{ ok: boolean; url?: string; error?: string; host?: string }> => {
+    try {
+      const buf = Buffer.from(payload.buffer, 'base64')
+      const { uploadImage } = await import('./imageHosting')
+      const res = await uploadImage({
+        buffer: buf,
+        filename: payload.filename,
+        mimeType: payload.mimeType,
+      })
+      if (res.ok) {
+        console.log(
+          `[image:upload] 上传成功 (${(res as any).host || 'unknown'}):`,
+          res.url,
+        )
+      } else {
+        console.warn('[image:upload] 所有图床失败:', res.error)
+      }
+      return res
+    } catch (e) {
+      return { ok: false, error: (e as Error).message || '上传失败' }
+    }
+  },
+)
+
+// image:saveLocal：把图片写入 userData/images/，返回 local://xxx 协议 URL
+// 用于"本地保存"模式——不联网，NGA 导出时自动用占位符
+ipcMain.handle(
+  'image:saveLocal',
+  async (
+    _e,
+    payload: { buffer: string; filename: string; mimeType: string },
+  ): Promise<{ ok: boolean; url?: string; error?: string }> => {
+    try {
+      const buf = Buffer.from(payload.buffer, 'base64')
+      // sha256[:16] 做文件名（保证唯一 + 防止路径穿越）
+      const hash = crypto.createHash('sha256').update(buf).digest('hex').slice(0, 16)
+      const m = payload.filename.match(/\.[^.]+$/)
+      const ext = m ? m[0].toLowerCase() : '.png'
+      const localName = `${hash}${ext}`
+      const localPath = path.join(imagesDir, localName)
+      // 已存在则跳过写入（相同图片不重复写盘）
+      if (!fs.existsSync(localPath)) {
+        fs.writeFileSync(localPath, buf)
+      }
+      return { ok: true, url: `local://${localName}` }
+    } catch (e) {
+      console.error('[image:saveLocal] 写入失败:', e)
+      return { ok: false, error: (e as Error).message || '本地保存失败' }
+    }
+  },
+)
+
+// image:openFolder：用系统文件管理器打开本地图片目录
+ipcMain.handle(
+  'image:openFolder',
+  async (): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      const res = await shell.openPath(imagesDir)
+      if (res) {
+        return { ok: false, error: res }
+      }
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: (e as Error).message }
+    }
+  },
+)
 
 // ============================================================
 // 数据库 IPC (Renderer → Main)
@@ -169,6 +290,13 @@ ipcMain.handle('db:get-story', (_e, id: string) => db.getStory(id))
 ipcMain.handle('db:create-story', (_e, data: { title: string; description?: string; category?: string }) => db.createStory(data))
 ipcMain.handle('db:update-story', (_e, id: string, patch: any) => db.updateStory(id, patch))
 ipcMain.handle('db:delete-story', (_e, id: string) => { db.deleteStory(id); return true })
+
+// Trash / Recycle Bin (soft delete, restore, permanent delete)
+ipcMain.handle('db:soft-delete-story', (_e, id: string) => { db.softDeleteStory(id); return true })
+ipcMain.handle('db:restore-story', (_e, id: string) => { db.restoreStory(id); return true })
+ipcMain.handle('db:permanently-delete-story', (_e, id: string) => { db.permanentlyDeleteStory(id); return true })
+ipcMain.handle('db:list-trashed-stories', () => db.listTrashedStories())
+ipcMain.handle('db:cleanup-old-trashed', (_e, days: number) => db.cleanupOldTrashed(days))
 
 // WorldSettings
 ipcMain.handle('db:list-world-settings', (_e, storyId: string) => db.listWorldSettings(storyId))
@@ -189,6 +317,8 @@ ipcMain.handle('db:create-character-variants-batch', (_e, characterId: string, i
 ipcMain.handle('db:update-character-variant', (_e, id: string, patch: any) => { db.updateCharacterVariant(id, patch); return true })
 ipcMain.handle('db:delete-character-variant', (_e, id: string) => { db.deleteCharacterVariant(id); return true })
 ipcMain.handle('db:reorder-character-variants', (_e, characterId: string, orderedIds: string[]) => { db.reorderCharacterVariants(characterId, orderedIds); return true })
+ipcMain.handle('db:reorder-world-settings', (_e, storyId: string, orderedIds: string[]) => { db.reorderWorldSettings(storyId, orderedIds); return true })
+ipcMain.handle('db:reorder-characters', (_e, storyId: string, orderedIds: string[]) => { db.reorderCharacters(storyId, orderedIds); return true })
 
 // Character Relations
 ipcMain.handle('db:list-character-relations', (_e, storyId: string) => db.listCharacterRelations(storyId))
@@ -242,12 +372,14 @@ ipcMain.handle('db:list-world-setting-templates', () => db.listWorldSettingTempl
 ipcMain.handle('db:create-world-setting-template', (_e, data: any) => db.createWorldSettingTemplate(data))
 ipcMain.handle('db:update-world-setting-template', (_e, id: string, patch: any) => db.updateWorldSettingTemplate(id, patch))
 ipcMain.handle('db:delete-world-setting-template', (_e, id: string) => { db.deleteWorldSettingTemplate(id); return true })
+ipcMain.handle('db:reorder-world-setting-templates', (_e, orderedIds: string[]) => { db.reorderWorldSettingTemplates(orderedIds); return true })
 
 // Character templates
 ipcMain.handle('db:list-character-templates', () => db.listCharacterTemplates())
 ipcMain.handle('db:create-character-template', (_e, data: any) => db.createCharacterTemplate(data))
 ipcMain.handle('db:update-character-template', (_e, id: string, patch: any) => db.updateCharacterTemplate(id, patch))
 ipcMain.handle('db:delete-character-template', (_e, id: string) => { db.deleteCharacterTemplate(id); return true })
+ipcMain.handle('db:reorder-character-templates', (_e, orderedIds: string[]) => { db.reorderCharacterTemplates(orderedIds); return true })
 
 // Aggregate
 ipcMain.handle('db:get-story-with-all', (_e, storyId: string) => db.getStoryWithAll(storyId))
@@ -271,3 +403,258 @@ ipcMain.handle('app:open-data-directory', async (): Promise<boolean> => {
     return false
   }
 })
+
+// ============================================================
+// 整作品另存为：弹系统保存对话框，导出 .anke.json 文件
+// ============================================================
+ipcMain.handle(
+  'story:export-to-file',
+  async (
+    _e,
+    payload: { data: any; suggestedName?: string },
+  ): Promise<{ ok: boolean; canceled?: boolean; filePath?: string; error?: string }> => {
+    try {
+      const focused = BrowserWindow.getFocusedWindow() || win || BrowserWindow.getAllWindows()[0]
+      const result = await dialog.showSaveDialog(focused!, {
+        title: '安科作品另存为',
+        defaultPath: `${payload.suggestedName || 'anke'}.anke.json`,
+        filters: [
+          { name: '安科作品文件', extensions: ['anke.json'] },
+          { name: 'JSON 文件', extensions: ['json'] },
+        ],
+      })
+      if (result.canceled || !result.filePath) return { ok: false, canceled: true }
+      const json = JSON.stringify(payload.data, null, 2)
+      fs.writeFileSync(result.filePath, json, 'utf-8')
+      return { ok: true, filePath: result.filePath }
+    } catch (e) {
+      console.error('安科另存为失败:', e)
+      return { ok: false, error: (e as Error).message }
+    }
+  },
+)
+
+// ============================================================
+// 导入安科作品：弹系统打开对话框，读 .anke.json 文件内容
+// ============================================================
+ipcMain.handle(
+  'story:import-from-file',
+  async (): Promise<{ ok: boolean; canceled?: boolean; filePath?: string; data?: any; error?: string }> => {
+    try {
+      const focused = BrowserWindow.getFocusedWindow() || win || BrowserWindow.getAllWindows()[0]
+      const result = await dialog.showOpenDialog(focused!, {
+        title: '导入安科作品',
+        properties: ['openFile'],
+        filters: [
+          { name: '安科作品文件', extensions: ['anke.json'] },
+          { name: 'JSON 文件', extensions: ['json'] },
+        ],
+      })
+      if (result.canceled || result.filePaths.length === 0) return { ok: false, canceled: true }
+      const raw = fs.readFileSync(result.filePaths[0], 'utf-8')
+      const data = JSON.parse(raw)
+      return { ok: true, filePath: result.filePaths[0], data }
+    } catch (e) {
+      console.error('安科导入失败:', e)
+      return { ok: false, error: (e as Error).message }
+    }
+  },
+)
+
+// ============================================================
+// NGA 安价收集
+// - 抓取 NGA 主题帖指定范围的楼层
+// - 过滤出"以指定文本开头"的楼层
+// - 返回楼层号 / 层主 / 内容
+// - 支持取消（nga:collect:cancel）+ 自动检测总页数（nga:fetchThreadInfo）
+// ============================================================
+
+// 模块级状态：跟踪当前抓取任务 + 已取消任务 ID 集合
+let currentCollectingTaskId = 0;
+const cancelledTaskIds = new Set<number>();
+
+ipcMain.handle(
+  'nga:collect',
+  async (
+    _e,
+    payload: {
+      url: string;
+      startFloor: number;
+      endFloor: number;
+      prefix: string;
+      cookies?: string;
+    },
+  ): Promise<CollectResult> => {
+    // 分配新的 taskId
+    currentCollectingTaskId++;
+    const taskId = currentCollectingTaskId;
+    try {
+      const parsed = parseThreadUrl(payload.url);
+      if (!parsed) {
+        return {
+          ok: false,
+          items: [],
+          totalPages: 0,
+          error: '无法解析 URL 中的 tid 参数，请检查链接格式',
+        };
+      }
+      const { tid, baseUrl } = parsed;
+      const { startPage, endPage, totalPages } = computePageRange(
+        payload.startFloor,
+        payload.endFloor,
+      );
+
+      console.log(
+        `[nga:collect] taskId=${taskId} tid=${tid} 范围=${payload.startFloor}-${payload.endFloor} 页码=${startPage}-${endPage}（共 ${totalPages} 页）`,
+      );
+
+      const allPosts: ReturnType<typeof extractPostsFromHtml> = [];
+      const errors: string[] = [];
+
+      for (let page = startPage; page <= endPage; page++) {
+        // 取消检查（在每页之间）
+        if (cancelledTaskIds.has(taskId)) {
+          console.log(`[nga:collect] 任务 ${taskId} 被取消（已抓 ${allPosts.length} 帖）`);
+          break;
+        }
+        const pageUrl = `${baseUrl}/read.php?tid=${tid}&page=${page}`;
+        try {
+          const headers: Record<string, string> = {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+              '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'zh-CN,zh;q=0.9',
+          };
+          if (payload.cookies && payload.cookies.trim()) {
+            headers['Cookie'] = payload.cookies.trim();
+          }
+          const resp = await fetch(pageUrl, { headers, redirect: 'follow' });
+          if (!resp.ok) {
+            errors.push(`第 ${page} 页 HTTP ${resp.status}`);
+            console.warn(`[nga:collect] 第 ${page} 页 HTTP ${resp.status}`);
+            continue;
+          }
+          const html = await resp.text();
+          const posts = extractPostsFromHtml(html);
+          allPosts.push(...posts);
+          console.log(`[nga:collect] 第 ${page} 页抓到 ${posts.length} 个帖子`);
+          // 限流：每页之间 300ms（最后一页不等待）
+          if (page < endPage) {
+            await new Promise((r) => setTimeout(r, 300));
+          }
+        } catch (e) {
+          errors.push(`第 ${page} 页抓取失败：${(e as Error).message}`);
+          console.warn(`[nga:collect] 第 ${page} 页抓取失败：`, (e as Error).message);
+        }
+      }
+
+      const items = filterAnjiaPosts(
+        allPosts,
+        payload.startFloor,
+        payload.endFloor,
+        payload.prefix,
+      );
+
+      const cancelled = cancelledTaskIds.has(taskId);
+      console.log(
+        `[nga:collect] taskId=${taskId} 完成${cancelled ? '（已取消）' : ''}：共抓 ${allPosts.length} 帖，过滤出 ${items.length} 条匹配"${payload.prefix}"`,
+      );
+
+      return {
+        ok: true,
+        items,
+        totalPages,
+        error: errors.length > 0 ? errors.join('；') : undefined,
+      };
+    } catch (e) {
+      console.error('[nga:collect] 抓取异常：', e);
+      return {
+        ok: false,
+        items: [],
+        totalPages: 0,
+        error: (e as Error).message || '抓取失败',
+      };
+    } finally {
+      // 清理：删除 cancel flag
+      cancelledTaskIds.delete(taskId);
+    }
+  },
+)
+
+// 取消抓取任务
+ipcMain.handle(
+  'nga:collect:cancel',
+  async (_e, taskId?: number): Promise<{ ok: boolean }> => {
+    const target = taskId ?? currentCollectingTaskId;
+    if (target) {
+      cancelledTaskIds.add(target);
+      console.log(`[nga:collect:cancel] 已标记任务 ${target} 为取消`);
+    }
+    return { ok: true };
+  },
+)
+
+// 自动检测 NGA 主题帖总页数
+ipcMain.handle(
+  'nga:fetchThreadInfo',
+  async (
+    _e,
+    url: string,
+    cookies?: string,
+  ): Promise<{
+    ok: boolean;
+    totalPages?: number;
+    totalFloors?: number;
+    error?: string;
+  }> => {
+    try {
+      const parsed = parseThreadUrl(url);
+      if (!parsed) {
+        return { ok: false, error: '无法解析 URL 中的 tid 参数' };
+      }
+      const { tid, baseUrl } = parsed;
+      const headers: Record<string, string> = {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+          '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.9',
+      };
+      if (cookies && cookies.trim()) {
+        headers['Cookie'] = cookies.trim();
+      }
+      const resp = await fetch(`${baseUrl}/read.php?tid=${tid}`, {
+        headers,
+        redirect: 'follow',
+      });
+      if (!resp.ok) {
+        return { ok: false, error: `HTTP ${resp.status}` };
+      }
+      const html = await resp.text();
+
+      // 解析总页数：
+      // 1) 末页链接：<a href="?tid=XXX&page=N">末页</a>
+      // 2) 翻页链接中的最大 page=N
+      const lastPageMatch = html.match(/[?&]page=(\d+)[^>]*>(?:末页|>>)/i);
+      const allPages = Array.from(html.matchAll(/[?&]page=(\d+)/g))
+        .map((m) => parseInt(m[1], 10))
+        .filter((n) => !isNaN(n) && n > 0);
+      const totalPages =
+        (lastPageMatch ? parseInt(lastPageMatch[1], 10) : 0) ||
+        (allPages.length > 0 ? Math.max(...allPages) : 0);
+
+      if (totalPages === 0) {
+        return { ok: false, error: '无法从页面解析总页数，请手动输入末尾楼层' };
+      }
+
+      const totalFloors = totalPages * 20;
+      console.log(
+        `[nga:fetchThreadInfo] tid=${tid} 总页数=${totalPages}（约 ${totalFloors} 楼）`,
+      );
+      return { ok: true, totalPages, totalFloors };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message || '检测失败' };
+    }
+  },
+)

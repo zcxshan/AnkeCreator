@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import type { WorldSetting, WorldSettingTemplate, TextStyles } from '../../types';
 import { useMetaStore } from '../../store/metaStore';
 import { useStoryStore } from '../../store/storyStore';
+import { ConfirmDialog } from './ConfirmDialog';
+import { useToastStore } from '../../store/toastStore';
 import {
   WORD_FONT_SIZES,
   WORD_FONTS,
@@ -24,8 +26,74 @@ export function WorldSettingPanel() {
   const editingWorldId = useMetaStore((s) => s.editingWorldId);
   const createWorldSetting = useMetaStore((s) => s.createWorldSetting);
   const setEditingWorldId = useMetaStore((s) => s.setEditingWorldId);
+  const reorderWorldSettings = useMetaStore((s) => s.reorderWorldSettings);
+  const deleteWorldSetting = useMetaStore((s) => s.deleteWorldSetting);
 
   const editing = worldSettings.find((w) => w.id === editingWorldId) ?? null;
+
+  // 多选 + 拖动状态
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [confirmBatchDelete, setConfirmBatchDelete] = useState(false);
+
+  // 当前故事下的世界观（按 order_index 排序）
+  const filtered = activeStoryId
+    ? worldSettings
+        .filter((w) => w.story_id === activeStoryId)
+        .slice()
+        .sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
+    : [];
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAll = () => {
+    setSelectedIds(new Set(filtered.map((w) => w.id)));
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const handleBatchDelete = async () => {
+    if (selectedIds.size === 0) return;
+    for (const id of Array.from(selectedIds)) {
+      await deleteWorldSetting(id);
+    }
+    useToastStore.getState().showToast(`已批量删除 ${selectedIds.size} 条世界观`, 'success');
+    setSelectedIds(new Set());
+    setConfirmBatchDelete(false);
+  };
+
+  /**
+   * 拖动结束：根据 drop 位置计算新的 id 顺序，调 reorderXxx 持久化
+   */
+  const handleDrop = (dropTargetId: string) => {
+    if (!dragId || !activeStoryId || dragId === dropTargetId) {
+      setDragId(null);
+      setDragOverId(null);
+      return;
+    }
+    const ids = filtered.map((w) => w.id);
+    const fromIdx = ids.indexOf(dragId);
+    const toIdx = ids.indexOf(dropTargetId);
+    if (fromIdx < 0 || toIdx < 0) {
+      setDragId(null);
+      setDragOverId(null);
+      return;
+    }
+    const next = ids.slice();
+    next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, dragId);
+    reorderWorldSettings(activeStoryId, next);
+    setDragId(null);
+    setDragOverId(null);
+  };
 
   return (
     <div className="flex-1 flex overflow-hidden" style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}>
@@ -40,16 +108,51 @@ export function WorldSettingPanel() {
         >
           <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>🌍 世界观设定</div>
           <div className="flex items-center gap-1">
-            <ImportTemplateButton />
-            <button
-              onClick={() => activeStoryId && createWorldSetting(activeStoryId)}
-              disabled={!activeStoryId}
-              className="text-xs px-2 py-1 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
-              title="新建世界观条目"
-            >
-              + 新建
-            </button>
+            {selectedIds.size > 0 ? (
+              <>
+                <span className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>
+                  已选 {selectedIds.size}
+                </span>
+                <button
+                  onClick={() => setConfirmBatchDelete(true)}
+                  className="text-xs px-2 py-1 rounded"
+                  style={{ background: 'var(--danger)', color: '#fff' }}
+                  title="删除所选"
+                >
+                  🗑 批量删除
+                </button>
+                <button
+                  onClick={clearSelection}
+                  className="text-xs px-2 py-1 rounded"
+                  style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                >
+                  取消
+                </button>
+              </>
+            ) : (
+              <>
+                {filtered.length > 0 && (
+                  <button
+                    onClick={selectAll}
+                    className="text-xs px-2 py-1 rounded"
+                    style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                    title="全选"
+                  >
+                    全选
+                  </button>
+                )}
+                <ImportTemplateButton />
+                <button
+                  onClick={() => activeStoryId && createWorldSetting(activeStoryId)}
+                  disabled={!activeStoryId}
+                  className="text-xs px-2 py-1 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
+                  title="新建世界观条目"
+                >
+                  + 新建
+                </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -59,18 +162,31 @@ export function WorldSettingPanel() {
               请先选择或创建一个故事
             </div>
           )}
-          {activeStoryId && worldSettings.length === 0 && (
+          {activeStoryId && filtered.length === 0 && (
             <div className="text-xs italic px-2 py-4" style={{ color: 'var(--text-secondary)' }}>
               暂无条目，点击上方"新建"
             </div>
           )}
 
-          {worldSettings.map((ws) => (
+          {filtered.map((ws) => (
             <WorldSettingCard
               key={ws.id}
               setting={ws}
               isActive={ws.id === editingWorldId}
+              selected={selectedIds.has(ws.id)}
+              isDragOver={dragOverId === ws.id && dragId !== ws.id}
               onClick={() => setEditingWorldId(ws.id)}
+              onToggleSelect={() => toggleSelect(ws.id)}
+              onDragStart={() => setDragId(ws.id)}
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (dragId && dragId !== ws.id) setDragOverId(ws.id);
+              }}
+              onDragEnd={() => {
+                setDragId(null);
+                setDragOverId(null);
+              }}
+              onDrop={() => handleDrop(ws.id)}
             />
           ))}
         </div>
@@ -84,6 +200,17 @@ export function WorldSettingPanel() {
           <EmptyHint storyId={activeStoryId} onCreate={() => activeStoryId && createWorldSetting(activeStoryId)} />
         )}
       </main>
+
+      {confirmBatchDelete && (
+        <ConfirmDialog
+          open={true}
+          title="批量删除世界观"
+          message={`确定删除所选 ${selectedIds.size} 条世界观？此操作不可撤销。`}
+          danger
+          onConfirm={handleBatchDelete}
+          onCancel={() => setConfirmBatchDelete(false)}
+        />
+      )}
     </div>
   );
 }
@@ -112,31 +239,105 @@ function EmptyHint({ storyId, onCreate }: { storyId: string | null; onCreate: ()
 function WorldSettingCard({
   setting,
   isActive,
+  selected,
+  isDragOver,
   onClick,
+  onToggleSelect,
+  onDragStart,
+  onDragOver,
+  onDragEnd,
+  onDrop,
 }: {
   setting: WorldSetting;
   isActive: boolean;
+  selected: boolean;
+  isDragOver: boolean;
   onClick: () => void;
+  onToggleSelect: () => void;
+  onDragStart: () => void;
+  onDragOver: (e: React.DragEvent) => void;
+  onDragEnd: () => void;
+  onDrop: () => void;
 }) {
   const preview = (setting.content || '').replace(/\s+/g, ' ').trim();
   const shortPreview = preview.length > 50 ? preview.slice(0, 50) + '...' : preview || '（暂无内容）';
 
-  const activeBg = isActive ? 'var(--accent-bg)' : 'var(--bg-card)';
-  const activeBorder = isActive ? 'var(--accent)' : 'var(--border-color)';
-  const activeColor = isActive ? 'var(--accent)' : 'var(--text-primary)';
-  const subtitleColor = isActive ? 'var(--text-primary)' : 'var(--text-secondary)';
+  // 视觉态：选中 > 拖动悬停 > 激活 > 默认
+  const bg = selected
+    ? 'var(--accent-bg)'
+    : isActive
+    ? 'var(--accent-bg)'
+    : 'var(--bg-card)';
+  const borderColor = selected
+    ? 'var(--accent)'
+    : isDragOver
+    ? 'var(--accent)'
+    : isActive
+    ? 'var(--accent)'
+    : 'var(--border-color)';
+  const titleColor = isActive || selected ? 'var(--accent)' : 'var(--text-primary)';
+  const subtitleColor = isActive || selected ? 'var(--text-primary)' : 'var(--text-secondary)';
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onClick();
+    }
+  };
 
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
-      className="w-full text-left rounded border p-2 transition"
-      style={{ background: activeBg, borderColor: activeBorder, color: activeColor }}
+      onKeyDown={handleKeyDown}
+      draggable
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDragEnd={onDragEnd}
+      onDrop={onDrop}
+      className="w-full text-left rounded border p-2 transition relative flex items-start gap-2"
+      style={{
+        background: bg,
+        borderColor,
+        color: titleColor,
+        borderTopWidth: isDragOver ? 3 : 1,
+        borderTopColor: isDragOver ? 'var(--accent)' : borderColor,
+        cursor: 'grab',
+      }}
     >
-      <div className="text-sm font-semibold truncate">{setting.title}</div>
-      <div className="text-xs mt-1 line-clamp-3" style={{ color: subtitleColor }}>
-        {shortPreview}
+      {/* 多选 checkbox（左） */}
+      <input
+        type="checkbox"
+        checked={selected}
+        onChange={(e) => {
+          e.stopPropagation();
+          onToggleSelect();
+        }}
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        onDragStart={(e) => e.preventDefault()}
+        className="mt-1 shrink-0"
+        style={{ cursor: 'pointer' }}
+        title="勾选以加入批量删除"
+      />
+      {/* 拖动手柄 */}
+      <span
+        className="shrink-0 select-none text-xs leading-none mt-1"
+        style={{ color: 'var(--text-secondary)', cursor: 'grab' }}
+        title="按住拖动以重排序"
+        onClick={(e) => e.stopPropagation()}
+      >
+        ⋮⋮
+      </span>
+      {/* 内容 */}
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-semibold truncate">{setting.title}</div>
+        <div className="text-xs mt-1 line-clamp-3" style={{ color: subtitleColor }}>
+          {shortPreview}
+        </div>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -152,6 +353,7 @@ function WorldSettingEditor({ setting }: { setting: WorldSetting }) {
     font: 'simsun',
   });
   const contentRef = useRef<HTMLDivElement>(null);
+  const [pendingDelete, setPendingDelete] = useState(false);
 
   useEffect(() => {
     setTitle(setting.title);
@@ -183,10 +385,7 @@ function WorldSettingEditor({ setting }: { setting: WorldSetting }) {
   };
 
   const handleDelete = () => {
-    if (window.confirm(`删除"${setting.title}"？`)) {
-      deleteWorldSetting(setting.id);
-      setEditingWorldId(null);
-    }
+    setPendingDelete(true);
   };
 
   const cssStyle: React.CSSProperties = {
@@ -290,7 +489,7 @@ function WorldSettingEditor({ setting }: { setting: WorldSetting }) {
             if (name == null) return;
             const text = contentRef.current?.innerText ?? setting.content ?? '';
             useMetaStore.getState().createWorldSettingTemplate({ title: name, content: text });
-            alert('已保存为模板');
+            useToastStore.getState().showToast('已保存为模板', 'success');
           }}
           className="text-xs px-2 py-1 rounded border"
           style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', borderColor: 'var(--border-color)' }}
@@ -335,6 +534,22 @@ function WorldSettingEditor({ setting }: { setting: WorldSetting }) {
           {setting.content?.length ?? 0} 字 · 已保存
         </div>
       </div>
+
+      {pendingDelete && (
+        <ConfirmDialog
+          open={true}
+          title="删除确认"
+          message={`确定删除"${setting.title}"？此操作不可撤销。`}
+          danger
+          onConfirm={() => {
+            deleteWorldSetting(setting.id);
+            setEditingWorldId(null);
+            useToastStore.getState().showToast('已删除', 'success');
+            setPendingDelete(false);
+          }}
+          onCancel={() => setPendingDelete(false)}
+        />
+      )}
     </div>
   );
 }
@@ -406,8 +621,6 @@ function ImportTemplateButton() {
   const filtered = search.trim()
     ? templates.filter((t) => t.title.toLowerCase().includes(search.toLowerCase()))
     : templates;
-  const presetTemplates = filtered.filter((t) => t.is_preset);
-  const customTemplates = filtered.filter((t) => !t.is_preset);
 
   const dropdownContent = (
     <div
@@ -450,73 +663,31 @@ function ImportTemplateButton() {
         </div>
       ) : (
         <div className="overflow-y-auto pb-1" style={{ maxHeight: 320, borderRadius: 8 }}>
-          {presetTemplates.length > 0 && (
-            <>
-              <div className="px-3 py-1 text-[10px] font-medium" style={{ color: 'var(--text-secondary)' }}>
-                预置模板
+          {filtered.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => importOne(t)}
+              className="w-full text-left px-3 py-2 transition-colors"
+              style={{ color: 'var(--text-primary)' }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-bg)' }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+            >
+              <div className="truncate font-bold" style={{ fontSize: 12 }}>📚 {t.title}</div>
+              <div
+                style={{
+                  fontSize: 11,
+                  color: 'var(--text-secondary)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  display: '-webkit-box',
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: 'vertical',
+                }}
+              >
+                {(t.content || '').replace(/<[^>]+>/g, '').slice(0, 100) || '（无内容）'}
               </div>
-              {presetTemplates.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => importOne(t)}
-                  className="w-full text-left px-3 py-2 transition-colors"
-                  style={{ color: 'var(--text-primary)' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-bg)' }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
-                >
-                  <div className="truncate font-bold" style={{ fontSize: 12 }}>📚 {t.title}</div>
-                  <div
-                    style={{
-                      fontSize: 11,
-                      color: 'var(--text-secondary)',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      display: '-webkit-box',
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: 'vertical',
-                    }}
-                  >
-                    {(t.content || '').replace(/<[^>]+>/g, '').slice(0, 100) || '（无内容）'}
-                  </div>
-                </button>
-              ))}
-            </>
-          )}
-          {customTemplates.length > 0 && (
-            <>
-              {presetTemplates.length > 0 && (
-                <div className="mx-3 my-1" style={{ borderTop: '1px solid var(--border-color)' }} />
-              )}
-              <div className="px-3 py-1 text-[10px] font-medium" style={{ color: 'var(--text-secondary)' }}>
-                自定义模板
-              </div>
-              {customTemplates.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => importOne(t)}
-                  className="w-full text-left px-3 py-2 transition-colors"
-                  style={{ color: 'var(--text-primary)' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-bg)' }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
-                >
-                  <div className="truncate font-bold" style={{ fontSize: 12 }}>🗂️ {t.title}</div>
-                  <div
-                    style={{
-                      fontSize: 11,
-                      color: 'var(--text-secondary)',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      display: '-webkit-box',
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: 'vertical',
-                    }}
-                  >
-                    {(t.content || '').replace(/<[^>]+>/g, '').slice(0, 100) || '（无内容）'}
-                  </div>
-                </button>
-              ))}
-            </>
-          )}
+            </button>
+          ))}
         </div>
       )}
     </div>

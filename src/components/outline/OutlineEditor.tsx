@@ -38,26 +38,28 @@ export function OutlineEditor() {
   const outline = outlines.find((o) => o.id === activeOutlineId);
   const payload = outline ? parseOutlineContent(outline.content) : null;
 
-  const linkedVolume =
-    payload?.target_type === 'volume'
-      ? volumes.find((v) => v.id === payload.target_id)
-      : undefined;
-  const linkedChapter =
-    payload?.target_type === 'chapter'
-      ? chapters.find((c) => c.id === payload.target_id)
-      : undefined;
-
+  // 大纲标题：基于 outline 自身 + 父卷 outline 派生
+  // 之前错误：linkedVolume/linkedChapter 在 volumes/chapters 数组里查，但 target_id 实际指向 outlines 数组
   const displayTitle = useMemo(() => {
-    if (linkedVolume) {
-      const volIdx = volumes.findIndex((v) => v.id === linkedVolume.id);
-      return `第${volIdx + 1}卷 · ${linkedVolume.title} · 卷纲`;
+    if (!payload) return story?.title || '大纲';
+
+    const parentOutline =
+      payload.target_type === 'chapter' && payload.parent_outline_id
+        ? outlines.find((o) => o.id === payload.parent_outline_id)
+        : null;
+    const parentTitle = parentOutline
+      ? parseOutlineContent(parentOutline.content).title || '未命名卷'
+      : '';
+    const currentTitle = payload.title || '未命名';
+
+    if (payload.target_type === 'volume') {
+      return currentTitle;
     }
-    if (linkedChapter) {
-      const chIdx = chapters.findIndex((c) => c.id === linkedChapter.id);
-      return `第${chIdx + 1}章 · ${linkedChapter.title} · 章纲`;
+    if (payload.target_type === 'chapter') {
+      return `${parentTitle ? parentTitle + ' · ' : ''}${currentTitle}`;
     }
     return story?.title || '大纲';
-  }, [linkedVolume, linkedChapter, volumes, chapters, story]);
+  }, [payload, outlines, story]);
 
   // 切条目时载入 body：
   //  - 旧 TipTap JSON → 提取纯文本；

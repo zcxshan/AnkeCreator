@@ -61,7 +61,7 @@ interface MetaState {
   updateWorldSetting: (id: string, patch: Partial<Pick<WorldSetting, 'title' | 'content'>>) => Promise<void>;
   deleteWorldSetting: (id: string) => Promise<void>;
   setEditingWorldId: (id: string | null) => void;
-  reorderWorldSettings: (orderedIds: string[]) => Promise<void>;
+  reorderWorldSettings: (storyId: string, orderedIds: string[]) => Promise<void>;
 
   // —— 角色 ——
   createCharacter: (storyId: string, name?: string, skipEditor?: boolean) => Promise<string>;
@@ -72,7 +72,7 @@ interface MetaState {
   deleteCharacter: (id: string) => Promise<void>;
   setEditingCharacter: (id: string | null) => void;
   toggleCharacterEditor: (show: boolean) => void;
-  reorderCharacters: (orderedIds: string[]) => Promise<void>;
+  reorderCharacters: (storyId: string, orderedIds: string[]) => Promise<void>;
 
   // —— 角色差分 ——
   addCharacterVariant: (
@@ -119,6 +119,8 @@ interface MetaState {
     patch: Partial<Pick<WorldSettingTemplate, 'title' | 'content'>>,
   ) => Promise<void>;
   deleteWorldSettingTemplate: (id: string) => Promise<void>;
+  batchDeleteWorldSettingTemplates: (ids: string[]) => Promise<{ deleted: number }>;
+  reorderWorldSettingTemplates: (orderedIds: string[]) => Promise<void>;
   // 人物模板
   createCharacterTemplate: (data: {
     name: string;
@@ -138,6 +140,8 @@ interface MetaState {
     >,
   ) => Promise<void>;
   deleteCharacterTemplate: (id: string) => Promise<void>;
+  batchDeleteCharacterTemplates: (ids: string[]) => Promise<{ deleted: number }>;
+  reorderCharacterTemplates: (orderedIds: string[]) => Promise<void>;
 }
 
 function nowOrder() {
@@ -254,19 +258,16 @@ export const useMetaStore = create<MetaState>((set, get) => ({
 
   setEditingWorldId: (id) => set({ editingWorldId: id }),
 
-  reorderWorldSettings: async (orderedIds) => {
-    orderedIds.forEach(async (id, i) => {
-      await db.updateWorldSetting(id, { order_index: i });
-    });
-    set((state) => {
-      const orderMap: Record<string, number> = {};
-      orderedIds.forEach((id, i) => (orderMap[id] = i));
-      return {
-        worldSettings: state.worldSettings
-          .slice()
-          .sort((a, b) => (orderMap[a.id] ?? nowOrder()) - (orderMap[b.id] ?? nowOrder())),
-      };
-    });
+  reorderWorldSettings: async (storyId, orderedIds) => {
+    await db.reorderWorldSettings(storyId, orderedIds);
+    const orderMap: Record<string, number> = {};
+    orderedIds.forEach((id, i) => (orderMap[id] = i));
+    set((state) => ({
+      worldSettings: state.worldSettings
+        .filter((w) => w.story_id === storyId)
+        .map((w) => ({ ...w, order_index: orderMap[w.id] ?? w.order_index ?? 0 }))
+        .sort((a, b) => (a.order_index || 0) - (b.order_index || 0)),
+    }));
   },
 
   // —— 角色 ——
@@ -318,19 +319,19 @@ export const useMetaStore = create<MetaState>((set, get) => ({
 
   toggleCharacterEditor: (show) => set({ showCharacterEditor: show }),
 
-  reorderCharacters: async (orderedIds) => {
-    orderedIds.forEach(async (id, i) => {
-      await db.updateCharacter(id, { order_index: i });
-    });
-    set((state) => {
-      const orderMap: Record<string, number> = {};
-      orderedIds.forEach((id, i) => (orderMap[id] = i));
-      return {
-        characters: state.characters
-          .slice()
-          .sort((a, b) => (orderMap[a.id] ?? nowOrder()) - (orderMap[b.id] ?? nowOrder())),
-      };
-    });
+  reorderCharacters: async (storyId, orderedIds) => {
+    await db.reorderCharacters(storyId, orderedIds);
+    const orderMap: Record<string, number> = {};
+    orderedIds.forEach((id, i) => (orderMap[id] = i));
+    set((state) => ({
+      characters: state.characters
+        .map((c) =>
+          c.story_id === storyId
+            ? { ...c, order_index: orderMap[c.id] ?? c.order_index ?? 0 }
+            : c,
+        )
+        .sort((a, b) => (a.order_index || 0) - (b.order_index || 0)),
+    }));
   },
 
   // —— 角色差分 ——
@@ -492,10 +493,34 @@ export const useMetaStore = create<MetaState>((set, get) => ({
       ),
     }));
   },
+  batchDeleteWorldSettingTemplates: async (ids) => {
+    for (const id of ids) {
+      await db.deleteWorldSettingTemplate(id);
+    }
+    const deletedSet = new Set(ids);
+    set((state) => ({
+      worldSettingTemplates: state.worldSettingTemplates.filter((t) => !deletedSet.has(t.id)),
+    }));
+    return { deleted: ids.length };
+  },
   deleteWorldSettingTemplate: async (id) => {
     await db.deleteWorldSettingTemplate(id);
     set((state) => ({
       worldSettingTemplates: state.worldSettingTemplates.filter((t) => t.id !== id),
+    }));
+  },
+  reorderWorldSettingTemplates: async (orderedIds) => {
+    await db.reorderWorldSettingTemplates(orderedIds);
+    const orderMap: Record<string, number> = {};
+    orderedIds.forEach((id, i) => (orderMap[id] = i));
+    set((state) => ({
+      worldSettingTemplates: state.worldSettingTemplates
+        .slice()
+        .sort(
+          (a, b) =>
+            (orderMap[a.id] ?? a.order_index ?? 0) -
+            (orderMap[b.id] ?? b.order_index ?? 0),
+        ),
     }));
   },
 
@@ -528,56 +553,28 @@ export const useMetaStore = create<MetaState>((set, get) => ({
       characterTemplates: state.characterTemplates.filter((t) => t.id !== id),
     }));
   },
+  batchDeleteCharacterTemplates: async (ids) => {
+    for (const id of ids) {
+      await db.deleteCharacterTemplate(id);
+    }
+    const deletedSet = new Set(ids);
+    set((state) => ({
+      characterTemplates: state.characterTemplates.filter((t) => !deletedSet.has(t.id)),
+    }));
+    return { deleted: ids.length };
+  },
+  reorderCharacterTemplates: async (orderedIds) => {
+    await db.reorderCharacterTemplates(orderedIds);
+    const orderMap: Record<string, number> = {};
+    orderedIds.forEach((id, i) => (orderMap[id] = i));
+    set((state) => ({
+      characterTemplates: state.characterTemplates
+        .slice()
+        .sort(
+          (a, b) =>
+            (orderMap[a.id] ?? a.order_index ?? nowOrder()) -
+            (orderMap[b.id] ?? b.order_index ?? nowOrder()),
+        ),
+    }));
+  },
 }));
-
-// ============================================================
-// 工具：占位符替换（给编辑器"插入角色" & 导出器使用）
-// ============================================================
-
-/** 文本中的角色占位符：{{角色名}} */
-export const CHARACTER_PLACEHOLDER_RE = /\{\{([^{}]+?)\}\}/g;
-
-/** 给某角色名生成一个占位符字符串 */
-export function makeCharacterPlaceholder(name: string): string {
-  return `{{${name}}}`;
-}
-
-
-/** 在文本中查找全部占位符中的角色名 */
-export function extractCharacterNames(text: string): string[] {
-  const names = new Set<string>();
-  let m: RegExpExecArray | null;
-  const re = new RegExp(CHARACTER_PLACEHOLDER_RE.source, 'g');
-  while ((m = re.exec(text)) !== null) {
-    names.add(m[1].trim());
-  }
-  return Array.from(names);
-}
-
-/** 默认角色颜色循环（NGA 风格） */
-export const DEFAULT_CHARACTER_COLORS: string[] = [
-  'red',
-  'blue',
-  'green',
-  'orange',
-  'purple',
-  'skyblue',
-  'pink',
-  'yellow',
-];
-
-/** 把一段文本中的 {{角色名}} 替换为带颜色的 NGA 标签 [color=xxx]角色名[/color] */
-export function replaceCharacterPlaceholders(
-  text: string,
-  characters: Character[],
-): string {
-  const nameToColor: Record<string, string> = {};
-  characters.forEach((c, i) => {
-    nameToColor[c.name] = DEFAULT_CHARACTER_COLORS[i % DEFAULT_CHARACTER_COLORS.length];
-  });
-  return text.replace(CHARACTER_PLACEHOLDER_RE, (_, name: string) => {
-    const trimmed = name.trim();
-    const color = nameToColor[trimmed] ?? DEFAULT_CHARACTER_COLORS[0];
-    return `[color=${color}]${trimmed}[/color]`;
-  });
-}

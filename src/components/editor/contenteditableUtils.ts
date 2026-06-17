@@ -234,6 +234,138 @@ export function isUnderlineActive(): boolean {
 export function isStrikeActive(): boolean {
   return isCommandActive('strikeThrough');
 }
+export function isSupActive(): boolean {
+  return isCommandActive('superscript');
+}
+export function isSubActive(): boolean {
+  return isCommandActive('subscript');
+}
+
+// ------------------------------------------------------------
+// 综合读取：当前光标/选区位置上的活动样式（颜色/字号/字体/粗体/斜体/下划线/删除线）
+// 返回值用作 useEditorStore.activeStyles
+// ------------------------------------------------------------
+export function getCurrentStyles(
+  editor: HTMLElement,
+): {
+  color?: string;
+  fontSize?: string;
+  fontFamily?: string;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  strike?: boolean;
+  sup?: boolean;
+  sub?: boolean;
+} {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || !editor.contains(sel.anchorNode)) {
+    return {};
+  }
+  const result: {
+    color?: string;
+    fontSize?: string;
+    fontFamily?: string;
+    bold?: boolean;
+    italic?: boolean;
+    underline?: boolean;
+    strike?: boolean;
+    sup?: boolean;
+    sub?: boolean;
+  } = {};
+
+  // 1) 简单样式：execCommand.queryCommandState
+  if (isBoldActive()) result.bold = true;
+  if (isItalicActive()) result.italic = true;
+  if (isUnderlineActive()) result.underline = true;
+  if (isStrikeActive()) result.strike = true;
+  if (isSupActive()) result.sup = true;
+  if (isSubActive()) result.sub = true;
+
+  // 2) 颜色/字号/字体：walk up anchorNode 找最近的 inline style
+  const color = getActiveColor(editor);
+  if (color) result.color = color;
+  const fontSize = getActiveFontSize(editor);
+  if (fontSize) result.fontSize = fontSize;
+  const fontFamily = getActiveFontFamily(editor);
+  if (fontFamily) result.fontFamily = fontFamily;
+  return result;
+}
+
+/**
+ * 把活动样式应用到当前 range 处下一个即将插入的文本
+ * 调用时机：editor onBeforeInput 拦截 insertText 时
+ * 若返回 true 表示已接管（已 preventDefault + insertNode），调用方不应再做任何 input 处理
+ */
+export function applyActiveStylesToInsertion(
+  editor: HTMLElement,
+  active: {
+    color?: string;
+    fontSize?: string;
+    fontFamily?: string;
+    bold?: boolean;
+    italic?: boolean;
+    underline?: boolean;
+    strike?: boolean;
+    sup?: boolean;
+    sub?: boolean;
+  },
+  text: string,
+): boolean {
+  if (
+    !text ||
+    (!active.color &&
+      !active.fontSize &&
+      !active.fontFamily &&
+      !active.bold &&
+      !active.italic &&
+      !active.underline &&
+      !active.strike &&
+      !active.sup &&
+      !active.sub)
+  ) {
+    return false;
+  }
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return false;
+  if (!editor.contains(sel.anchorNode)) return false;
+  const range = sel.getRangeAt(0);
+  if (!editor.contains(range.commonAncestorContainer)) return false;
+
+  const wrap = document.createElement('span');
+  if (active.color) wrap.style.color = active.color;
+  if (active.fontSize) wrap.style.fontSize = active.fontSize;
+  if (active.fontFamily) wrap.style.fontFamily = active.fontFamily;
+  if (active.bold) wrap.style.fontWeight = 'bold';
+  if (active.italic) wrap.style.fontStyle = 'italic';
+  const deco: string[] = [];
+  if (active.underline) deco.push('underline');
+  if (active.strike) deco.push('line-through');
+  if (deco.length) wrap.style.textDecoration = deco.join(' ');
+
+  wrap.appendChild(document.createTextNode(text));
+
+  // sup/sub 互斥：如果两者都打开，sup 优先
+  let outer: HTMLElement = wrap;
+  if (active.sup) {
+    const sup = document.createElement('sup');
+    sup.appendChild(wrap);
+    outer = sup;
+  } else if (active.sub) {
+    const sub = document.createElement('sub');
+    sub.appendChild(wrap);
+    outer = sub;
+  }
+
+  range.deleteContents();
+  range.insertNode(outer);
+  // 移动光标到 outer 之后
+  range.setStartAfter(outer);
+  range.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(range);
+  return true;
+}
 
 // ------------------------------------------------------------
 // 获取选区内某个 CSS 属性的有效值（从 anchorNode 向上遍历）
@@ -589,7 +721,7 @@ export function getSelectedImageBlock(editor: HTMLElement): HTMLElement | null {
 export function insertImageBlock(
   editor: HTMLElement,
   src: string,
-  opts?: { size?: string },
+  opts?: { size?: string; alt?: string; name?: string },
 ): HTMLElement | null {
   focusEditor(editor);
   const sel = window.getSelection();
@@ -624,7 +756,9 @@ export function insertImageBlock(
 
   const img = document.createElement('img');
   img.src = src;
-  img.alt = src;
+  // alt 用可读名字，不要用 src（src 可能是 base64 data URL 巨长）
+  img.alt = opts?.alt || opts?.name || '本地图片';
+  if (opts?.name) img.setAttribute('data-name', opts.name);
   img.style.maxWidth = '100%';
   img.style.height = 'auto';
   img.style.display = 'inline-block';

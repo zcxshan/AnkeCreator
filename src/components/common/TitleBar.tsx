@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useThemeStore } from '../../store/themeStore';
 import { AuthorInfo } from './AuthorInfo';
+import { SettingsDialog } from './SettingsDialog';
 
 /**
  * 自定义标题栏（无边框窗口专用） - 支持日间/夜间主题
@@ -18,6 +19,7 @@ export function TitleBar({
 }) {
   const [isMaximized, setIsMaximized] = useState(false);
   const [showAuthorInfo, setShowAuthorInfo] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const { mode, toggle } = useThemeStore();
 
   useEffect(() => {
@@ -72,11 +74,32 @@ export function TitleBar({
         )}
       </div>
 
-      {/* 右侧：主题切换 + 窗口控制按钮 */}
+      {/* 右侧：设置 + 主题切换 + 窗口控制按钮 */}
       <div
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         className="flex items-center"
       >
+        {/* 设置 */}
+        <button
+          onClick={() => setShowSettings(true)}
+          title="设置"
+          className="w-10 h-8 flex items-center justify-center transition-colors"
+          style={{ color: 'var(--text-secondary)' }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'var(--bg-hover)';
+            e.currentTarget.style.color = 'var(--text-primary)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'transparent';
+            e.currentTarget.style.color = 'var(--text-secondary)';
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+        </button>
+
         {/* 主题切换 */}
         <button
           onClick={toggle}
@@ -251,6 +274,7 @@ export function TitleBar({
       </div>
 
       {showAuthorInfo && <AuthorInfo onClose={() => setShowAuthorInfo(false)} />}
+      {showSettings && <SettingsDialog open={showSettings} onClose={() => setShowSettings(false)} />}
     </div>
   );
 }

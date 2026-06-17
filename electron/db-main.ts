@@ -28,6 +28,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
+import type { WorldSettingTemplate, CharacterTemplate, CharacterVariant } from '../src/types';
 
 // —— 工具函数 —— //
 
@@ -83,98 +84,6 @@ function saveJSON(name: string, data: unknown): void {
   }
 }
 
-// —— 预置模板 —— //
-
-type PresetWorldTemplate = { id: string; title: string; content: string; is_preset: number; created_at: string; updated_at: string };
-type PresetCharTemplate = {
-  id: string;
-  name: string;
-  avatar?: string;
-  personality?: string;
-  attributes?: Record<string, string | number>;
-  notes?: string;
-  variants?: { id: string; name: string; url: string }[];
-  is_preset: number;
-  created_at: string;
-  updated_at: string;
-};
-
-function seedPresetWorldTemplates(existing: Record<string, PresetWorldTemplate>): Record<string, PresetWorldTemplate> {
-  const preset: { title: string; content: string }[] = [
-    {
-      title: '现代都市背景',
-      content: '【背景】\n繁华都市，表面光鲜的现代社会。人们过着看似正常的生活，实则暗流涌动。\n\n【时间线】\n故事发生于 21 世纪初的一座虚构大城市。\n\n【关键地点】\n• 市中心商业区\n• 城市边缘的老城区\n• 港口/码头\n• 大学/研究所\n\n【社会设定】\n经济相对发达，科技水平接近现实，社会主流价值观为现代都市风格。',
-    },
-    {
-      title: '奇幻异世界背景',
-      content: '【背景】\n一个剑与魔法并存的中世纪风格奇幻世界。\n\n【世界观】\n• 存在多个国家/王国\n• 魔法是被承认和使用的力量\n• 存在冒险者公会等组织\n• 有各种非人种族（精灵、矮人、兽人等）\n\n【时间线】\n故事起始于王国历某一年。\n\n【关键地点】\n• 王都\n• 边境小镇\n• 魔法学院',
-    },
-    {
-      title: '校园背景',
-      content: '【背景】\n一所规模中等的学校，故事以校园为主要舞台。\n\n【关键地点】\n• 教学楼\n• 学生宿舍\n• 操场/体育馆\n• 社团活动室\n• 图书馆\n• 学校附近的商店街\n\n【学年设定】\n日本式三学期制或美式两学期制可选。\n\n【社团】\n学生会、各类兴趣社团均存在。',
-    },
-    {
-      title: '末世/废土背景',
-      content: '【背景】\n一场灾难后的世界，资源匮乏，秩序崩坏。\n\n【时间线】\n灾难发生多年后，幸存者在废墟中挣扎求存。\n\n【社会设定】\n• 小型聚居点/避难所\n• 物资匮乏\n• 以物易物或特殊代币作为货币\n• 危险的外部区域（变异生物/残留辐射/敌对组织）\n\n【关键地点】\n• 避难所/聚居点\n• 废墟城市\n• 旧世界遗迹',
-    },
-    {
-      title: '东方古风背景',
-      content: '【背景】\n古代东方风格的虚构王朝。\n\n【社会设定】\n• 皇帝/王室为最高权力\n• 文官武将系统\n• 江湖/武林存在\n• 宗教/神秘学\n\n【关键地点】\n• 京城/帝都\n• 江湖门派\n• 各地州府\n• 名山大川',
-    },
-  ];
-
-  const result: Record<string, PresetWorldTemplate> = { ...existing };
-  const existingTitles = new Set(Object.values(result).filter((t) => t.is_preset === 1).map((t) => t.title));
-  for (const t of preset) {
-    if (!existingTitles.has(t.title)) {
-      const id = uuid4();
-      result[id] = {
-        id,
-        title: t.title,
-        content: t.content,
-        is_preset: 1,
-        created_at: nowISO(),
-        updated_at: nowISO(),
-      };
-    }
-  }
-  return result;
-}
-
-function seedPresetCharacterTemplates(existing: Record<string, PresetCharTemplate>): Record<string, PresetCharTemplate> {
-  const preset: { name: string; personality: string }[] = [
-    { name: '主角（普通青年）', personality: '性格开朗，有正义感，但有时会犹豫。普通学生/上班族，卷入事件中。' },
-    { name: '冷酷神秘的少女', personality: '外表冷淡、寡言，内心有自己的坚持。拥有某种特殊能力或背景。' },
-    { name: '元气活泼的朋友', personality: '充满活力、乐观开朗，是主角的挚友/损友，常出谋划策或引发麻烦。' },
-    { name: '温柔大姐姐型', personality: '稳重温柔，擅长照顾人，是团队中的心理支柱与调和者。' },
-    { name: '高傲强势的大小姐', personality: '出身豪门，性格高傲强势，但内心有柔弱一面，与主角存在复杂关系。' },
-    { name: '神秘魔法师/术士', personality: '掌握强大力量，行事神秘莫测，真实目的不明。' },
-    { name: '可靠的兄长/前辈', personality: '经验丰富，沉着冷静，常常在关键时刻给予主角指引与帮助。' },
-    { name: '元气幼驯染', personality: '与主角一起长大，性格开朗，对主角了如指掌。' },
-  ];
-
-  const result: Record<string, PresetCharTemplate> = { ...existing };
-  const existingNames = new Set(Object.values(result).filter((t) => t.is_preset === 1).map((t) => t.name));
-  for (const p of preset) {
-    if (!existingNames.has(p.name)) {
-      const id = uuid4();
-      result[id] = {
-        id,
-        name: p.name,
-        avatar: '',
-        personality: p.personality,
-        attributes: {},
-        notes: '',
-        variants: [],
-        is_preset: 1,
-        created_at: nowISO(),
-        updated_at: nowISO(),
-      };
-    }
-  }
-  return result;
-}
-
 // —— 初始化 —— //
 
 let initialized = false;
@@ -207,26 +116,40 @@ export function initMainDatabase(): void {
     }
   }
 
-  // —— 模板文件 + 预置模板 —— //
+  // —— 模板文件 —— //
+  // 不再 seed 预置模板。文件首次创建时初始化为空对象。
+  // 旧 is_preset=1 记录在首次加载时被过滤清理（见 cleanupLegacyPresetTemplates）。
   const worldTplPath = filePath('world_templates.json');
   if (!fs.existsSync(worldTplPath)) {
-    saveJSON('world_templates.json', seedPresetWorldTemplates({}));
+    saveJSON('world_templates.json', {});
   } else {
-    const w = loadJSON<Record<string, PresetWorldTemplate>>('world_templates.json', {});
-    const seeded = seedPresetWorldTemplates(w);
-    saveJSON('world_templates.json', seeded);
+    cleanupLegacyPresetTemplates('world_templates.json');
   }
 
   const charTplPath = filePath('character_templates.json');
   if (!fs.existsSync(charTplPath)) {
-    saveJSON('character_templates.json', seedPresetCharacterTemplates({}));
+    saveJSON('character_templates.json', {});
   } else {
-    const c = loadJSON<Record<string, PresetCharTemplate>>('character_templates.json', {});
-    const seeded = seedPresetCharacterTemplates(c);
-    saveJSON('character_templates.json', seeded);
+    cleanupLegacyPresetTemplates('character_templates.json');
   }
 
   initialized = true;
+}
+
+// 一次性清理老版本遗留的预置模板（is_preset === 1）
+function cleanupLegacyPresetTemplates(file: string): void {
+  const rows = loadJSON<Record<string, any>>(file, {});
+  let changed = false;
+  for (const id of Object.keys(rows)) {
+    if (Number(rows[id]?.is_preset) === 1) {
+      delete rows[id];
+      changed = true;
+    }
+  }
+  if (changed) {
+    saveJSON(file, rows);
+    console.log(`[db-main] 已清理 ${file} 中的预置模板`);
+  }
 }
 
 // —— 通用 CRUD —— //
@@ -282,16 +205,20 @@ type StoryRow = {
   order_index: number;
   is_starred: number;
   is_pinned: number;
+  is_deleted?: number;
+  deleted_at?: string;
   created_at: string;
   updated_at: string;
 };
 
 export function listStories(): StoryRow[] {
   const all = readTable<StoryRow>('stories');
-  return Object.values(all).sort((a, b) => {
-    if (a.is_pinned !== b.is_pinned) return b.is_pinned - a.is_pinned;
-    return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
-  });
+  return Object.values(all)
+    .filter((s) => !s.is_deleted)
+    .sort((a, b) => {
+      if (a.is_pinned !== b.is_pinned) return b.is_pinned - a.is_pinned;
+      return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+    });
 }
 
 export function getStory(id: string): StoryRow | undefined {
@@ -366,6 +293,53 @@ export function deleteStory(id: string): void {
   writeTable('content_blocks', allBlocks);
 }
 
+// —— 回收站：软删除 / 恢复 / 永久删除 ——
+
+export function softDeleteStory(id: string): void {
+  const now = new Date().toISOString();
+  updateRow<StoryRow>('stories', id, {
+    is_deleted: 1,
+    deleted_at: now,
+    updated_at: now,
+  } as any);
+}
+
+export function restoreStory(id: string): void {
+  const now = new Date().toISOString();
+  updateRow<StoryRow>('stories', id, {
+    is_deleted: 0,
+    deleted_at: '',
+    updated_at: now,
+  } as any);
+}
+
+export function permanentlyDeleteStory(id: string): void {
+  // 复用 deleteStory 的逻辑：真实删除 + 级联
+  deleteStory(id);
+}
+
+export function listTrashedStories(): StoryRow[] {
+  const all = readTable<StoryRow>('stories');
+  return Object.values(all)
+    .filter((s) => s.is_deleted === 1)
+    .sort((a, b) => new Date(b.deleted_at || b.updated_at).getTime() - new Date(a.deleted_at || a.updated_at).getTime());
+}
+
+export function cleanupOldTrashed(days: number): number {
+  const threshold = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const all = readTable<StoryRow>('stories');
+  const oldIds: string[] = [];
+  for (const s of Object.values(all)) {
+    if (s.is_deleted === 1 && s.deleted_at && s.deleted_at < threshold) {
+      oldIds.push(s.id);
+    }
+  }
+  for (const id of oldIds) {
+    permanentlyDeleteStory(id);
+  }
+  return oldIds.length;
+}
+
 // —— WorldSettings —— //
 
 type WorldSettingRow = {
@@ -402,6 +376,11 @@ export function updateWorldSetting(id: string, patch: Partial<WorldSettingRow>):
 
 export function deleteWorldSetting(id: string): void {
   deleteRow('world_settings', id);
+}
+
+/** 按 orderedIds 重新排序当前故事下所有世界观（按顺序写入 order_index） */
+export function reorderWorldSettings(storyId: string, orderedIds: string[]): void {
+  orderedIds.forEach((id, i) => updateWorldSetting(id, { order_index: i }));
 }
 
 // —— Character —— //
@@ -533,6 +512,13 @@ export function updateCharacter(
 
 export function deleteCharacter(id: string): void {
   deleteRow('characters', id);
+}
+
+/**
+ * 重新排序某作品下的所有人物
+ */
+export function reorderCharacters(storyId: string, orderedIds: string[]): void {
+  orderedIds.forEach((id, i) => updateCharacter(id, { order_index: i }));
 }
 
 // —— Character Variants（内嵌在 characters 的 variants 字段中）—— //
@@ -921,41 +907,48 @@ export function deleteBlock(id: string): void {
 
 // —— Templates —— //
 
-export function listWorldSettingTemplates(): PresetWorldTemplate[] {
-  const all = readTable<PresetWorldTemplate>('world_templates');
-  return Object.values(all).sort((a, b) => {
-    if (a.is_preset !== b.is_preset) return b.is_preset - a.is_preset;
-    return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
-  });
+export function listWorldSettingTemplates(): WorldSettingTemplate[] {
+  const all = readTable<WorldSettingTemplate>('world_templates');
+  return Object.values(all).sort(
+    (a, b) =>
+      (a.order_index ?? 0) - (b.order_index ?? 0) ||
+      new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
+  );
 }
 
-export function createWorldSettingTemplate(data: { title: string; content?: string; is_preset?: number }): PresetWorldTemplate {
-  return createRow<PresetWorldTemplate>('world_templates', {
+export function createWorldSettingTemplate(data: { title: string; content?: string }): WorldSettingTemplate {
+  const existing = readTable<WorldSettingTemplate>('world_templates');
+  const order = Object.values(existing).length;
+  return createRow<WorldSettingTemplate>('world_templates', {
     title: data.title,
     content: data.content || '',
-    is_preset: data.is_preset || 0,
+    order_index: order,
   } as any);
 }
 
-export function updateWorldSettingTemplate(id: string, patch: Partial<{ title: string; content: string }>): PresetWorldTemplate | undefined {
-  const all = readTable<PresetWorldTemplate>('world_templates');
-  if (all[id]?.is_preset === 1) return all[id]; // 预置模板不可修改
-  return updateRow<PresetWorldTemplate>('world_templates', id, patch as any) || undefined;
+export function updateWorldSettingTemplate(id: string, patch: Partial<{ title: string; content: string; order_index: number }>): WorldSettingTemplate | undefined {
+  return updateRow<WorldSettingTemplate>('world_templates', id, patch as any) || undefined;
 }
 
 export function deleteWorldSettingTemplate(id: string): void {
-  const all = readTable<PresetWorldTemplate>('world_templates');
-  if (all[id]?.is_preset === 1) return; // 预置模板不可删除
   deleteRow('world_templates', id);
 }
 
-export function listCharacterTemplates(): any[] {
-  const all = readTable<PresetCharTemplate>('character_templates');
+/** 重新排序所有世界观模板 */
+export function reorderWorldSettingTemplates(orderedIds: string[]): void {
+  orderedIds.forEach((id, i) =>
+    updateWorldSettingTemplate(id, { order_index: i }),
+  );
+}
+
+export function listCharacterTemplates(): CharacterTemplate[] {
+  const all = readTable<CharacterTemplate>('character_templates');
   return Object.values(all)
-    .sort((a, b) => {
-      if (a.is_preset !== b.is_preset) return b.is_preset - a.is_preset;
-      return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
-    })
+    .sort(
+      (a, b) =>
+        (a.order_index ?? 0) - (b.order_index ?? 0) ||
+        new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
+    )
     .map((r) => ({
       id: r.id,
       name: r.name,
@@ -963,11 +956,11 @@ export function listCharacterTemplates(): any[] {
       personality: r.personality || '',
       attributes: parseJSON<Record<string, string | number>>(r.attributes, {}),
       notes: r.notes || '',
-      variants: parseJSON<CharacterVariantRow[]>(r.variants, []),
-      is_preset: r.is_preset,
+      variants: parseJSON<CharacterVariant[]>(r.variants, []),
+      order_index: r.order_index ?? 0,
       created_at: r.created_at,
       updated_at: r.updated_at,
-    }));
+    } as CharacterTemplate));
 }
 
 export function createCharacterTemplate(data: {
@@ -976,17 +969,18 @@ export function createCharacterTemplate(data: {
   personality?: string;
   attributes?: Record<string, string | number>;
   notes?: string;
-  variants?: CharacterVariantRow[];
-  is_preset?: number;
-}): any {
-  const row = createRow<PresetCharTemplate>('character_templates', {
+  variants?: CharacterVariant[];
+}): CharacterTemplate {
+  const existing = readTable<CharacterTemplate>('character_templates');
+  const order = Object.values(existing).length;
+  const row = createRow<CharacterTemplate>('character_templates', {
     name: data.name,
     avatar: data.avatar || '',
     personality: data.personality || '',
     attributes: serializeJSON(data.attributes || {}),
     notes: data.notes || '',
     variants: serializeJSON(data.variants || []),
-    is_preset: data.is_preset || 0,
+    order_index: order,
   } as any);
   return {
     id: row.id,
@@ -995,11 +989,11 @@ export function createCharacterTemplate(data: {
     personality: row.personality,
     attributes: parseJSON(row.attributes, {}),
     notes: row.notes,
-    variants: parseJSON<CharacterVariantRow[]>(row.variants, []),
-    is_preset: row.is_preset,
+    variants: parseJSON<CharacterVariant[]>(row.variants, []),
+    order_index: row.order_index ?? 0,
     created_at: row.created_at,
     updated_at: row.updated_at,
-  };
+  } as CharacterTemplate;
 }
 
 export function updateCharacterTemplate(
@@ -1010,11 +1004,10 @@ export function updateCharacterTemplate(
     personality: string;
     attributes: Record<string, string | number>;
     notes: string;
-    variants: CharacterVariantRow[];
+    variants: CharacterVariant[];
+    order_index: number;
   }>,
-): any | undefined {
-  const all = readTable<PresetCharTemplate>('character_templates');
-  if (all[id]?.is_preset === 1) return all[id];
+): CharacterTemplate | undefined {
   const dbPatch: any = {};
   if ('name' in patch) dbPatch.name = patch.name;
   if ('avatar' in patch) dbPatch.avatar = patch.avatar;
@@ -1022,7 +1015,8 @@ export function updateCharacterTemplate(
   if ('notes' in patch) dbPatch.notes = patch.notes;
   if ('attributes' in patch) dbPatch.attributes = serializeJSON(patch.attributes);
   if ('variants' in patch) dbPatch.variants = serializeJSON(patch.variants);
-  const row = updateRow<PresetCharTemplate>('character_templates', id, dbPatch);
+  if ('order_index' in patch) dbPatch.order_index = patch.order_index;
+  const row = updateRow<CharacterTemplate>('character_templates', id, dbPatch);
   if (!row) return undefined;
   return {
     id: row.id,
@@ -1031,17 +1025,22 @@ export function updateCharacterTemplate(
     personality: row.personality,
     attributes: parseJSON(row.attributes, {}),
     notes: row.notes,
-    variants: parseJSON<CharacterVariantRow[]>(row.variants, []),
-    is_preset: row.is_preset,
+    variants: parseJSON<CharacterVariant[]>(row.variants, []),
+    order_index: row.order_index ?? 0,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
 }
 
 export function deleteCharacterTemplate(id: string): void {
-  const all = readTable<PresetCharTemplate>('character_templates');
-  if (all[id]?.is_preset === 1) return;
   deleteRow('character_templates', id);
+}
+
+/** 重新排序所有人物模板 */
+export function reorderCharacterTemplates(orderedIds: string[]): void {
+  orderedIds.forEach((id, i) =>
+    updateCharacterTemplate(id, { order_index: i }),
+  );
 }
 
 // —— 聚合查询 —— //

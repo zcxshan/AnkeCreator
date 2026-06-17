@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStoryStore } from '../../store/storyStore';
+import { useToastStore } from '../../store/toastStore';
 import * as db from '../../db/database';
 import { parseOutlineContent, stringifyOutlinePayload } from '../../types';
 import { WorkCard, type WorkSummary } from '../common/WorkCard';
+import { ConfirmDialog } from '../common/ConfirmDialog';
+import { InputDialog } from '../common/InputDialog';
 
 interface WorksListPageProps {
   onOpenStory: (storyId: string) => void;
@@ -31,25 +34,12 @@ function compareWorks(a: WorkSummary, b: WorkSummary): number {
   return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
 }
 
-/**
- * 作品列表页
- *
- * 布局：
- *   ┌────────────────────────────────────────────────────┐
- *   │ ←  我的安科作品  共 N 部           [回收站][+新建]│
- *   ├────────────────────────────────────────────────────┤
- *   │ [全部(N)] [未分类(N)] [+]          [🔍 搜索作品...] │
- *   ├────────────────────────────────────────────────────┤
- *   │ ┌────┐ ┌────┐ ┌────┐                               │
- *   │ │ 卡 │ │ 卡 │ │ 卡 │  ... 卡片网格（响应式 2-3 列）│
- *   │ └────┘ └────┘ └────┘                               │
- *   └────────────────────────────────────────────────────┘
- */
 export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPageProps) {
-  const { stories, createStory, deleteStory, renameStory, setActiveStory, toggleStarred, togglePinned, setStoryOrder } = useStoryStore();
+  const { stories, trashedStories, loadTrashedStories, softDeleteStory, restoreStory, permanentlyDeleteStory, renameStory, setActiveStory, toggleStarred, togglePinned, setStoryOrder } = useStoryStore();
+  const showToast = useToastStore((s) => s.showToast);
 
   const [search, setSearch] = useState('');
-  const [activeFilter, setActiveFilter] = useState<string>('all');
+  const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
   const [showNewModal, setShowNewModal] = useState(false);
   const [newStoryTitle, setNewStoryTitle] = useState('');
   const [newStoryDescription, setNewStoryDescription] = useState('');
@@ -58,14 +48,15 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
   const gridRef = useRef<HTMLDivElement | null>(null);
   const dragIdRef = useRef<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
-  const [trashStories, setTrashStories] = useState<WorkSummary[]>(() => {
-    try {
-      return JSON.parse(sessionStorage.getItem('anke-trash') || '[]');
-    } catch { return []; }
-  });
+  const [confirmState, setConfirmState] = useState<null | { type: 'soft-delete' | 'permanent-delete' | 'clear-trash' | 'duplicate'; work?: WorkSummary }>(null);
+  const [pendingRename, setPendingRename] = useState<WorkSummary | null>(null);
+  const [importState, setImportState] = useState<null | { originalTitle: string; description?: string; data: any }>(null);
 
-  // 聚合所有作品的展示数据（排除已在回收站中的）
-  const trashIdSet = useMemo(() => new Set(trashStories.map((t) => t.id)), [trashStories]);
+  useEffect(() => {
+    loadTrashedStories();
+  }, [loadTrashedStories]);
+
+  // 聚合所有作品的展示数据
   const [works, setWorks] = useState<WorkSummary[]>([]);
   const [worksLoading, setWorksLoading] = useState(false);
 
@@ -74,8 +65,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
     const loadWorks = async () => {
       setWorksLoading(true);
       const result: WorkSummary[] = [];
-      const filtered = stories.filter((s) => !trashIdSet.has(s.id));
-      for (const story of filtered) {
+      for (const story of stories) {
         let wordCount = 0;
         let diceCount = 0;
         let sectionCount = 0;
@@ -107,20 +97,30 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
     };
     loadWorks();
     return () => { cancelled = true; };
-  }, [stories, trashIdSet]);
+  }, [stories]);
 
   // 简化筛选：仅全部 / 回收站
+  // 从 Story[] 派生为 WorkSummary[]，为 TrashCard 提供所需字段
+  const trashSummaries = useMemo<WorkSummary[]>(() =>
+    trashedStories.map((s) => ({
+      ...s,
+      wordCount: 0,
+      diceCount: 0,
+      sectionCount: 0,
+      chapterCount: 0,
+    })),
+  [trashedStories]);
   const categories: Category[] = useMemo(() => {
     return [
       { key: 'all', label: '全部', count: works.length },
-      { key: 'trash', label: '回收站', count: trashStories.length },
+      { key: 'trash', label: '回收站', count: trashSummaries.length },
     ];
-  }, [works, trashStories]);
+  }, [works, trashSummaries]);
 
   // 筛选 + 搜索
   const filteredWorks = useMemo(() => {
     let list: WorkSummary[] = [];
-    if (activeFilter === 'trash') list = [...trashStories];
+    if (activeFilter === 'trash') list = [...trashSummaries];
     else list = works;
 
     const keyword = search.trim().toLowerCase();
@@ -132,9 +132,9 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
       );
     }
     return [...list].sort(compareWorks);
-  }, [works, trashStories, activeFilter, search]);
+  }, [works, trashedStories, activeFilter, search]);
 
-  // 拖拽排序处理 —— 在 grid 上做事件委托，避免 per-card 新建闭包
+  // 拖拽排序处理
   const getDragTargetId = (e: React.DragEvent<HTMLDivElement>): string | null => {
     const el = (e.target as HTMLElement | null)?.closest<HTMLDivElement>('div[data-story-id]');
     return el?.getAttribute('data-story-id') ?? null;
@@ -160,7 +160,6 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
   };
 
   const handleGridDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
-    // 只有真正离开整个卡片区时才清除高亮
     const related = e.relatedTarget as Node | null;
     if (related && e.currentTarget.contains(related)) return;
     setDragOverId(null);
@@ -176,12 +175,11 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
     // 基于 filteredWorks 的当前顺序重新分配 order_index
     const orderedIds = filteredWorks.map((w) => w.id);
     const srcIdx = orderedIds.indexOf(srcId);
-    const targetIdx = orderedIds.indexOf(targetId);
-    if (srcIdx < 0 || targetIdx < 0) return;
+    const toIdx = orderedIds.indexOf(targetId);
+    if (srcIdx < 0 || toIdx < 0) return;
     const newOrder = [...orderedIds];
     newOrder.splice(srcIdx, 1);
-    const insertAt = newOrder.indexOf(targetId) + 1;
-    newOrder.splice(insertAt, 0, srcId);
+    newOrder.splice(toIdx, 0, srcId);
     newOrder.forEach((id, i) => setStoryOrder(id, i + 1));
   };
 
@@ -192,6 +190,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
 
   const handleCreateStory = async () => {
     const title = newStoryTitle.trim() || `未命名作品 ${new Date().toLocaleDateString()}`;
+    const { createStory } = useStoryStore.getState();
     const storyId = await createStory(title, newStoryDescription.trim());
     setShowNewModal(false);
     setNewStoryTitle('');
@@ -201,22 +200,16 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
   };
 
   const moveToTrash = (work: WorkSummary) => {
-    if (!window.confirm(`确定将"${work.title}"移入回收站？`)) return;
-    const next = [...trashStories, work];
-    setTrashStories(next);
-    try { sessionStorage.setItem('anke-trash', JSON.stringify(next)); } catch {}
+    setConfirmState({ type: 'soft-delete', work });
   };
 
   const restoreFromTrash = (work: WorkSummary) => {
-    const next = trashStories.filter((t) => t.id !== work.id);
-    setTrashStories(next);
-    try { sessionStorage.setItem('anke-trash', JSON.stringify(next)); } catch {}
+    restoreStory(work.id);
+    showToast(`已还原「${work.title}」`, 'success');
   };
 
   const permanentDelete = (work: WorkSummary) => {
-    if (!window.confirm(`将永久删除"${work.title}"及其所有内容，无法恢复！确定继续？`)) return;
-    deleteStory(work.id);
-    restoreFromTrash(work);
+    setConfirmState({ type: 'permanent-delete', work });
   };
 
   const handleExportStory = async (id: string) => {
@@ -224,11 +217,10 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
     if (!story) return;
     const full = await db.getStoryWithAll(id);
     if (!full) return;
-    // 额外获取人物关系（getStoryWithAll 不包含）
     const relations = await db.listCharacterRelations(id);
     const exportData = {
-      format: 'anke-creator-story',
-      version: 1,
+      format: 'anke-creator-export',
+      version: '1.0',
       exportedAt: new Date().toISOString(),
       appVersion: '0.1.0',
       data: {
@@ -236,15 +228,33 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
         character_relations: relations,
       },
     };
+    const safeTitle = (full.title || 'anke-work').replace(/[\/:*?"<>|]/g, '_');
+
+    // 优先使用 Electron 系统保存对话框
+    if (window.electronAPI?.saveStoryAsFile) {
+      const res = await window.electronAPI.saveStoryAsFile(exportData, safeTitle);
+      if (res.canceled) return;
+      if (res.ok) {
+        showToast(`已另存为：${res.filePath}`, 'success');
+      } else {
+        showToast(`另存为失败：${res.error || '未知错误'}`, 'error');
+      }
+      return;
+    }
+
+    // 浏览器降级：触发下载
     const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${full.title || 'anke-work'}.anke.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 100);
+    showToast(`作品「${full.title || '未命名作品'}」导出成功`, 'success');
+    setTimeout(() => {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${safeTitle}.anke.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 100);
+    }, 200);
   };
 
   // 处理复制作品
@@ -281,7 +291,6 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
         await db.createSection({
           chapter_id: newChapter.id,
           title: sec.title,
-          order_index: sec.order_index,
           content: sec.content,
         });
       }
@@ -342,8 +351,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
       }
     }
 
-    // 6. 复制 outlines（大纲）。
-    //    大纲内部有 parent_outline_id 依赖，需要先处理卷类型，再处理章类型。
+    // 6. 复制 outlines（大纲）
     const outlineIdMap: Record<string, string> = {};
     // 先复制所有卷类型的大纲（parent_outline_id = null）
     for (const o of full.outlines.filter((o) => {
@@ -380,10 +388,37 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
     }
 
     await useStoryStore.getState().loadStories();
+    showToast(`已复制作品「${full.title}」`, 'success');
   };
 
-  // 处理导入作品
-  const handleImportStory = () => {
+  // 处理导入作品（优先使用 Electron 系统打开对话框，回退到 input file）
+  const handleImportStory = async () => {
+    // 1) Electron 系统对话框
+    if (window.electronAPI?.openStoryFile) {
+      try {
+        const res = await window.electronAPI.openStoryFile();
+        if (res.canceled) return;
+        if (!res.ok || !res.data) {
+          showToast(`导入失败：${res.error || '未知错误'}`, 'error');
+          return;
+        }
+        const data = unwrapExportData(res.data);
+        if (!data || !data.story) {
+          showToast('文件格式不正确，无法导入', 'error');
+          return;
+        }
+        setImportState({
+          originalTitle: data.story.title || '导入作品',
+          description: data.story.description || '',
+          data,
+        });
+      } catch (err) {
+        console.error('[import] 导入失败:', err);
+        showToast('导入失败，请检查文件格式是否正确', 'error');
+      }
+      return;
+    }
+    // 2) 浏览器 fallback
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json,.anke.json';
@@ -393,161 +428,175 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
       try {
         const text = await file.text();
         const parsed = JSON.parse(text);
-        // 兼容新旧格式：新格式有 format 字段，旧格式直接是数据
-        const data = parsed.format === 'anke-creator-story' ? parsed.data : parsed;
+        const data = unwrapExportData(parsed);
         if (!data || !data.story) {
-          window.alert('文件格式不正确，无法导入。');
+          showToast('文件格式不正确，无法导入', 'error');
           return;
         }
-
-        // 1. 创建新故事
-        const newStory = await db.createStory({
-          title: `${data.story.title || '导入作品'} (导入)`,
+        setImportState({
+          originalTitle: data.story.title || '导入作品',
           description: data.story.description || '',
-          category: data.story.category,
+          data,
         });
-
-        // 2. 复制 volumes
-        const volumeIdMap: Record<string, string> = {};
-        if (data.volumes) {
-          for (const vol of data.volumes) {
-            const newVol = await db.createVolume({
-              story_id: newStory.id,
-              title: vol.title,
-              order_index: vol.order_index,
-            });
-            volumeIdMap[vol.id] = newVol.id;
-          }
-        }
-
-        // 3. 复制 chapters + sections
-        const chapterIdMap: Record<string, string> = {};
-        if (data.chapters) {
-          for (const ch of data.chapters) {
-            const mappedVolumeId = ch.volume_id ? volumeIdMap[ch.volume_id] || null : null;
-            const newChapter = await db.createChapter({
-              story_id: newStory.id,
-              title: ch.title,
-              volume_id: mappedVolumeId,
-              order_index: ch.order_index,
-            });
-            chapterIdMap[ch.id] = newChapter.id;
-            if (ch.sections) {
-              for (const sec of ch.sections) {
-                await db.createSection({
-                  chapter_id: newChapter.id,
-                  title: sec.title,
-                  order_index: sec.order_index,
-                  content: sec.content,
-                });
-              }
-            }
-          }
-        }
-
-        // 4. 复制 world_settings
-        if (data.world_settings) {
-          for (const ws of data.world_settings) {
-            await db.createWorldSetting({
-              story_id: newStory.id,
-              title: ws.title,
-              content: ws.content || '',
-              order_index: ws.order_index,
-            });
-          }
-        }
-
-        // 5. 复制 characters + variants
-        const characterIdMap: Record<string, string> = {};
-        if (data.characters) {
-          for (const char of data.characters) {
-            const newChar = await db.createCharacter({
-              story_id: newStory.id,
-              name: char.name,
-              avatar: char.avatar || '',
-              personality: char.personality || '',
-              attributes: char.attributes,
-              notes: char.notes || '',
-            });
-            characterIdMap[char.id] = newChar.id;
-            if (char.variants) {
-              for (const v of char.variants) {
-                await db.createCharacterVariant({
-                  character_id: newChar.id,
-                  name: v.name,
-                  url: v.url,
-                  order_index: v.order_index,
-                });
-              }
-            }
-          }
-        }
-
-        // 6. 复制 character_relations
-        if (data.character_relations) {
-          for (const rel of data.character_relations) {
-            const newSourceId = characterIdMap[rel.source_id];
-            const newTargetId = characterIdMap[rel.target_id];
-            if (newSourceId && newTargetId) {
-              await db.createCharacterRelation({
-                story_id: newStory.id,
-                source_id: newSourceId,
-                target_id: newTargetId,
-                relation: rel.relation,
-                note: rel.note || '',
-                order_index: rel.order_index,
-              });
-            }
-          }
-        }
-
-        // 7. 复制 outlines（处理 parent_outline_id 映射）
-        const outlineIdMap: Record<string, string> = {};
-        if (data.outlines) {
-          // 先复制卷类型大纲
-          for (const o of data.outlines) {
-            const payload = typeof o.content === 'string' ? JSON.parse(o.content) : o.content;
-            if (payload.target_type === 'volume') {
-              payload.target_id = '';
-              const newOutline = await db.createOutline({
-                story_id: newStory.id,
-                content: JSON.stringify(payload),
-                order_index: o.order_index,
-              });
-              outlineIdMap[o.id] = newOutline.id;
-            }
-          }
-          // 再复制章类型大纲
-          for (const o of data.outlines) {
-            const payload = typeof o.content === 'string' ? JSON.parse(o.content) : o.content;
-            if (payload.target_type === 'chapter') {
-              payload.parent_outline_id = payload.parent_outline_id
-                ? outlineIdMap[payload.parent_outline_id] || null
-                : null;
-              payload.target_id = '';
-              await db.createOutline({
-                story_id: newStory.id,
-                content: JSON.stringify(payload),
-                order_index: o.order_index,
-              });
-            }
-          }
-        }
-
-        await useStoryStore.getState().loadStories();
-        window.alert(`作品导入成功！已创建「${newStory.title}」`);
       } catch (err) {
         console.error('[import] 导入失败:', err);
-        window.alert('导入失败，请检查文件格式是否正确。');
+        showToast('导入失败，请检查文件格式是否正确', 'error');
       }
     };
     input.click();
   };
 
+  // 兼容新旧导出格式
+  const unwrapExportData = (parsed: any): any => {
+    if (parsed?.format === 'anke-creator-export' || parsed?.format === 'anke-creator-story') {
+      return parsed.data;
+    }
+    return parsed;
+  };
+
+  // 实际执行导入：写入数据库并刷新列表
+  const performImportStory = async (customTitle: string) => {
+    if (!importState) return;
+    const data = importState.data;
+    try {
+      const newStory = await db.createStory({
+        title: customTitle,
+        description: data.story.description || '',
+        category: data.story.category,
+      });
+
+      const volumeIdMap: Record<string, string> = {};
+      if (data.volumes) {
+        for (const vol of data.volumes) {
+          const newVol = await db.createVolume({
+            story_id: newStory.id,
+            title: vol.title,
+            order_index: vol.order_index,
+          });
+          volumeIdMap[vol.id] = newVol.id;
+        }
+      }
+
+      const chapterIdMap: Record<string, string> = {};
+      if (data.chapters) {
+        for (const ch of data.chapters) {
+          const mappedVolumeId = ch.volume_id ? volumeIdMap[ch.volume_id] || null : null;
+          const newChapter = await db.createChapter({
+            story_id: newStory.id,
+            title: ch.title,
+            volume_id: mappedVolumeId,
+            order_index: ch.order_index,
+          });
+          chapterIdMap[ch.id] = newChapter.id;
+          if (ch.sections) {
+            for (const sec of ch.sections) {
+              await db.createSection({
+                chapter_id: newChapter.id,
+                title: sec.title,
+                content: sec.content,
+              });
+            }
+          }
+        }
+      }
+
+      if (data.world_settings) {
+        for (const ws of data.world_settings) {
+          await db.createWorldSetting({
+            story_id: newStory.id,
+            title: ws.title,
+            content: ws.content || '',
+            order_index: ws.order_index,
+          });
+        }
+      }
+
+      const characterIdMap: Record<string, string> = {};
+      if (data.characters) {
+        for (const char of data.characters) {
+          const newChar = await db.createCharacter({
+            story_id: newStory.id,
+            name: char.name,
+            avatar: char.avatar || '',
+            personality: char.personality || '',
+            attributes: char.attributes,
+            notes: char.notes || '',
+          });
+          characterIdMap[char.id] = newChar.id;
+          if (char.variants) {
+            for (const v of char.variants) {
+              await db.createCharacterVariant({
+                character_id: newChar.id,
+                name: v.name,
+                url: v.url,
+                order_index: v.order_index,
+              });
+            }
+          }
+        }
+      }
+
+      if (data.character_relations) {
+        for (const rel of data.character_relations) {
+          const newSourceId = characterIdMap[rel.source_id];
+          const newTargetId = characterIdMap[rel.target_id];
+          if (newSourceId && newTargetId) {
+            await db.createCharacterRelation({
+              story_id: newStory.id,
+              source_id: newSourceId,
+              target_id: newTargetId,
+              relation: rel.relation,
+              note: rel.note || '',
+              order_index: rel.order_index,
+            });
+          }
+        }
+      }
+
+      const outlineIdMap: Record<string, string> = {};
+      if (data.outlines) {
+        for (const o of data.outlines) {
+          const payload = typeof o.content === 'string' ? JSON.parse(o.content) : o.content;
+          if (payload.target_type === 'volume') {
+            payload.target_id = '';
+            const newOutline = await db.createOutline({
+              story_id: newStory.id,
+              content: JSON.stringify(payload),
+              order_index: o.order_index,
+            });
+            outlineIdMap[o.id] = newOutline.id;
+          }
+        }
+        for (const o of data.outlines) {
+          const payload = typeof o.content === 'string' ? JSON.parse(o.content) : o.content;
+          if (payload.target_type === 'chapter') {
+            payload.parent_outline_id = payload.parent_outline_id
+              ? outlineIdMap[payload.parent_outline_id] || null
+              : null;
+            payload.target_id = '';
+            await db.createOutline({
+              story_id: newStory.id,
+              content: JSON.stringify(payload),
+              order_index: o.order_index,
+            });
+          }
+        }
+      }
+
+      await useStoryStore.getState().loadStories();
+      showToast(`导入成功：${customTitle}`, 'success');
+    } catch (err) {
+      console.error('[import] 导入失败:', err);
+      showToast('导入失败，请检查文件格式是否正确', 'error');
+    } finally {
+      setImportState(null);
+    }
+  };
+
   return (
     <div className="h-full w-full flex flex-col" style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}>
       {/* 顶部栏 */}
-      <header 
+      <header
         className="sticky top-0 z-20 backdrop-blur"
         style={{ background: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)' }}
       >
@@ -594,7 +643,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
               title="回收站"
             >
               <span>🗑️</span>
-              <span>回收站{trashStories.length > 0 ? `(${trashStories.length})` : ''}</span>
+              <span>回收站{trashedStories.length > 0 ? `(${trashedStories.length})` : ''}</span>
             </button>
             <button
               onClick={() => setShowNewModal(true)}
@@ -682,16 +731,10 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
           <>
             <div className="flex items-center gap-3 mb-6">
               <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>🗑️ 回收站</h2>
-              <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{trashStories.length} 个作品</span>
-              {trashStories.length > 0 && (
+              <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{trashedStories.length} 个作品</span>
+              {trashedStories.length > 0 && (
                 <button
-                  onClick={() => {
-                    if (window.confirm('确定清空回收站？所有作品将被永久删除！')) {
-                      trashStories.forEach((t) => deleteStory(t.id));
-                      setTrashStories([]);
-                      try { sessionStorage.removeItem('anke-trash'); } catch {}
-                    }
-                  }}
+                  onClick={() => setConfirmState({ type: 'clear-trash' })}
                   className="ml-auto px-3 py-1.5 text-xs rounded-lg transition-colors"
                   style={{ background: 'var(--danger-soft)', color: 'var(--danger)' }}
                   onMouseEnter={(e) => {
@@ -707,7 +750,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
                 </button>
               )}
             </div>
-            {trashStories.length === 0 ? (
+            {trashedStories.length === 0 ? (
               <div className="text-center py-16 text-sm" style={{ color: 'var(--text-secondary)' }}>回收站为空</div>
             ) : (
               <div className="space-y-3">
@@ -761,10 +804,11 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
                     if (w) moveToTrash(w);
                   }}
                   onRename={(id) => {
-                    setRenameTargetId(id);
-                    setRenameValue(work.title);
+                    const w = works.find((x) => x.id === id);
+                    if (w) setPendingRename(w);
                   }}
                   onExport={(id) => handleExportStory(id)}
+                  onSaveAs={(id) => handleExportStory(id)}
                   onDuplicate={(id) => handleDuplicateStory(id)}
                   onStarred={(id) => toggleStarred(id)}
                   onPinned={(id) => togglePinned(id)}
@@ -792,8 +836,8 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
                 onChange={(e) => setNewStoryTitle(e.target.value)}
                 placeholder="给你的安科起个名字"
                 className="w-full px-3.5 py-2.5 text-sm rounded-lg border outline-none transition-all"
-                style={{ 
-                  background: 'var(--bg-input)', 
+                style={{
+                  background: 'var(--bg-input)',
                   borderColor: 'var(--border-color)',
                   color: 'var(--text-primary)'
                 }}
@@ -809,9 +853,9 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
                 value={newStoryDescription}
                 onChange={(e) => setNewStoryDescription(e.target.value)}
                 placeholder="一句话介绍这个安科世界…"
-                className="w-full px-3.5 py-2.5 text-sm rounded-lg border outline-none transition-all resize-none"
-                style={{ 
-                  background: 'var(--bg-input)', 
+                className="w-full px-3.5 py-2.5 text-sm rounded-lg border outline-none transition-all resize-y"
+                style={{
+                  background: 'var(--bg-input)',
                   borderColor: 'var(--border-color)',
                   color: 'var(--text-primary)'
                 }}
@@ -821,8 +865,8 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
               <button
                 onClick={() => setShowNewModal(false)}
                 className="px-4 py-2 text-sm rounded-lg transition-colors"
-                style={{ 
-                  background: 'var(--bg-card)', 
+                style={{
+                  background: 'var(--bg-card)',
                   color: 'var(--text-primary)',
                   border: '1px solid var(--border-color)'
                 }}
@@ -846,37 +890,28 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
       )}
 
       {/* 重命名弹窗 */}
-      {renameTargetId && (
-        <Modal title="重命名作品" onClose={() => setRenameTargetId(null)}>
+      {pendingRename && (
+        <Modal title={`重命名「${pendingRename.title}」`} onClose={() => setPendingRename(null)}>
           <div className="space-y-4">
             <input
               autoFocus
               type="text"
-              value={renameValue}
+              defaultValue={pendingRename.title}
               onChange={(e) => setRenameValue(e.target.value)}
               placeholder="作品标题"
               className="w-full px-3.5 py-2.5 text-sm rounded-lg border outline-none transition-all"
-              style={{ 
-                background: 'var(--bg-input)', 
+              style={{
+                background: 'var(--bg-input)',
                 borderColor: 'var(--border-color)',
                 color: 'var(--text-primary)'
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  const v = renameValue.trim();
-                  if (v) {
-                    renameStory(renameTargetId, v);
-                    setRenameTargetId(null);
-                  }
-                }
               }}
             />
             <div className="flex justify-end gap-2">
               <button
-                onClick={() => setRenameTargetId(null)}
+                onClick={() => setPendingRename(null)}
                 className="px-4 py-2 text-sm rounded-lg transition-colors"
-                style={{ 
-                  background: 'var(--bg-card)', 
+                style={{
+                  background: 'var(--bg-card)',
                   color: 'var(--text-primary)',
                   border: '1px solid var(--border-color)'
                 }}
@@ -889,9 +924,10 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
                 onClick={() => {
                   const v = renameValue.trim();
                   if (v) {
-                    renameStory(renameTargetId, v);
-                    setRenameTargetId(null);
+                    renameStory(pendingRename.id, v);
+                    showToast(`已重命名为「${v}」`, 'success');
                   }
+                  setPendingRename(null);
                 }}
                 className="px-4 py-2 text-sm rounded-lg transition-colors"
                 style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
@@ -904,6 +940,63 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
           </div>
         </Modal>
       )}
+
+      {/* 确认对话框 */}
+      {confirmState?.type === 'soft-delete' && confirmState.work && (
+        <ConfirmDialog
+          open={true}
+          title="移至回收站"
+          message={`确定将「${confirmState.work.title}」移至回收站？稍后仍可在回收站还原。`}
+          onConfirm={() => {
+            softDeleteStory(confirmState.work!.id);
+            showToast(`已移至回收站：${confirmState.work!.title}`, 'info', {
+              undo: () => restoreStory(confirmState.work!.id),
+            });
+            setConfirmState(null);
+          }}
+          onCancel={() => setConfirmState(null)}
+        />
+      )}
+      {confirmState?.type === 'permanent-delete' && confirmState.work && (
+        <ConfirmDialog
+          open={true}
+          title="永久删除"
+          danger
+          message={`将永久删除「${confirmState.work.title}」及其所有内容，无法恢复！确定继续？`}
+          onConfirm={() => {
+            permanentlyDeleteStory(confirmState.work!.id);
+            showToast(`已永久删除：${confirmState.work!.title}`, 'success');
+            setConfirmState(null);
+          }}
+          onCancel={() => setConfirmState(null)}
+        />
+      )}
+      {confirmState?.type === 'clear-trash' && (
+        <ConfirmDialog
+          open={true}
+          title="清空回收站"
+          danger
+          message={`确定清空回收站？共 ${trashedStories.length} 个作品将被永久删除，无法恢复！`}
+          onConfirm={() => {
+            const ids = [...trashedStories];
+            ids.forEach((w) => permanentlyDeleteStory(w.id));
+            showToast(`已清空回收站（${ids.length} 个作品）`, 'success');
+            setConfirmState(null);
+          }}
+          onCancel={() => setConfirmState(null)}
+        />
+      )}
+      {importState && (
+        <InputDialog
+          open={true}
+          title="导入作品"
+          placeholder="请输入导入后的作品标题"
+          defaultValue={importState.originalTitle}
+          confirmText="导入"
+          onConfirm={(value) => performImportStory(value)}
+          onCancel={() => setImportState(null)}
+        />
+      )}
     </div>
   );
 }
@@ -913,7 +1006,7 @@ function EmptyState() {
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center">
       <div className="relative mb-6">
-        <div 
+        <div
           className="w-32 h-32 rounded-full flex items-center justify-center"
           style={{ background: 'linear-gradient(135deg, var(--accent-soft) 0%, var(--accent-bg) 100%)' }}
         >
@@ -1057,7 +1150,7 @@ function countWordsAndDice(json: any): { words: number; dice: number } {
 
 function TrashCard({ work, onRestore, onPermanentDelete }: { work: WorkSummary; onRestore: () => void; onPermanentDelete: () => void }) {
   return (
-    <div 
+    <div
       className="flex items-center gap-4 px-4 py-3 rounded-xl border"
       style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)' }}
     >
@@ -1066,8 +1159,8 @@ function TrashCard({ work, onRestore, onPermanentDelete }: { work: WorkSummary; 
         <div className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{work.title}</div>
         <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>{work.wordCount} 字 · {work.chapterCount} 章</div>
       </div>
-      <button 
-        onClick={onRestore} 
+      <button
+        onClick={onRestore}
         className="px-3 py-1.5 text-xs rounded-lg transition-colors"
         style={{ background: 'var(--accent-bg)', color: 'var(--accent)', border: '1px solid var(--accent)' }}
         onMouseEnter={(e) => {
@@ -1079,8 +1172,8 @@ function TrashCard({ work, onRestore, onPermanentDelete }: { work: WorkSummary; 
           e.currentTarget.style.color = 'var(--accent)';
         }}
       >还原</button>
-      <button 
-        onClick={onPermanentDelete} 
+      <button
+        onClick={onPermanentDelete}
         className="px-3 py-1.5 text-xs rounded-lg transition-colors"
         style={{ background: 'var(--danger-soft)', color: 'var(--danger)' }}
         onMouseEnter={(e) => {

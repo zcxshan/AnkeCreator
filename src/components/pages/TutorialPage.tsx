@@ -74,12 +74,11 @@ const TUTORIAL_TOPICS: TutorialTopic[] = [
     id: 'worldbuilding',
     icon: '🌐',
     title: '世界观与模板',
-    summary: '世界观设定、模板库管理、预置模板',
+    summary: '世界观设定、模板库管理',
     steps: [
       { title: '1. 世界观设定', description: '在编辑页面中，可以添加世界观设定条目（如魔法体系、地理环境、社会制度等）。每个条目有标题和内容，方便在创作时查阅参考。' },
       { title: '2. 模板库', description: '在首页点击「模板库」进入模板管理页面。模板分为两类：世界观模板和人物模板。模板独立于具体作品，可以被任意作品引用。' },
       { title: '3. 创建自定义模板', description: '在模板库页面中，点击「+ 新建」按钮创建新的世界观或人物模板。编辑模板的内容、属性等信息后保存，之后在任何作品中都可以导入使用。' },
-      { title: '4. 使用预置模板', description: '应用内置了常用的世界观模板和人物模板。首次打开应用时这些模板会自动加载到模板库中，带有「预置」标签。预置模板不可编辑或删除，但你可以直接导入到作品中使用，导入后的副本可以自由修改。' },
     ],
   },
   {
@@ -124,6 +123,34 @@ const TUTORIAL_TOPICS: TutorialTopic[] = [
       { title: '1. 图片、骰子、折叠都是原子块', description: '编辑器中的图片、骰子卡片、折叠块、代码块等都是独立的「原子块」。它们在文本中表现为可移动的独立单位，类似一个大号字符。' },
       { title: '2. 拖动原子块', description: '鼠标点击并按住一个原子块（例如图片），然后将其拖到其他位置释放即可。原子块像文本一样支持在段落内前后移动，也可以移动到段落之间。' },
       { title: '3. 删除原子块', description: '选中图片/骰子/折叠/代码块后按 Delete 或 Backspace 键可以删除。对于折叠块，建议先展开查看内容再决定是否删除，防止误删重要信息。' },
+    ],
+  },
+  {
+    id: 'anjia-collector',
+    icon: '📜',
+    title: '收集安价（从 NGA 抓取）',
+    summary: '抓取 NGA 主题帖中"以指定文本开头"的楼层',
+    steps: [
+      { title: '1. 进入收集安价页面', description: '在首页找到「📜 收集安价」入口，点击进入。可以从 NGA 主题帖中快速抓取多个匹配楼层。' },
+      { title: '2. 输入 NGA 链接与楼层范围', description: '粘贴 NGA 主题帖链接（必须包含 <code>tid=XXX</code> 参数），填写起始楼层与末尾楼层。可以点击 URL 旁的「🔍 自动检测」按钮，让应用自动获取主题帖的总页数。' },
+      { title: '3. 设置匹配文本（可留空）', description: '匹配文本用于过滤出"以该文本开头"的楼层。如果留空，则抓取起始楼到末尾楼的所有内容（适合全量收集）。需要登录态时，在「设置」中粘贴 NGA Cookie 即可访问受限内容。' },
+      { title: '4. 抓取中可取消', description: '点击「开始收集」后，进度条会显示抓取进度。若需要中途停止，点击「取消」即可立即停止并返回已抓取的部分结果。' },
+      { title: '5. 管理抓取结果', description: '结果列表中每条都支持：<br>• <b>📋 复制</b>：复制单条内容<br>• <b>🗑 删除</b>：删除单条（删除后可点击 toast 中的「撤销」复原）<br>• <b>📋 复制全部</b>：复制全部楼层为纯文本<br>• <b>📋 复制 NGA 格式</b>：复制为 NGA BBCode 格式（标题加粗，可直接贴到 NGA 编辑器）' },
+      { title: '6. 保存与加载历史', description: '抓取成功后，点击「💾 保存到历史」将本次抓取存到本地（最多 10 条）。下次需要时，点击顶栏「📂 历史」下拉，选择对应历史即可一键恢复（链接、范围、结果全部还原）。' },
+      { title: '7. 注意事项', description: '• 重新爬取会清空当前列表的删除撤销栈（不可"穿越"撤销）<br>• 单次范围建议不超过 200 楼，超出可能触发 NGA 限流<br>• 抓取历史存在浏览器 localStorage，单条 items 自动截断到 100 条' },
+    ],
+  },
+  {
+    id: 'image-store-mode',
+    icon: '☁️',
+    title: '图片存储模式',
+    summary: '选择远端图床或本地保存',
+    steps: [
+      { title: '1. 打开设置', description: '在顶栏右侧点击「⚙ 设置」按钮，弹出设置对话框。' },
+      { title: '2. 选择存储模式', description: '<b>远端图床（默认）</b>：上传到 catbox.moe / sm.ms / 0x0.st / telegra.ph，自动回退到下一个图床。<br><b>本地保存</b>：图片保存到应用数据目录的 <code>images/</code> 文件夹，使用 <code>local://</code> 协议访问。' },
+      { title: '3. 上传进度窗口', description: '无论哪种模式，批量上传时都会弹出居中的进度窗口，显示每张图片的上传进度、目标图床、状态等信息。上传过程中可按 ESC 关闭。' },
+      { title: '4. NGA 导出兼容', description: '导出为 NGA BBCode 时：<br>• 远端图床：直接使用图床 URL<br>• 本地保存：替换为占位文字 <code>[本地图片：name（已用占位符替换）]</code><br>• base64 兜底方案已禁用（确保图片一定可访问）' },
+      { title: '5. 注意事项', description: '• 本地模式仅支持 Electron 应用<br>• <code>local://</code> 协议有路径遍历保护，禁止访问敏感文件<br>• 设置会持久化到 localStorage，下次启动自动恢复' },
     ],
   },
   {
@@ -181,7 +208,7 @@ export function TutorialPage({ onBack, onShowAuthor }: TutorialPageProps) {
         >
           <div className="text-sm font-semibold mb-1" style={{ color: 'var(--accent)' }}>快速上手</div>
           <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-            点击下方任意主题卡片展开详细步骤指南，共 10 个主题，涵盖从创建作品到导出 NGA BBCode 的完整创作流程。
+            点击下方任意主题卡片展开详细步骤指南，共 12 个主题，涵盖从创建作品到导出 NGA BBCode 的完整创作流程。
           </div>
         </div>
 

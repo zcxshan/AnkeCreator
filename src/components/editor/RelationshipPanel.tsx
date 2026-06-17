@@ -8,6 +8,8 @@
 import { useMemo, useState } from 'react';
 import { useMetaStore } from '../../store/metaStore';
 import type { CharacterRelation } from '../../types';
+import { ConfirmDialog } from '../common/ConfirmDialog';
+import { useToastStore } from '../../store/toastStore';
 
 interface Props {
   storyId: string;
@@ -28,6 +30,7 @@ export function RelationshipPanel({ storyId }: Props) {
     relation: string;
     note: string;
   }>({ source_id: '', target_id: '', relation: '', note: '' });
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
   const charMap = useMemo(() => {
     const m: Record<string, { name: string; avatar: string }> = {};
@@ -92,9 +95,7 @@ export function RelationshipPanel({ storyId }: Props) {
   };
 
   const handleDelete = (id: string) => {
-    if (!window.confirm('确定删除该关系？')) return;
-    deleteRelation(id);
-    if (editingId === id) cancelEdit();
+    setPendingDelete(id);
   };
 
   return (
@@ -249,6 +250,22 @@ export function RelationshipPanel({ storyId }: Props) {
           </ul>
         )}
       </div>
+
+      {pendingDelete && (
+        <ConfirmDialog
+          open={true}
+          title="删除确认"
+          message="确定删除该关系？此操作不可撤销。"
+          danger
+          onConfirm={() => {
+            deleteRelation(pendingDelete);
+            if (editingId === pendingDelete) cancelEdit();
+            useToastStore.getState().showToast('已删除', 'success');
+            setPendingDelete(null);
+          }}
+          onCancel={() => setPendingDelete(null)}
+        />
+      )}
     </div>
   );
 }

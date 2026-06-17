@@ -27,7 +27,6 @@ import type {
   StoryWithAll,
   Entity,
 } from '../types';
-import { getPresetWorldTemplates, getPresetCharacterTemplates } from './presetTemplates';
 
 // 实体自动字段：创建对象时不需要调用方提供
 type EntityFields = keyof Entity; // 'id' | 'created_at' | 'updated_at'
@@ -66,17 +65,11 @@ function initMemory(): void {
 // ------------------------------------------------------------
 
 export function initDatabase(): void {
-  // 内存模式下初始化并播种预设模板
+  // 内存模式下初始化（无预置模板 seed）
   if (!window.dbAPI) {
     initMemory();
-    seedPresetTemplates();
   }
   // 如果有 window.dbAPI，主进程会自行处理数据库初始化
-}
-
-export function closeDatabase(): void {
-  memoryInitialized = false;
-  memoryTables = {};
 }
 
 function nowISO(): string {
@@ -363,6 +356,69 @@ export async function deleteStory(id: string): Promise<void> {
   return Promise.resolve();
 }
 
+// —— 回收站：软删除/恢复/永久删除 ——
+
+export async function softDeleteStory(id: string): Promise<void> {
+  if (window.dbAPI) {
+    await window.dbAPI.softDeleteStory(id);
+    return;
+  }
+  const now = nowISO();
+  runSQL('UPDATE stories SET is_deleted = ?, deleted_at = ?, updated_at = ? WHERE id = ?', 1, now, now, id);
+  return Promise.resolve();
+}
+
+export async function restoreStory(id: string): Promise<void> {
+  if (window.dbAPI) {
+    await window.dbAPI.restoreStory(id);
+    return;
+  }
+  const now = nowISO();
+  runSQL('UPDATE stories SET is_deleted = NULL, deleted_at = NULL, updated_at = ? WHERE id = ?', now, id);
+  return Promise.resolve();
+}
+
+export async function permanentlyDeleteStory(id: string): Promise<void> {
+  if (window.dbAPI) {
+    await window.dbAPI.permanentlyDeleteStory(id);
+    return;
+  }
+  runSQL('DELETE FROM stories WHERE id = ?', id);
+  // 级联：删除关联数据
+  runSQL('DELETE FROM world_settings WHERE story_id = ?', id);
+  runSQL('DELETE FROM characters WHERE story_id = ?', id);
+  runSQL('DELETE FROM character_relations WHERE story_id = ?', id);
+  runSQL('DELETE FROM outlines WHERE story_id = ?', id);
+  const chapters = allSQL<any>('SELECT id FROM chapters WHERE story_id = ?', id);
+  for (const ch of chapters) {
+    runSQL('DELETE FROM sections WHERE chapter_id = ?', ch.id);
+  }
+  runSQL('DELETE FROM chapters WHERE story_id = ?', id);
+  runSQL('DELETE FROM volumes WHERE story_id = ?', id);
+  return Promise.resolve();
+}
+
+export async function listTrashedStories(): Promise<Story[]> {
+  if (window.dbAPI) {
+    return window.dbAPI.listTrashedStories();
+  }
+  return Promise.resolve(
+    allSQL<any>('SELECT * FROM stories WHERE is_deleted = 1 ORDER BY deleted_at DESC').map(rowToStory),
+  );
+}
+
+export async function cleanupOldTrashed(days: number): Promise<number> {
+  if (window.dbAPI) {
+    return window.dbAPI.cleanupOldTrashed(days);
+  }
+  const threshold = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const old = allSQL<any>('SELECT id FROM stories WHERE is_deleted = 1 AND deleted_at < ?', threshold);
+  for (const r of old) {
+    runSQL('DELETE FROM stories WHERE id = ?', r.id);
+  }
+  return Promise.resolve(old.length);
+}
+
 // 内存模式下的 getStory 辅助（避免循环引用）
 function getStoryInMem(id: string): Story | undefined {
   const r = getSQL<any>('SELECT * FROM stories WHERE id = ?', id);
@@ -434,6 +490,24 @@ export async function deleteWorldSetting(id: string): Promise<void> {
     return;
   }
   runSQL('DELETE FROM world_settings WHERE id = ?', id);
+  return Promise.resolve();
+}
+
+/** 重新排序某作品下的所有世界观（按 orderedIds 顺序写入 order_index） */
+export async function reorderWorldSettings(storyId: string, orderedIds: string[]): Promise<void> {
+  if (window.dbAPI) {
+    await window.dbAPI.reorderWorldSettings(storyId, orderedIds);
+    return;
+  }
+  orderedIds.forEach((id, i) => {
+    runSQL(
+      'UPDATE world_settings SET order_index = ?, updated_at = ? WHERE id = ? AND story_id = ?',
+      i,
+      nowISO(),
+      id,
+      storyId,
+    );
+  });
   return Promise.resolve();
 }
 
@@ -546,6 +620,24 @@ export async function deleteCharacter(id: string): Promise<void> {
   return Promise.resolve();
 }
 
+/** 重新排序某作品下的所有人物 */
+export async function reorderCharacters(storyId: string, orderedIds: string[]): Promise<void> {
+  if (window.dbAPI) {
+    await window.dbAPI.reorderCharacters(storyId, orderedIds);
+    return;
+  }
+  orderedIds.forEach((id, i) => {
+    runSQL(
+      'UPDATE characters SET order_index = ?, updated_at = ? WHERE id = ? AND story_id = ?',
+      i,
+      nowISO(),
+      id,
+      storyId,
+    );
+  });
+  return Promise.resolve();
+}
+
 // ------------------------------------------------------------
 // CharacterVariant
 // ------------------------------------------------------------
@@ -566,26 +658,6 @@ export async function listCharacterVariants(characterId: string): Promise<Charac
   );
 }
 
-export async function listAllVariantsByStory(storyId: string): Promise<CharacterVariant[]> {
-  // 注：此方法暂未通过 window.dbAPI 暴露，仅使用内存实现
-  return Promise.resolve(
-    allSQL<CharacterVariant>(
-      `SELECT cv.* FROM character_variants cv
-       INNER JOIN characters c ON c.id = cv.character_id
-       WHERE c.story_id = ?
-       ORDER BY cv.character_id, cv.order_index`,
-      storyId,
-    ),
-  );
-}
-
-export async function listAllVariantsGroupedByCharacterId(
-  characterIds: string[],
-): Promise<Record<string, CharacterVariant[]>> {
-  // 注：此方法暂未通过 window.dbAPI 暴露，仅使用内存实现
-  return Promise.resolve(listAllVariantsGroupedByCharacterIdMem(characterIds));
-}
-
 function listAllVariantsGroupedByCharacterIdMem(
   characterIds: string[],
 ): Record<string, CharacterVariant[]> {
@@ -602,13 +674,6 @@ function listAllVariantsGroupedByCharacterIdMem(
     grouped[v.character_id].push(v);
   });
   return grouped;
-}
-
-export async function getCharacterVariant(id: string): Promise<CharacterVariant | undefined> {
-  // 注：此方法暂未通过 window.dbAPI 暴露，仅使用内存实现
-  return Promise.resolve(
-    getSQL<CharacterVariant>('SELECT * FROM character_variants WHERE id = ?', id),
-  );
 }
 
 export async function createCharacterVariant(data: NewCharacterVariant): Promise<CharacterVariant> {
@@ -724,7 +789,9 @@ export async function reorderCharacterVariants(
 // WorldSettingTemplate (世界观设定模板，独立表，不含 story_id)
 // ------------------------------------------------------------
 
-type NewWorldSettingTemplate = Omit<WorldSettingTemplate, EntityFields>;
+type NewWorldSettingTemplate = Omit<WorldSettingTemplate, EntityFields | 'order_index'> & {
+  order_index?: number;
+};
 
 export async function listWorldSettingTemplates(): Promise<WorldSettingTemplate[]> {
   if (window.dbAPI) {
@@ -732,15 +799,8 @@ export async function listWorldSettingTemplates(): Promise<WorldSettingTemplate[
   }
   return Promise.resolve(
     allSQL<WorldSettingTemplate>(
-      'SELECT * FROM world_setting_templates ORDER BY updated_at DESC',
+      'SELECT * FROM world_setting_templates ORDER BY order_index, updated_at DESC',
     ).map((t) => ({ ...t })),
-  );
-}
-
-export async function getWorldSettingTemplate(id: string): Promise<WorldSettingTemplate | undefined> {
-  // 注：此方法暂未通过 window.dbAPI 暴露，仅使用内存实现
-  return Promise.resolve(
-    getSQL<WorldSettingTemplate>('SELECT * FROM world_setting_templates WHERE id = ?', id),
   );
 }
 
@@ -751,20 +811,22 @@ export async function createWorldSettingTemplate(
     return window.dbAPI.createWorldSettingTemplate(data as Record<string, unknown>);
   }
   const now = nowISO();
+  const existing = allSQL<{ id: string }>('SELECT id FROM world_setting_templates');
+  const order = existing.length;
   const row: WorldSettingTemplate = {
     id: uuid4(),
     title: data.title,
     content: data.content || '',
-    is_preset: data.is_preset ?? 0,
+    order_index: order,
     created_at: now,
     updated_at: now,
   };
   runSQL(
-    'INSERT INTO world_setting_templates (id, title, content, is_preset, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+    'INSERT INTO world_setting_templates (id, title, content, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
     row.id,
     row.title,
     row.content,
-    row.is_preset,
+    row.order_index,
     row.created_at,
     row.updated_at,
   );
@@ -773,16 +835,11 @@ export async function createWorldSettingTemplate(
 
 export async function updateWorldSettingTemplate(
   id: string,
-  patch: Partial<Pick<WorldSettingTemplate, 'title' | 'content'>>,
+  patch: Partial<Pick<WorldSettingTemplate, 'title' | 'content' | 'order_index'>>,
 ): Promise<WorldSettingTemplate | undefined> {
   if (window.dbAPI) {
     return window.dbAPI.updateWorldSettingTemplate(id, patch as Record<string, unknown>);
   }
-  const existing = getSQL<WorldSettingTemplate>(
-    'SELECT * FROM world_setting_templates WHERE id = ?',
-    id,
-  );
-  if (existing?.is_preset) return Promise.resolve(existing);
   doUpdate('world_setting_templates', id, patch);
   return Promise.resolve(
     getSQL<WorldSettingTemplate>('SELECT * FROM world_setting_templates WHERE id = ?', id),
@@ -794,12 +851,23 @@ export async function deleteWorldSettingTemplate(id: string): Promise<void> {
     await window.dbAPI.deleteWorldSettingTemplate(id);
     return;
   }
-  const existing = getSQL<WorldSettingTemplate>(
-    'SELECT * FROM world_setting_templates WHERE id = ?',
-    id,
-  );
-  if (existing?.is_preset) return Promise.resolve();
   runSQL('DELETE FROM world_setting_templates WHERE id = ?', id);
+  return Promise.resolve();
+}
+
+/** 重新排序所有世界观模板 */
+export async function reorderWorldSettingTemplates(orderedIds: string[]): Promise<void> {
+  if (window.dbAPI) {
+    await window.dbAPI.reorderWorldSettingTemplates(orderedIds);
+    return;
+  }
+  orderedIds.forEach((id, i) => {
+    runSQL(
+      'UPDATE world_setting_templates SET order_index = ? WHERE id = ?',
+      i,
+      id,
+    );
+  });
   return Promise.resolve();
 }
 
@@ -807,7 +875,9 @@ export async function deleteWorldSettingTemplate(id: string): Promise<void> {
 // CharacterTemplate (人物模板，独立表，不含 story_id / order_index / variants)
 // ------------------------------------------------------------
 
-type NewCharacterTemplate = Omit<CharacterTemplate, EntityFields>;
+type NewCharacterTemplate = Omit<CharacterTemplate, EntityFields | 'order_index'> & {
+  order_index?: number;
+};
 
 export async function listCharacterTemplates(): Promise<CharacterTemplate[]> {
   if (window.dbAPI) {
@@ -815,27 +885,14 @@ export async function listCharacterTemplates(): Promise<CharacterTemplate[]> {
   }
   return Promise.resolve(
     allSQL<CharacterTemplate>(
-      'SELECT * FROM character_templates ORDER BY updated_at DESC',
+      'SELECT * FROM character_templates ORDER BY order_index, updated_at DESC',
     ).map((c) => ({
       ...c,
+      order_index: c.order_index ?? 0,
       attributes: parseJSON<Record<string, string | number>>(c.attributes),
       variants: parseJSON<CharacterVariant[]>(c.variants),
     })),
   );
-}
-
-export async function getCharacterTemplate(id: string): Promise<CharacterTemplate | undefined> {
-  // 注：此方法暂未通过 window.dbAPI 暴露，仅使用内存实现
-  const row = getSQL<CharacterTemplate>(
-    'SELECT * FROM character_templates WHERE id = ?',
-    id,
-  );
-  if (!row) return Promise.resolve(undefined);
-  return Promise.resolve({
-    ...row,
-    attributes: parseJSON<Record<string, string | number>>(row.attributes),
-    variants: parseJSON<CharacterVariant[]>(row.variants),
-  });
 }
 
 export async function createCharacterTemplate(
@@ -845,6 +902,8 @@ export async function createCharacterTemplate(
     return window.dbAPI.createCharacterTemplate(data as Record<string, unknown>);
   }
   const now = nowISO();
+  const existing = allSQL<{ id: string }>('SELECT id FROM character_templates');
+  const order = existing.length;
   const row: CharacterTemplate = {
     id: uuid4(),
     name: data.name,
@@ -853,12 +912,12 @@ export async function createCharacterTemplate(
     attributes: data.attributes,
     notes: data.notes || '',
     variants: data.variants,
-    is_preset: data.is_preset ?? 0,
+    order_index: order,
     created_at: now,
     updated_at: now,
   };
   runSQL(
-    'INSERT INTO character_templates (id, name, avatar, personality, attributes, notes, variants, is_preset, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO character_templates (id, name, avatar, personality, attributes, notes, variants, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     row.id,
     row.name,
     row.avatar,
@@ -866,7 +925,7 @@ export async function createCharacterTemplate(
     stringifyJSON(row.attributes || null),
     row.notes,
     stringifyJSON(row.variants || null),
-    row.is_preset,
+    row.order_index,
     row.created_at,
     row.updated_at,
   );
@@ -878,19 +937,17 @@ export async function updateCharacterTemplate(
   patch: Partial<
     Pick<
       CharacterTemplate,
-      'name' | 'avatar' | 'personality' | 'attributes' | 'notes' | 'variants'
+      'name' | 'avatar' | 'personality' | 'attributes' | 'notes' | 'variants' | 'order_index'
     >
   >,
 ): Promise<CharacterTemplate | undefined> {
   if (window.dbAPI) {
     return window.dbAPI.updateCharacterTemplate(id, patch as Record<string, unknown>);
   }
-  const existing = getCharacterTemplateInMem(id);
-  if (existing?.is_preset) return Promise.resolve(existing);
   const now = nowISO();
   const fields: string[] = [];
   const values: unknown[] = [];
-  (['name', 'avatar', 'personality', 'notes'] as const).forEach((k) => {
+  (['name', 'avatar', 'personality', 'notes', 'order_index'] as const).forEach((k) => {
     if ((patch as Record<string, unknown>)[k] !== undefined) {
       fields.push(`${k} = ?`);
       values.push((patch as Record<string, unknown>)[k]);
@@ -913,6 +970,22 @@ export async function updateCharacterTemplate(
   return Promise.resolve(getCharacterTemplateInMem(id));
 }
 
+/** 重新排序所有人物模板 */
+export async function reorderCharacterTemplates(orderedIds: string[]): Promise<void> {
+  if (window.dbAPI) {
+    await window.dbAPI.reorderCharacterTemplates(orderedIds);
+    return;
+  }
+  orderedIds.forEach((id, i) => {
+    runSQL(
+      'UPDATE character_templates SET order_index = ? WHERE id = ?',
+      i,
+      id,
+    );
+  });
+  return Promise.resolve();
+}
+
 function getCharacterTemplateInMem(id: string): CharacterTemplate | undefined {
   const row = getSQL<CharacterTemplate>(
     'SELECT * FROM character_templates WHERE id = ?',
@@ -931,134 +1004,8 @@ export async function deleteCharacterTemplate(id: string): Promise<void> {
     await window.dbAPI.deleteCharacterTemplate(id);
     return;
   }
-  const existing = getCharacterTemplateInMem(id);
-  if (existing?.is_preset) return Promise.resolve();
   runSQL('DELETE FROM character_templates WHERE id = ?', id);
   return Promise.resolve();
-}
-
-// ------------------------------------------------------------
-// 预置模板种子数据
-// ------------------------------------------------------------
-
-function seedPresetTemplates(): void {
-  // 1. 清理重复预置模板（应用层过滤，不依赖 WHERE is_preset = 1）
-  try {
-    const allWorlds = allSQL<{ id: string; title: string; is_preset: number }>(
-      "SELECT id, title, is_preset FROM world_setting_templates ORDER BY created_at",
-    );
-    const presetWorlds = allWorlds.filter((r) => Number(r.is_preset) === 1);
-    const seenTitles = new Set<string>();
-    for (const row of presetWorlds) {
-      if (seenTitles.has(row.title)) {
-        runSQL("DELETE FROM world_setting_templates WHERE id = ?", row.id);
-      } else {
-        seenTitles.add(row.title);
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-
-  try {
-    const allChars = allSQL<{ id: string; name: string; is_preset: number }>(
-      "SELECT id, name, is_preset FROM character_templates ORDER BY created_at",
-    );
-    const presetChars = allChars.filter((r) => Number(r.is_preset) === 1);
-    const seenNames = new Set<string>();
-    for (const row of presetChars) {
-      if (seenNames.has(row.name)) {
-        runSQL("DELETE FROM character_templates WHERE id = ?", row.id);
-      } else {
-        seenNames.add(row.name);
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-
-  // 2. 插入缺失的预置模板（应用层检查，不依赖 WHERE is_preset = 1）
-  try {
-    const allWorlds = allSQL<{ title: string; is_preset: number }>(
-      "SELECT title, is_preset FROM world_setting_templates",
-    );
-    const presetTitles = new Set(
-      allWorlds.filter((r) => Number(r.is_preset) === 1).map((r) => r.title),
-    );
-    for (const tpl of getPresetWorldTemplates()) {
-      if (!presetTitles.has(tpl.title)) {
-        createWorldSettingTemplateInMem(tpl);
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-
-  try {
-    const allChars = allSQL<{ name: string; is_preset: number }>(
-      "SELECT name, is_preset FROM character_templates",
-    );
-    const presetNames = new Set(
-      allChars.filter((r) => Number(r.is_preset) === 1).map((r) => r.name),
-    );
-    for (const tpl of getPresetCharacterTemplates()) {
-      if (!presetNames.has(tpl.name)) {
-        createCharacterTemplateInMem(tpl);
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-}
-
-function createWorldSettingTemplateInMem(data: NewWorldSettingTemplate): void {
-  const now = nowISO();
-  const row: WorldSettingTemplate = {
-    id: uuid4(),
-    title: data.title,
-    content: data.content || '',
-    is_preset: data.is_preset ?? 0,
-    created_at: now,
-    updated_at: now,
-  };
-  runSQL(
-    'INSERT INTO world_setting_templates (id, title, content, is_preset, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-    row.id,
-    row.title,
-    row.content,
-    row.is_preset,
-    row.created_at,
-    row.updated_at,
-  );
-}
-
-function createCharacterTemplateInMem(data: NewCharacterTemplate): void {
-  const now = nowISO();
-  const row: CharacterTemplate = {
-    id: uuid4(),
-    name: data.name,
-    avatar: data.avatar || '',
-    personality: data.personality || '',
-    attributes: data.attributes,
-    notes: data.notes || '',
-    variants: data.variants,
-    is_preset: data.is_preset ?? 0,
-    created_at: now,
-    updated_at: now,
-  };
-  runSQL(
-    'INSERT INTO character_templates (id, name, avatar, personality, attributes, notes, variants, is_preset, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    row.id,
-    row.name,
-    row.avatar,
-    row.personality,
-    stringifyJSON(row.attributes || null),
-    row.notes,
-    stringifyJSON(row.variants || null),
-    row.is_preset,
-    row.created_at,
-    row.updated_at,
-  );
 }
 
 // ------------------------------------------------------------

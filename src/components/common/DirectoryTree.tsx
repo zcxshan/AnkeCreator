@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import type { Chapter, Section, Volume } from '../../types';
+import { ConfirmDialog } from './ConfirmDialog';
+import { useToastStore } from '../../store/toastStore';
 
 interface DirectoryTreeProps {
   volumes: Volume[];
@@ -68,6 +70,11 @@ export function DirectoryTree(props: DirectoryTreeProps) {
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
+    type: 'volume' | 'chapter' | 'section';
+    id: string;
+    title: string;
+  } | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{
     type: 'volume' | 'chapter' | 'section';
     id: string;
     title: string;
@@ -593,19 +600,32 @@ export function DirectoryTree(props: DirectoryTreeProps) {
             label="删除"
             danger
             onClick={() => {
-              let msg = '删除此项？';
-              if (contextMenu.type === 'volume') msg = '删除此卷及其所属章和节？';
-              if (contextMenu.type === 'chapter') msg = '删除此章及其所有节？';
-              if (contextMenu.type === 'section') msg = '删除此节？';
-              if (window.confirm(msg)) {
-                if (contextMenu.type === 'volume') onDeleteVolume(contextMenu.id);
-                if (contextMenu.type === 'chapter') onDeleteChapter(contextMenu.id);
-                if (contextMenu.type === 'section') onDeleteSection(contextMenu.id);
-              }
+              setPendingDelete({ type: contextMenu.type, id: contextMenu.id, title: contextMenu.title });
               setContextMenu(null);
             }}
           />
         </div>
+      )}
+
+      {pendingDelete && (
+        <ConfirmDialog
+          open={true}
+          title="删除确认"
+          message={(() => {
+            if (pendingDelete.type === 'volume') return `确定删除卷"${pendingDelete.title}"？其下所有章和节都会被删除，此操作不可撤销。`;
+            if (pendingDelete.type === 'chapter') return `确定删除章"${pendingDelete.title}"？其下所有节都会被删除，此操作不可撤销。`;
+            return `确定删除节"${pendingDelete.title}"？此操作不可撤销。`;
+          })()}
+          danger
+          onConfirm={() => {
+            if (pendingDelete.type === 'volume') onDeleteVolume(pendingDelete.id);
+            if (pendingDelete.type === 'chapter') onDeleteChapter(pendingDelete.id);
+            if (pendingDelete.type === 'section') onDeleteSection(pendingDelete.id);
+            useToastStore.getState().showToast('已删除', 'success');
+            setPendingDelete(null);
+          }}
+          onCancel={() => setPendingDelete(null)}
+        />
       )}
     </aside>
   );

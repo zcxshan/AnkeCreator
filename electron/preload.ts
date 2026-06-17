@@ -11,10 +11,43 @@ const windowAPI = {
   close: () => ipcRenderer.send('window:close'),
 }
 
-// 图片操作（原有）
+// 图片操作（sm.ms 图床上传 / 本地保存）
 const imageAPI = {
-  select: () => ipcRenderer.invoke('image:select'),
-  save: (dataUrl: string) => ipcRenderer.invoke('image:save', dataUrl),
+  select: (): Promise<{ buffer: string; filename: string; mimeType: string } | null> =>
+    ipcRenderer.invoke('image:select'),
+  upload: (payload: { buffer: string; filename: string; mimeType: string }): Promise<{ ok: boolean; url?: string; error?: string }> =>
+    ipcRenderer.invoke('image:upload', payload),
+  saveLocal: (payload: { buffer: string; filename: string; mimeType: string }): Promise<{ ok: boolean; url?: string; error?: string }> =>
+    ipcRenderer.invoke('image:saveLocal', payload),
+  openImageFolder: (): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('image:openFolder'),
+}
+
+// NGA 安价收集
+const ngaAPI = {
+  collect: (payload: {
+    url: string;
+    startFloor: number;
+    endFloor: number;
+    prefix: string;
+    cookies?: string;
+  }): Promise<{
+    ok: boolean;
+    items: { floor: number; author: string; content: string }[];
+    totalPages: number;
+    error?: string;
+  }> => ipcRenderer.invoke('nga:collect', payload),
+  cancelCollect: (taskId?: number): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('nga:collect:cancel', taskId),
+  fetchThreadInfo: (
+    url: string,
+    cookies?: string,
+  ): Promise<{
+    ok: boolean;
+    totalPages?: number;
+    totalFloors?: number;
+    error?: string;
+  }> => ipcRenderer.invoke('nga:fetchThreadInfo', url, cookies),
 }
 
 // ============================================================
@@ -30,6 +63,13 @@ const dbAPI = {
     ipcRenderer.invoke('db:create-story', data),
   updateStory: (id: string, patch: any): Promise<any> => ipcRenderer.invoke('db:update-story', id, patch),
   deleteStory: (id: string): Promise<boolean> => ipcRenderer.invoke('db:delete-story', id),
+
+  // Trash / Recycle Bin
+  softDeleteStory: (id: string): Promise<boolean> => ipcRenderer.invoke('db:soft-delete-story', id),
+  restoreStory: (id: string): Promise<boolean> => ipcRenderer.invoke('db:restore-story', id),
+  permanentlyDeleteStory: (id: string): Promise<boolean> => ipcRenderer.invoke('db:permanently-delete-story', id),
+  listTrashedStories: (): Promise<any[]> => ipcRenderer.invoke('db:list-trashed-stories'),
+  cleanupOldTrashed: (days: number): Promise<number> => ipcRenderer.invoke('db:cleanup-old-trashed', days),
 
   // WorldSettings
   listWorldSettings: (storyId: string): Promise<any[]> => ipcRenderer.invoke('db:list-world-settings', storyId),
@@ -52,6 +92,10 @@ const dbAPI = {
   deleteCharacterVariant: (id: string): Promise<boolean> => ipcRenderer.invoke('db:delete-character-variant', id),
   reorderCharacterVariants: (characterId: string, orderedIds: string[]): Promise<boolean> =>
     ipcRenderer.invoke('db:reorder-character-variants', characterId, orderedIds),
+  reorderWorldSettings: (storyId: string, orderedIds: string[]): Promise<boolean> =>
+    ipcRenderer.invoke('db:reorder-world-settings', storyId, orderedIds),
+  reorderCharacters: (storyId: string, orderedIds: string[]): Promise<boolean> =>
+    ipcRenderer.invoke('db:reorder-characters', storyId, orderedIds),
 
   // Character Relations
   listCharacterRelations: (storyId: string): Promise<any[]> => ipcRenderer.invoke('db:list-character-relations', storyId),
@@ -105,15 +149,25 @@ const dbAPI = {
   createWorldSettingTemplate: (data: any): Promise<any> => ipcRenderer.invoke('db:create-world-setting-template', data),
   updateWorldSettingTemplate: (id: string, patch: any): Promise<any> => ipcRenderer.invoke('db:update-world-setting-template', id, patch),
   deleteWorldSettingTemplate: (id: string): Promise<boolean> => ipcRenderer.invoke('db:delete-world-setting-template', id),
+  reorderWorldSettingTemplates: (orderedIds: string[]): Promise<boolean> =>
+    ipcRenderer.invoke('db:reorder-world-setting-templates', orderedIds),
 
   // Character Templates
   listCharacterTemplates: (): Promise<any[]> => ipcRenderer.invoke('db:list-character-templates'),
   createCharacterTemplate: (data: any): Promise<any> => ipcRenderer.invoke('db:create-character-template', data),
   updateCharacterTemplate: (id: string, patch: any): Promise<any> => ipcRenderer.invoke('db:update-character-template', id, patch),
   deleteCharacterTemplate: (id: string): Promise<boolean> => ipcRenderer.invoke('db:delete-character-template', id),
+  reorderCharacterTemplates: (orderedIds: string[]): Promise<boolean> =>
+    ipcRenderer.invoke('db:reorder-character-templates', orderedIds),
 
   // Aggregate
   getStoryWithAll: (storyId: string): Promise<any> => ipcRenderer.invoke('db:get-story-with-all', storyId),
+
+  // 整作品另存为 + 导入（弹系统对话框）
+  saveStoryAsFile: (data: any, suggestedName?: string): Promise<{ ok: boolean; canceled?: boolean; filePath?: string; error?: string }> =>
+    ipcRenderer.invoke('story:export-to-file', { data, suggestedName }),
+  openStoryFile: (): Promise<{ ok: boolean; canceled?: boolean; filePath?: string; data?: any; error?: string }> =>
+    ipcRenderer.invoke('story:import-from-file'),
 
   // Utilities
   getDataDirectory: (): Promise<string> => ipcRenderer.invoke('db:get-data-directory'),
@@ -132,8 +186,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   toggleMaximize: windowAPI.toggleMaximize,
   close: windowAPI.close,
   selectImage: imageAPI.select,
-  saveImage: imageAPI.save,
+  uploadImage: imageAPI.upload,
   platform: process.platform,
+  collectNga: ngaAPI.collect,
+  cancelNgaCollect: ngaAPI.cancelCollect,
+  fetchNgaThreadInfo: ngaAPI.fetchThreadInfo,
+  // 整作品另存为 + 导入（代理 dbAPI）
+  saveStoryAsFile: dbAPI.saveStoryAsFile,
+  openStoryFile: dbAPI.openStoryFile,
 })
 contextBridge.exposeInMainWorld('dbAPI', dbAPI)
 contextBridge.exposeInMainWorld('appAPI', appAPI)
@@ -143,9 +203,32 @@ export type ElectronAPI = {
   minimize: () => void
   toggleMaximize: () => void
   close: () => void
-  selectImage: () => Promise<string | null>
-  saveImage: (dataUrl: string) => Promise<string | null>
+  selectImage: () => Promise<{ buffer: string; filename: string; mimeType: string } | null>
+  uploadImage: (payload: { buffer: string; filename: string; mimeType: string }) => Promise<{ ok: boolean; url?: string; error?: string }>
+  saveImageLocal: (payload: { buffer: string; filename: string; mimeType: string }) => Promise<{ ok: boolean; url?: string; error?: string }>
+  openImageFolder: () => Promise<{ ok: boolean; error?: string }>
   platform: NodeJS.Platform
+  collectNga: (payload: {
+    url: string;
+    startFloor: number;
+    endFloor: number;
+    prefix: string;
+    cookies?: string;
+  }) => Promise<{
+    ok: boolean;
+    items: { floor: number; author: string; content: string }[];
+    totalPages: number;
+    error?: string;
+  }>
+  cancelNgaCollect: (taskId?: number) => Promise<{ ok: boolean }>
+  fetchNgaThreadInfo: (url: string, cookies?: string) => Promise<{
+    ok: boolean;
+    totalPages?: number;
+    totalFloors?: number;
+    error?: string;
+  }>
+  saveStoryAsFile: (data: any, suggestedName?: string) => Promise<{ ok: boolean; canceled?: boolean; filePath?: string; error?: string }>
+  openStoryFile: () => Promise<{ ok: boolean; canceled?: boolean; filePath?: string; data?: any; error?: string }>
 }
 
 declare global {

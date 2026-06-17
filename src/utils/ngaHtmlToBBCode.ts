@@ -29,11 +29,77 @@ export function htmlToNGABBCode(html: string | null | undefined): string {
     if (!root) return '';
     const lines = processBlockChildren(root);
     const out = lines.filter((l) => l !== null && l !== undefined).join('\n').trim();
-    return out ? out + '\n' : '';
+    if (!out) return '';
+    // 合并连续相同的 [color=*]/[size=*]/[font=*] 开闭 tag，去除无效嵌套
+    const result = collapseBbCode(out + '\n');
+    // dev 模式：输出原始 HTML 与转换结果，方便手动验证 NGA 导出正确性
+    if (typeof import.meta !== 'undefined' && (import.meta as any).env?.DEV) {
+      console.groupCollapsed('[NGA export] dev log');
+      console.log('HTML input:\n', html);
+      console.log('BBCode output:\n', result);
+      console.groupEnd();
+    }
+    return result;
   } catch {
     // 降级：简单 strip HTML
     return html.replace(/<[^>]+>/g, '').trim() + '\n';
   }
+}
+
+// ============================================================
+// 公共工具
+// ============================================================
+
+/**
+ * 判断图片 src 是否为"不可达"（不能直接用于 NGA 论坛的图片 src）
+ * NGA 不接受以下情况，导出时统一替换为占位符：
+ *   - base64 data URL（`data:image/...` 或含 `;base64,`）
+ *   - local:// 协议（本应用本地保存的图片，NGA 论坛无法访问）
+ */
+function isUnreachableImage(src: string): boolean {
+  if (!src) return false;
+  return (
+    /^data:image\//i.test(src) ||      // base64 data URL
+    /;base64,/i.test(src) ||            // 含 base64 标识
+    /^local:\/\//i.test(src)            // 本地保存协议
+  );
+}
+
+// ============================================================
+// 合并连续相同的 BBCode tag（避免 [color=x][color=x]...[/color][/color] 无效嵌套）
+// 输入形如：  [color=red]aaa[/color][color=red]bbb[/color] [size=150%]xxx[/size][size=150%]yyy[/size]
+// 输出形如：  [color=red]aaabbb[/color]                    [size=150%]xxxyyy[/size]
+// 规则：相邻且 tag 名+参数完全一致则合并（只处理 color/size/font 三个属性 tag）
+// ============================================================
+function collapseBbCode(input: string): string {
+  // 按行处理（避免跨行合并破坏结构）
+  const lines = input.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    lines[i] = collapseLine(lines[i]);
+  }
+  return lines.join('\n');
+}
+
+function collapseLine(line: string): string {
+  if (!line) return line;
+  // 多趟迭代直到稳定（每次至少合并一对）
+  let prev = '';
+  let cur = line;
+  let guard = 0;
+  while (prev !== cur && guard++ < 50) {
+    prev = cur;
+    cur = mergeAdjacentSameTag(cur, 'color');
+    cur = mergeAdjacentSameTag(cur, 'size');
+    cur = mergeAdjacentSameTag(cur, 'font');
+  }
+  return cur;
+}
+
+function mergeAdjacentSameTag(input: string, tag: string): string {
+  // 模式：直接相邻的 [tag=val]X[/tag][tag=val]Y[/tag] → [tag=val]XY[/tag]
+  // 注意 body X/Y 内部可能含有其他 tag，需要递归
+  const re = new RegExp(`\\[${tag}=([^\\[\\]]+)\\]([\\s\\S]*?)\\[\\/${tag}\\]\\[${tag}=\\1\\]([\\s\\S]*?)\\[\\/${tag}\\]`, 'g');
+  return input.replace(re, (_m, val, body1, body2) => `[${tag}=${val}]${body1}${body2}[/${tag}]`);
 }
 
 // ============================================================
@@ -163,7 +229,15 @@ function processInlineElement(el: HTMLElement): string {
   }
   if (tag === 'img') {
     const src = el.getAttribute('src') || '';
-    return src ? `[img]${src}[/img]` : '';
+    if (!src) return '';
+    // NGA 不支持 base64 data URL 和 local:// 协议，替换为占位符
+    if (isUnreachableImage(src)) {
+      const altRaw = el.getAttribute('data-name') || el.getAttribute('alt') || '';
+      const safeName = altRaw.length > 20 ? altRaw.slice(0, 20) + '…' : altRaw;
+      const name = safeName || '本地图片';
+      return `[本地图片：${name}（已用占位符替换）]`;
+    }
+    return `[img]${src}[/img]`;
   }
   if (tag === 'span') {
     // 内联引用 span
@@ -200,6 +274,15 @@ function processImageBlock(el: HTMLElement): string[] {
   const imgEl = el.querySelector('img');
   const src = imgEl?.getAttribute('src') || '';
   if (!src) return [];
+
+  // NGA 不接受 base64 data URL 和 local:// 协议巨长字符串，替换为占位符
+  if (isUnreachableImage(src)) {
+    // 优先 data-name（文件名），再 alt（可读名），截断防爆长
+    const altRaw = imgEl?.getAttribute('data-name') || imgEl?.getAttribute('alt') || '';
+    const safeName = altRaw.length > 20 ? altRaw.slice(0, 20) + '…' : altRaw;
+    const name = safeName || '本地图片';
+    return [`[本地图片：${name}（已用占位符替换）]`];
+  }
 
   const sizeInfo = NGA_IMAGE_SIZES.find((s) => s.value === size);
   const sfx = sizeInfo?.suffix || '';
@@ -331,7 +414,7 @@ function parseSpanStyle(el: HTMLElement): { open: string; close: string } {
 }
 
 // --- CSS color → NGA color name ---
-function cssColorToNga(raw: string): string | null {
+export function cssColorToNga(raw: string): string | null {
   const normalized = raw.trim().toLowerCase();
   if (!normalized || normalized === 'black' || normalized === '#000000' || normalized === '#000') return NGA_DEFAULT_COLOR;
 
@@ -363,7 +446,7 @@ function cssColorToNga(raw: string): string | null {
 }
 
 // --- pt/px → 百分比（12pt = 100%）---
-function ptToSizePercent(raw: string): number | null {
+export function ptToSizePercent(raw: string): number | null {
   const m = raw.trim().match(/^([0-9.]+)\s*(pt|px|%)?/i);
   if (!m) return null;
   const value = parseFloat(m[1]);
@@ -374,7 +457,7 @@ function ptToSizePercent(raw: string): number | null {
   return Math.round((value * 100) / 12);
 }
 
-function nearestFontSize(pct: number): typeof NGA_FONT_SIZES[number] | null {
+export function nearestFontSize(pct: number): typeof NGA_FONT_SIZES[number] | null {
   if (!NGA_FONT_SIZES || NGA_FONT_SIZES.length === 0) return null;
   let best = NGA_FONT_SIZES[0];
   let minDist = Math.abs(best.percent - pct);
@@ -386,7 +469,7 @@ function nearestFontSize(pct: number): typeof NGA_FONT_SIZES[number] | null {
 }
 
 // --- CSS font-family → NGA font value ---
-function cssFontToNga(raw: string): string | null {
+export function cssFontToNga(raw: string): string | null {
   const family = raw.trim();
   if (!family) return null;
 
