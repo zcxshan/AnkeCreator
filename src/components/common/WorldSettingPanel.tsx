@@ -374,9 +374,30 @@ function ImportTemplateButton() {
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  const importOne = (t: WorldSettingTemplate) => {
+  // 视口检测：自动反向定位，避免溢出屏幕边缘
+  useEffect(() => {
+    if (!open) return;
+    const raf = requestAnimationFrame(() => {
+      if (dropdownRef.current) {
+        const rect = dropdownRef.current.getBoundingClientRect();
+        setDropdownPos((prev) => {
+          let { top, left } = prev;
+          if (rect.right > window.innerWidth) {
+            left = Math.max(8, window.innerWidth - rect.width - 8);
+          }
+          if (rect.bottom > window.innerHeight) {
+            top = Math.max(8, prev.top - rect.height - (btnRef.current?.offsetHeight ?? 0) - 8);
+          }
+          return { top, left };
+        });
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [open]);
+
+  const importOne = async (t: WorldSettingTemplate) => {
     if (!activeStoryId) return;
-    const id = useMetaStore.getState().createWorldSetting(activeStoryId, t.title, t.content);
+    const id = await useMetaStore.getState().createWorldSetting(activeStoryId, t.title, t.content);
     useMetaStore.getState().setEditingWorldId(id);
     setOpen(false);
     setSearch('');
@@ -396,8 +417,9 @@ function ImportTemplateButton() {
         position: 'fixed',
         top: dropdownPos.top,
         left: dropdownPos.left,
-        minWidth: 260,
-        maxHeight: 'min(400px, calc(100vh - 40px))',
+        minWidth: 320,
+        maxHeight: 'min(480px, calc(100vh - 80px))',
+        boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
         zIndex: 9999,
         background: 'var(--bg-card)',
         border: '1px solid var(--border-color)',
@@ -422,11 +444,12 @@ function ImportTemplateButton() {
           暂无模板，先到首页的「模板库」创建
         </div>
       ) : filtered.length === 0 ? (
-        <div className="px-3 py-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
-          无匹配结果
+        <div className="px-3 py-4 text-xs flex flex-col items-center gap-2" style={{ color: 'var(--text-secondary)' }}>
+          <span style={{ fontSize: 28 }}>🔍</span>
+          <span>没有找到匹配的模板</span>
         </div>
       ) : (
-        <div className="overflow-y-auto pb-1" style={{ maxHeight: 320 }}>
+        <div className="overflow-y-auto pb-1" style={{ maxHeight: 320, borderRadius: 8 }}>
           {presetTemplates.length > 0 && (
             <>
               <div className="px-3 py-1 text-[10px] font-medium" style={{ color: 'var(--text-secondary)' }}>
@@ -436,14 +459,24 @@ function ImportTemplateButton() {
                 <button
                   key={t.id}
                   onClick={() => importOne(t)}
-                  className="w-full text-left px-3 py-2 text-xs transition-colors"
+                  className="w-full text-left px-3 py-2 transition-colors"
                   style={{ color: 'var(--text-primary)' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-bg)' }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
                 >
-                  <div className="truncate font-medium">{t.title}</div>
-                  <div className="text-[10px] truncate" style={{ color: 'var(--text-secondary)' }}>
-                    {(t.content || '').replace(/<[^>]+>/g, '').slice(0, 50) || '（无内容）'}
+                  <div className="truncate font-bold" style={{ fontSize: 12 }}>📚 {t.title}</div>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: 'var(--text-secondary)',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      display: '-webkit-box',
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: 'vertical',
+                    }}
+                  >
+                    {(t.content || '').replace(/<[^>]+>/g, '').slice(0, 100) || '（无内容）'}
                   </div>
                 </button>
               ))}
@@ -461,14 +494,24 @@ function ImportTemplateButton() {
                 <button
                   key={t.id}
                   onClick={() => importOne(t)}
-                  className="w-full text-left px-3 py-2 text-xs transition-colors"
+                  className="w-full text-left px-3 py-2 transition-colors"
                   style={{ color: 'var(--text-primary)' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-bg)' }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
                 >
-                  <div className="truncate font-medium">{t.title}</div>
-                  <div className="text-[10px] truncate" style={{ color: 'var(--text-secondary)' }}>
-                    {(t.content || '').replace(/<[^>]+>/g, '').slice(0, 50) || '（无内容）'}
+                  <div className="truncate font-bold" style={{ fontSize: 12 }}>🗂️ {t.title}</div>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: 'var(--text-secondary)',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      display: '-webkit-box',
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: 'vertical',
+                    }}
+                  >
+                    {(t.content || '').replace(/<[^>]+>/g, '').slice(0, 100) || '（无内容）'}
                   </div>
                 </button>
               ))}

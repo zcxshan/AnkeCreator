@@ -219,121 +219,113 @@ export function EditorPage({ onBack, onExport }: EditorPageProps) {
     setSyncDialogOpen(true);
   };
 
-  const handleApplySync = (confirmedVolDiffs: DiffItem[], confirmedChDiffs: DiffItem[]) => {
+  const handleApplySync = async (confirmedVolDiffs: DiffItem[], confirmedChDiffs: DiffItem[]) => {
     if (!activeStoryId) return;
 
     if (syncDialogSource === 'directory') {
       // === 目录 → 大纲：新增缺失的 outline，删除多余的 outline ===
       const outlineVolumeIdByDirId: Record<string, string> = {};
-      confirmedVolDiffs
-        .filter((d) => d.selected)
-        .forEach((d) => {
-          if (d.kind === 'add') {
-            const id = createOutlineVolume(d.title);
-            outlineVolumeIdByDirId[d.sourceId || ''] = id;
+      for (const d of confirmedVolDiffs.filter((d) => d.selected)) {
+        if (d.kind === 'add') {
+          const id = await createOutlineVolume(d.title);
+          outlineVolumeIdByDirId[d.sourceId || ''] = id;
+          if (d.sourceId) {
+            updateOutline(id, { target_id: d.sourceId });
+          }
+        } else if (d.kind === 'remove') {
+          if (d.destId) deleteOutline(d.destId);
+        } else if (d.kind === 'conflict') {
+          if (d.keep === 'source') {
+            if (d.destId) renameOutline(d.destId, d.title);
+          } else {
+            if (d.sourceId) renameVolume(d.sourceId, d.otherTitle || d.title);
+          }
+        }
+      }
+      for (const d of confirmedChDiffs.filter((d) => d.selected)) {
+        if (d.kind === 'add') {
+          const chapter = d.sourceId ? chapters.find((c) => c.id === d.sourceId) : null;
+          const parentDirVolumeId = chapter?.volume_id || null;
+          let parentOutlineVolumeId: string | null = null;
+          if (parentDirVolumeId) {
+            const parentOutline = outlines.find((o) => {
+              const p = parseOutlineContent(o.content);
+              return p.target_type === 'volume' && p.target_id === parentDirVolumeId;
+            });
+            if (parentOutline) parentOutlineVolumeId = parentOutline.id;
+            if (!parentOutlineVolumeId && outlineVolumeIdByDirId[parentDirVolumeId]) {
+              parentOutlineVolumeId = outlineVolumeIdByDirId[parentDirVolumeId];
+            }
+          }
+          if (parentOutlineVolumeId) {
+            const newId = await createOutlineChapter(parentOutlineVolumeId, d.title);
             if (d.sourceId) {
-              updateOutline(id, { target_id: d.sourceId });
+              updateOutline(newId, { target_id: d.sourceId });
             }
-          } else if (d.kind === 'remove') {
-            if (d.destId) deleteOutline(d.destId);
-          } else if (d.kind === 'conflict') {
-            if (d.keep === 'source') {
-              if (d.destId) renameOutline(d.destId, d.title);
-            } else {
-              if (d.sourceId) renameVolume(d.sourceId, d.otherTitle || d.title);
-            }
-          }
-        });
-      confirmedChDiffs
-        .filter((d) => d.selected)
-        .forEach((d) => {
-          if (d.kind === 'add') {
-            const chapter = d.sourceId ? chapters.find((c) => c.id === d.sourceId) : null;
-            const parentDirVolumeId = chapter?.volume_id || null;
-            let parentOutlineVolumeId: string | null = null;
-            if (parentDirVolumeId) {
-              const parentOutline = outlines.find((o) => {
-                const p = parseOutlineContent(o.content);
-                return p.target_type === 'volume' && p.target_id === parentDirVolumeId;
-              });
-              if (parentOutline) parentOutlineVolumeId = parentOutline.id;
-              if (!parentOutlineVolumeId && outlineVolumeIdByDirId[parentDirVolumeId]) {
-                parentOutlineVolumeId = outlineVolumeIdByDirId[parentDirVolumeId];
-              }
-            }
-            if (parentOutlineVolumeId) {
-              const newId = createOutlineChapter(parentOutlineVolumeId, d.title);
-              if (d.sourceId) {
-                updateOutline(newId, { target_id: d.sourceId });
-              }
-            } else {
-              // 没有归属的卷，创建一个卷作为容器
-              const containerId = createOutlineVolume(`未归卷容器`);
-              const newId = createOutlineChapter(containerId, d.title);
-              if (d.sourceId) {
-                updateOutline(newId, { target_id: d.sourceId });
-              }
-            }
-          } else if (d.kind === 'remove') {
-            if (d.destId) deleteOutline(d.destId);
-          } else if (d.kind === 'conflict') {
-            if (d.keep === 'source') {
-              if (d.destId) renameOutline(d.destId, d.title);
-            } else {
-              if (d.sourceId) renameChapter(d.sourceId, d.otherTitle || d.title);
+          } else {
+            // 没有归属的卷，创建一个卷作为容器
+            const containerId = await createOutlineVolume(`未归卷容器`);
+            const newId = await createOutlineChapter(containerId, d.title);
+            if (d.sourceId) {
+              updateOutline(newId, { target_id: d.sourceId });
             }
           }
-        });
+        } else if (d.kind === 'remove') {
+          if (d.destId) deleteOutline(d.destId);
+        } else if (d.kind === 'conflict') {
+          if (d.keep === 'source') {
+            if (d.destId) renameOutline(d.destId, d.title);
+          } else {
+            if (d.sourceId) renameChapter(d.sourceId, d.otherTitle || d.title);
+          }
+        }
+      }
     } else {
       // === 大纲 → 目录：新增缺失的 volume/chapter，删除多余的 volume/chapter ===
       const dirVolumeIdByOutlineId: Record<string, string> = {};
-      confirmedVolDiffs
-        .filter((d) => d.selected)
-        .forEach((d) => {
-          if (d.kind === 'add') {
-            const newVolId = createVolume(activeStoryId, d.title);
-            dirVolumeIdByOutlineId[d.sourceId || ''] = newVolId;
-            if (d.sourceId) updateOutline(d.sourceId, { target_id: newVolId });
-          } else if (d.kind === 'remove') {
-            if (d.destId) deleteVolume(d.destId);
-          } else if (d.kind === 'conflict') {
-            if (d.keep === 'source') {
-              if (d.destId) renameVolume(d.destId, d.title);
-            } else {
-              if (d.sourceId) renameOutline(d.sourceId, d.otherTitle || d.title);
+      for (const d of confirmedVolDiffs.filter((d) => d.selected)) {
+        if (d.kind === 'add') {
+          const newVolId = await createVolume(activeStoryId, d.title);
+          dirVolumeIdByOutlineId[d.sourceId || ''] = newVolId;
+          if (d.sourceId) updateOutline(d.sourceId, { target_id: newVolId });
+        } else if (d.kind === 'remove') {
+          if (d.destId) deleteVolume(d.destId);
+        } else if (d.kind === 'conflict') {
+          if (d.keep === 'source') {
+            if (d.destId) renameVolume(d.destId, d.title);
+          } else {
+            if (d.sourceId) renameOutline(d.sourceId, d.otherTitle || d.title);
+          }
+        }
+      }
+      for (const d of confirmedChDiffs.filter((d) => d.selected)) {
+        if (d.kind === 'add') {
+          const outline = d.sourceId ? outlines.find((o) => o.id === d.sourceId) : null;
+          const payload = outline ? parseOutlineContent(outline.content) : null;
+          const parentOutlineId = payload?.parent_outline_id;
+          let parentVolumeId: string | null = null;
+          if (parentOutlineId) {
+            const parentOutline = outlines.find((o) => o.id === parentOutlineId);
+            if (parentOutline) {
+              const parentPayload = parseOutlineContent(parentOutline.content);
+              parentVolumeId = parentPayload.target_id || null;
+            }
+            if (!parentVolumeId && dirVolumeIdByOutlineId[parentOutlineId]) {
+              parentVolumeId = dirVolumeIdByOutlineId[parentOutlineId];
             }
           }
-        });
-      confirmedChDiffs
-        .filter((d) => d.selected)
-        .forEach((d) => {
-          if (d.kind === 'add') {
-            const outline = d.sourceId ? outlines.find((o) => o.id === d.sourceId) : null;
-            const payload = outline ? parseOutlineContent(outline.content) : null;
-            const parentOutlineId = payload?.parent_outline_id;
-            let parentVolumeId: string | null = null;
-            if (parentOutlineId) {
-              const parentOutline = outlines.find((o) => o.id === parentOutlineId);
-              if (parentOutline) {
-                const parentPayload = parseOutlineContent(parentOutline.content);
-                parentVolumeId = parentPayload.target_id || null;
-              }
-              if (!parentVolumeId && dirVolumeIdByOutlineId[parentOutlineId]) {
-                parentVolumeId = dirVolumeIdByOutlineId[parentOutlineId];
-              }
-            }
-            const newChapterId = createChapter(activeStoryId, d.title, parentVolumeId);
-            if (d.sourceId && outline) updateOutline(d.sourceId, { target_id: newChapterId });
-          } else if (d.kind === 'remove') {
-            if (d.destId) deleteChapter(d.destId);
-          } else if (d.kind === 'conflict') {
-            if (d.keep === 'source') {
-              if (d.destId) renameChapter(d.destId, d.title);
-            } else {
-              if (d.sourceId) renameOutline(d.sourceId, d.otherTitle || d.title);
-            }
+          const newChapterId = await createChapter(activeStoryId, d.title, parentVolumeId);
+          if (d.sourceId && outline) updateOutline(d.sourceId, { target_id: newChapterId });
+        } else if (d.kind === 'remove') {
+          if (d.destId) deleteChapter(d.destId);
+        } else if (d.kind === 'conflict') {
+          if (d.keep === 'source') {
+            if (d.destId) renameChapter(d.destId, d.title);
+          } else {
+            if (d.sourceId) renameOutline(d.sourceId, d.otherTitle || d.title);
           }
-        });
+        }
+      }
     }
 
     setSyncDialogOpen(false);
@@ -345,23 +337,32 @@ export function EditorPage({ onBack, onExport }: EditorPageProps) {
   const story = stories.find((s) => s.id === activeStoryId);
   const section = sections.find((s) => s.id === activeSectionId);
 
-  const sectionStats = useMemo(() => {
-    const stats: Record<string, { words: number; dice: number }> = {};
-    sections.forEach((sec) => {
-      const content = db.getSectionContent(sec.id);
-      if (!content) {
-        stats[sec.id] = { words: 0, dice: 0 };
-        return;
+  const [sectionStats, setSectionStats] = useState<Record<string, { words: number; dice: number }>>({});
+
+  useEffect(() => {
+    const loadStats = async () => {
+      const stats: Record<string, { words: number; dice: number }> = {};
+      for (const sec of sections) {
+        try {
+          const content = await db.getSectionContent(sec.id);
+          if (!content) {
+            stats[sec.id] = { words: 0, dice: 0 };
+            continue;
+          }
+          try {
+            const json = JSON.parse(content);
+            const { words, dice } = countWordsAndDice(json);
+            stats[sec.id] = { words, dice };
+          } catch {
+            stats[sec.id] = { words: 0, dice: 0 };
+          }
+        } catch {
+          stats[sec.id] = { words: 0, dice: 0 };
+        }
       }
-      try {
-        const json = JSON.parse(content);
-        const { words, dice } = countWordsAndDice(json);
-        stats[sec.id] = { words, dice };
-      } catch {
-        stats[sec.id] = { words: 0, dice: 0 };
-      }
-    });
-    return stats;
+      setSectionStats(stats);
+    };
+    loadStats();
   }, [sections]);
 
   const sectionWordCount = useMemo(() => {

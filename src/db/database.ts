@@ -1,15 +1,13 @@
 // ============================================================
 // 安科作者助手 - 数据库 CRUD 封装
 //
-// 优先使用 better-sqlite3（需 Electron 主进程 / Node 原生），
+// 优先通过 window.dbAPI 与 Electron 主进程的 JSON 文件数据库通信，
 // 否则自动降级为内存实现，方便在 web 预览中调试。
 //
 // 所有 JSON 字段（content_blocks.payload、characters.attributes）
 // 在读写时自动进行 JSON.parse/JSON.stringify。
 // ============================================================
 
-import fs from 'fs';
-import path from 'path';
 import type {
   Story,
   WorldSetting,
@@ -31,218 +29,11 @@ import type {
 } from '../types';
 import { getPresetWorldTemplates, getPresetCharacterTemplates } from './presetTemplates';
 
-const SCHEMA_SQL: string = `
-CREATE TABLE IF NOT EXISTS app_meta (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    schema_version INTEGER NOT NULL DEFAULT 1,
-    last_opened_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE TABLE IF NOT EXISTS stories (
-    id TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
-    description TEXT,
-    category TEXT,
-    order_index INTEGER NOT NULL DEFAULT 0,
-    is_starred INTEGER NOT NULL DEFAULT 0,
-    is_pinned INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
--- 确保旧数据库升级时新字段也存在
-ALTER TABLE stories ADD COLUMN IF NOT EXISTS category TEXT;
-ALTER TABLE stories ADD COLUMN IF NOT EXISTS order_index INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE stories ADD COLUMN IF NOT EXISTS is_starred INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE stories ADD COLUMN IF NOT EXISTS is_pinned INTEGER NOT NULL DEFAULT 0;
-CREATE TABLE IF NOT EXISTS world_settings (
-    id TEXT PRIMARY KEY,
-    story_id TEXT NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
-    title TEXT NOT NULL,
-    content TEXT,
-    order_index INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS characters (
-    id TEXT PRIMARY KEY,
-    story_id TEXT NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    avatar TEXT,
-    personality TEXT,
-    attributes TEXT,
-    notes TEXT,
-    order_index INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS outlines (
-    id TEXT PRIMARY KEY,
-    story_id TEXT NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
-    content TEXT NOT NULL,
-    order_index INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS volumes (
-    id TEXT PRIMARY KEY,
-    story_id TEXT NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
-    title TEXT NOT NULL,
-    order_index INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS chapters (
-    id TEXT PRIMARY KEY,
-    story_id TEXT NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
-    volume_id TEXT REFERENCES volumes(id) ON DELETE SET NULL,
-    title TEXT NOT NULL,
-    order_index INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS sections (
-    id TEXT PRIMARY KEY,
-    chapter_id TEXT NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
-    title TEXT NOT NULL,
-    order_index INTEGER NOT NULL DEFAULT 0,
-    content TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS content_blocks (
-    id TEXT PRIMARY KEY,
-    section_id TEXT NOT NULL REFERENCES sections(id) ON DELETE CASCADE,
-    type TEXT NOT NULL CHECK (type IN ('text', 'image', 'dice')),
-    order_index INTEGER NOT NULL DEFAULT 0,
-    payload TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS character_variants (
-    id TEXT PRIMARY KEY,
-    character_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    url TEXT NOT NULL,
-    order_index INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_character_variants_character_id ON character_variants(character_id);
-CREATE TABLE IF NOT EXISTS world_setting_templates (
-    id TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
-    content TEXT,
-    is_preset INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS character_templates (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    avatar TEXT,
-    personality TEXT,
-    attributes TEXT,
-    notes TEXT,
-    variants TEXT,
-    is_preset INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
--- 升级：添加 is_preset 字段
-ALTER TABLE world_setting_templates ADD COLUMN IF NOT EXISTS is_preset INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE character_templates ADD COLUMN IF NOT EXISTS is_preset INTEGER NOT NULL DEFAULT 0;
--- 人物关系表
-CREATE TABLE IF NOT EXISTS character_relations (
-    id TEXT PRIMARY KEY,
-    story_id TEXT NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
-    source_id TEXT NOT NULL,
-    target_id TEXT NOT NULL,
-    relation TEXT NOT NULL,
-    note TEXT,
-    order_index INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_character_relations_story_id ON character_relations(story_id);
-`;
-
 // 实体自动字段：创建对象时不需要调用方提供
 type EntityFields = keyof Entity; // 'id' | 'created_at' | 'updated_at'
 
 // ------------------------------------------------------------
-// 原生数据库（better-sqlite3）
-// ------------------------------------------------------------
-
-type NativeDb = {
-  exec: (sql: string) => void;
-  prepare: (sql: string) => NativeStmt;
-  close: () => void;
-};
-
-interface NativeStmt {
-  run: (...args: unknown[]) => { changes: number };
-  get: (...args: unknown[]) => Record<string, unknown> | undefined;
-  all: (...args: unknown[]) => Record<string, unknown>[];
-}
-
-let nativeDb: NativeDb | null = null;
-let dbInitialized = false;
-
-function tryLoadBetterSqlite(): NativeDb | null {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const Database = require('better-sqlite3');
-    const dbPath = resolveDbPath();
-    const db = new Database(dbPath);
-    db.pragma('journal_mode = WAL');
-    db.pragma('foreign_keys = ON');
-    db.exec(SCHEMA_SQL);
-    // 为旧库补充 content 列（schema 升级：v1 → v2）
-    try {
-      db.exec('ALTER TABLE sections ADD COLUMN content TEXT');
-    } catch {
-      // 列已存在 → 忽略
-    }
-    // 为旧库补充 character_variants 表（schema 升级：v2 → v3）
-    try {
-      db.exec(SCHEMA_SQL);
-    } catch {
-      // 已存在 → 忽略
-    }
-    // v3 → v4：增加 world_setting_templates / character_templates
-    try {
-      db.exec(SCHEMA_SQL);
-    } catch {
-      // 已存在 → 忽略
-    }
-    // v4 → v5：为 character_templates 补充 variants 列
-    try {
-      db.exec('ALTER TABLE character_templates ADD COLUMN variants TEXT');
-    } catch {
-      // 列已存在 → 忽略
-    }
-    return db;
-  } catch (err) {
-    console.warn('[db] better-sqlite3 不可用，降级到内存实现:', err);
-    return null;
-  }
-}
-
-function resolveDbPath(): string {
-  // 用全局 process 以便在 Node/Electron 环境下正常工作
-  const env = (globalThis as unknown as { process?: { env?: Record<string, string> } }).process?.env || {};
-  const appData =
-    env.APPDATA ||
-    (env.HOME ? path.join(env.HOME, 'Library', 'Application Support') : './');
-  const dir = path.join(String(appData), 'AnkeCreator');
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  return path.join(dir, 'anke-creator.db');
-}
-
-// ------------------------------------------------------------
-// 内存实现（无 better-sqlite3 时的降级）
+// 内存实现（无 window.dbAPI 时的降级）
 // ------------------------------------------------------------
 
 interface Table {
@@ -265,6 +56,7 @@ function initMemory(): void {
     character_variants: {},
     world_setting_templates: {},
     character_templates: {},
+    character_relations: {},
   };
   memoryInitialized = true;
 }
@@ -274,21 +66,17 @@ function initMemory(): void {
 // ------------------------------------------------------------
 
 export function initDatabase(): void {
-  if (dbInitialized) return;
-  nativeDb = tryLoadBetterSqlite();
-  if (!nativeDb) {
+  // 内存模式下初始化并播种预设模板
+  if (!window.dbAPI) {
     initMemory();
+    seedPresetTemplates();
   }
-  seedPresetTemplates();
-  dbInitialized = true;
+  // 如果有 window.dbAPI，主进程会自行处理数据库初始化
 }
 
 export function closeDatabase(): void {
-  nativeDb?.close();
-  nativeDb = null;
   memoryInitialized = false;
   memoryTables = {};
-  dbInitialized = false;
 }
 
 function nowISO(): string {
@@ -322,23 +110,14 @@ function stringifyJSON(obj: unknown): string {
 }
 
 function runSQL(sql: string, ...args: unknown[]): { changes: number } {
-  if (nativeDb) {
-    return nativeDb.prepare(sql).run(...args);
-  }
   return memoryRun(sql, args);
 }
 
 function getSQL<T>(sql: string, ...args: unknown[]): T | undefined {
-  if (nativeDb) {
-    return nativeDb.prepare(sql).get(...args) as T | undefined;
-  }
   return memoryGet<T>(sql, args);
 }
 
 function allSQL<T>(sql: string, ...args: unknown[]): T[] {
-  if (nativeDb) {
-    return nativeDb.prepare(sql).all(...args) as T[];
-  }
   return memoryAll<T>(sql, args);
 }
 
@@ -467,13 +246,6 @@ function autoOrder(
   explicitOrder?: number,
 ): number {
   if (typeof explicitOrder === 'number') return explicitOrder;
-  if (nativeDb) {
-    const rows = allSQL<{ max_idx: number }>(
-      `SELECT COALESCE(MAX(order_index), -1) AS max_idx FROM ${table} WHERE ${parentCol} = ?`,
-      parentId,
-    );
-    return Number(rows[0]?.max_idx ?? -1) + 1;
-  }
   const all = allSQL<Record<string, unknown>>(
     `SELECT order_index FROM ${table} WHERE ${parentCol} = ?`,
     parentId,
@@ -514,18 +286,27 @@ function rowToStory(r: any): Story {
   };
 }
 
-export function listStories(): Story[] {
-  return allSQL<any>('SELECT * FROM stories ORDER BY updated_at DESC').map(rowToStory);
+export async function listStories(): Promise<Story[]> {
+  if (window.dbAPI) {
+    return window.dbAPI.listStories();
+  }
+  return Promise.resolve(allSQL<any>('SELECT * FROM stories ORDER BY updated_at DESC').map(rowToStory));
 }
 
-export function getStory(id: string): Story | undefined {
+export async function getStory(id: string): Promise<Story | undefined> {
+  if (window.dbAPI) {
+    return window.dbAPI.getStory(id);
+  }
   const r = getSQL<any>('SELECT * FROM stories WHERE id = ?', id);
-  return r ? rowToStory(r) : undefined;
+  return Promise.resolve(r ? rowToStory(r) : undefined);
 }
 
-export function createStory(data: { title: string; description?: string; category?: string }): Story {
+export async function createStory(data: { title: string; description?: string; category?: string }): Promise<Story> {
+  if (window.dbAPI) {
+    return window.dbAPI.createStory(data);
+  }
   const now = nowISO();
-  const stories = listStories();
+  const stories = allSQL<any>('SELECT * FROM stories');
   const maxIdx = stories.reduce((m, s) => Math.max(m, s.order_index ?? 0), 0);
   const story: Story = {
     id: uuid4(),
@@ -550,7 +331,7 @@ export function createStory(data: { title: string; description?: string; categor
     story.created_at,
     story.updated_at,
   );
-  return story;
+  return Promise.resolve(story);
 }
 
 type StoryPatch = Partial<{
@@ -562,16 +343,30 @@ type StoryPatch = Partial<{
   is_pinned: boolean;
 }>;
 
-export function updateStory(id: string, patch: StoryPatch): Story | undefined {
+export async function updateStory(id: string, patch: StoryPatch): Promise<Story | undefined> {
+  if (window.dbAPI) {
+    return window.dbAPI.updateStory(id, patch as Record<string, unknown>);
+  }
   const dbPatch: Record<string, any> = { ...patch };
   if (patch.is_starred !== undefined) dbPatch.is_starred = patch.is_starred ? 1 : 0;
   if (patch.is_pinned !== undefined) dbPatch.is_pinned = patch.is_pinned ? 1 : 0;
   doUpdate('stories', id, dbPatch);
-  return getStory(id);
+  return Promise.resolve(getStoryInMem(id));
 }
 
-export function deleteStory(id: string): void {
+export async function deleteStory(id: string): Promise<void> {
+  if (window.dbAPI) {
+    await window.dbAPI.deleteStory(id);
+    return;
+  }
   runSQL('DELETE FROM stories WHERE id = ?', id);
+  return Promise.resolve();
+}
+
+// 内存模式下的 getStory 辅助（避免循环引用）
+function getStoryInMem(id: string): Story | undefined {
+  const r = getSQL<any>('SELECT * FROM stories WHERE id = ?', id);
+  return r ? rowToStory(r) : undefined;
 }
 
 // ------------------------------------------------------------
@@ -582,14 +377,22 @@ type NewWorldSetting = Omit<WorldSetting, EntityFields | 'order_index'> & {
   order_index?: number;
 };
 
-export function listWorldSettings(storyId: string): WorldSetting[] {
-  return allSQL<WorldSetting>(
-    'SELECT * FROM world_settings WHERE story_id = ? ORDER BY order_index',
-    storyId,
+export async function listWorldSettings(storyId: string): Promise<WorldSetting[]> {
+  if (window.dbAPI) {
+    return window.dbAPI.listWorldSettings(storyId);
+  }
+  return Promise.resolve(
+    allSQL<WorldSetting>(
+      'SELECT * FROM world_settings WHERE story_id = ? ORDER BY order_index',
+      storyId,
+    ),
   );
 }
 
-export function createWorldSetting(data: NewWorldSetting): WorldSetting {
+export async function createWorldSetting(data: NewWorldSetting): Promise<WorldSetting> {
+  if (window.dbAPI) {
+    return window.dbAPI.createWorldSetting(data as Record<string, unknown>);
+  }
   const now = nowISO();
   const idx = autoOrder('world_settings', 'story_id', data.story_id, data.order_index);
   const row: WorldSetting = {
@@ -611,19 +414,27 @@ export function createWorldSetting(data: NewWorldSetting): WorldSetting {
     row.created_at,
     row.updated_at,
   );
-  return row;
+  return Promise.resolve(row);
 }
 
-export function updateWorldSetting(
+export async function updateWorldSetting(
   id: string,
   patch: Partial<Pick<WorldSetting, 'title' | 'content' | 'order_index'>>,
-): WorldSetting | undefined {
+): Promise<WorldSetting | undefined> {
+  if (window.dbAPI) {
+    return window.dbAPI.updateWorldSetting(id, patch as Record<string, unknown>);
+  }
   doUpdate('world_settings', id, patch);
-  return getSQL<WorldSetting>('SELECT * FROM world_settings WHERE id = ?', id);
+  return Promise.resolve(getSQL<WorldSetting>('SELECT * FROM world_settings WHERE id = ?', id));
 }
 
-export function deleteWorldSetting(id: string): void {
+export async function deleteWorldSetting(id: string): Promise<void> {
+  if (window.dbAPI) {
+    await window.dbAPI.deleteWorldSetting(id);
+    return;
+  }
   runSQL('DELETE FROM world_settings WHERE id = ?', id);
+  return Promise.resolve();
 }
 
 // ------------------------------------------------------------
@@ -634,24 +445,31 @@ type NewCharacter = Omit<Character, EntityFields | 'order_index'> & {
   order_index?: number;
 };
 
-export function listCharacters(storyId: string): Character[] {
+export async function listCharacters(storyId: string): Promise<Character[]> {
+  if (window.dbAPI) {
+    return window.dbAPI.listCharacters(storyId);
+  }
   const rows = allSQL<Character>(
     'SELECT * FROM characters WHERE story_id = ? ORDER BY order_index',
     storyId,
   );
-  if (rows.length === 0) return [];
-  // 一次性加载全部 variants，按 character_id 分组
-  const variantsByCharId = listAllVariantsGroupedByCharacterId(
+  if (rows.length === 0) return Promise.resolve([]);
+  const variantsByCharId = listAllVariantsGroupedByCharacterIdMem(
     rows.map((r) => r.id),
   );
-  return rows.map((c) => ({
-    ...c,
-    attributes: parseJSON<Record<string, string | number>>(c.attributes),
-    variants: variantsByCharId[c.id] ?? [],
-  }));
+  return Promise.resolve(
+    rows.map((c) => ({
+      ...c,
+      attributes: parseJSON<Record<string, string | number>>(c.attributes),
+      variants: variantsByCharId[c.id] ?? [],
+    })),
+  );
 }
 
-export function createCharacter(data: NewCharacter): Character {
+export async function createCharacter(data: NewCharacter): Promise<Character> {
+  if (window.dbAPI) {
+    return window.dbAPI.createCharacter(data as Record<string, unknown>);
+  }
   const now = nowISO();
   const idx = autoOrder('characters', 'story_id', data.story_id, data.order_index);
   const row: Character = {
@@ -679,15 +497,18 @@ export function createCharacter(data: NewCharacter): Character {
     row.created_at,
     row.updated_at,
   );
-  return { ...row, variants: [] };
+  return Promise.resolve({ ...row, variants: [] });
 }
 
-export function updateCharacter(
+export async function updateCharacter(
   id: string,
   patch: Partial<
     Pick<Character, 'name' | 'avatar' | 'personality' | 'attributes' | 'notes' | 'order_index'>
   >,
-): Character | undefined {
+): Promise<Character | undefined> {
+  if (window.dbAPI) {
+    return window.dbAPI.updateCharacter(id, patch as Record<string, unknown>);
+  }
   const now = nowISO();
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -705,20 +526,24 @@ export function updateCharacter(
   values.push(now);
   values.push(id);
   runSQL(`UPDATE characters SET ${fields.join(', ')} WHERE id = ?`, ...values);
-  // 读取更新后的完整行（包含已解析的 attributes JSON）
   const row = getSQL<Character & { attributes_json?: string }>(
     'SELECT * FROM characters WHERE id = ?',
     id,
   );
-  if (!row) return undefined;
-  return {
+  if (!row) return Promise.resolve(undefined);
+  return Promise.resolve({
     ...row,
     attributes: parseJSON<Record<string, string | number>>(row.attributes),
-  } as Character;
+  } as Character);
 }
 
-export function deleteCharacter(id: string): void {
+export async function deleteCharacter(id: string): Promise<void> {
+  if (window.dbAPI) {
+    await window.dbAPI.deleteCharacter(id);
+    return;
+  }
   runSQL('DELETE FROM characters WHERE id = ?', id);
+  return Promise.resolve();
 }
 
 // ------------------------------------------------------------
@@ -729,28 +554,42 @@ type NewCharacterVariant = Omit<CharacterVariant, EntityFields | 'order_index'> 
   order_index?: number;
 };
 
-export function listCharacterVariants(characterId: string): CharacterVariant[] {
-  return allSQL<CharacterVariant>(
-    'SELECT * FROM character_variants WHERE character_id = ? ORDER BY order_index',
-    characterId,
+export async function listCharacterVariants(characterId: string): Promise<CharacterVariant[]> {
+  if (window.dbAPI) {
+    return window.dbAPI.listCharacterVariants(characterId);
+  }
+  return Promise.resolve(
+    allSQL<CharacterVariant>(
+      'SELECT * FROM character_variants WHERE character_id = ? ORDER BY order_index',
+      characterId,
+    ),
   );
 }
 
-export function listAllVariantsByStory(storyId: string): CharacterVariant[] {
-  return allSQL<CharacterVariant>(
-    `SELECT cv.* FROM character_variants cv
-     INNER JOIN characters c ON c.id = cv.character_id
-     WHERE c.story_id = ?
-     ORDER BY cv.character_id, cv.order_index`,
-    storyId,
+export async function listAllVariantsByStory(storyId: string): Promise<CharacterVariant[]> {
+  // 注：此方法暂未通过 window.dbAPI 暴露，仅使用内存实现
+  return Promise.resolve(
+    allSQL<CharacterVariant>(
+      `SELECT cv.* FROM character_variants cv
+       INNER JOIN characters c ON c.id = cv.character_id
+       WHERE c.story_id = ?
+       ORDER BY cv.character_id, cv.order_index`,
+      storyId,
+    ),
   );
 }
 
-export function listAllVariantsGroupedByCharacterId(
+export async function listAllVariantsGroupedByCharacterId(
+  characterIds: string[],
+): Promise<Record<string, CharacterVariant[]>> {
+  // 注：此方法暂未通过 window.dbAPI 暴露，仅使用内存实现
+  return Promise.resolve(listAllVariantsGroupedByCharacterIdMem(characterIds));
+}
+
+function listAllVariantsGroupedByCharacterIdMem(
   characterIds: string[],
 ): Record<string, CharacterVariant[]> {
   if (characterIds.length === 0) return {};
-  // 用 IN (?, ?, ...) 拼 SQL
   const placeholders = characterIds.map(() => '?').join(',');
   const rows = allSQL<CharacterVariant>(
     `SELECT * FROM character_variants WHERE character_id IN (${placeholders}) ORDER BY character_id, order_index`,
@@ -765,14 +604,17 @@ export function listAllVariantsGroupedByCharacterId(
   return grouped;
 }
 
-export function getCharacterVariant(id: string): CharacterVariant | undefined {
-  return getSQL<CharacterVariant>(
-    'SELECT * FROM character_variants WHERE id = ?',
-    id,
+export async function getCharacterVariant(id: string): Promise<CharacterVariant | undefined> {
+  // 注：此方法暂未通过 window.dbAPI 暴露，仅使用内存实现
+  return Promise.resolve(
+    getSQL<CharacterVariant>('SELECT * FROM character_variants WHERE id = ?', id),
   );
 }
 
-export function createCharacterVariant(data: NewCharacterVariant): CharacterVariant {
+export async function createCharacterVariant(data: NewCharacterVariant): Promise<CharacterVariant> {
+  if (window.dbAPI) {
+    return window.dbAPI.createCharacterVariant(data as Record<string, unknown>);
+  }
   const now = nowISO();
   const idx = autoOrder('character_variants', 'character_id', data.character_id, data.order_index);
   const row: CharacterVariant = {
@@ -794,19 +636,88 @@ export function createCharacterVariant(data: NewCharacterVariant): CharacterVari
     row.created_at,
     row.updated_at,
   );
-  return row;
+  return Promise.resolve(row);
 }
 
-export function updateCharacterVariant(
+export async function createCharacterVariantsBatch(
+  characterId: string,
+  items: { name?: string; url: string }[],
+): Promise<CharacterVariant[]> {
+  if (window.dbAPI) {
+    return window.dbAPI.createCharacterVariantsBatch(characterId, items);
+  }
+  const now = nowISO();
+  const existing = allSQL<CharacterVariant>(
+    'SELECT * FROM character_variants WHERE character_id = ? ORDER BY order_index',
+    characterId,
+  );
+  let order = existing.length;
+  const created: CharacterVariant[] = [];
+  for (const it of items) {
+    const row: CharacterVariant = {
+      id: uuid4(),
+      character_id: characterId,
+      name: (it.name || '差分').trim(),
+      url: it.url || '',
+      order_index: order++,
+      created_at: now,
+      updated_at: now,
+    };
+    runSQL(
+      'INSERT INTO character_variants (id, character_id, name, url, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      row.id,
+      row.character_id,
+      row.name,
+      row.url,
+      row.order_index,
+      row.created_at,
+      row.updated_at,
+    );
+    created.push(row);
+  }
+  return Promise.resolve(created);
+}
+
+export async function updateCharacterVariant(
   id: string,
   patch: Partial<Pick<CharacterVariant, 'name' | 'url' | 'order_index'>>,
-): CharacterVariant | undefined {
+): Promise<CharacterVariant | undefined> {
+  if (window.dbAPI) {
+    // IPC 层返回 boolean，无法直接获取更新后的数据，使用内存实现
+    await window.dbAPI.updateCharacterVariant(id, patch as Record<string, unknown>);
+  }
+  // 始终使用内存表查询结果（IPC 路径下也同步更新内存表以保证一致性）
   doUpdate('character_variants', id, patch);
-  return getCharacterVariant(id);
+  return Promise.resolve(getSQL<CharacterVariant>('SELECT * FROM character_variants WHERE id = ?', id));
 }
 
-export function deleteCharacterVariant(id: string): void {
+export async function deleteCharacterVariant(id: string): Promise<void> {
+  if (window.dbAPI) {
+    await window.dbAPI.deleteCharacterVariant(id);
+    return;
+  }
   runSQL('DELETE FROM character_variants WHERE id = ?', id);
+  return Promise.resolve();
+}
+
+export async function reorderCharacterVariants(
+  characterId: string,
+  orderedIds: string[],
+): Promise<void> {
+  if (window.dbAPI) {
+    await window.dbAPI.reorderCharacterVariants(characterId, orderedIds);
+    return;
+  }
+  orderedIds.forEach((id, i) => {
+    runSQL(
+      'UPDATE character_variants SET order_index = ?, updated_at = ? WHERE id = ? AND character_id = ?',
+      i,
+      nowISO(),
+      id,
+      characterId,
+    );
+  });
+  return Promise.resolve();
 }
 
 // ------------------------------------------------------------
@@ -815,22 +726,30 @@ export function deleteCharacterVariant(id: string): void {
 
 type NewWorldSettingTemplate = Omit<WorldSettingTemplate, EntityFields>;
 
-export function listWorldSettingTemplates(): WorldSettingTemplate[] {
-  return allSQL<WorldSettingTemplate>(
-    'SELECT * FROM world_setting_templates ORDER BY updated_at DESC',
-  ).map((t) => ({ ...t }));
-}
-
-export function getWorldSettingTemplate(id: string): WorldSettingTemplate | undefined {
-  return getSQL<WorldSettingTemplate>(
-    'SELECT * FROM world_setting_templates WHERE id = ?',
-    id,
+export async function listWorldSettingTemplates(): Promise<WorldSettingTemplate[]> {
+  if (window.dbAPI) {
+    return window.dbAPI.listWorldSettingTemplates();
+  }
+  return Promise.resolve(
+    allSQL<WorldSettingTemplate>(
+      'SELECT * FROM world_setting_templates ORDER BY updated_at DESC',
+    ).map((t) => ({ ...t })),
   );
 }
 
-export function createWorldSettingTemplate(
+export async function getWorldSettingTemplate(id: string): Promise<WorldSettingTemplate | undefined> {
+  // 注：此方法暂未通过 window.dbAPI 暴露，仅使用内存实现
+  return Promise.resolve(
+    getSQL<WorldSettingTemplate>('SELECT * FROM world_setting_templates WHERE id = ?', id),
+  );
+}
+
+export async function createWorldSettingTemplate(
   data: NewWorldSettingTemplate,
-): WorldSettingTemplate {
+): Promise<WorldSettingTemplate> {
+  if (window.dbAPI) {
+    return window.dbAPI.createWorldSettingTemplate(data as Record<string, unknown>);
+  }
   const now = nowISO();
   const row: WorldSettingTemplate = {
     id: uuid4(),
@@ -849,25 +768,39 @@ export function createWorldSettingTemplate(
     row.created_at,
     row.updated_at,
   );
-  return row;
+  return Promise.resolve(row);
 }
 
-export function updateWorldSettingTemplate(
+export async function updateWorldSettingTemplate(
   id: string,
   patch: Partial<Pick<WorldSettingTemplate, 'title' | 'content'>>,
-): WorldSettingTemplate | undefined {
-  // 预置模板不可修改
-  const existing = getWorldSettingTemplate(id);
-  if (existing?.is_preset) return existing;
+): Promise<WorldSettingTemplate | undefined> {
+  if (window.dbAPI) {
+    return window.dbAPI.updateWorldSettingTemplate(id, patch as Record<string, unknown>);
+  }
+  const existing = getSQL<WorldSettingTemplate>(
+    'SELECT * FROM world_setting_templates WHERE id = ?',
+    id,
+  );
+  if (existing?.is_preset) return Promise.resolve(existing);
   doUpdate('world_setting_templates', id, patch);
-  return getWorldSettingTemplate(id);
+  return Promise.resolve(
+    getSQL<WorldSettingTemplate>('SELECT * FROM world_setting_templates WHERE id = ?', id),
+  );
 }
 
-export function deleteWorldSettingTemplate(id: string): void {
-  // 预置模板不可删除
-  const existing = getWorldSettingTemplate(id);
-  if (existing?.is_preset) return;
+export async function deleteWorldSettingTemplate(id: string): Promise<void> {
+  if (window.dbAPI) {
+    await window.dbAPI.deleteWorldSettingTemplate(id);
+    return;
+  }
+  const existing = getSQL<WorldSettingTemplate>(
+    'SELECT * FROM world_setting_templates WHERE id = ?',
+    id,
+  );
+  if (existing?.is_preset) return Promise.resolve();
   runSQL('DELETE FROM world_setting_templates WHERE id = ?', id);
+  return Promise.resolve();
 }
 
 // ------------------------------------------------------------
@@ -876,32 +809,41 @@ export function deleteWorldSettingTemplate(id: string): void {
 
 type NewCharacterTemplate = Omit<CharacterTemplate, EntityFields>;
 
-export function listCharacterTemplates(): CharacterTemplate[] {
-  return allSQL<CharacterTemplate>(
-    'SELECT * FROM character_templates ORDER BY updated_at DESC',
-  ).map((c) => ({
-    ...c,
-    attributes: parseJSON<Record<string, string | number>>(c.attributes),
-    variants: parseJSON<CharacterVariant[]>(c.variants),
-  }));
+export async function listCharacterTemplates(): Promise<CharacterTemplate[]> {
+  if (window.dbAPI) {
+    return window.dbAPI.listCharacterTemplates();
+  }
+  return Promise.resolve(
+    allSQL<CharacterTemplate>(
+      'SELECT * FROM character_templates ORDER BY updated_at DESC',
+    ).map((c) => ({
+      ...c,
+      attributes: parseJSON<Record<string, string | number>>(c.attributes),
+      variants: parseJSON<CharacterVariant[]>(c.variants),
+    })),
+  );
 }
 
-export function getCharacterTemplate(id: string): CharacterTemplate | undefined {
+export async function getCharacterTemplate(id: string): Promise<CharacterTemplate | undefined> {
+  // 注：此方法暂未通过 window.dbAPI 暴露，仅使用内存实现
   const row = getSQL<CharacterTemplate>(
     'SELECT * FROM character_templates WHERE id = ?',
     id,
   );
-  if (!row) return undefined;
-  return {
+  if (!row) return Promise.resolve(undefined);
+  return Promise.resolve({
     ...row,
     attributes: parseJSON<Record<string, string | number>>(row.attributes),
     variants: parseJSON<CharacterVariant[]>(row.variants),
-  };
+  });
 }
 
-export function createCharacterTemplate(
+export async function createCharacterTemplate(
   data: NewCharacterTemplate,
-): CharacterTemplate {
+): Promise<CharacterTemplate> {
+  if (window.dbAPI) {
+    return window.dbAPI.createCharacterTemplate(data as Record<string, unknown>);
+  }
   const now = nowISO();
   const row: CharacterTemplate = {
     id: uuid4(),
@@ -928,10 +870,10 @@ export function createCharacterTemplate(
     row.created_at,
     row.updated_at,
   );
-  return { ...row };
+  return Promise.resolve({ ...row });
 }
 
-export function updateCharacterTemplate(
+export async function updateCharacterTemplate(
   id: string,
   patch: Partial<
     Pick<
@@ -939,10 +881,12 @@ export function updateCharacterTemplate(
       'name' | 'avatar' | 'personality' | 'attributes' | 'notes' | 'variants'
     >
   >,
-): CharacterTemplate | undefined {
-  // 预置模板不可修改
-  const existing = getCharacterTemplate(id);
-  if (existing?.is_preset) return existing;
+): Promise<CharacterTemplate | undefined> {
+  if (window.dbAPI) {
+    return window.dbAPI.updateCharacterTemplate(id, patch as Record<string, unknown>);
+  }
+  const existing = getCharacterTemplateInMem(id);
+  if (existing?.is_preset) return Promise.resolve(existing);
   const now = nowISO();
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -966,29 +910,31 @@ export function updateCharacterTemplate(
   if (fields.length > 1) {
     runSQL(`UPDATE character_templates SET ${fields.join(', ')} WHERE id = ?`, ...values);
   }
-  return getCharacterTemplate(id);
+  return Promise.resolve(getCharacterTemplateInMem(id));
 }
 
-export function deleteCharacterTemplate(id: string): void {
-  // 预置模板不可删除
-  const existing = getCharacterTemplate(id);
-  if (existing?.is_preset) return;
+function getCharacterTemplateInMem(id: string): CharacterTemplate | undefined {
+  const row = getSQL<CharacterTemplate>(
+    'SELECT * FROM character_templates WHERE id = ?',
+    id,
+  );
+  if (!row) return undefined;
+  return {
+    ...row,
+    attributes: parseJSON<Record<string, string | number>>(row.attributes),
+    variants: parseJSON<CharacterVariant[]>(row.variants),
+  };
+}
+
+export async function deleteCharacterTemplate(id: string): Promise<void> {
+  if (window.dbAPI) {
+    await window.dbAPI.deleteCharacterTemplate(id);
+    return;
+  }
+  const existing = getCharacterTemplateInMem(id);
+  if (existing?.is_preset) return Promise.resolve();
   runSQL('DELETE FROM character_templates WHERE id = ?', id);
-}
-
-export function reorderCharacterVariants(
-  characterId: string,
-  orderedIds: string[],
-): void {
-  orderedIds.forEach((id, i) => {
-    runSQL(
-      'UPDATE character_variants SET order_index = ?, updated_at = ? WHERE id = ? AND character_id = ?',
-      i,
-      nowISO(),
-      id,
-      characterId,
-    );
-  });
+  return Promise.resolve();
 }
 
 // ------------------------------------------------------------
@@ -1041,7 +987,7 @@ function seedPresetTemplates(): void {
     );
     for (const tpl of getPresetWorldTemplates()) {
       if (!presetTitles.has(tpl.title)) {
-        createWorldSettingTemplate(tpl);
+        createWorldSettingTemplateInMem(tpl);
       }
     }
   } catch {
@@ -1057,12 +1003,62 @@ function seedPresetTemplates(): void {
     );
     for (const tpl of getPresetCharacterTemplates()) {
       if (!presetNames.has(tpl.name)) {
-        createCharacterTemplate(tpl);
+        createCharacterTemplateInMem(tpl);
       }
     }
   } catch {
     /* ignore */
   }
+}
+
+function createWorldSettingTemplateInMem(data: NewWorldSettingTemplate): void {
+  const now = nowISO();
+  const row: WorldSettingTemplate = {
+    id: uuid4(),
+    title: data.title,
+    content: data.content || '',
+    is_preset: data.is_preset ?? 0,
+    created_at: now,
+    updated_at: now,
+  };
+  runSQL(
+    'INSERT INTO world_setting_templates (id, title, content, is_preset, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+    row.id,
+    row.title,
+    row.content,
+    row.is_preset,
+    row.created_at,
+    row.updated_at,
+  );
+}
+
+function createCharacterTemplateInMem(data: NewCharacterTemplate): void {
+  const now = nowISO();
+  const row: CharacterTemplate = {
+    id: uuid4(),
+    name: data.name,
+    avatar: data.avatar || '',
+    personality: data.personality || '',
+    attributes: data.attributes,
+    notes: data.notes || '',
+    variants: data.variants,
+    is_preset: data.is_preset ?? 0,
+    created_at: now,
+    updated_at: now,
+  };
+  runSQL(
+    'INSERT INTO character_templates (id, name, avatar, personality, attributes, notes, variants, is_preset, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    row.id,
+    row.name,
+    row.avatar,
+    row.personality,
+    stringifyJSON(row.attributes || null),
+    row.notes,
+    stringifyJSON(row.variants || null),
+    row.is_preset,
+    row.created_at,
+    row.updated_at,
+  );
 }
 
 // ------------------------------------------------------------
@@ -1090,14 +1086,22 @@ export interface CharacterRelationRow {
   updated_at: string;
 }
 
-export function listCharacterRelations(storyId: string): CharacterRelationRow[] {
-  return allSQL<CharacterRelationRow>(
-    'SELECT * FROM character_relations WHERE story_id = ? ORDER BY order_index, created_at',
-    storyId,
+export async function listCharacterRelations(storyId: string): Promise<CharacterRelationRow[]> {
+  if (window.dbAPI) {
+    return window.dbAPI.listCharacterRelations(storyId);
+  }
+  return Promise.resolve(
+    allSQL<CharacterRelationRow>(
+      'SELECT * FROM character_relations WHERE story_id = ? ORDER BY order_index, created_at',
+      storyId,
+    ),
   );
 }
 
-export function createCharacterRelation(data: NewCharacterRelation): CharacterRelationRow {
+export async function createCharacterRelation(data: NewCharacterRelation): Promise<CharacterRelationRow> {
+  if (window.dbAPI) {
+    return window.dbAPI.createCharacterRelation(data as Record<string, unknown>);
+  }
   const now = nowISO();
   const idx = autoOrder('character_relations', 'story_id', data.story_id, data.order_index);
   const row: CharacterRelationRow = {
@@ -1123,13 +1127,16 @@ export function createCharacterRelation(data: NewCharacterRelation): CharacterRe
     row.created_at,
     row.updated_at,
   );
-  return row;
+  return Promise.resolve(row);
 }
 
-export function updateCharacterRelation(
+export async function updateCharacterRelation(
   id: string,
   patch: Partial<Pick<CharacterRelationRow, 'source_id' | 'target_id' | 'relation' | 'note' | 'order_index'>>,
-): CharacterRelationRow | undefined {
+): Promise<CharacterRelationRow | undefined> {
+  if (window.dbAPI) {
+    return window.dbAPI.updateCharacterRelation(id, patch as Record<string, unknown>);
+  }
   const now = nowISO();
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -1139,16 +1146,26 @@ export function updateCharacterRelation(
       values.push((patch as Record<string, unknown>)[k]);
     }
   });
-  if (fields.length === 0) return getSQL<CharacterRelationRow>('SELECT * FROM character_relations WHERE id = ?', id);
+  if (fields.length === 0)
+    return Promise.resolve(
+      getSQL<CharacterRelationRow>('SELECT * FROM character_relations WHERE id = ?', id),
+    );
   fields.push('updated_at = ?');
   values.push(now);
   values.push(id);
   runSQL(`UPDATE character_relations SET ${fields.join(', ')} WHERE id = ?`, ...values);
-  return getSQL<CharacterRelationRow>('SELECT * FROM character_relations WHERE id = ?', id);
+  return Promise.resolve(
+    getSQL<CharacterRelationRow>('SELECT * FROM character_relations WHERE id = ?', id),
+  );
 }
 
-export function deleteCharacterRelation(id: string): void {
+export async function deleteCharacterRelation(id: string): Promise<void> {
+  if (window.dbAPI) {
+    await window.dbAPI.deleteCharacterRelation(id);
+    return;
+  }
   runSQL('DELETE FROM character_relations WHERE id = ?', id);
+  return Promise.resolve();
 }
 
 // ------------------------------------------------------------
@@ -1159,14 +1176,19 @@ type NewOutline = Omit<Outline, EntityFields | 'order_index'> & {
   order_index?: number;
 };
 
-export function listOutlines(storyId: string): Outline[] {
-  return allSQL<Outline>(
-    'SELECT * FROM outlines WHERE story_id = ? ORDER BY order_index',
-    storyId,
+export async function listOutlines(storyId: string): Promise<Outline[]> {
+  if (window.dbAPI) {
+    return window.dbAPI.listOutlines(storyId);
+  }
+  return Promise.resolve(
+    allSQL<Outline>('SELECT * FROM outlines WHERE story_id = ? ORDER BY order_index', storyId),
   );
 }
 
-export function createOutline(data: NewOutline): Outline {
+export async function createOutline(data: NewOutline): Promise<Outline> {
+  if (window.dbAPI) {
+    return window.dbAPI.createOutline(data as Record<string, unknown>);
+  }
   const now = nowISO();
   const idx = autoOrder('outlines', 'story_id', data.story_id, data.order_index);
   const row: Outline = {
@@ -1186,19 +1208,27 @@ export function createOutline(data: NewOutline): Outline {
     row.created_at,
     row.updated_at,
   );
-  return row;
+  return Promise.resolve(row);
 }
 
-export function updateOutline(
+export async function updateOutline(
   id: string,
   patch: Partial<Pick<Outline, 'content' | 'order_index'>>,
-): Outline | undefined {
+): Promise<Outline | undefined> {
+  if (window.dbAPI) {
+    return window.dbAPI.updateOutline(id, patch as Record<string, unknown>);
+  }
   doUpdate('outlines', id, patch);
-  return getSQL<Outline>('SELECT * FROM outlines WHERE id = ?', id);
+  return Promise.resolve(getSQL<Outline>('SELECT * FROM outlines WHERE id = ?', id));
 }
 
-export function deleteOutline(id: string): void {
+export async function deleteOutline(id: string): Promise<void> {
+  if (window.dbAPI) {
+    await window.dbAPI.deleteOutline(id);
+    return;
+  }
   runSQL('DELETE FROM outlines WHERE id = ?', id);
+  return Promise.resolve();
 }
 
 // ------------------------------------------------------------
@@ -1209,21 +1239,28 @@ type NewChapter = Omit<Chapter, EntityFields | 'order_index'> & {
   order_index?: number;
 };
 
-export function listChapters(storyId: string): Chapter[] {
-  return allSQL<Chapter>(
-    'SELECT * FROM chapters WHERE story_id = ? ORDER BY order_index',
-    storyId,
+export async function listChapters(storyId: string): Promise<Chapter[]> {
+  if (window.dbAPI) {
+    return window.dbAPI.listChapters(storyId);
+  }
+  return Promise.resolve(
+    allSQL<Chapter>('SELECT * FROM chapters WHERE story_id = ? ORDER BY order_index', storyId),
   );
 }
 
-export function listChaptersByVolume(volumeId: string): Chapter[] {
-  return allSQL<Chapter>(
-    'SELECT * FROM chapters WHERE volume_id = ? ORDER BY order_index',
-    volumeId,
+export async function listChaptersByVolume(volumeId: string): Promise<Chapter[]> {
+  if (window.dbAPI) {
+    return window.dbAPI.listChaptersByVolume(volumeId);
+  }
+  return Promise.resolve(
+    allSQL<Chapter>('SELECT * FROM chapters WHERE volume_id = ? ORDER BY order_index', volumeId),
   );
 }
 
-export function createChapter(data: NewChapter): Chapter {
+export async function createChapter(data: NewChapter): Promise<Chapter> {
+  if (window.dbAPI) {
+    return window.dbAPI.createChapter(data as Record<string, unknown>);
+  }
   const now = nowISO();
   const idx = autoOrder('chapters', 'story_id', data.story_id, data.order_index);
   const row: Chapter = {
@@ -1245,29 +1282,44 @@ export function createChapter(data: NewChapter): Chapter {
     row.created_at,
     row.updated_at,
   );
-  return row;
+  return Promise.resolve(row);
 }
 
-export function updateChapter(
+export async function updateChapter(
   id: string,
   patch: Partial<Pick<Chapter, 'title' | 'order_index' | 'volume_id'>>,
-): Chapter | undefined {
+): Promise<Chapter | undefined> {
+  if (window.dbAPI) {
+    return window.dbAPI.updateChapter(id, patch as Record<string, unknown>);
+  }
   doUpdate('chapters', id, patch);
-  return getSQL<Chapter>('SELECT * FROM chapters WHERE id = ?', id);
+  return Promise.resolve(getSQL<Chapter>('SELECT * FROM chapters WHERE id = ?', id));
 }
 
-export function deleteChapter(id: string): void {
-  // 先删除该章下的所有节（节删除会级联删除内容块）
+export async function deleteChapter(id: string): Promise<void> {
+  if (window.dbAPI) {
+    await window.dbAPI.deleteChapter(id);
+    return;
+  }
   const sectionsToDelete = allSQL<{ id: string }>(
     'SELECT id FROM sections WHERE chapter_id = ?',
     id,
   );
-  sectionsToDelete.forEach((sec) => deleteSection(sec.id));
-  // 再删除章本身
+  sectionsToDelete.forEach((sec) => deleteSectionMem(sec.id));
   runSQL('DELETE FROM chapters WHERE id = ?', id);
+  return Promise.resolve();
 }
 
-export function reorderChapters(storyId: string, orderedIds: string[]): void {
+function deleteSectionMem(id: string): void {
+  runSQL('DELETE FROM content_blocks WHERE section_id = ?', id);
+  runSQL('DELETE FROM sections WHERE id = ?', id);
+}
+
+export async function reorderChapters(storyId: string, orderedIds: string[]): Promise<void> {
+  if (window.dbAPI) {
+    await window.dbAPI.reorderChapters(storyId, orderedIds);
+    return;
+  }
   orderedIds.forEach((id, i) => {
     runSQL(
       'UPDATE chapters SET order_index = ?, updated_at = ? WHERE id = ? AND story_id = ?',
@@ -1277,6 +1329,7 @@ export function reorderChapters(storyId: string, orderedIds: string[]): void {
       storyId,
     );
   });
+  return Promise.resolve();
 }
 
 // ------------------------------------------------------------
@@ -1287,14 +1340,19 @@ type NewVolume = Omit<Volume, EntityFields | 'order_index'> & {
   order_index?: number;
 };
 
-export function listVolumes(storyId: string): Volume[] {
-  return allSQL<Volume>(
-    'SELECT * FROM volumes WHERE story_id = ? ORDER BY order_index',
-    storyId,
+export async function listVolumes(storyId: string): Promise<Volume[]> {
+  if (window.dbAPI) {
+    return window.dbAPI.listVolumes(storyId);
+  }
+  return Promise.resolve(
+    allSQL<Volume>('SELECT * FROM volumes WHERE story_id = ? ORDER BY order_index', storyId),
   );
 }
 
-export function createVolume(data: NewVolume): Volume {
+export async function createVolume(data: NewVolume): Promise<Volume> {
+  if (window.dbAPI) {
+    return window.dbAPI.createVolume(data as Record<string, unknown>);
+  }
   const now = nowISO();
   const idx = autoOrder('volumes', 'story_id', data.story_id, data.order_index);
   const row: Volume = {
@@ -1314,29 +1372,48 @@ export function createVolume(data: NewVolume): Volume {
     row.created_at,
     row.updated_at,
   );
-  return row;
+  return Promise.resolve(row);
 }
 
-export function updateVolume(
+export async function updateVolume(
   id: string,
   patch: Partial<Pick<Volume, 'title' | 'order_index'>>,
-): Volume | undefined {
+): Promise<Volume | undefined> {
+  if (window.dbAPI) {
+    return window.dbAPI.updateVolume(id, patch as Record<string, unknown>);
+  }
   doUpdate('volumes', id, patch);
-  return getSQL<Volume>('SELECT * FROM volumes WHERE id = ?', id);
+  return Promise.resolve(getSQL<Volume>('SELECT * FROM volumes WHERE id = ?', id));
 }
 
-export function deleteVolume(id: string): void {
-  // 先删除该卷下的所有章节（章节删除会级联删除节和内容块）
+export async function deleteVolume(id: string): Promise<void> {
+  if (window.dbAPI) {
+    await window.dbAPI.deleteVolume(id);
+    return;
+  }
   const chaptersToDelete = allSQL<{ id: string }>(
     'SELECT id FROM chapters WHERE volume_id = ?',
     id,
   );
-  chaptersToDelete.forEach((ch) => deleteChapter(ch.id));
-  // 再删除卷本身
+  chaptersToDelete.forEach((ch) => deleteChapterMem(ch.id));
   runSQL('DELETE FROM volumes WHERE id = ?', id);
+  return Promise.resolve();
 }
 
-export function reorderVolumes(storyId: string, orderedIds: string[]): void {
+function deleteChapterMem(id: string): void {
+  const sectionsToDelete = allSQL<{ id: string }>(
+    'SELECT id FROM sections WHERE chapter_id = ?',
+    id,
+  );
+  sectionsToDelete.forEach((sec) => deleteSectionMem(sec.id));
+  runSQL('DELETE FROM chapters WHERE id = ?', id);
+}
+
+export async function reorderVolumes(storyId: string, orderedIds: string[]): Promise<void> {
+  if (window.dbAPI) {
+    await window.dbAPI.reorderVolumes(storyId, orderedIds);
+    return;
+  }
   orderedIds.forEach((id, i) => {
     runSQL(
       'UPDATE volumes SET order_index = ?, updated_at = ? WHERE id = ? AND story_id = ?',
@@ -1346,18 +1423,7 @@ export function reorderVolumes(storyId: string, orderedIds: string[]): void {
       storyId,
     );
   });
-}
-
-export function reorderSections(chapterId: string, orderedIds: string[]): void {
-  orderedIds.forEach((id, i) => {
-    runSQL(
-      'UPDATE sections SET order_index = ?, updated_at = ? WHERE id = ? AND chapter_id = ?',
-      i,
-      nowISO(),
-      id,
-      chapterId,
-    );
-  });
+  return Promise.resolve();
 }
 
 // ------------------------------------------------------------
@@ -1368,14 +1434,19 @@ type NewSection = Omit<Section, EntityFields | 'order_index'> & {
   order_index?: number;
 };
 
-export function listSections(chapterId: string): Section[] {
-  return allSQL<Section>(
-    'SELECT * FROM sections WHERE chapter_id = ? ORDER BY order_index',
-    chapterId,
+export async function listSections(chapterId: string): Promise<Section[]> {
+  if (window.dbAPI) {
+    return window.dbAPI.listSections(chapterId);
+  }
+  return Promise.resolve(
+    allSQL<Section>('SELECT * FROM sections WHERE chapter_id = ? ORDER BY order_index', chapterId),
   );
 }
 
-export function createSection(data: NewSection & { content?: string }): Section {
+export async function createSection(data: NewSection & { content?: string }): Promise<Section> {
+  if (window.dbAPI) {
+    return window.dbAPI.createSection(data as Record<string, unknown>);
+  }
   const now = nowISO();
   const idx = autoOrder('sections', 'chapter_id', data.chapter_id, data.order_index);
   const row: Section = {
@@ -1397,53 +1468,83 @@ export function createSection(data: NewSection & { content?: string }): Section 
     row.created_at,
     row.updated_at,
   );
-  return row;
+  return Promise.resolve(row);
 }
 
-export function updateSection(
+export async function updateSection(
   id: string,
   patch: Partial<Pick<Section, 'title' | 'order_index' | 'content'>>,
-): Section | undefined {
+): Promise<Section | undefined> {
+  if (window.dbAPI) {
+    return window.dbAPI.updateSection(id, patch as Record<string, unknown>);
+  }
   const now = nowISO();
   const updates: Record<string, unknown> = { ...patch, updated_at: now };
   doUpdate('sections', id, updates);
-  return getSQL<Section>('SELECT * FROM sections WHERE id = ?', id);
+  return Promise.resolve(getSQL<Section>('SELECT * FROM sections WHERE id = ?', id));
 }
 
-export function getSectionContent(sectionId: string): string | null {
+export async function getSectionContent(sectionId: string): Promise<string | null> {
+  if (window.dbAPI) {
+    return window.dbAPI.getSectionContent(sectionId);
+  }
   const row = getSQL<{ content: string | null }>(
     'SELECT content FROM sections WHERE id = ?',
     sectionId,
   );
-  return row ? row.content || null : null;
+  return Promise.resolve(row ? row.content || null : null);
 }
 
-export function setSectionContent(sectionId: string, content: string | null): void {
+export async function setSectionContent(sectionId: string, content: string | null): Promise<void> {
+  if (window.dbAPI) {
+    await window.dbAPI.setSectionContent(sectionId, content);
+    return;
+  }
   const now = nowISO();
-  runSQL(
-    'UPDATE sections SET content = ?, updated_at = ? WHERE id = ?',
-    content,
-    now,
-    sectionId,
-  );
+  runSQL('UPDATE sections SET content = ?, updated_at = ? WHERE id = ?', content, now, sectionId);
+  return Promise.resolve();
 }
 
-export function deleteSection(id: string): void {
-  // 先删除该节下的所有内容块
-  runSQL('DELETE FROM content_blocks WHERE section_id = ?', id);
-  // 再删除节本身
-  runSQL('DELETE FROM sections WHERE id = ?', id);
+export async function deleteSection(id: string): Promise<void> {
+  if (window.dbAPI) {
+    await window.dbAPI.deleteSection(id);
+    return;
+  }
+  deleteSectionMem(id);
+  return Promise.resolve();
+}
+
+export async function reorderSections(chapterId: string, orderedIds: string[]): Promise<void> {
+  if (window.dbAPI) {
+    await window.dbAPI.reorderSections(chapterId, orderedIds);
+    return;
+  }
+  orderedIds.forEach((id, i) => {
+    runSQL(
+      'UPDATE sections SET order_index = ?, updated_at = ? WHERE id = ? AND chapter_id = ?',
+      i,
+      nowISO(),
+      id,
+      chapterId,
+    );
+  });
+  return Promise.resolve();
 }
 
 // ------------------------------------------------------------
 // ContentBlock
 // ------------------------------------------------------------
 
-export function listBlocks(sectionId: string): AnyContentBlock[] {
-  return allSQL<AnyContentBlock & { payload: string }>(
-    'SELECT * FROM content_blocks WHERE section_id = ? ORDER BY order_index',
-    sectionId,
-  ).map((row) => decodeBlock(row));
+export async function listBlocks(sectionId: string): Promise<AnyContentBlock[]> {
+  if (window.dbAPI) {
+    return window.dbAPI.listBlocks(sectionId);
+  }
+  return Promise.resolve(
+    allSQL<AnyContentBlock & { payload: string }>(
+      'SELECT * FROM content_blocks WHERE section_id = ? ORDER BY order_index',
+      sectionId,
+    ).map((row) => decodeBlock(row)),
+  );
 }
 
 function decodeBlock(row: AnyContentBlock & { payload: string }): AnyContentBlock {
@@ -1459,28 +1560,37 @@ function decodeBlock(row: AnyContentBlock & { payload: string }): AnyContentBloc
   } as AnyContentBlock;
 }
 
-export function createTextBlock(
+export async function createTextBlock(
   sectionId: string,
   payload: TextBlockPayload,
   orderIndex?: number,
-): AnyContentBlock {
-  return insertBlock('text', sectionId, payload, orderIndex);
+): Promise<AnyContentBlock> {
+  if (window.dbAPI) {
+    return window.dbAPI.createTextBlock(sectionId, payload, orderIndex);
+  }
+  return Promise.resolve(insertBlock('text', sectionId, payload, orderIndex));
 }
 
-export function createImageBlock(
+export async function createImageBlock(
   sectionId: string,
   payload: ImageBlockPayload,
   orderIndex?: number,
-): AnyContentBlock {
-  return insertBlock('image', sectionId, payload, orderIndex);
+): Promise<AnyContentBlock> {
+  if (window.dbAPI) {
+    return window.dbAPI.createImageBlock(sectionId, payload, orderIndex);
+  }
+  return Promise.resolve(insertBlock('image', sectionId, payload, orderIndex));
 }
 
-export function createDiceBlock(
+export async function createDiceBlock(
   sectionId: string,
   payload: DiceBlockPayload | DiceBlockPayloadV2,
   orderIndex?: number,
-): AnyContentBlock {
-  return insertBlock('dice', sectionId, payload, orderIndex);
+): Promise<AnyContentBlock> {
+  if (window.dbAPI) {
+    return window.dbAPI.createDiceBlock(sectionId, payload, orderIndex);
+  }
+  return Promise.resolve(insertBlock('dice', sectionId, payload, orderIndex));
 }
 
 function insertBlock(
@@ -1514,10 +1624,13 @@ function insertBlock(
   } as AnyContentBlock;
 }
 
-export function updateBlockPayload(
+export async function updateBlockPayload(
   id: string,
   payload: unknown,
-): AnyContentBlock | undefined {
+): Promise<AnyContentBlock | undefined> {
+  if (window.dbAPI) {
+    return window.dbAPI.updateBlockPayload(id, payload);
+  }
   runSQL(
     'UPDATE content_blocks SET payload = ?, updated_at = ? WHERE id = ?',
     stringifyJSON(payload),
@@ -1533,11 +1646,15 @@ export function updateBlockPayload(
     updated_at: string;
     payload: string;
   }>('SELECT * FROM content_blocks WHERE id = ?', id);
-  if (!raw) return undefined;
-  return decodeBlock(raw as AnyContentBlock & { payload: string });
+  if (!raw) return Promise.resolve(undefined);
+  return Promise.resolve(decodeBlock(raw as AnyContentBlock & { payload: string }));
 }
 
-export function reorderBlocks(sectionId: string, orderedIds: string[]): void {
+export async function reorderBlocks(sectionId: string, orderedIds: string[]): Promise<void> {
+  if (window.dbAPI) {
+    await window.dbAPI.reorderBlocks(sectionId, orderedIds);
+    return;
+  }
   orderedIds.forEach((id, i) => {
     runSQL(
       'UPDATE content_blocks SET order_index = ?, updated_at = ? WHERE id = ? AND section_id = ?',
@@ -1547,38 +1664,65 @@ export function reorderBlocks(sectionId: string, orderedIds: string[]): void {
       sectionId,
     );
   });
+  return Promise.resolve();
 }
 
-export function deleteBlock(id: string): void {
+export async function deleteBlock(id: string): Promise<void> {
+  if (window.dbAPI) {
+    await window.dbAPI.deleteBlock(id);
+    return;
+  }
   runSQL('DELETE FROM content_blocks WHERE id = ?', id);
+  return Promise.resolve();
 }
 
 // ------------------------------------------------------------
 // 聚合查询：一次取出一个故事的全部内容（给导出器用）
 // ------------------------------------------------------------
 
-export function getStoryWithAll(storyId: string): StoryWithAll | undefined {
-  const story = getStory(storyId);
-  if (!story) return undefined;
-  const worldSettings = listWorldSettings(storyId);
-  const characters = listCharacters(storyId);
-  const outlines = listOutlines(storyId);
-  const volumes = listVolumes(storyId);
-  const chapters = listChapters(storyId).map((c) => ({
+export async function getStoryWithAll(storyId: string): Promise<StoryWithAll | undefined> {
+  if (window.dbAPI) {
+    return window.dbAPI.getStoryWithAll(storyId);
+  }
+  const story = getStoryInMem(storyId);
+  if (!story) return Promise.resolve(undefined);
+  const worldSettings = allSQL<WorldSetting>(
+    'SELECT * FROM world_settings WHERE story_id = ? ORDER BY order_index',
+    storyId,
+  );
+  const characters = await listCharacters(storyId);
+  const outlines = allSQL<Outline>(
+    'SELECT * FROM outlines WHERE story_id = ? ORDER BY order_index',
+    storyId,
+  );
+  const volumes = allSQL<Volume>(
+    'SELECT * FROM volumes WHERE story_id = ? ORDER BY order_index',
+    storyId,
+  );
+  const chapters = allSQL<Chapter>(
+    'SELECT * FROM chapters WHERE story_id = ? ORDER BY order_index',
+    storyId,
+  ).map((c) => ({
     ...c,
-    sections: listSections(c.id).map((sec) => ({
+    sections: allSQL<Section>(
+      'SELECT * FROM sections WHERE chapter_id = ? ORDER BY order_index',
+      c.id,
+    ).map((sec) => ({
       ...sec,
-      blocks: listBlocks(sec.id),
+      blocks: allSQL<AnyContentBlock & { payload: string }>(
+        'SELECT * FROM content_blocks WHERE section_id = ? ORDER BY order_index',
+        sec.id,
+      ).map((row) => decodeBlock(row)),
     })),
   }));
-  return {
+  return Promise.resolve({
     ...story,
     world_settings: worldSettings,
     characters,
     outlines,
     volumes,
     chapters,
-  };
+  });
 }
 
 // 让 EntityFields 在编译期被使用，避免未使用类型警告

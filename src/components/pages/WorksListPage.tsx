@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStoryStore } from '../../store/storyStore';
 import * as db from '../../db/database';
 import { parseOutlineContent, stringifyOutlinePayload } from '../../types';
@@ -66,16 +66,22 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
 
   // 聚合所有作品的展示数据（排除已在回收站中的）
   const trashIdSet = useMemo(() => new Set(trashStories.map((t) => t.id)), [trashStories]);
-  const works = useMemo<WorkSummary[]>(() => {
-    return stories
-      .filter((s) => !trashIdSet.has(s.id))
-      .map((story) => {
+  const [works, setWorks] = useState<WorkSummary[]>([]);
+  const [worksLoading, setWorksLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadWorks = async () => {
+      setWorksLoading(true);
+      const result: WorkSummary[] = [];
+      const filtered = stories.filter((s) => !trashIdSet.has(s.id));
+      for (const story of filtered) {
         let wordCount = 0;
         let diceCount = 0;
         let sectionCount = 0;
-        const chapters = db.listChapters(story.id);
-        chapters.forEach((chapter) => {
-          const sections = db.listSections(chapter.id);
+        const chapters = await db.listChapters(story.id);
+        for (const chapter of chapters) {
+          const sections = await db.listSections(chapter.id);
           sectionCount += sections.length;
           sections.forEach((section) => {
             const content = section.content;
@@ -85,15 +91,22 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
               diceCount += dice;
             }
           });
-        });
-        return {
+        }
+        result.push({
           ...story,
           wordCount,
           diceCount,
           sectionCount,
           chapterCount: chapters.length,
-        };
-      });
+        });
+      }
+      if (!cancelled) {
+        setWorks(result);
+        setWorksLoading(false);
+      }
+    };
+    loadWorks();
+    return () => { cancelled = true; };
   }, [stories, trashIdSet]);
 
   // 简化筛选：仅全部 / 回收站
@@ -177,9 +190,9 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
     dragIdRef.current = null;
   };
 
-  const handleCreateStory = () => {
+  const handleCreateStory = async () => {
     const title = newStoryTitle.trim() || `未命名作品 ${new Date().toLocaleDateString()}`;
-    const storyId = createStory(title, newStoryDescription.trim());
+    const storyId = await createStory(title, newStoryDescription.trim());
     setShowNewModal(false);
     setNewStoryTitle('');
     setNewStoryDescription('');
@@ -206,16 +219,28 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
     restoreFromTrash(work);
   };
 
-  const handleExportStory = (id: string) => {
+  const handleExportStory = async (id: string) => {
     const story = stories.find((s) => s.id === id);
     if (!story) return;
-    const full = db.getStoryWithAll(id);
+    const full = await db.getStoryWithAll(id);
     if (!full) return;
-    const blob = new Blob([JSON.stringify(full, null, 2)], { type: 'application/json' });
+    // 额外获取人物关系（getStoryWithAll 不包含）
+    const relations = await db.listCharacterRelations(id);
+    const exportData = {
+      format: 'anke-creator-story',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      appVersion: '0.1.0',
+      data: {
+        ...full,
+        character_relations: relations,
+      },
+    };
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${full.title || 'anke-work'}-${Date.now()}.json`;
+    a.download = `${full.title || 'anke-work'}.anke.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -223,87 +248,300 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
   };
 
   // 处理复制作品
-  const handleDuplicateStory = (id: string) => {
-    const full = db.getStoryWithAll(id);
+  const handleDuplicateStory = async (id: string) => {
+    const full = await db.getStoryWithAll(id);
     if (!full) return;
     const newTitle = `${full.title} · 副本`;
-    const created = db.createStory({
+    const created = await db.createStory({
       title: newTitle,
       description: full.description || '',
     });
 
     // 1. 复制 volumes（卷），并记录 oldId -> newId 映射
     const volumeIdMap: Record<string, string> = {};
-    full.volumes.forEach((vol) => {
-      const newVol = db.createVolume({
+    for (const vol of full.volumes) {
+      const newVol = await db.createVolume({
         story_id: created.id,
         title: vol.title,
         order_index: vol.order_index,
       });
       volumeIdMap[vol.id] = newVol.id;
-    });
+    }
 
     // 2. 复制 chapters + sections（保留 volume_id 归属和富文本 content）
-    full.chapters.forEach((ch) => {
+    for (const ch of full.chapters) {
       const mappedVolumeId = ch.volume_id ? volumeIdMap[ch.volume_id] || null : null;
-      const newChapter = db.createChapter({
+      const newChapter = await db.createChapter({
         story_id: created.id,
         title: ch.title,
         volume_id: mappedVolumeId,
         order_index: ch.order_index,
       });
-      ch.sections.forEach((sec) => {
-        db.createSection({
+      for (const sec of ch.sections) {
+        await db.createSection({
           chapter_id: newChapter.id,
           title: sec.title,
           order_index: sec.order_index,
           content: sec.content,
         });
-      });
-    });
+      }
+    }
 
-    // 3. 复制 outlines（大纲）。
+    // 3. 复制 world_settings
+    if (full.world_settings) {
+      for (const ws of full.world_settings) {
+        await db.createWorldSetting({
+          story_id: created.id,
+          title: ws.title,
+          content: ws.content || '',
+          order_index: ws.order_index,
+        });
+      }
+    }
+
+    // 4. 复制 characters + variants
+    const characterIdMap: Record<string, string> = {};
+    if (full.characters) {
+      for (const char of full.characters) {
+        const newChar = await db.createCharacter({
+          story_id: created.id,
+          name: char.name,
+          avatar: char.avatar || '',
+          personality: char.personality || '',
+          attributes: char.attributes,
+          notes: char.notes || '',
+        });
+        characterIdMap[char.id] = newChar.id;
+        if (char.variants) {
+          for (const v of char.variants) {
+            await db.createCharacterVariant({
+              character_id: newChar.id,
+              name: v.name,
+              url: v.url,
+              order_index: v.order_index,
+            });
+          }
+        }
+      }
+    }
+
+    // 5. 复制 character_relations
+    const relations = await db.listCharacterRelations(id);
+    for (const rel of relations) {
+      const newSourceId = characterIdMap[rel.source_id];
+      const newTargetId = characterIdMap[rel.target_id];
+      if (newSourceId && newTargetId) {
+        await db.createCharacterRelation({
+          story_id: created.id,
+          source_id: newSourceId,
+          target_id: newTargetId,
+          relation: rel.relation,
+          note: rel.note || '',
+          order_index: rel.order_index,
+        });
+      }
+    }
+
+    // 6. 复制 outlines（大纲）。
     //    大纲内部有 parent_outline_id 依赖，需要先处理卷类型，再处理章类型。
     const outlineIdMap: Record<string, string> = {};
     // 先复制所有卷类型的大纲（parent_outline_id = null）
-    full.outlines
-      .filter((o) => {
-        const p = parseOutlineContent(o.content);
-        return p.target_type === 'volume';
-      })
-      .forEach((o) => {
-        const payload = parseOutlineContent(o.content);
-        // 同步到新作品时，target_id 指向旧作品的目录项，需要清零（否则指向无效）
-        payload.target_id = '';
-        const newOutline = db.createOutline({
-          story_id: created.id,
-          content: stringifyOutlinePayload(payload),
-          order_index: o.order_index,
-        });
-        outlineIdMap[o.id] = newOutline.id;
+    for (const o of full.outlines.filter((o) => {
+      const p = parseOutlineContent(o.content);
+      return p.target_type === 'volume';
+    })) {
+      const payload = parseOutlineContent(o.content);
+      // 同步到新作品时，target_id 指向旧作品的目录项，需要清零（否则指向无效）
+      payload.target_id = '';
+      const newOutline = await db.createOutline({
+        story_id: created.id,
+        content: stringifyOutlinePayload(payload),
+        order_index: o.order_index,
       });
+      outlineIdMap[o.id] = newOutline.id;
+    }
     // 再复制所有章类型的大纲，并更新 parent_outline_id 指向新创建的卷大纲
-    full.outlines
-      .filter((o) => {
-        const p = parseOutlineContent(o.content);
-        return p.target_type === 'chapter';
-      })
-      .forEach((o) => {
-        const payload = parseOutlineContent(o.content);
-        // 重新映射 parent_outline_id
-        payload.parent_outline_id = payload.parent_outline_id
-          ? outlineIdMap[payload.parent_outline_id] || null
-          : null;
-        // 清零 target_id（指向旧作品的目录项）
-        payload.target_id = '';
-        db.createOutline({
-          story_id: created.id,
-          content: stringifyOutlinePayload(payload),
-          order_index: o.order_index,
-        });
+    for (const o of full.outlines.filter((o) => {
+      const p = parseOutlineContent(o.content);
+      return p.target_type === 'chapter';
+    })) {
+      const payload = parseOutlineContent(o.content);
+      // 重新映射 parent_outline_id
+      payload.parent_outline_id = payload.parent_outline_id
+        ? outlineIdMap[payload.parent_outline_id] || null
+        : null;
+      // 清零 target_id（指向旧作品的目录项）
+      payload.target_id = '';
+      await db.createOutline({
+        story_id: created.id,
+        content: stringifyOutlinePayload(payload),
+        order_index: o.order_index,
       });
+    }
 
-    useStoryStore.getState().loadStories();
+    await useStoryStore.getState().loadStories();
+  };
+
+  // 处理导入作品
+  const handleImportStory = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,.anke.json';
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        // 兼容新旧格式：新格式有 format 字段，旧格式直接是数据
+        const data = parsed.format === 'anke-creator-story' ? parsed.data : parsed;
+        if (!data || !data.story) {
+          window.alert('文件格式不正确，无法导入。');
+          return;
+        }
+
+        // 1. 创建新故事
+        const newStory = await db.createStory({
+          title: `${data.story.title || '导入作品'} (导入)`,
+          description: data.story.description || '',
+          category: data.story.category,
+        });
+
+        // 2. 复制 volumes
+        const volumeIdMap: Record<string, string> = {};
+        if (data.volumes) {
+          for (const vol of data.volumes) {
+            const newVol = await db.createVolume({
+              story_id: newStory.id,
+              title: vol.title,
+              order_index: vol.order_index,
+            });
+            volumeIdMap[vol.id] = newVol.id;
+          }
+        }
+
+        // 3. 复制 chapters + sections
+        const chapterIdMap: Record<string, string> = {};
+        if (data.chapters) {
+          for (const ch of data.chapters) {
+            const mappedVolumeId = ch.volume_id ? volumeIdMap[ch.volume_id] || null : null;
+            const newChapter = await db.createChapter({
+              story_id: newStory.id,
+              title: ch.title,
+              volume_id: mappedVolumeId,
+              order_index: ch.order_index,
+            });
+            chapterIdMap[ch.id] = newChapter.id;
+            if (ch.sections) {
+              for (const sec of ch.sections) {
+                await db.createSection({
+                  chapter_id: newChapter.id,
+                  title: sec.title,
+                  order_index: sec.order_index,
+                  content: sec.content,
+                });
+              }
+            }
+          }
+        }
+
+        // 4. 复制 world_settings
+        if (data.world_settings) {
+          for (const ws of data.world_settings) {
+            await db.createWorldSetting({
+              story_id: newStory.id,
+              title: ws.title,
+              content: ws.content || '',
+              order_index: ws.order_index,
+            });
+          }
+        }
+
+        // 5. 复制 characters + variants
+        const characterIdMap: Record<string, string> = {};
+        if (data.characters) {
+          for (const char of data.characters) {
+            const newChar = await db.createCharacter({
+              story_id: newStory.id,
+              name: char.name,
+              avatar: char.avatar || '',
+              personality: char.personality || '',
+              attributes: char.attributes,
+              notes: char.notes || '',
+            });
+            characterIdMap[char.id] = newChar.id;
+            if (char.variants) {
+              for (const v of char.variants) {
+                await db.createCharacterVariant({
+                  character_id: newChar.id,
+                  name: v.name,
+                  url: v.url,
+                  order_index: v.order_index,
+                });
+              }
+            }
+          }
+        }
+
+        // 6. 复制 character_relations
+        if (data.character_relations) {
+          for (const rel of data.character_relations) {
+            const newSourceId = characterIdMap[rel.source_id];
+            const newTargetId = characterIdMap[rel.target_id];
+            if (newSourceId && newTargetId) {
+              await db.createCharacterRelation({
+                story_id: newStory.id,
+                source_id: newSourceId,
+                target_id: newTargetId,
+                relation: rel.relation,
+                note: rel.note || '',
+                order_index: rel.order_index,
+              });
+            }
+          }
+        }
+
+        // 7. 复制 outlines（处理 parent_outline_id 映射）
+        const outlineIdMap: Record<string, string> = {};
+        if (data.outlines) {
+          // 先复制卷类型大纲
+          for (const o of data.outlines) {
+            const payload = typeof o.content === 'string' ? JSON.parse(o.content) : o.content;
+            if (payload.target_type === 'volume') {
+              payload.target_id = '';
+              const newOutline = await db.createOutline({
+                story_id: newStory.id,
+                content: JSON.stringify(payload),
+                order_index: o.order_index,
+              });
+              outlineIdMap[o.id] = newOutline.id;
+            }
+          }
+          // 再复制章类型大纲
+          for (const o of data.outlines) {
+            const payload = typeof o.content === 'string' ? JSON.parse(o.content) : o.content;
+            if (payload.target_type === 'chapter') {
+              payload.parent_outline_id = payload.parent_outline_id
+                ? outlineIdMap[payload.parent_outline_id] || null
+                : null;
+              payload.target_id = '';
+              await db.createOutline({
+                story_id: newStory.id,
+                content: JSON.stringify(payload),
+                order_index: o.order_index,
+              });
+            }
+          }
+        }
+
+        await useStoryStore.getState().loadStories();
+        window.alert(`作品导入成功！已创建「${newStory.title}」`);
+      } catch (err) {
+        console.error('[import] 导入失败:', err);
+        window.alert('导入失败，请检查文件格式是否正确。');
+      }
+    };
+    input.click();
   };
 
   return (
@@ -367,6 +605,16 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
             >
               <span className="text-base leading-none">+</span>
               <span>新建安科</span>
+            </button>
+            <button
+              onClick={handleImportStory}
+              className="px-4 py-2 text-xs rounded-lg font-medium transition-colors inline-flex items-center gap-1.5"
+              style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.background = 'var(--bg-hover)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.background = 'var(--bg-card)'; }}
+            >
+              <span>📥</span>
+              <span>导入作品</span>
             </button>
           </div>
         </div>

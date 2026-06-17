@@ -33,63 +33,63 @@ interface StoryState {
   expandedVolumeIds: Record<string, boolean>;
   expandedChapterIds: Record<string, boolean>;
 
-  loadStories: () => void;
-  createStory: (title: string, description?: string, category?: string) => string;
-  renameStory: (id: string, title: string) => void;
-  updateStoryDescription: (id: string, description: string) => void;
-  updateStoryCategory: (id: string, category: string) => void;
-  deleteStory: (id: string) => void;
-  setStoryOrder: (id: string, order_index: number) => void;
-  toggleStarred: (id: string) => void;
-  togglePinned: (id: string) => void;
-  setActiveStory: (id: string | null) => void;
+  loadStories: () => Promise<void>;
+  createStory: (title: string, description?: string, category?: string) => Promise<string>;
+  renameStory: (id: string, title: string) => Promise<void>;
+  updateStoryDescription: (id: string, description: string) => Promise<void>;
+  updateStoryCategory: (id: string, category: string) => Promise<void>;
+  deleteStory: (id: string) => Promise<void>;
+  setStoryOrder: (id: string, order_index: number) => Promise<void>;
+  toggleStarred: (id: string) => Promise<void>;
+  togglePinned: (id: string) => Promise<void>;
+  setActiveStory: (id: string | null) => Promise<void>;
 
-  createVolume: (storyId: string, title: string) => string;
-  renameVolume: (volumeId: string, title: string) => void;
-  deleteVolume: (volumeId: string) => void;
+  createVolume: (storyId: string, title: string) => Promise<string>;
+  renameVolume: (volumeId: string, title: string) => Promise<void>;
+  deleteVolume: (volumeId: string) => Promise<void>;
   toggleVolume: (volumeId: string) => void;
-  reorderVolumes: (orderedIds: string[]) => void;
+  reorderVolumes: (orderedIds: string[]) => Promise<void>;
 
-  createChapter: (storyId: string, title: string, volumeId?: string | null) => string;
-  renameChapter: (chapterId: string, title: string) => void;
-  deleteChapter: (chapterId: string) => void;
+  createChapter: (storyId: string, title: string, volumeId?: string | null) => Promise<string>;
+  renameChapter: (chapterId: string, title: string) => Promise<void>;
+  deleteChapter: (chapterId: string) => Promise<void>;
   toggleChapter: (chapterId: string) => void;
   setActiveChapter: (id: string | null) => void;
-  reorderChapters: (orderedIds: string[]) => void;
+  reorderChapters: (orderedIds: string[]) => Promise<void>;
 
-  createSection: (chapterId: string, title: string) => string;
-  renameSection: (sectionId: string, title: string) => void;
-  deleteSection: (sectionId: string) => void;
+  createSection: (chapterId: string, title: string) => Promise<string>;
+  renameSection: (sectionId: string, title: string) => Promise<void>;
+  deleteSection: (sectionId: string) => Promise<void>;
   setActiveSection: (id: string) => void;
-  reorderSections: (chapterId: string, orderedIds: string[]) => void;
+  reorderSections: (chapterId: string, orderedIds: string[]) => Promise<void>;
 
   // ---------- Outline 操作 ----------
-  loadOutlines: (storyId: string) => void;
+  loadOutlines: (storyId: string) => Promise<void>;
   createOutline: (payload: {
     title: string;
     target_type: OutlineTargetType;
     target_id: string;
     parent_outline_id?: string | null;
     body?: string;
-  }) => string;
-  updateOutline: (id: string, patch: Partial<OutlinePayload>) => void;
+  }) => Promise<string>;
+  updateOutline: (id: string, patch: Partial<OutlinePayload>) => Promise<void>;
   renameOutline: (id: string, title: string) => void;
-  deleteOutline: (id: string) => void;
+  deleteOutline: (id: string) => Promise<void>;
   setActiveOutline: (id: string | null) => void;
-  getOrCreateVolumeOutline: (volumeId: string, volumeTitle: string) => string;
-  getOrCreateChapterOutline: (chapterId: string, chapterTitle: string) => string;
+  getOrCreateVolumeOutline: (volumeId: string, volumeTitle: string) => Promise<string>;
+  getOrCreateChapterOutline: (chapterId: string, chapterTitle: string) => Promise<string>;
   /** 在大纲侧独立创建卷（不依赖目录结构） */
-  createOutlineVolume: (title: string) => string;
+  createOutlineVolume: (title: string) => Promise<string>;
   /** 在大纲侧独立创建章（属于某个大纲卷） */
-  createOutlineChapter: (parentOutlineId: string, title: string) => string;
+  createOutlineChapter: (parentOutlineId: string, title: string) => Promise<string>;
 }
 
 // 加载指定故事的卷/章节/节/大纲数据
-function loadStoryData(set: (patch: Partial<StoryState>) => void, storyId: string) {
-  const volumes = db.listVolumes(storyId);
-  const chapters = db.listChapters(storyId);
-  const sections: Section[] = chapters.flatMap((ch) => db.listSections(ch.id));
-  const outlines = db.listOutlines(storyId);
+async function loadStoryData(set: (patch: Partial<StoryState>) => void, storyId: string) {
+  const volumes = await db.listVolumes(storyId);
+  const chapters = await db.listChapters(storyId);
+  const sections: Section[] = (await Promise.all(chapters.map((ch) => db.listSections(ch.id)))).flat();
+  const outlines = await db.listOutlines(storyId);
   const expandedVolumes: Record<string, boolean> = {};
   const expandedChapters: Record<string, boolean> = {};
   volumes.forEach((v) => (expandedVolumes[v.id] = true));
@@ -120,18 +120,18 @@ export const useStoryStore = create<StoryState>((set, get) => ({
   expandedVolumeIds: {},
   expandedChapterIds: {},
 
-  loadStories: () => {
-    const stories = db.listStories();
+  loadStories: async () => {
+    const stories = await db.listStories();
     set({ stories });
     if (stories.length > 0 && !get().activeStoryId) {
       const first = stories[0];
       set({ activeStoryId: first.id });
-      loadStoryData(set, first.id);
+      await loadStoryData(set, first.id);
     }
   },
 
-  createStory: (title, description, category) => {
-    const story = db.createStory({ title, description: description || '', category: category || '' });
+  createStory: async (title, description, category) => {
+    const story = await db.createStory({ title, description: description || '', category: category || '' });
     set((state) => ({
       stories: [...state.stories, story],
       activeStoryId: story.id,
@@ -144,57 +144,57 @@ export const useStoryStore = create<StoryState>((set, get) => ({
     return story.id;
   },
 
-  renameStory: (id, title) => {
+  renameStory: async (id, title) => {
     const trimmed = title.trim();
     if (!trimmed) return;
-    db.updateStory(id, { title: trimmed });
+    await db.updateStory(id, { title: trimmed });
     set((state) => ({
       stories: state.stories.map((s) => (s.id === id ? { ...s, title: trimmed } : s)),
     }));
   },
 
-  updateStoryDescription: (id, description) => {
-    db.updateStory(id, { description });
+  updateStoryDescription: async (id, description) => {
+    await db.updateStory(id, { description });
     set((state) => ({
       stories: state.stories.map((s) => (s.id === id ? { ...s, description } : s)),
     }));
   },
 
-  updateStoryCategory: (id, category) => {
+  updateStoryCategory: async (id, category) => {
     const trimmed = (category || '').trim();
-    db.updateStory(id, { category: trimmed });
+    await db.updateStory(id, { category: trimmed });
     set((state) => ({
       stories: state.stories.map((s) => (s.id === id ? { ...s, category: trimmed } : s)),
     }));
   },
 
-  setStoryOrder: (id, order_index) => {
-    db.updateStory(id, { order_index });
+  setStoryOrder: async (id, order_index) => {
+    await db.updateStory(id, { order_index });
     set((state) => ({
       stories: state.stories.map((s) => (s.id === id ? { ...s, order_index } : s)),
     }));
   },
 
-  toggleStarred: (id) => {
+  toggleStarred: async (id) => {
     const current = get().stories.find((s) => s.id === id);
     const next = !(current?.is_starred ?? false);
-    db.updateStory(id, { is_starred: next });
+    await db.updateStory(id, { is_starred: next });
     set((state) => ({
       stories: state.stories.map((s) => (s.id === id ? { ...s, is_starred: next } : s)),
     }));
   },
 
-  togglePinned: (id) => {
+  togglePinned: async (id) => {
     const current = get().stories.find((s) => s.id === id);
     const next = !(current?.is_pinned ?? false);
-    db.updateStory(id, { is_pinned: next });
+    await db.updateStory(id, { is_pinned: next });
     set((state) => ({
       stories: state.stories.map((s) => (s.id === id ? { ...s, is_pinned: next } : s)),
     }));
   },
 
-  deleteStory: (id) => {
-    db.deleteStory(id);
+  deleteStory: async (id) => {
+    await db.deleteStory(id);
     set((state) => {
       const remaining = state.stories.filter((s) => s.id !== id);
       const nextActive =
@@ -217,7 +217,7 @@ export const useStoryStore = create<StoryState>((set, get) => ({
     });
   },
 
-  setActiveStory: (id) => {
+  setActiveStory: async (id) => {
     if (!id) {
       set({
         activeStoryId: null,
@@ -229,11 +229,11 @@ export const useStoryStore = create<StoryState>((set, get) => ({
       return;
     }
     set({ activeStoryId: id });
-    loadStoryData(set, id);
+    await loadStoryData(set, id);
   },
 
-  createVolume: (storyId, title) => {
-    const v = db.createVolume({ story_id: storyId, title });
+  createVolume: async (storyId, title) => {
+    const v = await db.createVolume({ story_id: storyId, title });
     set((state) => ({
       volumes: [...state.volumes, v].sort((a, b) => a.order_index - b.order_index),
       expandedVolumeIds: { ...state.expandedVolumeIds, [v.id]: true },
@@ -241,10 +241,10 @@ export const useStoryStore = create<StoryState>((set, get) => ({
     return v.id;
   },
 
-  renameVolume: (volumeId, title) => {
+  renameVolume: async (volumeId, title) => {
     const trimmed = title.trim();
     if (!trimmed) return;
-    db.updateVolume(volumeId, { title: trimmed });
+    await db.updateVolume(volumeId, { title: trimmed });
     set((state) => ({
       volumes: state.volumes.map((v) =>
         v.id === volumeId ? { ...v, title: trimmed } : v,
@@ -252,10 +252,10 @@ export const useStoryStore = create<StoryState>((set, get) => ({
     }));
   },
 
-  reorderVolumes: (orderedIds) => {
+  reorderVolumes: async (orderedIds) => {
     const storyId = get().activeStoryId;
     if (!storyId) return;
-    db.reorderVolumes(storyId, orderedIds);
+    await db.reorderVolumes(storyId, orderedIds);
     set((state) => {
       const orderMap: Record<string, number> = {};
       orderedIds.forEach((id, i) => (orderMap[id] = i));
@@ -268,8 +268,8 @@ export const useStoryStore = create<StoryState>((set, get) => ({
     });
   },
 
-  deleteVolume: (volumeId) => {
-    db.deleteVolume(volumeId);
+  deleteVolume: async (volumeId) => {
+    await db.deleteVolume(volumeId);
     set((state) => {
       const newVolumes = state.volumes.filter((v) => v.id !== volumeId);
       // 获取该卷下所有章节的 ID
@@ -314,8 +314,8 @@ export const useStoryStore = create<StoryState>((set, get) => ({
     }));
   },
 
-  createChapter: (storyId, title, volumeId = null) => {
-    const ch = db.createChapter({ story_id: storyId, title, volume_id: volumeId ?? null });
+  createChapter: async (storyId, title, volumeId = null) => {
+    const ch = await db.createChapter({ story_id: storyId, title, volume_id: volumeId ?? null });
     set((state) => ({
       chapters: [...state.chapters, ch].sort((a, b) => a.order_index - b.order_index),
       activeChapterId: ch.id,
@@ -324,10 +324,10 @@ export const useStoryStore = create<StoryState>((set, get) => ({
     return ch.id;
   },
 
-  renameChapter: (chapterId, title) => {
+  renameChapter: async (chapterId, title) => {
     const trimmed = title.trim();
     if (!trimmed) return;
-    db.updateChapter(chapterId, { title: trimmed });
+    await db.updateChapter(chapterId, { title: trimmed });
     set((state) => ({
       chapters: state.chapters.map((c) =>
         c.id === chapterId ? { ...c, title: trimmed } : c,
@@ -335,10 +335,10 @@ export const useStoryStore = create<StoryState>((set, get) => ({
     }));
   },
 
-  reorderChapters: (orderedIds) => {
+  reorderChapters: async (orderedIds) => {
     const storyId = get().activeStoryId;
     if (!storyId) return;
-    db.reorderChapters(storyId, orderedIds);
+    await db.reorderChapters(storyId, orderedIds);
     set((state) => {
       const orderMap: Record<string, number> = {};
       orderedIds.forEach((id, i) => (orderMap[id] = i));
@@ -351,8 +351,8 @@ export const useStoryStore = create<StoryState>((set, get) => ({
     });
   },
 
-  deleteChapter: (chapterId) => {
-    db.deleteChapter(chapterId);
+  deleteChapter: async (chapterId) => {
+    await db.deleteChapter(chapterId);
     set((state) => {
       const newChapters = state.chapters.filter((c) => c.id !== chapterId);
       const newSections = state.sections.filter((s) => s.chapter_id !== chapterId);
@@ -389,8 +389,8 @@ export const useStoryStore = create<StoryState>((set, get) => ({
 
   setActiveChapter: (id) => set({ activeChapterId: id }),
 
-  createSection: (chapterId, title) => {
-    const sec = db.createSection({ chapter_id: chapterId, title });
+  createSection: async (chapterId, title) => {
+    const sec = await db.createSection({ chapter_id: chapterId, title });
     set((state) => ({
       sections: [...state.sections, sec].sort((a, b) => a.order_index - b.order_index),
       activeChapterId: chapterId,
@@ -399,10 +399,10 @@ export const useStoryStore = create<StoryState>((set, get) => ({
     return sec.id;
   },
 
-  renameSection: (sectionId, title) => {
+  renameSection: async (sectionId, title) => {
     const trimmed = title.trim();
     if (!trimmed) return;
-    db.updateSection(sectionId, { title: trimmed });
+    await db.updateSection(sectionId, { title: trimmed });
     set((state) => ({
       sections: state.sections.map((s) =>
         s.id === sectionId ? { ...s, title: trimmed } : s,
@@ -410,8 +410,8 @@ export const useStoryStore = create<StoryState>((set, get) => ({
     }));
   },
 
-  reorderSections: (chapterId, orderedIds) => {
-    db.reorderSections(chapterId, orderedIds);
+  reorderSections: async (chapterId, orderedIds) => {
+    await db.reorderSections(chapterId, orderedIds);
     set((state) => {
       const orderMap: Record<string, number> = {};
       orderedIds.forEach((id, i) => (orderMap[id] = i));
@@ -434,8 +434,8 @@ export const useStoryStore = create<StoryState>((set, get) => ({
     });
   },
 
-  deleteSection: (sectionId) => {
-    db.deleteSection(sectionId);
+  deleteSection: async (sectionId) => {
+    await db.deleteSection(sectionId);
     set((state) => {
       const newSections = state.sections.filter((s) => s.id !== sectionId);
       const newActive =
@@ -455,12 +455,12 @@ export const useStoryStore = create<StoryState>((set, get) => ({
   },
 
   // ---------- Outline 操作实现 ----------
-  loadOutlines: (storyId) => {
-    const rows = db.listOutlines(storyId);
+  loadOutlines: async (storyId) => {
+    const rows = await db.listOutlines(storyId);
     set({ outlines: rows, activeOutlineId: rows.length > 0 ? rows[0].id : null });
   },
 
-  createOutline: ({ title, target_type, target_id, parent_outline_id, body }) => {
+  createOutline: async ({ title, target_type, target_id, parent_outline_id, body }) => {
     const storyId = get().activeStoryId;
     if (!storyId) return '';
     const payload: OutlinePayload = {
@@ -470,7 +470,7 @@ export const useStoryStore = create<StoryState>((set, get) => ({
       parent_outline_id: parent_outline_id ?? null,
       body: body ?? '',
     };
-    const row = db.createOutline({
+    const row = await db.createOutline({
       story_id: storyId,
       content: stringifyOutlinePayload(payload),
     });
@@ -481,7 +481,7 @@ export const useStoryStore = create<StoryState>((set, get) => ({
     return row.id;
   },
 
-  updateOutline: (id, patch) => {
+  updateOutline: async (id, patch) => {
     const state = get();
     const row = state.outlines.find((o) => o.id === id);
     if (!row) return;
@@ -496,7 +496,7 @@ export const useStoryStore = create<StoryState>((set, get) => ({
           : existing.parent_outline_id,
       body: patch.body !== undefined ? patch.body : existing.body,
     };
-    db.updateOutline(id, { content: stringifyOutlinePayload(next) });
+    await db.updateOutline(id, { content: stringifyOutlinePayload(next) });
     set((s) => ({
       outlines: s.outlines.map((o) =>
         o.id === id
@@ -514,8 +514,8 @@ export const useStoryStore = create<StoryState>((set, get) => ({
     get().updateOutline(id, { title });
   },
 
-  deleteOutline: (id) => {
-    db.deleteOutline(id);
+  deleteOutline: async (id) => {
+    await db.deleteOutline(id);
     set((state) => {
       const remaining = state.outlines.filter((o) => o.id !== id);
       const nextActive =
@@ -530,7 +530,7 @@ export const useStoryStore = create<StoryState>((set, get) => ({
 
   setActiveOutline: (id) => set({ activeOutlineId: id }),
 
-  getOrCreateVolumeOutline: (volumeId, volumeTitle) => {
+  getOrCreateVolumeOutline: async (volumeId, volumeTitle) => {
     const state = get();
     const found = state.outlines.find((o) => {
       const p: OutlinePayload = parseOutlineContent(o.content);
@@ -540,7 +540,7 @@ export const useStoryStore = create<StoryState>((set, get) => ({
       set({ activeOutlineId: found.id });
       return found.id;
     }
-    return get().createOutline({
+    return await get().createOutline({
       title: `${volumeTitle} · 卷纲`,
       target_type: 'volume',
       target_id: volumeId,
@@ -548,7 +548,7 @@ export const useStoryStore = create<StoryState>((set, get) => ({
     });
   },
 
-  getOrCreateChapterOutline: (chapterId, chapterTitle) => {
+  getOrCreateChapterOutline: async (chapterId, chapterTitle) => {
     const state = get();
     const found = state.outlines.find((o) => {
       const p: OutlinePayload = parseOutlineContent(o.content);
@@ -558,7 +558,7 @@ export const useStoryStore = create<StoryState>((set, get) => ({
       set({ activeOutlineId: found.id });
       return found.id;
     }
-    return get().createOutline({
+    return await get().createOutline({
       title: `${chapterTitle} · 章纲`,
       target_type: 'chapter',
       target_id: chapterId,
@@ -567,7 +567,7 @@ export const useStoryStore = create<StoryState>((set, get) => ({
     });
   },
 
-  createOutlineVolume: (title) => {
+  createOutlineVolume: async (title) => {
     const storyId = get().activeStoryId;
     if (!storyId) return '';
     const payload: OutlinePayload = {
@@ -577,7 +577,7 @@ export const useStoryStore = create<StoryState>((set, get) => ({
       parent_outline_id: null,
       body: '',
     };
-    const row = db.createOutline({
+    const row = await db.createOutline({
       story_id: storyId,
       content: stringifyOutlinePayload(payload),
     });
@@ -588,7 +588,7 @@ export const useStoryStore = create<StoryState>((set, get) => ({
     return row.id;
   },
 
-  createOutlineChapter: (parentOutlineId, title) => {
+  createOutlineChapter: async (parentOutlineId, title) => {
     const storyId = get().activeStoryId;
     if (!storyId) return '';
     const payload: OutlinePayload = {
@@ -598,7 +598,7 @@ export const useStoryStore = create<StoryState>((set, get) => ({
       parent_outline_id: parentOutlineId,
       body: '',
     };
-    const row = db.createOutline({
+    const row = await db.createOutline({
       story_id: storyId,
       content: stringifyOutlinePayload(payload),
     });

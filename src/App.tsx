@@ -28,7 +28,10 @@ function App() {
   const [route, setRoute] = useState<Route>(activeStoryId ? 'editor' : 'home');
 
   useEffect(() => {
-    initDatabase();
+    const init = async () => {
+      await initDatabase();
+    };
+    init();
   }, []);
 
   useEffect(() => {

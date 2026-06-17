@@ -99,7 +99,19 @@ function ImportCharacterTemplateButton() {
   const updatePos = () => {
     if (btnRef.current) {
       const rect = btnRef.current.getBoundingClientRect();
-      setDropdownPos({ top: rect.bottom + 4, left: rect.left });
+      const dropdownWidth = 320;
+      const dropdownMaxHeight = 480;
+      let top = rect.bottom + 4;
+      let left = rect.left;
+      // 视口检测：右侧溢出则左对齐到按钮右边缘
+      if (left + dropdownWidth > window.innerWidth - 8) {
+        left = Math.max(8, rect.right - dropdownWidth);
+      }
+      // 下方溢出则向上弹出
+      if (top + dropdownMaxHeight > window.innerHeight - 8) {
+        top = Math.max(8, rect.top - dropdownMaxHeight - 4);
+      }
+      setDropdownPos({ top, left });
     }
   };
 
@@ -115,7 +127,7 @@ function ImportCharacterTemplateButton() {
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  const importOne = (t: { name: string; avatar?: string; personality?: string; attributes?: Record<string, string | number>; notes?: string; variants?: { id: string; name: string; url: string }[] }) => {
+  const importOne = async (t: { name: string; avatar?: string; personality?: string; attributes?: Record<string, string | number>; notes?: string; variants?: { id: string; name: string; url: string }[] }) => {
     if (!activeStoryId) return;
     const state = useMetaStore.getState();
     const baseName = (t.name || '角色').trim();
@@ -128,7 +140,7 @@ function ImportCharacterTemplateButton() {
       while (existsName(`${baseName}(${idx})`)) idx++;
       finalName = `${baseName}(${idx})`;
     }
-    const id = state.createCharacter(activeStoryId, finalName, true);
+    const id = await state.createCharacter(activeStoryId, finalName, true);
     state.updateCharacter(id, {
       avatar: t.avatar || '',
       personality: t.personality || '',
@@ -154,26 +166,36 @@ function ImportCharacterTemplateButton() {
     <button
       key={t.id}
       onClick={() => importOne(t as any)}
-      className="w-full text-left px-3 py-2 text-xs transition-colors"
-      style={{ color: 'var(--text-primary)' }}
-      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)' }}
+      className="w-full text-left px-3 py-2 transition-colors"
+      style={{ color: 'var(--text-primary)', borderRadius: 6 }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-bg)' }}
       onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
     >
       <div className="flex items-center gap-2">
         {t.avatar ? (
-          <img src={t.avatar} alt="" className="w-5 h-5 rounded-full object-cover shrink-0"
+          <img src={t.avatar} alt="" className="w-6 h-6 rounded-md object-cover shrink-0"
             onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
         ) : (
-          <div className="w-5 h-5 rounded-full shrink-0 flex items-center justify-center text-[10px]"
+          <div className="w-6 h-6 rounded-md shrink-0 flex items-center justify-center text-[11px]"
             style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}>
             {(t.name || '?').slice(0, 1)}
           </div>
         )}
-        <span className="truncate font-medium">{t.name}</span>
+        <span className="truncate font-bold" style={{ fontSize: 12 }}>
+          {t.is_preset ? '📚 ' : '🗂️ '}{t.name}
+        </span>
       </div>
       {t.personality && (
-        <div className="text-[10px] truncate mt-0.5 ml-7" style={{ color: 'var(--text-secondary)' }}>
-          {t.personality.slice(0, 40)}
+        <div className="mt-0.5 ml-8" style={{
+          fontSize: 11,
+          color: 'var(--text-secondary)',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          display: '-webkit-box',
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: 'vertical',
+        }}>
+          {t.personality.slice(0, 60)}
         </div>
       )}
     </button>
@@ -182,16 +204,17 @@ function ImportCharacterTemplateButton() {
   const dropdownContent = (
     <div
       ref={dropdownRef}
-      className="rounded-md shadow-lg"
       style={{
         position: 'fixed',
         top: dropdownPos.top,
         left: dropdownPos.left,
-        minWidth: 260,
-        maxHeight: 'min(400px, calc(100vh - 40px))',
+        minWidth: 320,
+        maxHeight: 'min(480px, calc(100vh - 80px))',
         zIndex: 9999,
         background: 'var(--bg-card)',
         border: '1px solid var(--border-color)',
+        borderRadius: 8,
+        boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
         display: 'flex',
         flexDirection: 'column',
       }}
@@ -207,15 +230,17 @@ function ImportCharacterTemplateButton() {
         />
       </div>
       {templates.length === 0 ? (
-        <div className="px-3 py-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
-          暂无模板，先到首页的「模板库」创建
+        <div className="px-3 py-6 text-center" style={{ color: 'var(--text-secondary)' }}>
+          <div className="text-2xl mb-2 opacity-40">🗂️</div>
+          <div className="text-xs">暂无模板，先到首页的「模板库」创建</div>
         </div>
       ) : filtered.length === 0 ? (
-        <div className="px-3 py-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
-          无匹配结果
+        <div className="px-3 py-6 text-center" style={{ color: 'var(--text-secondary)' }}>
+          <div className="text-2xl mb-2 opacity-40">🔍</div>
+          <div className="text-xs">没有找到匹配的模板</div>
         </div>
       ) : (
-        <div className="overflow-y-auto pb-1" style={{ maxHeight: 320 }}>
+        <div className="overflow-y-auto pb-1 px-1" style={{ maxHeight: 380 }}>
           {presetTemplates.length > 0 && (
             <>
               <div className="px-3 py-1 text-[10px] font-medium" style={{ color: 'var(--text-secondary)' }}>
@@ -265,6 +290,7 @@ function CharacterEditorModal({
   onClose: () => void;
   richTextEditorCommandsRef?: React.MutableRefObject<RichTextEditorCommands | null>;
 }) {
+  const activeStoryId = useStoryStore((s) => s.activeStoryId);
   const updateCharacter = useMetaStore((s) => s.updateCharacter);
   const deleteCharacter = useMetaStore((s) => s.deleteCharacter);
 
@@ -301,6 +327,7 @@ function CharacterEditorModal({
   const [newVariantName, setNewVariantName] = useState('');
   const [newVariantUrl, setNewVariantUrl] = useState('');
   const newVariantFileRef = useRef<HTMLInputElement | null>(null);
+  const batchUploadRef = useRef<HTMLInputElement | null>(null);
 
   const handleAddVariant = () => {
     const url = newVariantUrl.trim();
@@ -324,6 +351,37 @@ function CharacterEditorModal({
       }
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleBatchUpload = async (files: FileList) => {
+    const fileArray = Array.from(files).slice(0, 50);
+    if (fileArray.length === 0) return;
+    const items: { name: string; url: string }[] = [];
+    for (const file of fileArray) {
+      const dataUrl = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.readAsDataURL(file);
+      });
+      let finalUrl = dataUrl;
+      if (window.electronAPI?.saveImage) {
+        const savedPath = await window.electronAPI.saveImage(dataUrl);
+        finalUrl = savedPath || dataUrl;
+      }
+      const name = file.name.replace(/\.[^.]+$/, '');
+      items.push({ name, url: finalUrl });
+    }
+    if (window.dbAPI?.createCharacterVariantsBatch) {
+      await window.dbAPI.createCharacterVariantsBatch(character.id, items);
+    } else {
+      const state = useMetaStore.getState();
+      for (const item of items) {
+        state.addCharacterVariant(character.id, { name: item.name, url: item.url });
+      }
+    }
+    if (activeStoryId) {
+      useMetaStore.getState().loadMetaForStory(activeStoryId);
+    }
   };
 
   const moveVariant = (id: string, dir: -1 | 1) => {
@@ -654,6 +712,14 @@ function CharacterEditorModal({
               >
                 📁 上传
               </button>
+              <button
+                onClick={() => batchUploadRef.current?.click()}
+                className="text-xs px-2 py-1 rounded whitespace-nowrap"
+                style={{ background: 'var(--bg-sidebar)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                title="批量上传差分（最多50张）"
+              >
+                📂 批量上传
+              </button>
               <input
                 ref={newVariantFileRef}
                 type="file"
@@ -662,6 +728,18 @@ function CharacterEditorModal({
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) handleVariantFile(file);
+                  e.target.value = '';
+                }}
+              />
+              <input
+                ref={batchUploadRef}
+                type="file"
+                multiple
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const files = e.target.files;
+                  if (files && files.length > 0) handleBatchUpload(files);
                   e.target.value = '';
                 }}
               />

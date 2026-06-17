@@ -41,7 +41,7 @@ export function useSectionEditor(activeSectionId: string | null): UseSectionEdit
     // 再把当前节的内存内容写回数据库（兜底）
     const cur = useEditorStore.getState();
     if (cur.sectionId && cur.sectionContent != null) {
-      db.setSectionContent(cur.sectionId, cur.sectionContent);
+      db.setSectionContent(cur.sectionId, cur.sectionContent).catch(() => {});
     }
 
     // 加载新节到 editorStore
@@ -55,7 +55,7 @@ export function useSectionEditor(activeSectionId: string | null): UseSectionEdit
       flushDebouncedSave();
       const cur = useEditorStore.getState();
       if (cur.sectionId && cur.sectionContent != null) {
-        db.setSectionContent(cur.sectionId, cur.sectionContent);
+        db.setSectionContent(cur.sectionId, cur.sectionContent).catch(() => {});
       }
     };
     window.addEventListener('beforeunload', handler);
@@ -68,7 +68,7 @@ export function useSectionEditor(activeSectionId: string | null): UseSectionEdit
       flushDebouncedSave();
       const cur = useEditorStore.getState();
       if (cur.sectionId && cur.sectionContent != null) {
-        db.setSectionContent(cur.sectionId, cur.sectionContent);
+        db.setSectionContent(cur.sectionId, cur.sectionContent).catch(() => {});
       }
     };
   }, []);
@@ -84,7 +84,7 @@ export function flushCurrentSection(): void {
   flushDebouncedSave();
   const cur = useEditorStore.getState();
   if (cur.sectionId && cur.sectionContent != null) {
-    db.setSectionContent(cur.sectionId, cur.sectionContent);
+    db.setSectionContent(cur.sectionId, cur.sectionContent).catch(() => {});
     cur.markSaved?.();
   }
 }

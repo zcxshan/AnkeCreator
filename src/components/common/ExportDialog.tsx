@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useStoryStore } from '../../store/storyStore';
 import { useMetaStore } from '../../store/metaStore';
 import { exportSectionToNGA } from '../../utils/ngaExporter';
@@ -19,16 +19,31 @@ export function ExportDialog({ onClose, activeSectionId }: ExportDialogProps) {
   const story = stories.find((s) => s.id === activeStoryId);
 
   // 从数据库拉当前节：复用 getStoryWithAll 找到对应 section（数据量小）
-  const sectionRow = useMemo<Section | null>(() => {
-    if (!activeStoryId || !activeSectionId) return null;
-    const full = db.getStoryWithAll(activeStoryId);
-    if (!full) return null;
-    for (const ch of full.chapters) {
-      for (const sec of ch.sections) {
-        if (sec.id === activeSectionId) return sec;
-      }
+  const [sectionRow, setSectionRow] = useState<Section | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!activeStoryId || !activeSectionId) {
+      setSectionRow(null);
+      return;
     }
-    return null;
+    db.getStoryWithAll(activeStoryId).then((full) => {
+      if (cancelled) return;
+      if (!full) {
+        setSectionRow(null);
+        return;
+      }
+      for (const ch of full.chapters) {
+        for (const sec of ch.sections) {
+          if (sec.id === activeSectionId) {
+            setSectionRow(sec);
+            return;
+          }
+        }
+      }
+      setSectionRow(null);
+    }).catch(() => {});
+    return () => { cancelled = true; };
   }, [activeStoryId, activeSectionId]);
 
   const result = useMemo(() => {

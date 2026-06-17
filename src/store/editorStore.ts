@@ -85,7 +85,7 @@ function scheduleDebouncedSave(sectionId: string, content: string): void {
   }
   debouncedSaveTimer = window.setTimeout(() => {
     if (pendingSaveSectionId !== null && pendingSaveContent !== null) {
-      db.setSectionContent(pendingSaveSectionId, pendingSaveContent);
+      db.setSectionContent(pendingSaveSectionId, pendingSaveContent).catch(() => {});
       const state = useEditorStore.getState();
       state.markSaved();
     }
@@ -101,7 +101,7 @@ export function flushDebouncedSave(): void {
     debouncedSaveTimer = null;
   }
   if (pendingSaveSectionId !== null && pendingSaveContent !== null) {
-    db.setSectionContent(pendingSaveSectionId, pendingSaveContent);
+    db.setSectionContent(pendingSaveSectionId, pendingSaveContent).catch(() => {});
     const state = useEditorStore.getState();
     state.markSaved();
     pendingSaveSectionId = null;
@@ -146,21 +146,21 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   saveStatus: 'idle',
   lastSavedAt: null,
 
-  loadSection: (sectionId) => {
+  loadSection: async (sectionId) => {
     // 切换节之前：先把挂起的防抖保存 flush 到数据库
     flushDebouncedSave();
     // 再把当前节的内存 content 写回数据库（兜底）
     const cur = get();
     if (cur.sectionId && cur.sectionContent != null) {
-      db.setSectionContent(cur.sectionId, cur.sectionContent);
+      await db.setSectionContent(cur.sectionId, cur.sectionContent);
     }
     if (!sectionId) {
       set({ sectionId: null, blocks: [], selectedBlockId: null, sectionContent: null });
       return;
     }
     if (get().sectionId === sectionId) return;
-    const blocks = db.listBlocks(sectionId);
-    const content = db.getSectionContent(sectionId);
+    const blocks = await db.listBlocks(sectionId);
+    const content = await db.getSectionContent(sectionId);
     set({
       sectionId,
       blocks,
@@ -169,12 +169,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     });
   },
 
-  loadSectionContent: (sectionId) => {
+  loadSectionContent: async (sectionId) => {
     if (!sectionId) {
       set({ sectionContent: null });
       return;
     }
-    const content = db.getSectionContent(sectionId);
+    const content = await db.getSectionContent(sectionId);
     set({ sectionContent: content });
   },
 
@@ -187,40 +187,40 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
   },
 
-  flushSectionContent: () => {
+  flushSectionContent: async () => {
     flushDebouncedSave();
     const { sectionId, sectionContent } = get();
     if (!sectionId) return;
-    db.setSectionContent(sectionId, sectionContent);
+    await db.setSectionContent(sectionId, sectionContent);
     get().markSaved();
   },
 
-  addTextBlock: (text = '') => {
+  addTextBlock: async (text = '') => {
     const { sectionId } = get();
     if (!sectionId) return;
     const payload: TextBlockPayload = {
       text,
       styles: { ...get().toolbarStyles },
     };
-    const block = db.createTextBlock(sectionId, payload);
+    const block = await db.createTextBlock(sectionId, payload);
     set((state) => ({
       blocks: [...state.blocks, block].sort((a, b) => a.order_index - b.order_index),
       selectedBlockId: block.id,
     }));
   },
 
-  addImageBlock: (src) => {
+  addImageBlock: async (src) => {
     const { sectionId } = get();
     if (!sectionId) return;
     const payload: ImageBlockPayload = { src };
-    const block = db.createImageBlock(sectionId, payload);
+    const block = await db.createImageBlock(sectionId, payload);
     set((state) => ({
       blocks: [...state.blocks, block].sort((a, b) => a.order_index - b.order_index),
       selectedBlockId: block.id,
     }));
   },
 
-  addDiceBlock: (diceType) => {
+  addDiceBlock: async (diceType) => {
     const { sectionId } = get();
     if (!sectionId) return;
     const payload: DiceBlockPayload = {
@@ -228,7 +228,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       last_roll: null,
       options: defaultDiceOptions(diceType),
     };
-    const block = db.createDiceBlock(sectionId, payload);
+    const block = await db.createDiceBlock(sectionId, payload);
     set((state) => ({
       blocks: [...state.blocks, block].sort((a, b) => a.order_index - b.order_index),
       selectedBlockId: block.id,
@@ -236,18 +236,18 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   // —— 新一代骰子：通过 V2 payload 创建骰子块 ——
-  addDiceBlockV2: (payload) => {
+  addDiceBlockV2: async (payload) => {
     const { sectionId } = get();
     if (!sectionId) return;
-    const block = db.createDiceBlock(sectionId, payload);
+    const block = await db.createDiceBlock(sectionId, payload);
     set((state) => ({
       blocks: [...state.blocks, block].sort((a, b) => a.order_index - b.order_index),
       selectedBlockId: block.id,
     }));
   },
 
-  updateBlockPayload: (blockId, payload) => {
-    db.updateBlockPayload(blockId, payload);
+  updateBlockPayload: async (blockId, payload) => {
+    await db.updateBlockPayload(blockId, payload);
     set((state) => ({
       blocks: state.blocks.map((b) =>
         b.id === blockId ? ({ ...b, payload } as AnyContentBlock) : b,
@@ -255,18 +255,18 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }));
   },
 
-  deleteBlock: (blockId) => {
-    db.deleteBlock(blockId);
+  deleteBlock: async (blockId) => {
+    await db.deleteBlock(blockId);
     set((state) => ({
       blocks: state.blocks.filter((b) => b.id !== blockId),
       selectedBlockId: state.selectedBlockId === blockId ? null : state.selectedBlockId,
     }));
   },
 
-  reorderBlocks: (orderedIds) => {
+  reorderBlocks: async (orderedIds) => {
     const { sectionId } = get();
     if (!sectionId) return;
-    db.reorderBlocks(sectionId, orderedIds);
+    await db.reorderBlocks(sectionId, orderedIds);
     set((state) => {
       const orderMap: Record<string, number> = {};
       orderedIds.forEach((id, i) => (orderMap[id] = i));

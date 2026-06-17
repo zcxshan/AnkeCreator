@@ -6,6 +6,10 @@
   "author": "点点星辰",
   "license": "MIT",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:zcxshan/AnkeCreator.git"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build && electron-builder",
@@ -51,6 +55,10 @@
       "dist/**/*",
       "dist-electron/**/*"
     ],
+    "asar": true,
+    "compression": "maximum",
+    "removePackageScripts": true,
+    "electronLanguages": ["zh-CN"],
     "win": {
       "icon": "build/icon.png",
       "target": "nsis"

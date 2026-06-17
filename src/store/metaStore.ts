@@ -53,72 +53,72 @@ interface MetaState {
   setActiveView: (view: MetaView) => void;
 
   // —— 加载（在故事切换时调用）——
-  loadMetaForStory: (storyId: string) => void;
+  loadMetaForStory: (storyId: string) => Promise<void>;
   clearMeta: () => void;
 
   // —— 世界观设定 ——
-  createWorldSetting: (storyId: string, title?: string, content?: string) => string;
-  updateWorldSetting: (id: string, patch: Partial<Pick<WorldSetting, 'title' | 'content'>>) => void;
-  deleteWorldSetting: (id: string) => void;
+  createWorldSetting: (storyId: string, title?: string, content?: string) => Promise<string>;
+  updateWorldSetting: (id: string, patch: Partial<Pick<WorldSetting, 'title' | 'content'>>) => Promise<void>;
+  deleteWorldSetting: (id: string) => Promise<void>;
   setEditingWorldId: (id: string | null) => void;
-  reorderWorldSettings: (orderedIds: string[]) => void;
+  reorderWorldSettings: (orderedIds: string[]) => Promise<void>;
 
   // —— 角色 ——
-  createCharacter: (storyId: string, name?: string, skipEditor?: boolean) => string;
+  createCharacter: (storyId: string, name?: string, skipEditor?: boolean) => Promise<string>;
   updateCharacter: (
     id: string,
     patch: Partial<Pick<Character, 'name' | 'avatar' | 'personality' | 'attributes' | 'notes'>>,
-  ) => void;
-  deleteCharacter: (id: string) => void;
+  ) => Promise<void>;
+  deleteCharacter: (id: string) => Promise<void>;
   setEditingCharacter: (id: string | null) => void;
   toggleCharacterEditor: (show: boolean) => void;
-  reorderCharacters: (orderedIds: string[]) => void;
+  reorderCharacters: (orderedIds: string[]) => Promise<void>;
 
   // —— 角色差分 ——
   addCharacterVariant: (
     characterId: string,
     data: { name: string; url: string },
-  ) => string;
+  ) => Promise<string>;
   updateCharacterVariant: (
     id: string,
     patch: Partial<Pick<CharacterVariant, 'name' | 'url'>>,
-  ) => void;
-  deleteCharacterVariant: (id: string) => void;
-  reorderCharacterVariants: (characterId: string, orderedIds: string[]) => void;
+  ) => Promise<void>;
+  deleteCharacterVariant: (id: string) => Promise<void>;
+  reorderCharacterVariants: (characterId: string, orderedIds: string[]) => Promise<void>;
 
   // —— 人物关系 ——
-  loadRelations: (storyId: string) => void;
+  loadRelations: (storyId: string) => Promise<void>;
   createRelation: (data: {
     story_id: string;
     source_id: string;
     target_id: string;
     relation: string;
     note?: string;
-  }) => string;
+  }) => Promise<string>;
   updateRelation: (
     id: string,
     patch: Partial<Pick<CharacterRelation, 'source_id' | 'target_id' | 'relation' | 'note' | 'order_index'>>,
-  ) => void;
-  deleteRelation: (id: string) => void;
+  ) => Promise<void>;
+  deleteRelation: (id: string) => Promise<void>;
 
   // —— 大纲 ——
-  createOutline: (storyId: string, content?: string) => string;
-  updateOutline: (id: string, patch: Partial<Pick<Outline, 'content'>>) => void;
-  deleteOutline: (id: string) => void;
-  reorderOutlines: (orderedIds: string[]) => void;
+  createOutline: (storyId: string, content?: string) => Promise<string>;
+  updateOutline: (id: string, patch: Partial<Pick<Outline, 'content'>>) => Promise<void>;
+  deleteOutline: (id: string) => Promise<void>;
+  reorderOutlines: (orderedIds: string[]) => Promise<void>;
 
   // —— 模板 ——
-  loadTemplates: () => void;
+  loadTemplates: () => Promise<void>;
   clearTemplates: () => void;
   // 世界观模板
   createWorldSettingTemplate: (
     data: { title: string; content?: string },
-  ) => string;
+  ) => Promise<string>;
   updateWorldSettingTemplate: (
     id: string,
     patch: Partial<Pick<WorldSettingTemplate, 'title' | 'content'>>,
-  ) => void;
-  deleteWorldSettingTemplate: (id: string) => void;
+  ) => Promise<void>;
+  deleteWorldSettingTemplate: (id: string) => Promise<void>;
   // 人物模板
   createCharacterTemplate: (data: {
     name: string;
@@ -127,7 +127,7 @@ interface MetaState {
     attributes?: Record<string, string | number>;
     notes?: string;
     variants?: CharacterVariant[];
-  }) => string;
+  }) => Promise<string>;
   updateCharacterTemplate: (
     id: string,
     patch: Partial<
@@ -136,8 +136,8 @@ interface MetaState {
         'name' | 'avatar' | 'personality' | 'attributes' | 'notes' | 'variants'
       >
     >,
-  ) => void;
-  deleteCharacterTemplate: (id: string) => void;
+  ) => Promise<void>;
+  deleteCharacterTemplate: (id: string) => Promise<void>;
 }
 
 function nowOrder() {
@@ -189,15 +189,15 @@ export const useMetaStore = create<MetaState>((set, get) => ({
   setActiveView: (view) => set({ activeView: view }),
 
   // —— 加载 ——
-  loadMetaForStory: (storyId) => {
+  loadMetaForStory: async (storyId) => {
     if (!storyId) {
       get().clearMeta();
       return;
     }
-    const worldSettings = db.listWorldSettings(storyId);
-    const characters = db.listCharacters(storyId);
-    const outlines = db.listOutlines(storyId);
-    const relations = db.listCharacterRelations(storyId).map(rowToRelation);
+    const worldSettings = await db.listWorldSettings(storyId);
+    const characters = await db.listCharacters(storyId);
+    const outlines = await db.listOutlines(storyId);
+    const relations = (await db.listCharacterRelations(storyId)).map(rowToRelation);
     set({
       worldSettings,
       characters,
@@ -221,9 +221,9 @@ export const useMetaStore = create<MetaState>((set, get) => ({
     }),
 
   // —— 世界观设定 ——
-  createWorldSetting: (storyId, title, content) => {
+  createWorldSetting: async (storyId, title, content) => {
     const t = title?.trim() || defaultWorldTitle(get().worldSettings);
-    const row = db.createWorldSetting({
+    const row = await db.createWorldSetting({
       story_id: storyId,
       title: t,
       content: content || '',
@@ -235,8 +235,8 @@ export const useMetaStore = create<MetaState>((set, get) => ({
     return row.id;
   },
 
-  updateWorldSetting: (id, patch) => {
-    db.updateWorldSetting(id, patch);
+  updateWorldSetting: async (id, patch) => {
+    await db.updateWorldSetting(id, patch);
     set((state) => ({
       worldSettings: state.worldSettings.map((w) =>
         w.id === id ? { ...w, ...patch } : w,
@@ -244,8 +244,8 @@ export const useMetaStore = create<MetaState>((set, get) => ({
     }));
   },
 
-  deleteWorldSetting: (id) => {
-    db.deleteWorldSetting(id);
+  deleteWorldSetting: async (id) => {
+    await db.deleteWorldSetting(id);
     set((state) => ({
       worldSettings: state.worldSettings.filter((w) => w.id !== id),
       editingWorldId: state.editingWorldId === id ? null : state.editingWorldId,
@@ -254,9 +254,9 @@ export const useMetaStore = create<MetaState>((set, get) => ({
 
   setEditingWorldId: (id) => set({ editingWorldId: id }),
 
-  reorderWorldSettings: (orderedIds) => {
-    orderedIds.forEach((id, i) => {
-      db.updateWorldSetting(id, { order_index: i });
+  reorderWorldSettings: async (orderedIds) => {
+    orderedIds.forEach(async (id, i) => {
+      await db.updateWorldSetting(id, { order_index: i });
     });
     set((state) => {
       const orderMap: Record<string, number> = {};
@@ -270,7 +270,7 @@ export const useMetaStore = create<MetaState>((set, get) => ({
   },
 
   // —— 角色 ——
-  createCharacter: (storyId, name, skipEditor) => {
+  createCharacter: async (storyId, name, skipEditor) => {
     const n = name?.trim() || defaultCharacterName(get().characters);
     // 检查名称唯一性
     const existing = get().characters.find(
@@ -281,7 +281,7 @@ export const useMetaStore = create<MetaState>((set, get) => ({
       set({ editingCharacterId: skipEditor ? null : existing.id, showCharacterEditor: !skipEditor });
       return existing.id;
     }
-    const row = db.createCharacter({
+    const row = await db.createCharacter({
       story_id: storyId,
       name: n,
       avatar: '',
@@ -297,8 +297,8 @@ export const useMetaStore = create<MetaState>((set, get) => ({
     return row.id;
   },
 
-  updateCharacter: (id, patch) => {
-    db.updateCharacter(id, patch);
+  updateCharacter: async (id, patch) => {
+    await db.updateCharacter(id, patch);
     set((state) => ({
       characters: state.characters.map((c) =>
         c.id === id ? { ...c, ...patch } : c,
@@ -306,8 +306,8 @@ export const useMetaStore = create<MetaState>((set, get) => ({
     }));
   },
 
-  deleteCharacter: (id) => {
-    db.deleteCharacter(id);
+  deleteCharacter: async (id) => {
+    await db.deleteCharacter(id);
     set((state) => ({
       characters: state.characters.filter((c) => c.id !== id),
       editingCharacterId: state.editingCharacterId === id ? null : state.editingCharacterId,
@@ -318,9 +318,9 @@ export const useMetaStore = create<MetaState>((set, get) => ({
 
   toggleCharacterEditor: (show) => set({ showCharacterEditor: show }),
 
-  reorderCharacters: (orderedIds) => {
-    orderedIds.forEach((id, i) => {
-      db.updateCharacter(id, { order_index: i });
+  reorderCharacters: async (orderedIds) => {
+    orderedIds.forEach(async (id, i) => {
+      await db.updateCharacter(id, { order_index: i });
     });
     set((state) => {
       const orderMap: Record<string, number> = {};
@@ -334,10 +334,10 @@ export const useMetaStore = create<MetaState>((set, get) => ({
   },
 
   // —— 角色差分 ——
-  addCharacterVariant: (characterId, data) => {
+  addCharacterVariant: async (characterId, data) => {
     const name = (data.name || '').trim() || '差分';
     const url = data.url || '';
-    const row = db.createCharacterVariant({ character_id: characterId, name, url });
+    const row = await db.createCharacterVariant({ character_id: characterId, name, url });
     set((state) => ({
       characters: state.characters.map((c) =>
         c.id === characterId
@@ -348,8 +348,8 @@ export const useMetaStore = create<MetaState>((set, get) => ({
     return row.id;
   },
 
-  updateCharacterVariant: (id, patch) => {
-    db.updateCharacterVariant(id, patch);
+  updateCharacterVariant: async (id, patch) => {
+    await db.updateCharacterVariant(id, patch);
     set((state) => ({
       characters: state.characters.map((c) => {
         if (!c.variants) return c;
@@ -363,8 +363,8 @@ export const useMetaStore = create<MetaState>((set, get) => ({
     }));
   },
 
-  deleteCharacterVariant: (id) => {
-    db.deleteCharacterVariant(id);
+  deleteCharacterVariant: async (id) => {
+    await db.deleteCharacterVariant(id);
     set((state) => ({
       characters: state.characters.map((c) => {
         if (!c.variants) return c;
@@ -373,8 +373,8 @@ export const useMetaStore = create<MetaState>((set, get) => ({
     }));
   },
 
-  reorderCharacterVariants: (characterId, orderedIds) => {
-    db.reorderCharacterVariants(characterId, orderedIds);
+  reorderCharacterVariants: async (characterId, orderedIds) => {
+    await db.reorderCharacterVariants(characterId, orderedIds);
     set((state) => ({
       characters: state.characters.map((c) => {
         if (c.id !== characterId || !c.variants) return c;
@@ -394,8 +394,8 @@ export const useMetaStore = create<MetaState>((set, get) => ({
   },
 
   // —— 大纲 ——
-  createOutline: (storyId, content) => {
-    const row = db.createOutline({
+  createOutline: async (storyId, content) => {
+    const row = await db.createOutline({
       story_id: storyId,
       content: content || '',
     });
@@ -406,11 +406,11 @@ export const useMetaStore = create<MetaState>((set, get) => ({
   },
 
   // —— 人物关系 ——
-  loadRelations: (storyId) => {
-    set({ relations: db.listCharacterRelations(storyId).map(rowToRelation) });
+  loadRelations: async (storyId) => {
+    set({ relations: (await db.listCharacterRelations(storyId)).map(rowToRelation) });
   },
-  createRelation: (data) => {
-    const row = db.createCharacterRelation({
+  createRelation: async (data) => {
+    const row = await db.createCharacterRelation({
       story_id: data.story_id,
       source_id: data.source_id,
       target_id: data.target_id,
@@ -420,21 +420,21 @@ export const useMetaStore = create<MetaState>((set, get) => ({
     set((state) => ({ relations: [...state.relations, rowToRelation(row)] }));
     return row.id;
   },
-  updateRelation: (id, patch) => {
-    db.updateCharacterRelation(id, patch);
+  updateRelation: async (id, patch) => {
+    await db.updateCharacterRelation(id, patch);
     set((state) => ({
       relations: state.relations.map((r) =>
         r.id === id ? { ...r, ...patch, updated_at: new Date().toISOString() } : r,
       ),
     }));
   },
-  deleteRelation: (id) => {
-    db.deleteCharacterRelation(id);
+  deleteRelation: async (id) => {
+    await db.deleteCharacterRelation(id);
     set((state) => ({ relations: state.relations.filter((r) => r.id !== id) }));
   },
 
-  updateOutline: (id, patch) => {
-    db.updateOutline(id, patch);
+  updateOutline: async (id, patch) => {
+    await db.updateOutline(id, patch);
     set((state) => ({
       outlines: state.outlines.map((o) =>
         o.id === id ? { ...o, ...patch } : o,
@@ -442,16 +442,16 @@ export const useMetaStore = create<MetaState>((set, get) => ({
     }));
   },
 
-  deleteOutline: (id) => {
-    db.deleteOutline(id);
+  deleteOutline: async (id) => {
+    await db.deleteOutline(id);
     set((state) => ({
       outlines: state.outlines.filter((o) => o.id !== id),
     }));
   },
 
-  reorderOutlines: (orderedIds) => {
-    orderedIds.forEach((id, i) => {
-      db.updateOutline(id, { order_index: i });
+  reorderOutlines: async (orderedIds) => {
+    orderedIds.forEach(async (id, i) => {
+      await db.updateOutline(id, { order_index: i });
     });
     set((state) => {
       const orderMap: Record<string, number> = {};
@@ -465,17 +465,17 @@ export const useMetaStore = create<MetaState>((set, get) => ({
   },
 
   // —— 模板 ——
-  loadTemplates: () => {
-    const worldSettingTemplates = db.listWorldSettingTemplates();
-    const characterTemplates = db.listCharacterTemplates();
+  loadTemplates: async () => {
+    const worldSettingTemplates = await db.listWorldSettingTemplates();
+    const characterTemplates = await db.listCharacterTemplates();
     set({ worldSettingTemplates, characterTemplates });
   },
   clearTemplates: () =>
     set({ worldSettingTemplates: [], characterTemplates: [] }),
 
   // 世界观模板
-  createWorldSettingTemplate: (data) => {
-    const row = db.createWorldSettingTemplate({
+  createWorldSettingTemplate: async (data) => {
+    const row = await db.createWorldSettingTemplate({
       title: data.title?.trim() || '未命名模板',
       content: data.content || '',
     });
@@ -484,24 +484,24 @@ export const useMetaStore = create<MetaState>((set, get) => ({
     }));
     return row.id;
   },
-  updateWorldSettingTemplate: (id, patch) => {
-    db.updateWorldSettingTemplate(id, patch);
+  updateWorldSettingTemplate: async (id, patch) => {
+    await db.updateWorldSettingTemplate(id, patch);
     set((state) => ({
       worldSettingTemplates: state.worldSettingTemplates.map((t) =>
         t.id === id ? { ...t, ...patch, updated_at: new Date().toISOString() } : t,
       ),
     }));
   },
-  deleteWorldSettingTemplate: (id) => {
-    db.deleteWorldSettingTemplate(id);
+  deleteWorldSettingTemplate: async (id) => {
+    await db.deleteWorldSettingTemplate(id);
     set((state) => ({
       worldSettingTemplates: state.worldSettingTemplates.filter((t) => t.id !== id),
     }));
   },
 
   // 人物模板
-  createCharacterTemplate: (data) => {
-    const row = db.createCharacterTemplate({
+  createCharacterTemplate: async (data) => {
+    const row = await db.createCharacterTemplate({
       name: data.name?.trim() || '未命名人物模板',
       avatar: data.avatar || '',
       personality: data.personality || '',
@@ -514,16 +514,16 @@ export const useMetaStore = create<MetaState>((set, get) => ({
     }));
     return row.id;
   },
-  updateCharacterTemplate: (id, patch) => {
-    db.updateCharacterTemplate(id, patch);
+  updateCharacterTemplate: async (id, patch) => {
+    await db.updateCharacterTemplate(id, patch);
     set((state) => ({
       characterTemplates: state.characterTemplates.map((t) =>
         t.id === id ? { ...t, ...patch, updated_at: new Date().toISOString() } : t,
       ),
     }));
   },
-  deleteCharacterTemplate: (id) => {
-    db.deleteCharacterTemplate(id);
+  deleteCharacterTemplate: async (id) => {
+    await db.deleteCharacterTemplate(id);
     set((state) => ({
       characterTemplates: state.characterTemplates.filter((t) => t.id !== id),
     }));

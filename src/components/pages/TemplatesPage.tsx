@@ -106,8 +106,8 @@ function WorldTemplatesPanel() {
   const [editing, setEditing] = useState<WorldSettingTemplate | null>(null);
   const [creating, setCreating] = useState(false);
 
-  const handleCreate = () => {
-    const id = create({ title: '新的世界观模板', content: '' });
+  const handleCreate = async () => {
+    const id = await create({ title: '新的世界观模板', content: '' });
     const t = useMetaStore.getState().worldSettingTemplates.find((x) => x.id === id);
     if (t) setEditing(t);
     setCreating(false);
@@ -281,8 +281,8 @@ function CharacterTemplatesPanel() {
 
   const [editing, setEditing] = useState<CharacterTemplate | null>(null);
 
-  const handleCreate = () => {
-    const id = create({ name: '新人物模板' });
+  const handleCreate = async () => {
+    const id = await create({ name: '新人物模板' });
     const t = useMetaStore.getState().characterTemplates.find((x) => x.id === id);
     if (t) setEditing(t);
   };

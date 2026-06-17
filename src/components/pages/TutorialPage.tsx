@@ -25,11 +25,11 @@ const TUTORIAL_TOPICS: TutorialTopic[] = [
     title: '基础操作',
     summary: '创建作品、编辑段落、插入骰子',
     steps: [
-      { title: '1. 创建你的第一个安科作品', description: '在首页点击「新建安科」，输入标题后点击「创建」。新建的作品会自动保存，下次启动应用时可以从「已有作品」中重新打开。' },
+      { title: '1. 创建你的第一个安科作品', description: '在首页点击「新建安科」，输入标题后点击「创建」。新建的作品会自动保存，下次启动应用时可以从「我的作品」中重新打开。' },
       { title: '2. 编辑正文内容', description: '在编辑器中，每个章节都有独立的富文本编辑区。直接输入文字，按回车键换行。点击上方工具栏可以设置加粗、斜体、删除线、文本颜色等样式。' },
       { title: '3. 插入骰子', description: '在工具栏找到「🎲 骰子」按钮，点击后弹出骰子配置面板。选择数值骰子或选项骰子。数值骰子支持简单模式（NdM±K）和表达式模式（四则运算，如 <code>2*3d100</code>、<code>1d10+2d50</code>、<code>1d100+50</code>），选项骰子可自定义面数和选项命中内容。配置后点击确定，骰子卡片会插入到光标位置。点击卡片上的「投掷」按钮即可模拟掷骰。' },
       { title: '4. 管理章节', description: '左侧章节列表可以新增（「+ 新章节」）、重命名（点击章节标题编辑）、删除和调整顺序。点击章节会切换到该章节的编辑内容。' },
-      { title: '5. 保存你的作品', description: '内容修改后会自动保存。可以点击左上角的「← 返回首页」回到作品列表，作品不会丢失。所有数据保存在本地 SQLite 数据库中。' },
+      { title: '5. 保存你的作品', description: '内容修改后会自动保存。可以点击左上角的「← 返回首页」回到作品列表，作品不会丢失。所有数据自动保存在本地数据目录中。' },
     ],
   },
   {
@@ -126,6 +126,18 @@ const TUTORIAL_TOPICS: TutorialTopic[] = [
       { title: '3. 删除原子块', description: '选中图片/骰子/折叠/代码块后按 Delete 或 Backspace 键可以删除。对于折叠块，建议先展开查看内容再决定是否删除，防止误删重要信息。' },
     ],
   },
+  {
+    id: 'backup',
+    icon: '💾',
+    title: '数据备份与迁移',
+    summary: '导出作品、导入还原、批量差分上传',
+    steps: [
+      { title: '1. 导出作品数据', description: '在「我的作品」列表中，点击作品卡片上的菜单按钮，选择「导出」。系统会将该作品的完整数据（包括章节正文、世界观设定、人物角色及差分、大纲等）打包为一个 <code>.anke.json</code> 文件下载到本地。' },
+      { title: '2. 导入作品数据', description: '在「我的作品」页面顶部，点击「📥 导入作品」按钮，选择之前导出的 <code>.anke.json</code> 文件。系统会自动创建一个新作品并还原所有数据，包括章节结构、正文内容、人物差分和世界观设定等。导入的作品标题会自动添加「(导入)」后缀。' },
+      { title: '3. 批量上传差分', description: '在人物角色编辑面板中，差分管理区域新增了「📂 批量上传」按钮。点击后可一次选择多张图片（最多 50 张），系统会自动以文件名作为差分名称批量创建。适合一次性导入大量表情差分或服装变体。' },
+      { title: '4. 数据存储位置', description: '所有创作数据自动保存在应用数据目录下的 <code>AnkeCreatorData</code> 文件夹中（Windows 路径：<code>%APPDATA%/AnkeCreator/AnkeCreatorData</code>）。每个数据表对应一个 JSON 文件，采用原子写入确保数据安全。如需整体备份，可直接复制该文件夹。' },
+    ],
+  },
 ];
 
 export function TutorialPage({ onBack, onShowAuthor }: TutorialPageProps) {
@@ -169,7 +181,7 @@ export function TutorialPage({ onBack, onShowAuthor }: TutorialPageProps) {
         >
           <div className="text-sm font-semibold mb-1" style={{ color: 'var(--accent)' }}>快速上手</div>
           <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-            点击下方任意主题卡片展开详细步骤指南，共 9 个主题，涵盖从创建作品到导出 NGA BBCode 的完整创作流程。
+            点击下方任意主题卡片展开详细步骤指南，共 10 个主题，涵盖从创建作品到导出 NGA BBCode 的完整创作流程。
           </div>
         </div>
 

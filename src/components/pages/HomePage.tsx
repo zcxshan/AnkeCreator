@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useStoryStore } from '../../store/storyStore';
 import * as db from '../../db/database';
 
@@ -52,56 +52,77 @@ export function HomePage({ onOpenStory, onShowWorks, onShowTemplates, onShowTuto
   const [newStoryDescription, setNewStoryDescription] = useState('');
 
   // 统计数据：所有作品的字数、骰点数、作品数（基于富文本 content 字段）
-  const stats = useMemo<StatItem[]>(() => {
-    let totalWords = 0;
-    let totalDice = 0;
-    const storyCount = stories.length;
+  const [stats, setStats] = useState<StatItem[]>([
+    { icon: '📝', label: '累计创作字数', value: '0' },
+    { icon: '🎲', label: '骰点总次数', value: '0' },
+    { icon: '📚', label: '安科作品数', value: '0' },
+  ]);
 
-    stories.forEach((story) => {
-      const chapters = db.listChapters(story.id);
-      chapters.forEach((chapter) => {
-        const sections = db.listSections(chapter.id);
-        sections.forEach((section) => {
-          const content = section.content;
-          if (content) {
-            const { words, dice } = countContent(content);
-            totalWords += words;
-            totalDice += dice;
+  useEffect(() => {
+    let cancelled = false;
+    const compute = async () => {
+      let totalWords = 0;
+      let totalDice = 0;
+      const storyCount = stories.length;
+
+      for (const story of stories) {
+        const chapters = await db.listChapters(story.id);
+        for (const chapter of chapters) {
+          const sections = await db.listSections(chapter.id);
+          for (const section of sections) {
+            const content = section.content;
+            if (content) {
+              const { words, dice } = countContent(content);
+              totalWords += words;
+              totalDice += dice;
+            }
           }
-        });
-      });
-    });
+        }
+      }
 
-    return [
-      { icon: '📝', label: '累计创作字数', value: totalWords.toLocaleString() },
-      { icon: '🎲', label: '骰点总次数', value: totalDice.toLocaleString() },
-      { icon: '📚', label: '安科作品数', value: storyCount.toLocaleString() },
-    ];
+      if (!cancelled) {
+        setStats([
+          { icon: '📝', label: '累计创作字数', value: totalWords.toLocaleString() },
+          { icon: '🎲', label: '骰点总次数', value: totalDice.toLocaleString() },
+          { icon: '📚', label: '安科作品数', value: storyCount.toLocaleString() },
+        ]);
+      }
+    };
+    compute();
+    return () => {
+      cancelled = true;
+    };
   }, [stories]);
 
   // 最近编辑的作品摘要（最多 3 个）
-  const recentStories = useMemo<RecentStorySummary[]>(() => {
-    return [...stories]
-      .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
-      .slice(0, 3)
-      .map((story) => {
+  const [recentStories, setRecentStories] = useState<RecentStorySummary[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const compute = async () => {
+      const sorted = [...stories]
+        .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+        .slice(0, 3);
+
+      const results: RecentStorySummary[] = [];
+      for (const story of sorted) {
         let sectionCount = 0;
         let diceCount = 0;
         let wordCount = 0;
-        const chapters = db.listChapters(story.id);
-        chapters.forEach((chapter) => {
-          const sections = db.listSections(chapter.id);
+        const chapters = await db.listChapters(story.id);
+        for (const chapter of chapters) {
+          const sections = await db.listSections(chapter.id);
           sectionCount += sections.length;
-          sections.forEach((section) => {
+          for (const section of sections) {
             const content = section.content;
             if (content) {
               const { words, dice } = countContent(content);
               wordCount += words;
               diceCount += dice;
             }
-          });
-        });
-        return {
+          }
+        }
+        results.push({
           id: story.id,
           title: story.title,
           description: story.description || '',
@@ -109,17 +130,26 @@ export function HomePage({ onOpenStory, onShowWorks, onShowTemplates, onShowTuto
           sectionCount,
           diceCount,
           wordCount,
-        };
-      });
+        });
+      }
+
+      if (!cancelled) {
+        setRecentStories(results);
+      }
+    };
+    compute();
+    return () => {
+      cancelled = true;
+    };
   }, [stories]);
 
-  const handleCreateStory = () => {
+  const handleCreateStory = async () => {
     const title = newStoryTitle.trim() || `未命名作品 ${new Date().toLocaleDateString()}`;
-    const storyId = createStory(title, newStoryDescription.trim());
+    const storyId = await createStory(title, newStoryDescription.trim());
     setShowNewStoryModal(false);
     setNewStoryTitle('');
     setNewStoryDescription('');
-    setActiveStory(storyId);
+    await setActiveStory(storyId);
     onOpenStory(storyId);
   };
 
