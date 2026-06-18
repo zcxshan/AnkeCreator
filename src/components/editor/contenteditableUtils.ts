@@ -1356,6 +1356,33 @@ export function renderDiceCard(block: HTMLElement): void {
 
     head.appendChild(left);
     head.appendChild(rollBtn);
+
+    // 滚动展示区（投掷动画时显示，投后隐藏；DOM 始终保留，避免重复创建）
+    const rollDisplay = document.createElement('div');
+    rollDisplay.setAttribute('data-slot', 'roll-display');
+    rollDisplay.style.display = 'none';
+    rollDisplay.style.alignItems = 'center';
+    rollDisplay.style.gap = '6px';
+    rollDisplay.style.fontSize = '12px';
+    rollDisplay.style.fontFamily = 'Consolas, Menlo, monospace';
+    rollDisplay.style.color = 'var(--dice-card-ink)';
+    rollDisplay.style.fontWeight = '500';
+
+    const rollEmoji = document.createElement('span');
+    rollEmoji.setAttribute('data-slot', 'roll-emoji');
+    rollEmoji.textContent = '🎲';
+    rollEmoji.style.fontSize = '16px';
+    rollEmoji.style.display = 'inline-block';
+
+    const rollNumber = document.createElement('span');
+    rollNumber.setAttribute('data-slot', 'roll-number');
+    rollNumber.style.minWidth = '52px';
+    rollNumber.style.textAlign = 'right';
+
+    rollDisplay.appendChild(rollEmoji);
+    rollDisplay.appendChild(rollNumber);
+    head.appendChild(rollDisplay);
+
     block.appendChild(head);
 
     // 选项区
@@ -1392,6 +1419,12 @@ export function renderDiceCard(block: HTMLElement): void {
       kind === 'numeric'
         ? `数值 · ${formatNumericExpressionFromConfig(cfg)}`
         : `选项 · D${cfg.faces ?? 2}`;
+  }
+
+  // 一次性约束：已投掷过 → 隐藏掷骰按钮（投掷动画结束后保持隐藏）
+  const finalRollBtn = block.querySelector<HTMLButtonElement>('button[data-role="roll"]');
+  if (finalRollBtn) {
+    finalRollBtn.style.display = lastResult ? 'none' : '';
   }
 
   // 填值：选项（仅选项骰子）
@@ -1554,12 +1587,33 @@ export function removeDiceCard(editor: HTMLElement, block: HTMLElement): void {
   dispatchInput(editor);
 }
 
-/** 对 dice-card 执行掷骰：读取 payload → rollDice → 更新 payload → 重渲染 → dispatchInput */
+/** 对 dice-card 执行掷骰：读取 payload → rollDice → 更新 payload → 重渲染 → dispatchInput
+ *  - 一次性约束：已投掷过（payload.lastResult 存在）则直接返回
+ *  - 动画：600ms 内 🎲 emoji 旋转 + 数字快速滚动（老虎机效果）
+ *  - 投后：按钮消失（display:none），结果区显示最终结果
+ */
 export function rollDiceOnCard(editor: HTMLElement, block: HTMLElement): void {
   const { payload } = getDicePayload(block);
   if (!payload || !payload.config) return;
-  const cfg: any = payload.config;
 
+  // 一次性约束：已投掷过则不再触发（renderDiceCard 已隐藏按钮，双保险）
+  if (payload.lastResult) return;
+
+  // 1. 启动动画：隐藏按钮 + 显示滚动区
+  const rollBtn = block.querySelector<HTMLButtonElement>('button[data-role="roll"]');
+  const rollDisplay = block.querySelector<HTMLElement>('[data-slot="roll-display"]');
+  const rollEmoji = block.querySelector<HTMLElement>('[data-slot="roll-emoji"]');
+  const rollNumber = block.querySelector<HTMLElement>('[data-slot="roll-number"]');
+
+  if (rollBtn) rollBtn.style.display = 'none';
+  if (rollDisplay) {
+    rollDisplay.style.display = 'inline-flex';
+    rollDisplay.classList.add('anke-dice-rolling');
+  }
+  if (rollEmoji) rollEmoji.classList.add('anke-dice-spin');
+
+  // 2. 同步计算结果（动画期间不渲染结果区，等动画结束再统一更新）
+  const cfg: any = payload.config;
   const result: any = rollDicePure(cfg);
   const history: any[] = Array.isArray(payload.history) ? [...payload.history, result] : [result];
   const nextPayload = {
@@ -1567,21 +1621,55 @@ export function rollDiceOnCard(editor: HTMLElement, block: HTMLElement): void {
     lastResult: result,
     history: history.slice(-20),
   };
-  setDicePayload(block, nextPayload);
-  renderDiceCard(block);
-  dispatchInput(editor);
 
-  // 通知外层（例如 RichTextEditor）：骰子被掷出
-  try {
-    editor.dispatchEvent(
-      new CustomEvent('anke-dice-rolled', {
-        bubbles: true,
-        detail: { payload: nextPayload, blockElement: block },
-      }),
-    );
-  } catch {
-    // ignore
-  }
+  // 3. 数字滚动：每 50ms 切换一次
+  const kind: string = cfg.kind || 'option';
+  const maxValue =
+    kind === 'numeric'
+      ? Math.max(1, Math.floor(cfg.numericFaces ?? 100))
+      : Math.max(1, Math.floor(cfg.faces ?? 2));
+  const displayText = kind === 'numeric' ? `${cfg.count ?? 1}d${maxValue}` : `D${maxValue}`;
+
+  const ROLL_TOTAL_MS = 600;
+  const ROLL_TICK_MS = 50;
+  const startTime = Date.now();
+  const intervalId = window.setInterval(() => {
+    const elapsed = Date.now() - startTime;
+    if (elapsed >= ROLL_TOTAL_MS) {
+      window.clearInterval(intervalId);
+      return;
+    }
+    const v = Math.floor(Math.random() * maxValue) + 1;
+    if (rollNumber) rollNumber.textContent = `[${displayText}=${v}]`;
+  }, ROLL_TICK_MS);
+
+  // 4. 600ms 后：写入 payload、隐藏滚动区、清空动画
+  window.setTimeout(() => {
+    window.clearInterval(intervalId);
+    if (rollDisplay) {
+      rollDisplay.classList.remove('anke-dice-rolling');
+      rollDisplay.style.display = 'none';
+    }
+    if (rollEmoji) rollEmoji.classList.remove('anke-dice-spin');
+    if (rollNumber) rollNumber.textContent = '';
+
+    // 写入 payload → renderDiceCard 内 lastResult 存在 → rollBtn 永久隐藏
+    setDicePayload(block, nextPayload);
+    renderDiceCard(block);
+    dispatchInput(editor);
+
+    // 通知外层（例如 RichTextEditor）：骰子被掷出
+    try {
+      editor.dispatchEvent(
+        new CustomEvent('anke-dice-rolled', {
+          bubbles: true,
+          detail: { payload: nextPayload, blockElement: block },
+        }),
+      );
+    } catch {
+      // ignore
+    }
+  }, ROLL_TOTAL_MS);
 }
 
 /** 纯函数版 rollDice：不依赖 store，直接用 diceEngine */
@@ -1649,11 +1737,15 @@ function rollOnePure(faces: number): number {
 /** 给编辑器挂载 dice-card 交互：点击选中、Delete/Backspace 删除、掷骰按钮；并对所有已有 dice-card 重渲染 */
 export function attachDiceCardHandlers(editor: HTMLElement): () => void {
   // 首次挂载：对已有的 dice-card（从 innerHTML 恢复出来）重渲染以确保内部结构
+  // 注意：已初始化的（data-initialized=1）只刷新内容，不再清空重建，避免 rollBtn 引用变化导致 hover/click 状态丢失
   const existing = editor.querySelectorAll<HTMLElement>(DICE_CARD_SELECTOR);
   existing.forEach((el) => {
-    el.innerHTML = '';
-    el.removeAttribute('data-initialized');
-    renderDiceCard(el);
+    if (el.dataset.initialized) {
+      renderDiceCard(el);
+    } else {
+      el.innerHTML = '';
+      renderDiceCard(el);
+    }
   });
 
   const onMouseDown = (e: MouseEvent) => {

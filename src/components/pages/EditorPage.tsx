@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useStoryStore } from '../../store/storyStore';
 import { useEditorStore } from '../../store/editorStore';
 import { useDiceStore } from '../../store/diceStore';
@@ -23,8 +23,9 @@ import { SyncDialog } from '../common/SyncDialog';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { InputDialog } from '../common/InputDialog';
 import { useToastStore } from '../../store/toastStore';
-import { uploadImagesWithProgress, type UploadProgressEvent } from '../../utils/uploadImage';
+import { uploadImagesWithProgress, ensureLocalWarning, type UploadProgressEvent } from '../../utils/uploadImage';
 import { UploadProgressDialog } from '../common/UploadProgressDialog';
+import { LocalModeBanner } from '../common/LocalModeBanner';
 import {
   computeDiff,
   buildOutlineStructure,
@@ -342,6 +343,19 @@ export function EditorPage({ onBack, onExport }: EditorPageProps) {
   const story = stories.find((s) => s.id === activeStoryId);
   const section = sections.find((s) => s.id === activeSectionId);
 
+  // 稳定 onDiceRolled 引用，避免 RichTextEditor 的 useEffect 频繁卸载/重建骰子卡片交互
+  const handleDiceRolled = useCallback(
+    (payload: DiceBlockPayloadV2) => {
+      const rec = buildDiceHistoryRecord({
+        payload,
+        sectionId: section?.id ?? '',
+        sectionTitle: section?.title ?? '',
+      });
+      if (rec) useDiceHistoryStore.getState().addRecord(rec);
+    },
+    [section?.id, section?.title],
+  );
+
   // 面包屑路径：section → chapter → volume
   const activeChapter = chapters.find((c) => c.id === section?.chapter_id);
   const activeVolume = volumes.find((v) => v.id === activeChapter?.volume_id);
@@ -528,6 +542,9 @@ export function EditorPage({ onBack, onExport }: EditorPageProps) {
         </div>
       </header>
 
+      {/* 本地保存模式常驻警告横幅（仅在 imageStoreMode === 'local' 时显示） */}
+      <LocalModeBanner />
+
       {/* 主体：根据 view 切换不同内容 */}
       {view === 'info' && <WorldSettingPanel />}
       {view === 'character' && <CharacterPanel richTextEditorCommandsRef={richTextEditorCommandsRef} />}
@@ -602,14 +619,7 @@ export function EditorPage({ onBack, onExport }: EditorPageProps) {
                   content={sectionContent ?? ''}
                   onChangeContent={setSectionContent}
                   onInsertDiceRequest={() => diceStore.openDialog()}
-                  onDiceRolled={(payload) => {
-                    const rec = buildDiceHistoryRecord({
-                      payload,
-                      sectionId: section.id,
-                      sectionTitle: section.title,
-                    });
-                    if (rec) useDiceHistoryStore.getState().addRecord(rec);
-                  }}
+                  onDiceRolled={handleDiceRolled}
                   onImageSelected={(info) => setSelectedImage(info)}
                   commandsRef={richTextEditorCommandsRef}
                   editable={true}
@@ -1307,6 +1317,64 @@ function CompactCharacterPanel({
   richTextEditorCommandsRef: React.MutableRefObject<RichTextEditorCommands | null>;
   onShowToast?: (msg: string) => void;
 }) {
+  const [panelTab, setPanelTab] = useState<'by-character' | 'by-variant'>('by-character');
+
+  return (
+    <div className="flex flex-col h-full" style={{ background: 'var(--bg-card)' }}>
+      {/* === 主导航 Tab：按人物 / 按差分 === */}
+      <div
+        className="shrink-0 flex border-b"
+        style={{ borderColor: 'var(--border-color)', background: 'var(--bg-toolbar)' }}
+      >
+        {[
+          { key: 'by-character', label: '👤 按人物' },
+          { key: 'by-variant', label: '🎴 按差分' },
+        ].map((t) => {
+          const active = panelTab === t.key;
+          return (
+            <button
+              key={t.key}
+              onClick={() => setPanelTab(t.key as 'by-character' | 'by-variant')}
+              className="flex-1 py-2 text-xs font-medium transition-colors"
+              style={{
+                color: active ? 'var(--accent)' : 'var(--text-secondary)',
+                background: active ? 'var(--bg-card)' : 'transparent',
+                borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
+              }}
+            >
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {panelTab === 'by-character' && (
+        <ByCharacterContent
+          richTextEditorCommandsRef={richTextEditorCommandsRef}
+          onShowToast={onShowToast}
+        />
+      )}
+
+      {panelTab === 'by-variant' && (
+        <ByVariantContent
+          richTextEditorCommandsRef={richTextEditorCommandsRef}
+          onShowToast={onShowToast}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * 「按人物」面板：原角色卡片列表 + 编辑区
+ */
+function ByCharacterContent({
+  richTextEditorCommandsRef,
+  onShowToast,
+}: {
+  richTextEditorCommandsRef: React.MutableRefObject<RichTextEditorCommands | null>;
+  onShowToast?: (msg: string) => void;
+}) {
   const activeStoryId = useStoryStore((s) => s.activeStoryId);
   const characters = useMetaStore((s) => s.characters);
   const editingCharacterId = useMetaStore((s) => s.editingCharacterId);
@@ -1553,6 +1621,196 @@ function CompactCharacterPanel({
   );
 }
 
+/**
+ * 「按差分」面板：作品所有人物的所有差分平铺/分组展示，点击插入到光标位置
+ * - 顶部子导航：全部 / 按人物
+ * - 「全部」：所有差分混合在 4 列网格
+ * - 「按人物」：按人物分组，每个分区内是 4 列网格
+ */
+function ByVariantContent({
+  richTextEditorCommandsRef,
+  onShowToast,
+}: {
+  richTextEditorCommandsRef: React.MutableRefObject<RichTextEditorCommands | null>;
+  onShowToast?: (msg: string) => void;
+}) {
+  const activeStoryId = useStoryStore((s) => s.activeStoryId);
+  const characters = useMetaStore((s) => s.characters);
+  const [subTab, setSubTab] = useState<'all' | 'grouped'>('all');
+
+  const filteredChars = activeStoryId
+    ? characters
+        .filter((c) => c.story_id === activeStoryId)
+        .slice()
+        .sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
+    : [];
+
+  // 拍平所有差分（带所属人物名）
+  const allVariants = filteredChars.flatMap((ch) =>
+    (ch.variants || []).map((v) => ({
+      ...v,
+      characterName: ch.name || '未命名',
+      characterId: ch.id,
+    })),
+  );
+
+  const handleInsert = (variantName: string, url: string, charName: string) => {
+    if (!richTextEditorCommandsRef.current) {
+      onShowToast?.('没有可用的编辑器');
+      return;
+    }
+    richTextEditorCommandsRef.current.insertImage(url, NGA_DEFAULT_IMAGE_SIZE);
+    onShowToast?.(`已插入差分：${charName} · ${variantName}`);
+  };
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* 子导航：全部 / 按人物 */}
+      <div
+        className="shrink-0 flex items-center gap-1 px-3 py-2 border-b"
+        style={{ borderColor: 'var(--border-color)' }}
+      >
+        {[
+          { key: 'all', label: `全部（${allVariants.length}）` },
+          { key: 'grouped', label: '按人物' },
+        ].map((t) => {
+          const active = subTab === t.key;
+          return (
+            <button
+              key={t.key}
+              onClick={() => setSubTab(t.key as 'all' | 'grouped')}
+              className="text-[10px] px-2.5 py-1 rounded-md transition-colors"
+              style={{
+                background: active ? 'var(--accent)' : 'var(--bg-toolbar)',
+                color: active ? 'var(--text-on-accent)' : 'var(--text-secondary)',
+                border: '1px solid',
+                borderColor: active ? 'var(--accent)' : 'var(--border-color)',
+              }}
+            >
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* 差分网格 */}
+      <div className="flex-1 overflow-y-auto p-3">
+        {!activeStoryId && (
+          <div
+            className="text-[10px] italic py-6 text-center"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            请先选择一个故事
+          </div>
+        )}
+        {activeStoryId && allVariants.length === 0 && (
+          <div
+            className="text-[10px] italic py-6 text-center"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            暂无差分
+          </div>
+        )}
+
+        {/* 全部子 tab：平铺网格 */}
+        {activeStoryId && allVariants.length > 0 && subTab === 'all' && (
+          <div className="grid grid-cols-4 gap-2">
+            {allVariants.map((v) => (
+              <VariantThumbnail
+                key={v.id}
+                variant={v}
+                onClick={() => handleInsert(v.name, v.url, v.characterName)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* 按人物子 tab：分组 */}
+        {activeStoryId && allVariants.length > 0 && subTab === 'grouped' && (
+          <div className="space-y-4">
+            {filteredChars
+              .filter((c) => (c.variants || []).length > 0)
+              .map((ch) => (
+                <div key={ch.id}>
+                  <div
+                    className="text-[11px] font-semibold mb-1.5 flex items-baseline gap-1.5"
+                    style={{ color: 'var(--text-primary)' }}
+                  >
+                    <span>{ch.name || '未命名'}</span>
+                    <span
+                      className="text-[10px] font-normal"
+                      style={{ color: 'var(--text-muted, #999)' }}
+                    >
+                      {(ch.variants || []).length} 个差分
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-2">
+                    {(ch.variants || []).map((v) => (
+                      <VariantThumbnail
+                        key={v.id}
+                        variant={{ ...v, characterName: ch.name || '未命名' }}
+                        onClick={() => handleInsert(v.name, v.url, ch.name || '未命名')}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** 差分缩略图：方形 + 下方差分名标签；hover 高亮 */
+function VariantThumbnail({
+  variant,
+  onClick,
+}: {
+  variant: {
+    id: string;
+    name: string;
+    url: string;
+    characterName: string;
+  };
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="rounded-md border overflow-hidden transition"
+      style={{ borderColor: 'var(--border-color)', background: 'var(--bg-page)' }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.borderColor = 'var(--accent)';
+        e.currentTarget.style.boxShadow = '0 0 0 2px var(--accent-soft, rgba(37,99,235,0.15))';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = 'var(--border-color)';
+        e.currentTarget.style.boxShadow = '';
+      }}
+      title={`点击插入：${variant.characterName} · ${variant.name}`}
+    >
+      <div className="aspect-square w-full" style={{ background: 'var(--bg-toolbar)' }}>
+        <img
+          src={variant.url}
+          alt={variant.name}
+          className="w-full h-full object-cover"
+          loading="lazy"
+          onError={(e) => {
+            (e.currentTarget as HTMLImageElement).style.opacity = '0.3';
+          }}
+        />
+      </div>
+      <div
+        className="text-[9px] px-1 py-0.5 truncate"
+        style={{ color: 'var(--text-secondary)' }}
+      >
+        {variant.name}
+      </div>
+    </button>
+  );
+}
+
 // 简易内嵌版角色编辑器
 function CharacterEditorInline({
   character,
@@ -1621,6 +1879,9 @@ function CharacterEditorInline({
   };
 
   const handleAvatarFile = async (file: File) => {
+    // 本地模式：先弹警告（统一由全局 store 管理）
+    const confirmed = await ensureLocalWarning();
+    if (!confirmed) return;
     setUploadTasks([
       {
         taskId: `${Date.now()}_0`,
@@ -1647,6 +1908,9 @@ function CharacterEditorInline({
   };
 
   const handleVariantFile = async (file: File) => {
+    // 本地模式：先弹警告
+    const confirmed = await ensureLocalWarning();
+    if (!confirmed) return;
     setUploadTasks([
       {
         taskId: `${Date.now()}_0`,

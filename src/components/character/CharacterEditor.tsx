@@ -11,7 +11,7 @@ import { ConfirmDialog } from '../common/ConfirmDialog';
 import { InputDialog } from '../common/InputDialog';
 import { UploadProgressDialog } from '../common/UploadProgressDialog';
 import { useToastStore } from '../../store/toastStore';
-import { uploadImagesWithProgress, type UploadProgressEvent } from '../../utils/uploadImage';
+import { uploadImagesWithProgress, ensureLocalWarning, type UploadProgressEvent } from '../../utils/uploadImage';
 
 export function CharacterPanel({
   richTextEditorCommandsRef,
@@ -40,10 +40,10 @@ export function CharacterPanel({
     names: string[];
   } | null>(null);
 
-  // 按 story 过滤 + order_index 排序（排除正在编辑的）
+  // 按 story 过滤 + order_index 排序（编辑中的项保留在列表，用 isActive 高亮）
   const filtered = activeStoryId
     ? characters
-        .filter((c) => c.story_id === activeStoryId && c.id !== editingCharacterId)
+        .filter((c) => c.story_id === activeStoryId)
         .slice()
         .sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
     : [];
@@ -514,6 +514,9 @@ function CharacterEditorModal({
   const handleBatchUpload = async (files: FileList) => {
     const fileArray = Array.from(files).slice(0, 50);
     if (fileArray.length === 0) return;
+    // 本地模式：先弹警告
+    const confirmed = await ensureLocalWarning();
+    if (!confirmed) return;
     setUploadTasks(
       fileArray.map((f, i) => ({
         taskId: `${Date.now()}_${i}`,
@@ -659,6 +662,9 @@ function CharacterEditorModal({
   };
 
   const handleAvatarFromFile = async (file: File) => {
+    // 本地模式：先弹警告
+    const confirmed = await ensureLocalWarning();
+    if (!confirmed) return;
     setUploadTasks([
       {
         taskId: `${Date.now()}_0`,

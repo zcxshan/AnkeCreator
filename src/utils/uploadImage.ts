@@ -8,6 +8,8 @@
 // - 调用方根据 ok 判断是否使用 url；不弹 toast（让调用方决定提示策略）
 
 import { useSettingStore } from '../store/settingStore';
+import { useImageWarningStore } from '../store/imageWarningStore';
+import { LOCAL_IMAGE_WARNING_DISMISSED_KEY } from '../components/common/LocalImageWarningDialog';
 
 export interface UploadedImage {
   ok: boolean;
@@ -15,6 +17,7 @@ export interface UploadedImage {
   error?: string;
   /** 上传/保存的图床或位置（catbox / sm.ms / 0x0.st / local 等） */
   host?: string;
+  fileName?: string;
 }
 
 export interface UploadProgressEvent {
@@ -43,14 +46,40 @@ function fileToBase64(file: File): Promise<string> {
 }
 
 /**
+ * 本地上传前的统一警告入口（所有 4 个上传入口共用的 helper）
+ * - 非本地模式：直接放行（return true）
+ * - 本地模式 + 已勾选「不再提示」：放行（return true）
+ * - 本地模式 + 未勾选：弹窗（全局 store 中的 LocalImageWarningDialog）
+ *   - 用户确认 → return true（继续上传）
+ *   - 用户取消 → return false（调用方应中止上传）
+ */
+export async function ensureLocalWarning(): Promise<boolean> {
+  const isLocal = useSettingStore.getState().imageStoreMode === 'local';
+  if (!isLocal) return true;
+  let dismissed = false;
+  try {
+    dismissed = localStorage.getItem(LOCAL_IMAGE_WARNING_DISMISSED_KEY) === '1';
+  } catch {
+    dismissed = false;
+  }
+  if (dismissed) return true;
+  return useImageWarningStore.getState().showImageWarning();
+}
+
+/**
  * 单张上传/保存：根据 settingStore.imageStoreMode 分发
  * - 'remote' → uploadToRemote（4 图床链）
- * - 'local'  → saveImageLocal（Electron 主进程写文件 + local:// 协议）
+ * - 'local'  → saveImageLocal（Electron 模式用 filePath 作为 URL）
+ *
+ * @param filePath Electron selectImage IPC 返回的绝对路径（仅本地模式有效）
  */
-export async function uploadImageFile(file: File | Blob): Promise<UploadedImage> {
+export async function uploadImageFile(
+  file: File | Blob,
+  filePath?: string,
+): Promise<UploadedImage> {
   const mode = useSettingStore.getState().imageStoreMode;
   if (mode === 'local') {
-    return saveImageLocal(file);
+    return saveImageLocal(file, filePath);
   }
   return uploadToRemote(file);
 }
@@ -60,10 +89,15 @@ export async function uploadImageFile(file: File | Blob): Promise<UploadedImage>
  * - 任务开始时推送 status='uploading' progress=10
  * - 完成后推送 status='success'/'failed' progress=100
  * - 返回所有结果（按输入顺序）
+ *
+ * @param filePath Electron selectImage IPC 返回的绝对路径（仅本地模式有效）
+ *   - 当前实现：所有 files 共享同一个 filePath（单选）
+ *   - 多选场景下需调用方在传入前把每个 File 的 filePath 拆分（暂未实现）
  */
 export async function uploadImagesWithProgress(
   files: File[],
   onProgress: (e: UploadProgressEvent) => void,
+  filePath?: string,
 ): Promise<UploadedImage[]> {
   const results: UploadedImage[] = [];
   for (let i = 0; i < files.length; i++) {
@@ -72,7 +106,7 @@ export async function uploadImagesWithProgress(
     const fileName = file instanceof File ? file.name : `image_${i}`;
     onProgress({ taskId, fileName, status: 'pending', progress: 0 });
     onProgress({ taskId, fileName, status: 'uploading', progress: 10 });
-    const res = await uploadImageFile(file);
+    const res = await uploadImageFile(file, filePath);
     if (res.ok && res.url) {
       onProgress({
         taskId,
@@ -97,11 +131,17 @@ export async function uploadImagesWithProgress(
 }
 
 /**
- * 本地保存：Electron 主进程写文件，返回 local://xxx 协议 URL
- * 非 Electron 环境（vite dev / 普通浏览器）→ 失败并提示
- * **不**使用 base64 内嵌（用户明确禁止"千万不要使用base64把图片链接整超长"）
+ * 本地保存：Electron 模式下直接用图片的绝对路径作为 URL（不复制文件）
+ * - 浏览器：返回错误（用户要求"浏览器直接报错"）
+ * - 优先用 IPC 传入的 filePath；fallback 到 File.path
+ *
+ * URL 存储 = 用户原图路径（如 C:\Users\foo\image.png）
+ * NGA 导出时由 ngaHtmlToBBCode.isUnreachableImage 识别为"不可达"，替换为占位符
  */
-async function saveImageLocal(file: File | Blob): Promise<UploadedImage> {
+async function saveImageLocal(
+  file: File | Blob,
+  filePath?: string,
+): Promise<UploadedImage> {
   if (typeof window === 'undefined' || !window.electronAPI?.saveImageLocal) {
     return {
       ok: false,
@@ -109,25 +149,30 @@ async function saveImageLocal(file: File | Blob): Promise<UploadedImage> {
       host: 'local',
     };
   }
-  if (!(file instanceof File)) {
-    return { ok: false, error: '本地保存仅支持 File 类型', host: 'local' };
-  }
-  try {
-    // 这里使用 base64 仅作为 IPC 缓冲区传输方式（主进程会解码并写文件），
-    // **不**作为图片 url 持久化保存到编辑器或导出
-    const buf = await fileToBase64(file);
-    const res = await window.electronAPI.saveImageLocal({
-      buffer: buf,
-      filename: file.name,
-      mimeType: file.type || 'image/png',
-    });
-    if (res.ok && res.url) {
-      return { ok: true, url: res.url, host: 'local' };
+  // 优先用 IPC 传过来的 filePath（selectImage 选择文件时的真实绝对路径）
+  let actualPath = filePath;
+  if (!actualPath) {
+    // 兼容：尝试从 File 对象取 path（Electron 老版本 File.path）
+    try {
+      actualPath = (file as any).path;
+    } catch {
+      actualPath = undefined;
     }
-    return { ok: false, error: res.error || '本地保存失败', host: 'local' };
-  } catch (e) {
-    return { ok: false, error: (e as Error).message || '本地保存失败', host: 'local' };
   }
+  if (!actualPath) {
+    return {
+      ok: false,
+      error: '本地保存无法获取文件路径，请重新选择文件',
+      host: 'local',
+    };
+  }
+  // 直接用绝对路径作为 URL（不复制文件到 userData/images/）
+  return {
+    ok: true,
+    url: actualPath,
+    host: 'local',
+    fileName: file instanceof File ? file.name : '',
+  };
 }
 
 /**

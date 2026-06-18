@@ -10,7 +10,7 @@ import { ConfirmDialog } from '../common/ConfirmDialog';
 import { InputDialog } from '../common/InputDialog';
 import { UploadProgressDialog } from '../common/UploadProgressDialog';
 import { useToastStore } from '../../store/toastStore';
-import { uploadImagesWithProgress, type UploadProgressEvent } from '../../utils/uploadImage';
+import { uploadImagesWithProgress, ensureLocalWarning, type UploadProgressEvent } from '../../utils/uploadImage';
 
 interface TemplatesPageProps {
   onBack: () => void;
@@ -825,6 +825,9 @@ function CharacterTemplateEditor({
   };
 
   const handleVariantFile = async (file: File) => {
+    // 本地模式：先弹警告（统一由全局 store 管理）
+    const confirmed = await ensureLocalWarning();
+    if (!confirmed) return;
     setUploadTasks([
       {
         taskId: `${Date.now()}_0`,
@@ -862,6 +865,9 @@ function CharacterTemplateEditor({
       useToastStore.getState().showToast('批量上传最多 50 张图片', 'warning');
     }
     const accepted = list.slice(0, 50);
+    // 本地模式：先弹警告
+    const confirmed = await ensureLocalWarning();
+    if (!confirmed) return;
     setUploadTasks(
       accepted.map((f, i) => ({
         taskId: `${Date.now()}_${i}`,

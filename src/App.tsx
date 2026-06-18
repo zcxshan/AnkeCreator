@@ -9,6 +9,7 @@ import { TitleBar } from './components/common/TitleBar';
 import { AuthorInfo } from './components/common/AuthorInfo';
 import { ExportDialog } from './components/common/ExportDialog';
 import { ToastContainer } from './components/common/Toast';
+import { LocalImageWarningDialog } from './components/common/LocalImageWarningDialog';
 import { useStoryStore } from './store/storyStore';
 import { useEditorStore } from './store/editorStore';
 import { useMetaStore } from './store/metaStore';
@@ -66,6 +67,8 @@ function App() {
       <TitleBar />
       <div className="flex-1 overflow-hidden">{content}</div>
       <ToastContainer />
+      {/* 全局唯一的本地上传警告弹窗（订阅 imageWarningStore.open） */}
+      <LocalImageWarningDialog />
     </div>
   );
 

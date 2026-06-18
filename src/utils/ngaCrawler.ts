@@ -1,35 +1,48 @@
-// NGA 安价抓取工具
-// - 解析 NGA 主题帖 URL（read.php?tid=XXX）
-// - 从 HTML 中提取帖子信息（楼层号、层主、内容）
-// - 按"以指定文本开头"过滤
-// - HTML/BBCode → 纯文本
+// ============================================================
+// NGA 抓取工具（基于实际 HTML 验证）
+// ------------------------------------------------------------
+// 实际 NGA 帖子 HTML 结构（2026 验证）：
+//   容器：<table class='forumbox postbox' cellspacing='1px'>
+//     <tr id='post1strowN' class='postrow row2'>
+//       <td class='c1'>...<span id='posterinfoN' class='posterinfo'>
+//         <a href='nuke.php?func=ucp&uid=XXX' id='postauthorN' class='author b'></a>
+//       </span></td>
+//       <td class='c2' id='postcontainerN'>
+//         <a id='pidXXXAnchor'></a>
+//         <a name='lN'></a>  ← 楼层号锚点
+//         <span id='postcontentandsubjectN'>
+//           <span id='postcontentN' class='postcontent ubbcode'>(...内容含 [uid=X]name[/uid] 引用...)</span>
+//         </span>
+//       </td>
+//     </tr>
+//   </table>
+//   <script>commonui.postArg.proc( N, ..., 'UID', ...)</script>
 //
-// 注意：本工具不直接抓取 HTML（由主进程通过 IPC 完成），
-// 仅在拿到 HTML 后做解析。渲染端可在调试或备用场景下手动调用。
+// 关键定位器：
+//   - 楼层号：<a name='lN'> 锚点（最稳定）
+//   - 内容：<span id='postcontentN' class='postcontent ubbcode'>(...)</span>
+//   - UID：<a id='postauthorN' href='...uid=XXX'>
+//   - 用户名：[uid=X]name[/uid] 引用中提取（HTML 中 JS 填充，原始为空）
+// ============================================================
 
+/** 单条帖子（原始） */
 export interface RawPost {
   floor: number;
   author: string;
-  /** 纯文本（去 HTML、去 BBCode 标签） */
   content: string;
+  pid?: string;
+  /** post timestamp（秒） */
+  time?: number;
 }
 
+/** 抓取结果（AnjiaItem = 过滤后的子集） */
 export interface AnjiaItem {
   floor: number;
   author: string;
   content: string;
 }
 
-export interface CollectInput {
-  url: string;
-  startFloor: number;
-  endFloor: number;
-  /** 前缀文本（默认 "安价"） */
-  prefix: string;
-  /** NGA Cookie 字符串（可选） */
-  cookies?: string;
-}
-
+/** 抓取结果 */
 export interface CollectResult {
   ok: boolean;
   items: AnjiaItem[];
@@ -37,121 +50,173 @@ export interface CollectResult {
   error?: string;
 }
 
-const FLOORS_PER_PAGE = 20;
-
 /**
- * 从 URL 解析 tid + 基础域名
- * 支持格式：
- *   - https://nga.178.com/read.php?tid=12345
- *   - https://bbs.nga.cn/read.php?tid=12345
- *   - https://nga.178.com/read.php?tid=12345&page=2
- *   - https://nga.178.com/thread.php?fid=1&tid=12345
+ * 解析 NGA 主题帖 URL
+ * - 支持：nga.178.com / ngabbs.com / bbs.nga.cn
+ * - 支持带或不带 page 参数
+ * - 支持带或不带 # 锚点
  */
-export function parseThreadUrl(url: string): { tid: number; baseUrl: string } | null {
-  if (!url) return null;
-  const m = url.match(/^(https?:\/\/[^\/]+).*?[?&]tid=(\d+)/i);
+export function parseThreadUrl(url: string): { tid: string; baseUrl: string } | null {
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  const m = trimmed.match(/^(https?:\/\/[^\/]+).*?[?&]tid=(\d+)/i);
   if (!m) return null;
-  const baseUrl = m[1];
-  const tid = parseInt(m[2], 10);
-  if (!tid) return null;
-  return { tid, baseUrl };
+  return { tid: m[2], baseUrl: m[1] };
 }
 
 /**
- * 计算页码范围
- * - NGA 每页 20 楼
- * - page = Math.ceil(floor / 20)
+ * 计算楼层范围对应的页码
+ * NGA 每页 20 楼（已验证）
+ * - floor 1-20 → page 1
+ * - floor 21-40 → page 2
  */
-export function computePageRange(
-  startFloor: number,
-  endFloor: number,
-): { startPage: number; endPage: number; totalPages: number } {
-  const startPage = Math.max(1, Math.ceil(startFloor / FLOORS_PER_PAGE));
-  const endPage = Math.max(startPage, Math.ceil(endFloor / FLOORS_PER_PAGE));
+export function computePageRange(startFloor: number, endFloor: number) {
+  const startPage = Math.floor((startFloor - 1) / 20) + 1;
+  const endPage = Math.floor((endFloor - 1) / 20) + 1;
   return { startPage, endPage, totalPages: endPage - startPage + 1 };
 }
 
 /**
- * 从 NGA HTML 中提取所有帖子（楼层号、层主、内容）
- * 使用 regex 解析；解析失败 / 单页失败时返回空数组（不抛错）
+ * 解析 NGA 帖子 HTML → RawPost[]
+ * 基于实际验证的结构，2026-06
  */
 export function extractPostsFromHtml(html: string): RawPost[] {
   if (!html) return [];
-  const posts: RawPost[] = [];
 
-  // 1) 找所有 <table id="post_XXX"> 容器
-  //    注：NGA 也用 <table class="forumbox postbox">，但 id="post_XXX" 更精准
-  //    使用非贪婪匹配 + dotAll 等价（用 [\s\S]）
-  const tableRe = /<table[^>]*\bid="post(\d+)"[\s\S]*?<\/table>/gi;
-  let tableMatch: RegExpExecArray | null;
-  while ((tableMatch = tableRe.exec(html)) !== null) {
-    const tableHtml = tableMatch[0];
-    const postId = parseInt(tableMatch[1], 10);
-    if (!postId) continue;
+  // 步骤 1：建立 UID → 用户名 映射（从 [uid=XXX]username[/uid] 引用中提取）
+  const uidToName = buildUidToNameMap(html);
 
-    // 楼层号：<a id="floor_1" name="floor_1"> 或 <a id="l_post_1"> 之类
-    // 优先匹配 floor_X
-    const floorMatch =
-      tableHtml.match(/\bid="floor_(\d+)"/i) ||
-      tableHtml.match(/\bname="floor_(\d+)"/i);
-    let floor: number;
-    if (floorMatch) {
-      floor = parseInt(floorMatch[1], 10);
-    } else {
-      // 兜底：用 postId（虽然 NGA 的 postId 跟楼层号通常一致）
-      floor = postId;
+  // 步骤 2：找所有楼层锚点位置
+  // - 优先：<tr id='post1strowN'>（行级 anchor，包含两列：用户列 + 内容列）
+  // - 兜底：<a name='lN'></a>（内容列内的 floor anchor，但不含 postauthorN）
+  const anchorRe = /<tr\s+id=['"]post1strow(\d+)['"]/gi;
+  const anchors: { floor: number; index: number; type: 'tr' | 'a' }[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = anchorRe.exec(html)) !== null) {
+    anchors.push({ floor: parseInt(m[1], 10), index: m.index, type: 'tr' });
+  }
+  if (anchors.length === 0) {
+    // 兜底：<a name='lN'></a>
+    const aRe = /<a\s+name=['"]l(\d+)['"]\s*><\/a>/gi;
+    while ((m = aRe.exec(html)) !== null) {
+      anchors.push({ floor: parseInt(m[1], 10), index: m.index, type: 'a' });
     }
-
-    // 层主：<a href="...uid=XXX...">username</a>
-    // 注意：层主在第一个出现的 uid 链接
-    const authorMatch = tableHtml.match(
-      /<a[^>]*\bhref="[^"]*\buid=(\d+)[^"]*"[^>]*>([^<]+)<\/a>/i,
-    );
-    const author = authorMatch ? authorMatch[2].trim() : '匿名';
-
-    // 内容：<div class="postMessage">...</div>
-    // 注意：NGA 内容可能嵌套 div（quote、折叠等），需要最小闭合匹配
-    const contentMatch = matchPostMessage(tableHtml);
-    const content = contentMatch ? htmlToPlainText(contentMatch) : '';
-
-    posts.push({ floor, author, content });
+  }
+  if (anchors.length === 0) {
+    console.warn('[ngaCrawler] 未找到任何楼层锚点（<tr id="post1strowN"> / <a name="lN">）');
+    return [];
   }
 
+  // 步骤 3：每个 anchor 切出一段（到下一个 anchor 之前），逐个提取
+  const posts: RawPost[] = [];
+  for (let i = 0; i < anchors.length; i++) {
+    const start = anchors[i].index;
+    const end = i + 1 < anchors.length ? anchors[i + 1].index : html.length;
+    const segment = html.substring(start, end);
+    const floor = anchors[i].floor;
+
+    // 提取内容：<span id='postcontentN' class='postcontent ubbcode'>(...)</span>
+    const contentRe = new RegExp(
+      `<span\\s+id=['"]postcontent${floor}['"][^>]*class=['"]postcontent\\s+ubbcode['"][^>]*>([\\s\\S]*?)</span>`,
+      'i',
+    );
+    const contentMatch = segment.match(contentRe);
+    if (!contentMatch) continue;
+    const rawContent = contentMatch[1];
+
+    // 提取 UID：<a id='postauthorN' href='...uid=XXX'>（实际 HTML 中 href 在前 id 在后）
+    const uidRe = new RegExp(
+      `<a[^>]*id=['"]postauthor${floor}['"][^>]*?uid=(\\d+)|<a[^>]*?uid=(\\d+)[^>]*id=['"]postauthor${floor}['"]`,
+      'i',
+    );
+    const uidMatch = segment.match(uidRe);
+    const uid = uidMatch ? (uidMatch[1] || uidMatch[2] || '') : '';
+
+    // 提取时间戳：commonui.postArg.proc( N, ..., TIMESTAMP, ...)
+    // 例如：proc( 55, ..., 1780389705, ...)
+    const timeMatch = segment.match(/commonui\.postArg\.proc\(\s*\d+\s*,[\s\S]*?'(\d{10})'\s*,/);
+    const time = timeMatch ? parseInt(timeMatch[1], 10) : 0;
+
+    // 用户名：优先从映射取，否则用 uid:XXX，最后匿名
+    const author = uid && uidToName[uid]
+      ? uidToName[uid]
+      : uid
+        ? `uid:${uid}`
+        : '匿名';
+
+    // 清理 HTML 标签 + UBB 引用（保留 UBB 用于显示）
+    const content = stripHtmlTags(rawContent).trim();
+
+    if (content) {
+      posts.push({
+        floor,
+        author,
+        content,
+        pid: extractPid(segment, floor),
+        time: time || undefined,
+      });
+    }
+  }
+
+  // 按楼层号排序
+  posts.sort((a, b) => a.floor - b.floor);
+  console.log(
+    `[ngaCrawler] extractPostsFromHtml: ${posts.length} 帖 (html ${html.length} chars, anchors ${anchors.length})`,
+  );
   return posts;
 }
 
 /**
- * 匹配 <div class="postMessage">...</div> 的最浅闭合位置
- * 处理嵌套 div（如引用块）
+ * 从内容中提取 [uid=XXX]username[/uid] 形式的引用，建立 UID→用户名 映射
+ * - 解决"作者名在 HTML 中为空"的问题
+ * - 多次出现时取第一个（最早）
  */
-function matchPostMessage(html: string): string | null {
-  const openRe = /<div[^>]*\bclass="postMessage"[^>]*>/i;
-  const openMatch = openRe.exec(html);
-  if (!openMatch) return null;
-  const openEnd = openMatch.index + openMatch[0].length;
-
-  // 从 openEnd 开始，遇到 </div> 且 div 嵌套层数为 0 时停止
-  let depth = 1;
-  const tagRe = /<(\/?)div\b[^>]*>/gi;
-  tagRe.lastIndex = openEnd;
+function buildUidToNameMap(html: string): Record<string, string> {
+  const map: Record<string, string> = {};
+  const re = /\[uid=(\d+)\]([^\[]+?)\[\/uid\]/gi;
   let m: RegExpExecArray | null;
-  while ((m = tagRe.exec(html)) !== null) {
-    if (m[1] === '/') {
-      depth--;
-      if (depth === 0) {
-        return html.substring(openEnd, m.index);
-      }
-    } else {
-      depth++;
+  while ((m = re.exec(html)) !== null) {
+    const uid = m[1];
+    const name = m[2].trim();
+    if (uid && name && !map[uid] && name.length < 32) {
+      map[uid] = name;
     }
   }
-  // 没找到闭合 div，返回从 openEnd 到末尾（兜底）
-  return html.substring(openEnd);
+  return map;
 }
 
 /**
- * 按楼层范围 + 前缀过滤
- * - 过滤条件：floor ∈ [startFloor, endFloor] && content.trimStart().startsWith(prefix)
+ * 清理 HTML 标签（保留 <br/> 转换为换行 + UBB 标签原样保留）
+ */
+function stripHtmlTags(s: string): string {
+  return s
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#(\d+);/g, (_m, code) => String.fromCharCode(parseInt(code, 10)))
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
+ * 提取 pid（楼层唯一 id）
+ * 例如：<a id='pid870364906Anchor'></a>
+ */
+function extractPid(segment: string, floor: number): string {
+  const m = segment.match(/id=['"]pid(\d+)Anchor['"]/i);
+  return m ? m[1] : '';
+}
+
+/**
+ * 过滤安价帖子
+ * - 楼层范围：start <= floor <= end
+ * - prefix 匹配：content.trim().startsWith(prefix)
+ *   - prefix 为空 = 不过滤（返回所有范围内帖子）
+ * - 转换 UBB 引用为纯文本（移除 [uid=XXX]name[/uid] 形式）
  */
 export function filterAnjiaPosts(
   posts: RawPost[],
@@ -159,82 +224,95 @@ export function filterAnjiaPosts(
   endFloor: number,
   prefix: string,
 ): AnjiaItem[] {
-  if (!prefix) {
-    // 没有前缀 → 只过滤楼层
-    return posts
-      .filter((p) => p.floor >= startFloor && p.floor <= endFloor)
-      .map((p) => ({ floor: p.floor, author: p.author, content: p.content }));
-  }
+  const trimmedPrefix = prefix.trim();
   return posts
-    .filter(
-      (p) =>
-        p.floor >= startFloor &&
-        p.floor <= endFloor &&
-        p.content.trimStart().startsWith(prefix),
-    )
-    .map((p) => ({ floor: p.floor, author: p.author, content: p.content }))
-    .sort((a, b) => a.floor - b.floor);
+    .filter((p) => p.floor >= startFloor && p.floor <= endFloor)
+    .filter((p) => !trimmedPrefix || p.content.trim().startsWith(trimmedPrefix))
+    .map((p) => ({
+      floor: p.floor,
+      author: p.author,
+      content: removeUbbref(p.content),
+    }));
 }
 
 /**
- * HTML 标签 + BBCode → 纯文本
- * - 移除所有 <...> 标签
- * - 解码常见 HTML 实体
- * - 移除 BBCode 标签 [b] [i] [u] [color=...] [/color]
- * - 保留换行：<br> → \n，</p> → \n\n
- * - 合并多余空白
+ * 移除 UBB 引用标签（[uid=XXX]name[/uid]、[pid=XXX]name[/pid] 等）
+ * - 保留 [b]、[i]、[quote] 等结构标签
+ * - 仅移除 [uid]、[pid] 这种用户/帖子引用
  */
-export function htmlToPlainText(html: string): string {
-  if (!html) return '';
-  let s = html;
-
-  // 1) 换行处理（先做，避免被 strip 标签时丢失）
-  s = s.replace(/<br\s*\/?>/gi, '\n');
-  s = s.replace(/<\/p>/gi, '\n\n');
-  s = s.replace(/<\/div>/gi, '\n');
-
-  // 2) 移除所有 HTML 标签
-  s = s.replace(/<[^>]+>/g, '');
-
-  // 3) 移除 BBCode 标签：[b] [i] [u] [s] [color=red] [/color] 等
-  s = s.replace(/\[\/?[a-zA-Z]+(?:=[^\]]+)?\]/g, '');
-
-  // 4) 解码 HTML 实体
-  s = s
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&apos;/g, "'");
-
-  // 5) 合并连续空白（保留换行）
-  s = s
-    .split('\n')
-    .map((line) => line.replace(/[ \t]+/g, ' ').trim())
-    .filter((line, idx, arr) => !(line === '' && arr[idx - 1] === '')) // 合并连续空行
-    .join('\n');
-
-  return s.trim();
+function removeUbbref(text: string): string {
+  return text
+    .replace(/\[uid=\d+\][^\[]*?\[\/uid\]/gi, '')
+    .replace(/\[pid=\d+(?:,\d+)*\][^\[]*?\[\/pid\]/gi, '')
+    .replace(/\[tid=\d+\][^\[]*?\[\/tid\]/gi, '')
+    .replace(/\[\[uid=\d+\]\]\(0,[^)]+\)/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
 }
 
 /**
- * 拼装复制文本（用于剪贴板）
- * 格式：1楼 用户名：内容
+ * 格式化为可复制文本（每条 "X楼 用户名：内容"）
  */
 export function formatForClipboard(items: AnjiaItem[]): string {
-  return items.map((it) => `${it.floor}楼 ${it.author}：${it.content}`).join('\n');
+  return items.map((it) => `${it.floor}楼 ${it.author}：${it.content}`).join('\n\n');
 }
 
 /**
- * 拼装 NGA BBCode 格式（用于直接贴到 NGA 编辑器）
- * 格式：[b]1楼 用户名[/b]\n内容\n\n[b]2楼 用户名[/b]\n内容
- * - 标题行加粗
- * - 楼与楼之间空一行
+ * 格式化为 NGA BBCode（标题行加粗，楼与楼之间空一行）
+ * - 格式：[b]1楼 用户名[/b]\n内容\n\n[b]2楼 用户名[/b]\n内容
  */
 export function formatAsNGABBCode(items: AnjiaItem[]): string {
   return items
     .map((it) => `[b]${it.floor}楼 ${it.author}[/b]\n${it.content}`)
     .join('\n\n');
+}
+
+/**
+ * 从 HTML 中提取总页数（优先 __PAGE 全局变量）
+ */
+export function extractTotalPagesFromHtml(html: string): number {
+  if (!html) return 0;
+  // 优先：var __PAGE = {...,1:N,2:M,...}
+  const pageVarMatch = html.match(/var\s+__PAGE\s*=\s*\{[^}]*\}/);
+  if (pageVarMatch) {
+    const totalPagesMatch = pageVarMatch[0].match(/,1:(\d+),/);
+    if (totalPagesMatch) {
+      const n = parseInt(totalPagesMatch[1], 10);
+      if (n > 0) return n;
+    }
+  }
+  // 兜底：末页链接 / 最大 page= 数
+  const lastPageMatch = html.match(/[?&]page=(\d+)[^>]*>(?:末页|>>)/i);
+  if (lastPageMatch) {
+    const n = parseInt(lastPageMatch[1], 10);
+    if (n > 0) return n;
+  }
+  const allPages = Array.from(html.matchAll(/[?&]page=(\d+)/g))
+    .map((m) => parseInt(m[1], 10))
+    .filter((n) => !isNaN(n) && n > 0);
+  return allPages.length > 0 ? Math.max(...allPages) : 0;
+}
+
+/**
+ * 检测 HTML 编码
+ * - 优先从 <meta charset> 提取
+ * - 兜底返回 'GBK'（NGA 默认）
+ */
+export function detectCharsetFromHtml(buffer: ArrayBuffer | Uint8Array | string): string {
+  let head: string;
+  if (typeof buffer === 'string') {
+    head = buffer.substring(0, 2000);
+  } else {
+    const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+    // TextDecoder 可直接接受 Uint8Array view
+    head = new TextDecoder('utf-8', { fatal: false }).decode(bytes.slice(0, 2000));
+  }
+  const m = head.match(/charset\s*=\s*['"]?([\w-]+)/i);
+  if (m) {
+    const cs = m[1].toUpperCase();
+    if (cs === 'GB2312' || cs === 'GBK') return 'GBK';
+    if (cs === 'UTF-8' || cs === 'UTF8') return 'UTF-8';
+    return cs;
+  }
+  return 'GBK';
 }

@@ -18,7 +18,9 @@ import {
   NUMERIC_MAX_FACES,
   compressValuesToDisplay,
   parseDiceExpression,
+  createOptionId,
 } from '../../utils/diceEngine';
+import { parseNgaAnjia, toDiceOptions, type DiceNGAOption } from '../../utils/parseNgaAnjia';
 
 interface DiceConfigDialogProps {
   /** 保存时触发：如果有 targetBlockId，则调用 updateBlock；否则调用 onSaveNew 把新建的 dice 加到当前节 */
@@ -36,6 +38,11 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
   // 临时错误提示（覆盖校验失败时显示）
   const [coverageWarning, setCoverageWarning] = useState<string | null>(null);
 
+  // NGA 文本添加面板状态
+  const [ngaText, setNgaText] = useState('');
+  const [ngaParsed, setNgaParsed] = useState<DiceNGAOption[]>([]);
+  const [ngaPanelOpen, setNgaPanelOpen] = useState(false);
+
   useEffect(() => {
     setCoverageWarning(null);
   }, [open, draft?.kind, draft?.faces]);
@@ -46,6 +53,39 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
 
   const coverage = validateDraftCoverage();
   const faces = (draft.faces ?? 2) | 0;
+
+  // NGA 文本解析
+  const handleParseNga = () => {
+    const result = parseNgaAnjia(ngaText);
+    setNgaParsed(result);
+  };
+
+  const handleConfirmImport = () => {
+    let parsed = ngaParsed;
+    if (parsed.length === 0 && ngaText.trim()) {
+      parsed = parseNgaAnjia(ngaText);
+      setNgaParsed(parsed);
+    }
+    if (parsed.length === 0) {
+      setCoverageWarning('未识别到任何安价，请检查格式');
+      return;
+    }
+    const currentOptionsCount = (draft.options ?? []).length;
+    if (currentOptionsCount > 0) {
+      if (
+        !window.confirm(
+          `当前已有 ${currentOptionsCount} 个选项，将被解析出的 ${parsed.length} 个选项覆盖。是否继续？`,
+        )
+      ) {
+        return;
+      }
+    }
+    const options = toDiceOptions(parsed, createOptionId);
+    setDraft({ ...draft, kind: 'option', faces: options.length, options });
+    setNgaText('');
+    setNgaParsed([]);
+    setNgaPanelOpen(false);
+  };
 
   const handleSave = () => {
     // 选项骰子必须完整覆盖
@@ -159,14 +199,89 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
           </Field>
 
           {isOption ? (
-            <OptionEditor
-              faces={faces}
-              options={draft.options ?? []}
-              onFaces={(v) => setDraftFaces(v)}
-              onAdd={addDraftOption}
-              onRemove={removeDraftOption}
-              onUpdateOption={updateDraftOption}
-            />
+            <>
+              <details
+                open={ngaPanelOpen}
+                onToggle={(e) => setNgaPanelOpen((e.target as HTMLDetailsElement).open)}
+                className="rounded-lg border"
+                style={{ borderColor: 'var(--border-color)', background: 'var(--bg-toolbar)' }}
+              >
+                <summary
+                  className="px-3 py-2 text-xs cursor-pointer select-none font-medium"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  📋 通过 NGA 文本添加选项
+                </summary>
+                <div className="px-3 pb-3 space-y-2">
+                  <textarea
+                    value={ngaText}
+                    onChange={(e) => setNgaText(e.target.value)}
+                    placeholder={`[b]16楼 橘响弦[/b]\n安价：克星血统 (...) [s:ac:哭笑]\n\n[b]23楼 uid:67074399[/b]\n安价：数据库\n...`}
+                    rows={6}
+                    className="w-full px-2 py-1.5 text-xs rounded-md border outline-none font-mono resize-y"
+                    style={{
+                      background: 'var(--bg-card)',
+                      color: 'var(--text-primary)',
+                      borderColor: 'var(--border-color)',
+                      minHeight: 120,
+                    }}
+                  />
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      onClick={handleParseNga}
+                      disabled={!ngaText.trim()}
+                      className="px-2.5 py-1 text-xs rounded-md border transition-colors disabled:opacity-50"
+                      style={{
+                        background: 'var(--bg-card)',
+                        borderColor: 'var(--border-color)',
+                        color: 'var(--text-primary)',
+                      }}
+                    >
+                      🔍 解析
+                    </button>
+                    <button
+                      onClick={handleConfirmImport}
+                      disabled={!ngaText.trim() && ngaParsed.length === 0}
+                      className="px-2.5 py-1 text-xs font-medium rounded-md transition-colors disabled:opacity-50"
+                      style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
+                    >
+                      ✓ 导入到选项
+                    </button>
+                    <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                      {ngaParsed.length > 0
+                        ? `已解析 ${ngaParsed.length} 个选项`
+                        : ngaText.trim()
+                        ? '点击解析'
+                        : '粘贴 NGA 安价文本'}
+                    </span>
+                  </div>
+                  {ngaParsed.length > 0 && (
+                    <div
+                      className="rounded-md p-2 space-y-1 max-h-32 overflow-y-auto text-[11px]"
+                      style={{
+                        background: 'var(--bg-card)',
+                        border: '1px solid var(--border-color)',
+                      }}
+                    >
+                      {ngaParsed.map((opt, i) => (
+                        <div key={i} className="flex items-baseline gap-1.5">
+                          <span style={{ color: 'var(--accent)' }}>{opt.displayValue}.</span>
+                          <span style={{ color: 'var(--text-primary)' }}>{opt.content}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </details>
+              <OptionEditor
+                faces={faces}
+                options={draft.options ?? []}
+                onFaces={(v) => setDraftFaces(v)}
+                onAdd={addDraftOption}
+                onRemove={removeDraftOption}
+                onUpdateOption={updateDraftOption}
+              />
+            </>
           ) : (
             <NumericEditor
               count={draft.count ?? 1}

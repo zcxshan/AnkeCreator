@@ -9,6 +9,8 @@ import {
   computePageRange,
   extractPostsFromHtml,
   filterAnjiaPosts,
+  extractTotalPagesFromHtml,
+  detectCharsetFromHtml,
   type CollectResult,
 } from '../src/utils/ngaCrawler'
 
@@ -174,12 +176,12 @@ ipcMain.on('window:close', () => { win?.close() })
 // ============================================================
 // 图片处理
 // ============================================================
-// image:select：弹系统选图对话框，直接读文件返回 base64+filename+mimeType
+// image:select：弹系统选图对话框，直接读文件返回 base64+filename+mimeType+filePath
 // image:upload：把 base64 buffer 上传到 sm.ms 图床，返回 URL
 // **不**写本地文件，**不**写 base64 data URL
 ipcMain.handle(
   'image:select',
-  async (): Promise<{ buffer: string; filename: string; mimeType: string } | null> => {
+  async (): Promise<{ buffer: string; filename: string; mimeType: string; filePath?: string } | null> => {
     if (!win) return null
     const result = await dialog.showOpenDialog(win, {
       title: '选择图片',
@@ -198,6 +200,7 @@ ipcMain.handle(
         buffer: data.toString('base64'),
         filename: path.basename(p),
         mimeType: `image/${ext}`,
+        filePath: p,
       }
     } catch (e) {
       console.error('读取图片失败:', e)
@@ -519,12 +522,21 @@ ipcMain.handle(
         }
         const pageUrl = `${baseUrl}/read.php?tid=${tid}&page=${page}`;
         try {
+          // 增强请求头（基于实际抓取验证，Referer + Sec-Fetch-* 关键）
           const headers: Record<string, string> = {
             'User-Agent':
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
               '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'zh-CN,zh;q=0.9',
+            'Accept':
+              'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+            'Referer': `${baseUrl}/`,  // 关键：必须有，否则可能被当爬虫
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'same-origin',
+            'Sec-Fetch-User': '?1',
+            'Upgrade-Insecure-Requests': '1',
+            'Cache-Control': 'max-age=0',
           };
           if (payload.cookies && payload.cookies.trim()) {
             headers['Cookie'] = payload.cookies.trim();
@@ -535,10 +547,15 @@ ipcMain.handle(
             console.warn(`[nga:collect] 第 ${page} 页 HTTP ${resp.status}`);
             continue;
           }
-          const html = await resp.text();
+          // GBK 解码（NGA 默认 charset=GBK，UTF-8 会乱码）
+          const buffer = await resp.arrayBuffer();
+          const charset = detectCharsetFromHtml(buffer);
+          const html = new TextDecoder(charset).decode(buffer);
           const posts = extractPostsFromHtml(html);
           allPosts.push(...posts);
-          console.log(`[nga:collect] 第 ${page} 页抓到 ${posts.length} 个帖子`);
+          console.log(
+            `[nga:collect] 第 ${page} 页抓到 ${posts.length} 个帖子 (HTML ${html.length} chars, charset=${charset})`,
+          );
           // 限流：每页之间 300ms（最后一页不等待）
           if (page < endPage) {
             await new Promise((r) => setTimeout(r, 300));
@@ -614,12 +631,21 @@ ipcMain.handle(
         return { ok: false, error: '无法解析 URL 中的 tid 参数' };
       }
       const { tid, baseUrl } = parsed;
+      // 增强请求头
       const headers: Record<string, string> = {
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
           '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'zh-CN,zh;q=0.9',
+        'Accept':
+          'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        'Referer': `${baseUrl}/`,
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'same-origin',
+        'Sec-Fetch-User': '?1',
+        'Upgrade-Insecure-Requests': '1',
+        'Cache-Control': 'max-age=0',
       };
       if (cookies && cookies.trim()) {
         headers['Cookie'] = cookies.trim();
@@ -631,26 +657,20 @@ ipcMain.handle(
       if (!resp.ok) {
         return { ok: false, error: `HTTP ${resp.status}` };
       }
-      const html = await resp.text();
+      // GBK 解码
+      const buffer = await resp.arrayBuffer();
+      const charset = detectCharsetFromHtml(buffer);
+      const html = new TextDecoder(charset).decode(buffer);
 
-      // 解析总页数：
-      // 1) 末页链接：<a href="?tid=XXX&page=N">末页</a>
-      // 2) 翻页链接中的最大 page=N
-      const lastPageMatch = html.match(/[?&]page=(\d+)[^>]*>(?:末页|>>)/i);
-      const allPages = Array.from(html.matchAll(/[?&]page=(\d+)/g))
-        .map((m) => parseInt(m[1], 10))
-        .filter((n) => !isNaN(n) && n > 0);
-      const totalPages =
-        (lastPageMatch ? parseInt(lastPageMatch[1], 10) : 0) ||
-        (allPages.length > 0 ? Math.max(...allPages) : 0);
-
+      // 解析总页数（优先 __PAGE 全局变量，备选末页链接）
+      const totalPages = extractTotalPagesFromHtml(html);
       if (totalPages === 0) {
         return { ok: false, error: '无法从页面解析总页数，请手动输入末尾楼层' };
       }
 
       const totalFloors = totalPages * 20;
       console.log(
-        `[nga:fetchThreadInfo] tid=${tid} 总页数=${totalPages}（约 ${totalFloors} 楼）`,
+        `[nga:fetchThreadInfo] tid=${tid} 总页数=${totalPages}（约 ${totalFloors} 楼）charset=${charset}`,
       );
       return { ok: true, totalPages, totalFloors };
     } catch (e) {

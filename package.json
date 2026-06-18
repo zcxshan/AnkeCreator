@@ -1,6 +1,6 @@
 {
   "name": "anke-creator",
-  "version": "0.1.0",
+  "version": "2.1.0",
   "description": "安科作者助手 - 一款为安科/安价创作设计的写作工具",
   "main": "dist-electron/main.js",
   "author": "点点星辰",

@@ -54,14 +54,20 @@ export function htmlToNGABBCode(html: string | null | undefined): string {
  * 判断图片 src 是否为"不可达"（不能直接用于 NGA 论坛的图片 src）
  * NGA 不接受以下情况，导出时统一替换为占位符：
  *   - base64 data URL（`data:image/...` 或含 `;base64,`）
- *   - local:// 协议（本应用本地保存的图片，NGA 论坛无法访问）
+ *   - local:// 协议（本应用上一版本的本地保存协议，NGA 论坛无法访问）
+ *   - file:// 协议（操作系统文件协议，NGA 论坛无法访问）
+ *   - Windows 绝对路径（如 `C:\foo\bar.png` 或 `C:/foo/bar.png`）
+ *   - Unix 绝对路径（如 `/home/user/image.png`）
  */
 function isUnreachableImage(src: string): boolean {
   if (!src) return false;
   return (
-    /^data:image\//i.test(src) ||      // base64 data URL
-    /;base64,/i.test(src) ||            // 含 base64 标识
-    /^local:\/\//i.test(src)            // 本地保存协议
+    /^data:image\//i.test(src) ||        // base64 data URL
+    /;base64,/i.test(src) ||              // 含 base64 标识
+    /^local:\/\//i.test(src) ||          // 本应用上一版保存协议
+    /^file:\/\//i.test(src) ||            // OS 文件协议
+    /^[a-zA-Z]:[\\/]/.test(src) ||        // Windows 绝对路径（C:\ / D:/ 等）
+    /^\/[^\/]/.test(src)                  // Unix 绝对路径（/开头且第二字符不是 /）
   );
 }
 
@@ -275,7 +281,7 @@ function processImageBlock(el: HTMLElement): string[] {
   const src = imgEl?.getAttribute('src') || '';
   if (!src) return [];
 
-  // NGA 不接受 base64 data URL 和 local:// 协议巨长字符串，替换为占位符
+  // NGA 不接受 base64 data URL、local://、file:// 和绝对路径，替换为占位符
   if (isUnreachableImage(src)) {
     // 优先 data-name（文件名），再 alt（可读名），截断防爆长
     const altRaw = imgEl?.getAttribute('data-name') || imgEl?.getAttribute('alt') || '';

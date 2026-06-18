@@ -54,7 +54,7 @@ import {
 import { useEditorStore } from '../../store/editorStore';
 import { useToastStore } from '../../store/toastStore';
 import { useDiceStore } from '../../store/diceStore';
-import { uploadImagesWithProgress, type UploadProgressEvent } from '../../utils/uploadImage';
+import { uploadImagesWithProgress, ensureLocalWarning, type UploadProgressEvent } from '../../utils/uploadImage';
 import { UploadProgressDialog } from '../common/UploadProgressDialog';
 import { DiceNGAImportDialog } from '../dice/DiceNGAImportDialog';
 import {
@@ -408,15 +408,19 @@ export function EditorToolbar({
       typeof (window as any).electronAPI.selectImage === 'function';
     if (hasElectronAPI) {
       try {
-        const sel: { buffer: string; filename: string; mimeType: string } | null =
-          await (window as any).electronAPI.selectImage();
+        const sel: {
+          buffer: string;
+          filename: string;
+          mimeType: string;
+          filePath?: string;
+        } | null = await (window as any).electronAPI.selectImage();
         if (!sel) return;
         // 把 base64 buffer 转回 File 再走统一进度流程
         const byteChars = atob(sel.buffer);
         const bytes = new Uint8Array(byteChars.length);
         for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
         const file = new File([bytes], sel.filename, { type: sel.mimeType });
-        await runUploadWithProgress([file], sel.filename);
+        await runUploadWithProgress([file], sel.filename, sel.filePath);
       } catch (e) {
         useToastStore
           .getState()
@@ -433,13 +437,36 @@ export function EditorToolbar({
     const files = e.target.files ? Array.from(e.target.files) : [];
     e.target.value = '';
     if (files.length === 0) return;
+    // 浏览器：File.path 不可用，不传 filePath
     runUploadWithProgress(files, files[0]?.name);
   };
 
   /**
    * 走统一进度流程：弹窗 + 串行上传 + 成功后插入图片
+   * - 本地模式 + 未设置「不再提示」：先弹警告（全局 store），用户确认后才执行
+   * - filePath：Electron selectImage 传过来的绝对路径（仅本地模式有效）
    */
-  const runUploadWithProgress = async (files: File[], firstName?: string) => {
+  const runUploadWithProgress = async (
+    files: File[],
+    firstName?: string,
+    filePath?: string,
+  ) => {
+    const confirmed = await ensureLocalWarning();
+    if (!confirmed) {
+      useToastStore.getState().showToast('已取消本地保存', 'info');
+      return;
+    }
+    return doUpload(files, firstName, filePath);
+  };
+
+  /**
+   * 实际执行上传：进度弹窗 + 串行上传 + 成功后插入
+   */
+  const doUpload = async (
+    files: File[],
+    firstName?: string,
+    filePath?: string,
+  ) => {
     setUploadTasks(
       files.map((f, i) => ({
         taskId: `${Date.now()}_${i}`,
@@ -449,11 +476,15 @@ export function EditorToolbar({
       })),
     );
     setUploadDialogOpen(true);
-    const results = await uploadImagesWithProgress(files, (e) => {
-      setUploadTasks((prev) =>
-        prev.map((t) => (t.taskId === e.taskId ? { ...t, ...e } : t)),
-      );
-    });
+    const results = await uploadImagesWithProgress(
+      files,
+      (e) => {
+        setUploadTasks((prev) =>
+          prev.map((t) => (t.taskId === e.taskId ? { ...t, ...e } : t)),
+        );
+      },
+      filePath,
+    );
     // 第一张成功：插入到编辑器
     const ok = results.find((r) => r.ok && r.url);
     if (ok && ok.url) {
@@ -1173,6 +1204,8 @@ export function EditorToolbar({
         tasks={uploadTasks}
         onClose={() => setUploadDialogOpen(false)}
       />
+
+      {/* 本地上传警告弹窗已移到 App 顶层统一管理（订阅 imageWarningStore） */}
 
       {/* NGA 安价导入弹窗 */}
       <DiceNGAImportDialog

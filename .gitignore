@@ -66,8 +66,16 @@ lerna-debug.log*
 
 # 你的项目中出现的临时文件
 temp.md               # 根目录下的临时笔记
+up.txt                # 临时笔记
+i*.txt                # 临时笔记
 *.md.tmp              # 其他可能的临时 Markdown 文件
 *.log                 # 通用日志文件
+
+# ==============================
+# 临时测试资源 (Test Resources)
+# ==============================
+smile.png             # 图床测试用图片（体积大，不属于项目）
+scripts/              # 临时测试脚本（如 imgbob-app.js 等）
 
 # ==============================
 # Electron 特有 (Electron Specific)

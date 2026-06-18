@@ -36,7 +36,7 @@ export function AnjiaPage({ onBack }: AnjiaPageProps) {
   const [url, setUrl] = useState('');
   const [startFloor, setStartFloor] = useState('1');
   const [endFloor, setEndFloor] = useState('20');
-  const [prefix, setPrefix] = useState(''); // ② 改为可空（空前缀 = 全部）
+  const [prefix, setPrefix] = useState('安价'); // 默认匹配文本设为"安价"
   /** 标记末尾楼层是否被用户手动改过（auto-detect 时不覆盖） */
   const [endFloorManuallyEdited, setEndFloorManuallyEdited] = useState(false);
   const [detecting, setDetecting] = useState(false); // 自动检测进行中

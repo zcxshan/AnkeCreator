@@ -21,15 +21,15 @@
 src/
 ├── components/
 │   ├── character/      # CharacterEditor、CharacterCard、AttributeTable
-│   ├── common/         # TitleBar、WorkCard、DirectoryTree、WorldSettingPanel、ConfirmDialog、InputDialog、UploadProgressDialog
+│   ├── common/         # TitleBar、WorkCard、DirectoryTree、WorldSettingPanel、ConfirmDialog、InputDialog、UploadProgressDialog、LocalImageWarningDialog、LocalModeBanner
 │   ├── dice/           # DiceConfigDialog、DiceCard、DiceNGAImportDialog
 │   ├── editor/         # RichTextEditor、EditorToolbar、RelationshipPanel
 │   ├── outline/        # OutlineEditor
 │   └── pages/          # HomePage、EditorPage、WorksListPage、TemplatesPage、AnjiaPage、TutorialPage
 ├── db/                 # database.ts (better-sqlite3)
-├── store/              # editorStore、diceStore、settingStore、storyStore、toastStore、metaStore
+├── store/              # editorStore、diceStore、settingStore、storyStore、toastStore、metaStore、imageWarningStore
 ├── hooks/              # useSectionEditor 等
-├── utils/              # ngaCrawler、anjiaHistory、ngaHtmlToBBCode、uploadImage、parseValueExpression
+├── utils/              # ngaCrawler、anjiaHistory、ngaHtmlToBBCode、uploadImage、parseValueExpression、parseNgaAnjia
 └── types/              # 全局 TS 类型
 electron/
 ├── main.ts             # 主进程入口（IPC、菜单、窗口）
@@ -46,10 +46,20 @@ electron/
 - **NGA 导出保留换行**：BBCode 转换不得把多行内容压成单行
 - **图片 URL 必须可访问**：禁止 base64 兜底（不论远端还是本地模式）
 - **base64 失败提示文案**：`请检查网络后重新选择`
-- **远端图床顺序**：catbox.moe → sm.ms → 0x0.st → telegra.ph
+- **远端图床**：uguu.se（单图床、永久、匿名、无 key；实测 1.8-2.5s 上传，URL 200，SHA256 一致）
+- **历史失效图床**（已移除）：catbox.moe（TLS reset）、sm.ms（308→s.ee 需 key）、0x0.st（503 disabled）、telegra.ph（timeout）
+- **本轮（2026-06-18）评估**（不接入）：
+  - `img.remit.ee`：无公开 API（FAQ 明确"API 功能正在规划中，后续可能面向 Pro 用户开放"）
+  - `imgbob.net`：访客上传可能过期 + 无公开 API
 - **图片尺寸后缀**：full / `.medium.jpg` (640x?) / `.thumb.jpg` (320x240) / `.thumb_s.jpg` (130x91) / `.thumb_ss.jpg` (60x45)
 - **base64 图片导出占位**：`[本地图片：name（已用占位符替换...）]`，截断到 20 字
 - **local:// 图片导出占位**：`[本地图片：name（已用占位符替换）]`
+- **NGA 导出不可达图片识别**（统一占位为 `[本地图片：name（已用占位符替换）]`）：
+  - `data:image/...` 或含 `;base64,` 的 base64 data URL
+  - `local://` 协议
+  - `file://` 协议
+  - Windows 绝对路径：`C:\...` / `C:/...` 等
+  - Unix 绝对路径：`/...` 开头且第二字符非 `/`
 - **local:// 协议**：必须做路径遍历保护（参见 `electron/main.ts` 实现）
 - **NGA 匹配文本留空** = 抓取范围内全部楼层
 - **安价历史** 上限 10 条，单条 items 截断到 100（防 localStorage 超限）
@@ -161,6 +171,25 @@ useDiceStore.getState().openDialog({
 });
 ```
 
+### 5.4 本地上传警告（统一 helper）
+
+任何上传入口（EditorToolbar / TemplatesPage / CharacterEditor / CharacterEditorInline）开头都先调用：
+
+```ts
+const confirmed = await ensureLocalWarning();
+if (!confirmed) return;  // 用户取消，中止上传
+```
+
+实现位置：`src/utils/uploadImage.ts`（同文件包含 `uploadImageFile` / `uploadImagesWithProgress`）。
+Dialog 实现：`src/components/common/LocalImageWarningDialog.tsx`，订阅 `useImageWarningStore`。
+编辑区常驻横幅：`src/components/common/LocalModeBanner.tsx`，订阅 `useSettingStore.imageStoreMode`。
+
+设计要点：
+- 全局 Zustand store（`useImageWarningStore`）管理 dialog 状态，避免 props drilling
+- Dialog 在 `App.tsx` 顶层挂一次即可，所有入口都触发同一个 dialog
+- 横幅是"被动提醒"（常驻），弹窗是"主动确认"（每次上传前）；两者文案一致
+- 「不再提示」用 `localStorage` 持久化，跨会话免打扰；用户在「设置」可重置
+
 ## 6. 踩过的坑（必须避免）
 
 1. **用属性名作为 input field key** → focus 丢失，必须用稳定唯一 ID
@@ -173,6 +202,8 @@ useDiceStore.getState().openDialog({
 8. **0x0.st 较稳**（CF CDN, 512MB），telegra.ph 最后兜底（5MB）
 9. **toggle 与 apply 共存**：toggle 用于选区切换，apply 用于 Word 模式 set 行为
 10. **koa-connect wrapper 导致 ctx 泄露** → 必须用原生 Koa middleware
+11. **本地保存必须用真实绝对路径**（`filePath`），不能 `local://<hash>.<ext>` → 用户要求"图片链接就是图片的目录路径"，且避免用户跨设备/重新组织文件后失效
+12. **警告弹窗必须覆盖所有上传入口**（EditorToolbar / TemplatesPage / CharacterEditor / CharacterEditorInline）→ 用全局 Zustand store（`useImageWarningStore`）集中管理，避免 props drilling；dialog 在 App 顶层挂一次，订阅 `open` 状态
 
 ## 7. 测试
 

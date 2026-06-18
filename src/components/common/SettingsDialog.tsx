@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSettingStore, type ImageStoreMode } from '../../store/settingStore';
+import { useToastStore } from '../../store/toastStore';
 
 interface SettingsDialogProps {
   open: boolean;
@@ -144,16 +145,84 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
         <Section title="图片存储模式">
           <RadioRow
             label="远端图床"
-            description="上传到 catbox / sm.ms / 0x0.st / telegra.ph 公开图床。需要联网；NGA 导出时直接使用返回的 URL。"
+            description="上传到 uguu.se 公开图床（匿名/免费、需联网）。NGA 导出时直接使用返回的 URL。"
             checked={mode === 'remote'}
             onChange={() => handleModeChange('remote')}
           />
+          {mode === 'remote' && (
+            <div
+              style={{
+                padding: '4px 6px 8px',
+                fontSize: 11,
+                lineHeight: 1.6,
+                color: 'var(--text-muted, #999)',
+              }}
+            >
+              💡 uguu.se 是匿名/免费图床，无 SLA；如需长期/重要图片，建议切到「本地保存」模式
+              <br />
+              💡 也可把图片上传到 NGA 后，复制 NGA 的图片 URL 直接粘贴到编辑器
+            </div>
+          )}
           <RadioRow
             label="本地保存"
             description="保存到本地 userData/images/，通过 local:// 协议访问。无需联网；NGA 导出时自动替换为占位符。"
             checked={mode === 'local'}
             onChange={() => handleModeChange('local')}
           />
+          {mode === 'local' && (
+            <div
+              style={{
+                padding: '4px 6px 8px',
+                fontSize: 11,
+                lineHeight: 1.6,
+                color: 'var(--text-muted, #999)',
+              }}
+            >
+              ⚠️ 本地模式保存的图片（local:// 协议）在 NGA 论坛
+              <b style={{ color: 'var(--danger, #dc2626)' }}>无法被识别</b>
+              ，导出时自动替换为占位符
+              <br />
+              ⚠️ 远端图床（uguu.se 等）有
+              <b style={{ color: 'var(--danger, #dc2626)' }}>时限限制</b>
+              ，图片可能在数月/数年后失效
+              <br />
+              💡 推荐：把图片上传到 NGA 后，复制 NGA 的图片 URL 直接粘贴到编辑器
+            </div>
+          )}
+          {/* 重置图片警告标记（用户曾勾「不再提示」时可恢复） */}
+          {mode === 'local' && (
+            <div
+              style={{
+                padding: '4px 6px 8px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <button
+                onClick={() => {
+                  try {
+                    localStorage.removeItem('anke-creator-image-warning-dismissed');
+                    useToastStore.getState().showToast('已重置图片警告，下次本地上传会重新提示', 'success');
+                  } catch {
+                    useToastStore.getState().showToast('重置失败', 'error');
+                  }
+                }}
+                className="text-[10px] px-2 py-1 rounded transition-colors"
+                style={{
+                  background: 'var(--bg-card)',
+                  color: 'var(--accent)',
+                  border: '1px solid var(--accent)',
+                }}
+                title="清除 anke-creator-image-warning-dismissed 标记，下次本地上传重新弹警告"
+              >
+                🔄 重置图片警告
+              </button>
+              <span className="text-[10px]" style={{ color: 'var(--text-muted, #999)' }}>
+                如果之前勾过「不再提示」，点此恢复
+              </span>
+            </div>
+          )}
         </Section>
 
         {/* 分组：本地图片目录 */}

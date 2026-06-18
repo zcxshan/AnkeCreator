@@ -496,3 +496,30 @@ textarea {
 .anke-btn:hover {
   background: var(--bg-hover);
 }
+
+/* ================================
+   骰子掷骰动画（一次性，投后按钮消失）
+   - ankeDiceSpin：🎲 emoji 旋转 1 圈（600ms）
+   - ankeDiceRollFade：滚动展示区淡入
+   ================================ */
+@keyframes ankeDiceSpin {
+  0%   { transform: rotate(0deg)   scale(1); }
+  50%  { transform: rotate(180deg) scale(1.15); }
+  100% { transform: rotate(360deg) scale(1); }
+}
+
+@keyframes ankeDiceRollFade {
+  0%   { opacity: 0; transform: translateY(-2px); }
+  20%  { opacity: 1; transform: translateY(0); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+[data-type="dice-card"] [data-slot="roll-emoji"].anke-dice-spin {
+  animation: ankeDiceSpin 600ms ease-in-out;
+  display: inline-block;
+  transform-origin: center;
+}
+
+[data-type="dice-card"] [data-slot="roll-display"].anke-dice-rolling {
+  animation: ankeDiceRollFade 200ms ease-out;
+}
