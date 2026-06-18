@@ -1,88 +1,120 @@
-# ==============================
-# AI 助手与 IDE 配置 (AI & IDE Configs)
-# 必须忽略，避免上传个人设置和缓存
-# ==============================
-.trae/                # Trae IDE 的配置与缓存
-.codebuddy/           # CodeBuddy 的配置与缓存
-.vscode/              # VSCode 工作区设置
-.idea/                # JetBrains 系列 IDE 设置
-*.swp                 # Vim 交换文件
-*.swo
-agent.md
-Agent.md
-!AGENT.md
-*~                    # 编辑器备份文件
-
-# ==============================
-# 依赖包 (Dependencies)
-# ==============================
+# 依赖包 — 完全忽略
 node_modules/
 jspm_packages/
 
-# ==============================
-# 构建产物 (Build Outputs)
-# Vite 和 Electron 的输出目录
-# ==============================
-dist/                 # Vite 默认打包目录
-dist-electron/        # Electron 相关构建输出
-build/                # 通用构建目录
-release/              # 发布包目录
-out/                  # Electron-builder 常用输出目录
+# 构建产物 — 每次构建重新生成，完全忽略
+dist/
+dist-electron/
+release/
+out/
 
-# ==============================
-# 环境变量 (Environment Variables)
-# 重要：防止 API Key 和密码泄露！
-# ==============================
+# build 目录 — 仅保留 icon.png（electron-builder 需要），其他全部忽略
+build/*
+!build/icon.png
+
+# 编译缓存 — 完全忽略
+*.tsbuildinfo
+.vite/
+.cache/
+.parcel-cache/
+.eslintcache
+.prettiercache
+
+# 数据库 — 仅保留 schema.sql（表结构定义），所有数据文件忽略
+database/*.db
+database/*.sqlite
+database/*.sqlite3
+database/data/
+database/*.dump
+!database/schema.sql
+
+# SQLite 运行时临时文件（WAL / SHM）
+database/*.db-wal
+database/*.db-shm
+database/*.sqlite-wal
+database/*.sqlite-shm
+database/*.sqlite3-wal
+database/*.sqlite3-shm
+
+# 临时测试资源 — 完全忽略
+smile.png
+scripts/
+
+# IDE / AI 助手配置 — 完全忽略
+.trae/
+.codebuddy/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# AI 代理文件
+agent.md
+Agent.md
+!AGENT.md
+*~
+
+# 环境变量与密钥 — 完全忽略（绝对不能提交！）
 .env
 .env.local
 .env.*.local
 
-# ==============================
-# 数据库 (Database) - 重点调整
-# ==============================
-# 策略：保留 schema.sql (表结构)，忽略所有数据文件
-database/*.db         # SQLite 数据库文件
-database/*.sqlite     # SQLite 数据库文件
-database/*.sqlite3    # SQLite 数据库文件
-database/data/        # 如果以后有存放数据的子文件夹
-database/*.dump       # 数据库导出文件
-!database/schema.sql  # 【强制保留】表结构定义文件，这个要提交
+# 测试与覆盖率 — 完全忽略
+coverage/
+.nyc_output/
+*.lcov
 
-# ==============================
-# 操作系统文件 (OS Files)
-# ==============================
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# ==============================
-# 日志与临时文件 (Logs & Temp)
-# ==============================
+# 日志文件 — 完全忽略
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+*.log
 
-# 你的项目中出现的临时文件
-temp.md               # 根目录下的临时笔记
-up.txt                # 临时笔记
-i*.txt                # 临时笔记
-*.md.tmp              # 其他可能的临时 Markdown 文件
-*.log                 # 通用日志文件
+# 临时笔记 — 完全忽略
+temp.md
+up.txt
+i*.txt
+*.md.tmp
 
-# ==============================
-# 临时测试资源 (Test Resources)
-# ==============================
-smile.png             # 图床测试用图片（体积大，不属于项目）
-scripts/              # 临时测试脚本（如 imgbob-app.js 等）
+# Electron 打包产物（兜底规则）
+electron/dist/
+*.exe
+*.dmg
+*.AppImage
+*.deb
+*.rpm
+electron-builder*.yml
+electron-builder*.yaml
 
-# ==============================
-# Electron 特有 (Electron Specific)
-# ==============================
-electron/dist/        # 如果 electron 文件夹内有独立的 dist
-*.exe                 # Windows 安装包
-*.dmg                 # Mac 安装包
-*.AppImage            # Linux 安装包
-*.deb                 # Debian 包
-*.rpm                 # RedHat 包
+# 包管理器锁文件策略
+# 注意：package-lock.json 应提交以保证团队依赖一致性
+# 以下仅忽略其损坏/备份版本
+package-lock.json.bak
+npm-shrinkwrap.json
+
+# 用户数据目录（应用运行时可能生成）
+userData/
+user-data/
+app-data/
+localData/
+data/
+
+# macOS 系统生成文件
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+
+# Windows 系统生成文件
+Thumbs.db
+desktop.ini
+ehthumbs.db
+ehthumbs_vista.db
+
+# 通用备份文件
+*.bak
+*.backup
+*.old
+*.orig
