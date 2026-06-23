@@ -56,7 +56,7 @@ npm run build:win            # 一键打包
 ### 产物位置
 
 ```
-dist-release/
+release/
 └── 安科作者助手-2.2.0-x64-setup.exe   # NSIS 安装包
 ```
 

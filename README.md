@@ -35,7 +35,7 @@
 
 | 平台 | 状态 | 打包命令 | 产物 |
 | --- | --- | --- | --- |
-| **Windows** | ✅ 主推 | `npm run build:win` | `dist-release/*.exe` |
+| **Windows** | ✅ 主推 | `npm run build:win` | `release/*.exe` |
 | **Android** | ✅ 移动端 | `npm run cap:build:apk` | `android/app/build/outputs/apk/*.apk` |
 | **macOS** | ⏳ 暂缓 | — | — |
 | **Linux** | ⏳ 暂缓 | — | — |
