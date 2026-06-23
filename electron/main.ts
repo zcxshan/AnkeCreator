@@ -1,6 +1,6 @@
 // © 点点星辰 | 开发时间: 2026-06-17 | 唯一标识: AnkeCreator_20260617_XXXX
 // 本应用由本人独立开发，保留所有权利 | 非授权禁止商用
-import { app, BrowserWindow, ipcMain, dialog, protocol, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, protocol, shell, session } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import crypto from 'crypto'
@@ -126,6 +126,25 @@ app.on('activate', () => {
 app.whenReady().then(() => {
   // 启动时初始化数据库
   db.initMainDatabase()
+
+  // ============================================================
+  // NGA 防盗链绕过：渲染进程加载 img.nga.178.com 图片时自动加 Referer
+  // 根因：NGA 图床检查 Referer 头，Electron 渲染层默认不携带 nga.178.com referer，
+  //       导致编辑器内插入的 NGA 图片加载失败
+  // 主进程 ngaCrawler 已经在 main.ts:521-529 / 635-639 手动加过 Referer，
+  // 但只覆盖 Node.js fetch，不覆盖渲染层 <img> 请求
+  // ============================================================
+  session.defaultSession.webRequest.onBeforeSendHeaders(
+    { urls: ['*://*.nga.178.com/*'] },
+    (details, callback) => {
+      const headers = { ...details.requestHeaders };
+      // 模拟从 NGA 论坛页面访问图片的 referer
+      if (!headers['Referer'] || headers['Referer'] === '') {
+        headers['Referer'] = 'https://nga.178.com/';
+      }
+      callback({ requestHeaders: headers });
+    },
+  );
 
   // 注册 local:// 协议：把 local://<hash>.<ext> 映射到 userData/images/ 下的文件
   // 浏览器/渲染端用 <img src="local://xxx.png"> 时，由 Electron 拦截并返回文件内容
@@ -349,6 +368,7 @@ ipcMain.handle('db:create-chapter', (_e, data: any) => db.createChapter(data))
 ipcMain.handle('db:update-chapter', (_e, id: string, patch: any) => db.updateChapter(id, patch))
 ipcMain.handle('db:delete-chapter', (_e, id: string) => { db.deleteChapter(id); return true })
 ipcMain.handle('db:reorder-chapters', (_e, storyId: string, orderedIds: string[]) => { db.reorderChapters(storyId, orderedIds); return true })
+ipcMain.handle('db:move-chapters', (_e, storyId: string, targetVolumeId: string | null, orderedIds: string[]) => { db.moveChapters(storyId, targetVolumeId, orderedIds); return true })
 
 // Sections
 ipcMain.handle('db:list-sections', (_e, chapterId: string) => db.listSections(chapterId))
@@ -356,19 +376,11 @@ ipcMain.handle('db:create-section', (_e, data: any) => db.createSection(data))
 ipcMain.handle('db:update-section', (_e, id: string, patch: any) => db.updateSection(id, patch))
 ipcMain.handle('db:delete-section', (_e, id: string) => { db.deleteSection(id); return true })
 ipcMain.handle('db:reorder-sections', (_e, chapterId: string, orderedIds: string[]) => { db.reorderSections(chapterId, orderedIds); return true })
+ipcMain.handle('db:move-sections', (_e, targetChapterId: string | null, orderedIds: string[]) => { db.moveSections(targetChapterId, orderedIds); return true })
 
 // Section content (富文本正文)
 ipcMain.handle('db:get-section-content', (_e, id: string) => db.getSectionContent(id))
 ipcMain.handle('db:set-section-content', (_e, id: string, content: string | null) => { db.setSectionContent(id, content); return true })
-
-// Content blocks
-ipcMain.handle('db:list-blocks', (_e, sectionId: string) => db.listBlocks(sectionId))
-ipcMain.handle('db:create-text-block', (_e, sectionId: string, payload: any, orderIndex?: number) => db.createBlock(sectionId, 'text', payload, orderIndex))
-ipcMain.handle('db:create-image-block', (_e, sectionId: string, payload: any, orderIndex?: number) => db.createBlock(sectionId, 'image', payload, orderIndex))
-ipcMain.handle('db:create-dice-block', (_e, sectionId: string, payload: any, orderIndex?: number) => db.createBlock(sectionId, 'dice', payload, orderIndex))
-ipcMain.handle('db:update-block-payload', (_e, id: string, payload: any) => db.updateBlockPayload(id, payload))
-ipcMain.handle('db:reorder-blocks', (_e, sectionId: string, orderedIds: string[]) => { db.reorderBlocks(sectionId, orderedIds); return true })
-ipcMain.handle('db:delete-block', (_e, id: string) => { db.deleteBlock(id); return true })
 
 // World templates
 ipcMain.handle('db:list-world-setting-templates', () => db.listWorldSettingTemplates())
@@ -485,6 +497,7 @@ ipcMain.handle(
       startFloor: number;
       endFloor: number;
       prefix: string;
+      authorid?: string;
       cookies?: string;
     },
   ): Promise<CollectResult> => {
@@ -501,14 +514,16 @@ ipcMain.handle(
           error: '无法解析 URL 中的 tid 参数，请检查链接格式',
         };
       }
-      const { tid, baseUrl } = parsed;
+      const { tid, baseUrl, authorid: urlAuthorid } = parsed;
+      // 优先使用 URL 中的 authorid，其次使用 payload.authorid
+      const targetAuthorid = urlAuthorid || payload.authorid;
       const { startPage, endPage, totalPages } = computePageRange(
         payload.startFloor,
         payload.endFloor,
       );
 
       console.log(
-        `[nga:collect] taskId=${taskId} tid=${tid} 范围=${payload.startFloor}-${payload.endFloor} 页码=${startPage}-${endPage}（共 ${totalPages} 页）`,
+        `[nga:collect] taskId=${taskId} tid=${tid} 范围=${payload.startFloor}-${payload.endFloor} 页码=${startPage}-${endPage}（共 ${totalPages} 页）${targetAuthorid ? ` authorid=${targetAuthorid}` : ''}`,
       );
 
       const allPosts: ReturnType<typeof extractPostsFromHtml> = [];
@@ -545,6 +560,12 @@ ipcMain.handle(
           if (!resp.ok) {
             errors.push(`第 ${page} 页 HTTP ${resp.status}`);
             console.warn(`[nga:collect] 第 ${page} 页 HTTP ${resp.status}`);
+            // 触发反爬时退避：403/429 是 NGA 限流/封禁的典型信号
+            // 退避 3 秒 + 标准间隔，避免加重被封
+            if (resp.status === 403 || resp.status === 429) {
+              console.warn(`[nga:collect] 检测到反爬信号（HTTP ${resp.status}），退避 3 秒...`);
+              await new Promise((r) => setTimeout(r, 3000));
+            }
             continue;
           }
           // GBK 解码（NGA 默认 charset=GBK，UTF-8 会乱码）
@@ -556,9 +577,17 @@ ipcMain.handle(
           console.log(
             `[nga:collect] 第 ${page} 页抓到 ${posts.length} 个帖子 (HTML ${html.length} chars, charset=${charset})`,
           );
-          // 限流：每页之间 300ms（最后一页不等待）
-          if (page < endPage) {
-            await new Promise((r) => setTimeout(r, 300));
+          // 限流：基线 1200ms + 随机 ±300ms（避免固定间隔被识别为机器人）
+          // - 1200ms 是经验安全基线：NGA 反爬通常对 < 1s 间隔的连续请求敏感
+          // - ±300ms 抖动让间隔看起来像人类操作（100% 固定 = 机器人特征）
+          // - 最后一页不等待，加快返回
+          // 风险：抓 50 页 50 个帖耗时 ~ 60s（vs 旧版 15s），但更安全
+          const baseDelay = 1200;
+          const jitter = Math.floor(Math.random() * 600) - 300; // -300 ~ +300
+          const delay = page < endPage ? baseDelay + jitter : 0;
+          if (delay > 0) {
+            console.log(`[nga:collect] 第 ${page} 页抓完，限流等待 ${delay}ms（基线 ${baseDelay}ms + 抖动 ${jitter >= 0 ? '+' : ''}${jitter}ms）`);
+            await new Promise((r) => setTimeout(r, delay));
           }
         } catch (e) {
           errors.push(`第 ${page} 页抓取失败：${(e as Error).message}`);
@@ -571,11 +600,12 @@ ipcMain.handle(
         payload.startFloor,
         payload.endFloor,
         payload.prefix,
+        targetAuthorid,
       );
 
       const cancelled = cancelledTaskIds.has(taskId);
       console.log(
-        `[nga:collect] taskId=${taskId} 完成${cancelled ? '（已取消）' : ''}：共抓 ${allPosts.length} 帖，过滤出 ${items.length} 条匹配"${payload.prefix}"`,
+        `[nga:collect] taskId=${taskId} 完成${cancelled ? '（已取消）' : ''}：共抓 ${allPosts.length} 帖，过滤出 ${items.length} 条匹配"${payload.prefix}"${targetAuthorid ? ` authorid=${targetAuthorid}` : ''}`,
       );
 
       return {

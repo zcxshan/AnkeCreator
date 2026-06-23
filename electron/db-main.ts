@@ -16,7 +16,6 @@
 //    ├── volumes.json              // 卷
 //    ├── chapters.json             // 章
 //    ├── sections.json             // 节（含 content 正文）
-//    ├── content_blocks.json       // 内容块
 //    ├── character_relations.json  // 人物关系
 //    ├── world_templates.json      // 世界观模板
 //    └── character_templates.json  // 人物模板
@@ -107,12 +106,21 @@ export function initMainDatabase(): void {
     'volumes',
     'chapters',
     'sections',
-    'content_blocks',
     'character_relations',
   ];
   for (const t of emptyTables) {
     if (!fs.existsSync(filePath(t + '.json'))) {
       saveJSON(t + '.json', {} as Record<string, any>);
+    }
+  }
+
+  // 旧版 content_blocks.json 一次性清理（已切换到新版富文本，不再使用）
+  const legacyBlocksPath = filePath('content_blocks.json');
+  if (fs.existsSync(legacyBlocksPath)) {
+    try {
+      fs.unlinkSync(legacyBlocksPath);
+    } catch {
+      /* ignore */
     }
   }
 
@@ -246,7 +254,7 @@ export function updateStory(id: string, patch: Partial<StoryRow>): StoryRow | un
 export function deleteStory(id: string): void {
   // 删除故事 → 连带删除其下所有相关数据
   deleteRow('stories', id);
-  // 级联：world_settings, characters, outlines, volumes, chapters, sections, content_blocks, relations
+  // 级联：world_settings, characters, outlines, volumes, chapters, sections, relations
   const cascadeByStory = (table: string) => {
     const all = readTable<any>(table);
     for (const key of Object.keys(all)) {
@@ -260,7 +268,7 @@ export function deleteStory(id: string): void {
   cascadeByStory('volumes');
   cascadeByStory('character_relations');
 
-  // 删除章 / 节 / 内容块（通过卷 → 章 → 节）
+  // 删除章 / 节（通过卷 → 章 → 节）
   const chapters = Object.values(readTable<any>('chapters')).filter((c: any) => c.story_id === id);
   const volumes = Object.values(readTable<any>('volumes')).filter((v: any) => v.story_id === id);
   const allChapters = readTable<any>('chapters');
@@ -274,23 +282,12 @@ export function deleteStory(id: string): void {
   // sections 级联：通过该故事的章 id 找到所有节并删除
   const chapterIdsOfStory = new Set(chapters.map((c: any) => c.id));
   const allSections2 = readTable<any>('sections');
-  const sectionIdsOfStory = new Set<string>();
   for (const key of Object.keys(allSections2)) {
     if (chapterIdsOfStory.has(allSections2[key].chapter_id)) {
-      sectionIdsOfStory.add(key);
       delete allSections2[key];
     }
   }
   writeTable('sections', allSections2);
-
-  // content_blocks
-  const allBlocks = readTable<any>('content_blocks');
-  for (const key of Object.keys(allBlocks)) {
-    if (sectionIdsOfStory.has(allBlocks[key].section_id)) {
-      delete allBlocks[key];
-    }
-  }
-  writeTable('content_blocks', allBlocks);
 }
 
 // —— 回收站：软删除 / 恢复 / 永久删除 ——
@@ -777,11 +774,22 @@ export function reorderChapters(storyId: string, orderedIds: string[]): void {
   orderedIds.forEach((id, i) => updateChapter(id, { order_index: i }));
 }
 
+// 跨卷拖动：同时更新 chapter.volume_id 和 order_index
+export function moveChapters(
+  storyId: string,
+  targetVolumeId: string | null,
+  orderedIds: string[],
+): void {
+  orderedIds.forEach((id, i) => {
+    updateChapter(id, { volume_id: targetVolumeId, order_index: i });
+  });
+}
+
 // —— Section —— //
 
 type SectionRow = {
   id: string;
-  chapter_id: string;
+  chapter_id: string | null;
   title: string;
   content: string | null; // 正文（富文本 JSON）
   order_index: number;
@@ -812,9 +820,6 @@ export function updateSection(id: string, patch: Partial<SectionRow>): SectionRo
 }
 
 export function deleteSection(id: string): void {
-  // 连带删除内容块
-  const blocks = Object.values(readTable<any>('content_blocks')).filter((b) => b.section_id === id);
-  for (const b of blocks) deleteBlock(b.id);
   deleteRow('sections', id);
 }
 
@@ -831,78 +836,14 @@ export function reorderSections(chapterId: string, orderedIds: string[]): void {
   orderedIds.forEach((id, i) => updateSection(id, { order_index: i }));
 }
 
-// —— Content Blocks —— //
-
-type BlockRow = {
-  id: string;
-  section_id: string;
-  type: 'text' | 'image' | 'dice';
-  payload: string; // JSON
-  order_index: number;
-  created_at: string;
-  updated_at: string;
-};
-
-export function listBlocks(sectionId: string): any[] {
-  const all = readTable<BlockRow>('content_blocks');
-  return Object.values(all)
-    .filter((r) => r.section_id === sectionId)
-    .sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
-    .map((r) => ({
-      id: r.id,
-      section_id: r.section_id,
-      type: r.type,
-      payload: parseJSON<any>(r.payload, {}),
-      order_index: r.order_index,
-      created_at: r.created_at,
-      updated_at: r.updated_at,
-    }));
-}
-
-export function createBlock(sectionId: string, type: 'text' | 'image' | 'dice', payload: any, orderIndex?: number): any {
-  const existing = listBlocks(sectionId);
-  const order = typeof orderIndex === 'number' ? orderIndex : existing.length;
-  const row = createRow<BlockRow>('content_blocks', {
-    section_id: sectionId,
-    type,
-    payload: serializeJSON(payload),
-    order_index: order,
-  } as any);
-  return {
-    id: row.id,
-    section_id: row.section_id,
-    type: row.type,
-    payload: parseJSON<any>(row.payload, {}),
-    order_index: row.order_index,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-  };
-}
-
-export function updateBlockPayload(id: string, payload: any): any {
-  updateRow<BlockRow>('content_blocks', id, { payload: serializeJSON(payload) } as any);
-  const all = readTable<BlockRow>('content_blocks');
-  const row = all[id];
-  if (!row) return null;
-  return {
-    id: row.id,
-    section_id: row.section_id,
-    type: row.type,
-    payload: parseJSON<any>(row.payload, {}),
-    order_index: row.order_index,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-  };
-}
-
-export function reorderBlocks(sectionId: string, orderedIds: string[]): void {
+// 跨章拖动：同时更新 section.chapter_id 和 order_index
+export function moveSections(
+  targetChapterId: string | null,
+  orderedIds: string[],
+): void {
   orderedIds.forEach((id, i) => {
-    updateRow<BlockRow>('content_blocks', id, { order_index: i } as any);
+    updateSection(id, { chapter_id: targetChapterId, order_index: i });
   });
-}
-
-export function deleteBlock(id: string): void {
-  deleteRow('content_blocks', id);
 }
 
 // —— Templates —— //
@@ -1056,10 +997,7 @@ export function getStoryWithAll(storyId: string): any {
     volumes: listVolumes(storyId),
     chapters: listChapters(storyId).map((ch) => ({
       ...ch,
-      sections: listSections(ch.id).map((sec) => ({
-        ...sec,
-        blocks: listBlocks(sec.id),
-      })),
+      sections: listSections(ch.id),
     })),
   };
 }

@@ -123,6 +123,7 @@ const dbAPI = {
   updateChapter: (id: string, patch: any): Promise<any> => ipcRenderer.invoke('db:update-chapter', id, patch),
   deleteChapter: (id: string): Promise<boolean> => ipcRenderer.invoke('db:delete-chapter', id),
   reorderChapters: (storyId: string, orderedIds: string[]): Promise<boolean> => ipcRenderer.invoke('db:reorder-chapters', storyId, orderedIds),
+  moveChapters: (storyId: string, targetVolumeId: string | null, orderedIds: string[]): Promise<boolean> => ipcRenderer.invoke('db:move-chapters', storyId, targetVolumeId, orderedIds),
 
   // Sections
   listSections: (chapterId: string): Promise<any[]> => ipcRenderer.invoke('db:list-sections', chapterId),
@@ -130,19 +131,11 @@ const dbAPI = {
   updateSection: (id: string, patch: any): Promise<any> => ipcRenderer.invoke('db:update-section', id, patch),
   deleteSection: (id: string): Promise<boolean> => ipcRenderer.invoke('db:delete-section', id),
   reorderSections: (chapterId: string, orderedIds: string[]): Promise<boolean> => ipcRenderer.invoke('db:reorder-sections', chapterId, orderedIds),
+  moveSections: (targetChapterId: string | null, orderedIds: string[]): Promise<boolean> => ipcRenderer.invoke('db:move-sections', targetChapterId, orderedIds),
 
   // Section content
   getSectionContent: (id: string): Promise<string | null> => ipcRenderer.invoke('db:get-section-content', id),
   setSectionContent: (id: string, content: string | null): Promise<boolean> => ipcRenderer.invoke('db:set-section-content', id, content),
-
-  // Content blocks
-  listBlocks: (sectionId: string): Promise<any[]> => ipcRenderer.invoke('db:list-blocks', sectionId),
-  createTextBlock: (sectionId: string, payload: any, orderIndex?: number): Promise<any> => ipcRenderer.invoke('db:create-text-block', sectionId, payload, orderIndex),
-  createImageBlock: (sectionId: string, payload: any, orderIndex?: number): Promise<any> => ipcRenderer.invoke('db:create-image-block', sectionId, payload, orderIndex),
-  createDiceBlock: (sectionId: string, payload: any, orderIndex?: number): Promise<any> => ipcRenderer.invoke('db:create-dice-block', sectionId, payload, orderIndex),
-  updateBlockPayload: (id: string, payload: any): Promise<any> => ipcRenderer.invoke('db:update-block-payload', id, payload),
-  reorderBlocks: (sectionId: string, orderedIds: string[]): Promise<boolean> => ipcRenderer.invoke('db:reorder-blocks', sectionId, orderedIds),
-  deleteBlock: (id: string): Promise<boolean> => ipcRenderer.invoke('db:delete-block', id),
 
   // World Templates
   listWorldSettingTemplates: (): Promise<any[]> => ipcRenderer.invoke('db:list-world-setting-templates'),
@@ -213,6 +206,7 @@ export type ElectronAPI = {
     startFloor: number;
     endFloor: number;
     prefix: string;
+    authorid?: string;
     cookies?: string;
   }) => Promise<{
     ok: boolean;
