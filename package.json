@@ -15,7 +15,7 @@
     "build": "tsc && vite build && electron-builder --publish never",
     "build:icons": "node scripts/generate-icon.js",
     "build:full": "npm run build:icons && tsc && vite build && electron-builder --publish never && node scripts/clear-icon-cache.js",
-    "build:win": "npm run build && electron-builder --win --x64",
+    "build:win": "npm run build && electron-builder --win --x64 --publish never",
     "build-web": "tsc && vite build --mode production",
     "preview": "vite preview",
     "cap:sync": "npm run build-web && cap sync",
@@ -70,7 +70,7 @@
       "dist-electron/**/*",
       "package.json"
     ],
-    "artifactName": "${productName}-${version}-${arch}-${env.BUILD_TYPE:-setup}.${ext}",
+    "artifactName": "${productName}-${version}-${arch}.${ext}",
     "asar": true,
     "compression": "normal",
     "removePackageScripts": true,
