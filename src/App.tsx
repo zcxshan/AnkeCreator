@@ -11,6 +11,7 @@ import { AuthorInfo } from './components/common/AuthorInfo';
 import { ExportDialog } from './components/common/ExportDialog';
 import { ToastContainer } from './components/common/Toast';
 import { LocalImageWarningDialog } from './components/common/LocalImageWarningDialog';
+import { MobileBottomNav } from './components/common/MobileBottomNav';
 import { useStoryStore } from './store/storyStore';
 import { useEditorStore } from './store/editorStore';
 import { useMetaStore } from './store/metaStore';
@@ -67,7 +68,14 @@ function App() {
       style={{ background: 'var(--bg-page)', color: 'var(--text-primary)' }}
     >
       {isElectron && <TitleBar />}
-      <div className="flex-1 overflow-hidden">{content}</div>
+      <div className={`flex-1 overflow-hidden ${isCapacitor ? 'pb-14' : ''}`}>{content}</div>
+      {/* 移动端底部导航栏（仅 Capacitor 生效，isElectron / isWeb 不渲染） */}
+      <MobileBottomNav
+        route={route}
+        onChangeRoute={(r) => setRoute(r)}
+        onShowAuthor={() => setShowAuthor(true)}
+        hasActiveStory={!!activeStoryId}
+      />
       <ToastContainer />
       {/* 全局唯一的本地上传警告弹窗（订阅 imageWarningStore.open） */}
       <LocalImageWarningDialog />
