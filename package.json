@@ -15,6 +15,7 @@
     "build": "tsc && vite build && electron-builder --publish never",
     "build:icons": "node scripts/generate-icon.js",
     "build:full": "npm run build:icons && tsc && vite build && electron-builder --publish never && node scripts/clear-icon-cache.js",
+    "build:win": "npm run build && electron-builder --win --x64",
     "build-web": "tsc && vite build --mode production",
     "preview": "vite preview",
     "cap:sync": "npm run build-web && cap sync",
@@ -56,36 +57,47 @@
     "vite-plugin-electron-renderer": "^0.14.6"
   },
   "build": {
-    "appId": "com.anke-creator.app",
+    "appId": "com.shanshian.ankecreator",
     "productName": "安科作者助手",
+    "copyright": "Copyright © 2026 点点星辰 (zcxshan)",
     "directories": {
-      "output": "dist-release"
+      "output": "dist-release",
+      "buildResources": "build"
     },
     "files": [
       "dist/**/*",
-      "dist-electron/**/*"
+      "dist-electron/**/*",
+      "package.json"
     ],
+    "artifactName": "${productName}-${version}-${arch}-${env.BUILD_TYPE:-setup}.${ext}",
     "asar": true,
-    "compression": "maximum",
+    "compression": "normal",
     "removePackageScripts": true,
     "electronLanguages": [
       "zh-CN"
     ],
     "win": {
-      "icon": "build/icon.png",
-      "target": "nsis"
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "publisherName": "点点星辰"
     },
     "nsis": {
       "oneClick": false,
+      "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "installerIcon": "build/icon.ico",
-      "uninstallerIcon": "build/icon.ico"
-    },
-    "mac": {
-      "icon": "build/icon.png"
-    },
-    "linux": {
-      "icon": "build/icon.png"
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "安科作者助手",
+      "installerIcon": "build/installerIcon.ico",
+      "uninstallerIcon": "build/uninstallerIcon.ico",
+      "runAfterFinish": true
     }
   }
 }

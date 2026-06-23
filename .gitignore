@@ -8,10 +8,13 @@ dist-electron/
 release/
 out/
 
-# build 目录 — 仅保留 icon.png / icon.ico（electron-builder 需要），其他全部忽略
+# build 目录 — 仅保留图标与许可文件（electron-builder + Windows 打包需要），其他全部忽略
 build/*
 !build/icon.png
 !build/icon.ico
+!build/installerIcon.ico
+!build/uninstallerIcon.ico
+!build/LICENSE.txt
 
 # 编译缓存 — 完全忽略
 *.tsbuildinfo
