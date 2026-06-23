@@ -19,6 +19,8 @@ interface SettingsDialogProps {
 export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   const mode = useSettingStore((s) => s.imageStoreMode);
   const setMode = useSettingStore((s) => s.setImageStoreMode);
+  const localUploadEnabled = useSettingStore((s) => s.localUploadEnabled);
+  const setLocalUploadEnabled = useSettingStore((s) => s.setLocalUploadEnabled);
   const ngaCookies = useSettingStore((s) => s.ngaCookies);
   const setNgaCookies = useSettingStore((s) => s.setNgaCookies);
   const clearNgaCookies = useSettingStore((s) => s.clearNgaCookies);
@@ -143,6 +145,77 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
 
         {/* 分组：图片存储模式 */}
         <Section title="图片存储模式">
+          {/* 本地上传总开关（统一控制 4 个上传入口） */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              padding: '4px 6px 10px',
+              borderBottom: '1px dashed var(--border-color)',
+              marginBottom: 10,
+            }}
+          >
+            <span
+              style={{
+                fontSize: 13,
+                fontWeight: 500,
+                color: 'var(--text-primary, #111)',
+              }}
+            >
+              📁 启用本地上传
+            </span>
+            <button
+              role="switch"
+              aria-checked={localUploadEnabled}
+              onClick={() => setLocalUploadEnabled(!localUploadEnabled)}
+              style={{
+                width: 36,
+                height: 20,
+                borderRadius: 10,
+                background: localUploadEnabled ? 'var(--accent, #2563eb)' : 'var(--border-color, #e5e7eb)',
+                border: 'none',
+                cursor: 'pointer',
+                position: 'relative',
+                transition: 'background 0.2s',
+                flexShrink: 0,
+              }}
+              title="关闭时所有本地上传入口不可用（编辑器图片、人物模板差分、角色差分）"
+            >
+              <span
+                style={{
+                  display: 'block',
+                  width: 16,
+                  height: 16,
+                  borderRadius: 8,
+                  background: '#fff',
+                  position: 'absolute',
+                  top: 2,
+                  left: localUploadEnabled ? 18 : 2,
+                  transition: 'left 0.2s',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                }}
+              />
+            </button>
+            <span
+              style={{
+                fontSize: 11,
+                color: localUploadEnabled ? 'var(--accent, #2563eb)' : 'var(--text-muted, #999)',
+              }}
+            >
+              {localUploadEnabled ? '已开启' : '默认关闭'}
+            </span>
+            <span
+              style={{
+                fontSize: 10,
+                color: 'var(--text-muted, #999)',
+                marginLeft: 'auto',
+              }}
+            >
+              控制编辑器/角色/模板页的本地上传
+            </span>
+          </div>
+
           <RadioRow
             label="远端图床"
             description="上传到 uguu.se 公开图床（匿名/免费、需联网）。NGA 导出时直接使用返回的 URL。"
@@ -165,9 +238,10 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
           )}
           <RadioRow
             label="本地保存"
-            description="保存到本地 userData/images/，通过 local:// 协议访问。无需联网；NGA 导出时自动替换为占位符。"
+            description="保存到本地 userData/images/，通过 local:// 协议访问。无需联网；NGA 导出时自动替换为占位符。需先在上方开启「本地上传」开关。"
             checked={mode === 'local'}
             onChange={() => handleModeChange('local')}
+            disabled={!localUploadEnabled}
           />
           {mode === 'local' && (
             <div
@@ -445,11 +519,13 @@ function RadioRow({
   description,
   checked,
   onChange,
+  disabled,
 }: {
   label: string;
   description: string;
   checked: boolean;
   onChange: () => void;
+  disabled?: boolean;
 }) {
   return (
     <label
@@ -459,13 +535,16 @@ function RadioRow({
         gap: 8,
         padding: '8px 6px',
         borderRadius: 4,
-        cursor: 'pointer',
+        cursor: disabled ? 'not-allowed' : 'pointer',
         background: checked ? 'rgba(37,99,235,0.06)' : 'transparent',
+        opacity: disabled ? 0.4 : 1,
       }}
       onMouseEnter={(e) => {
+        if (disabled) return;
         if (!checked) e.currentTarget.style.background = 'var(--bg-hover, rgba(0,0,0,0.04))';
       }}
       onMouseLeave={(e) => {
+        if (disabled) return;
         e.currentTarget.style.background = checked
           ? 'rgba(37,99,235,0.06)'
           : 'transparent';
@@ -474,7 +553,8 @@ function RadioRow({
       <input
         type="radio"
         checked={checked}
-        onChange={onChange}
+        onChange={disabled ? undefined : onChange}
+        disabled={disabled}
         style={{ marginTop: 2, flexShrink: 0 }}
       />
       <div style={{ flex: 1, minWidth: 0 }}>

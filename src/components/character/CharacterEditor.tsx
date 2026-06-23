@@ -11,6 +11,7 @@ import { ConfirmDialog } from '../common/ConfirmDialog';
 import { InputDialog } from '../common/InputDialog';
 import { UploadProgressDialog } from '../common/UploadProgressDialog';
 import { useToastStore } from '../../store/toastStore';
+import { useSettingStore } from '../../store/settingStore';
 import { uploadImagesWithProgress, ensureLocalWarning, type UploadProgressEvent } from '../../utils/uploadImage';
 
 export function CharacterPanel({
@@ -470,6 +471,11 @@ function CharacterEditorModal({
   const newVariantFileRef = useRef<HTMLInputElement | null>(null);
   const batchUploadRef = useRef<HTMLInputElement | null>(null);
 
+  // 订阅本地上传总开关：关闭时把"上传"按钮置灰
+  const localUploadEnabled = useSettingStore((s) => s.localUploadEnabled);
+  const localUploadDisabledReason = '本地上传未启用，请到设置 → 图片存储模式 → 启用本地上传';
+  const isLocalUploadDisabled = !localUploadEnabled;
+
   // 上传进度弹窗状态
   const [uploadTasks, setUploadTasks] = useState<UploadProgressEvent[]>([]);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
@@ -514,6 +520,13 @@ function CharacterEditorModal({
   const handleBatchUpload = async (files: FileList) => {
     const fileArray = Array.from(files).slice(0, 50);
     if (fileArray.length === 0) return;
+    // 本地上传总开关（默认关闭，用户需在编辑器/角色/模板页任一处开启）
+    if (!useSettingStore.getState().localUploadEnabled) {
+      useToastStore
+        .getState()
+        .showToast('本地上传未启用，请到设置 → 图片存储模式 → 启用本地上传', 'error');
+      return;
+    }
     // 本地模式：先弹警告
     const confirmed = await ensureLocalWarning();
     if (!confirmed) return;
@@ -641,7 +654,7 @@ function CharacterEditorModal({
   };
 
   /**
-   * 批量添加差分：解析"差分名:url"多行输入，逐条新增 variant。
+   * 批量添加差分：解析"差分名:url"多行输入，校验 URL 后逐条新增 variant。
    */
   const handleBatchAddVariants = (text: string) => {
     const entries = parseBatchEntries(text);
@@ -650,18 +663,44 @@ function CharacterEditorModal({
       setBatchVariantOpen(false);
       return;
     }
-    const state = useMetaStore.getState();
+    const urlRe = /^https?:\/\//i;
+    const accepted: { key: string; value: string }[] = [];
+    const skipped: string[] = [];
     for (const { key, value } of entries) {
+      if (!urlRe.test(value)) {
+        skipped.push(key || '(空)');
+        continue;
+      }
+      accepted.push({ key, value });
+    }
+    const state = useMetaStore.getState();
+    for (const { key, value } of accepted) {
       state.addCharacterVariant(character.id, { name: key, url: value });
     }
-    if (activeStoryId) {
-      state.loadMetaForStory(activeStoryId);
+    if (accepted.length > 0) {
+      if (activeStoryId) {
+        state.loadMetaForStory(activeStoryId);
+      }
+      useToastStore.getState().showToast(`已批量添加 ${accepted.length} 个差分`, 'success');
     }
-    useToastStore.getState().showToast(`已批量添加 ${entries.length} 个差分`, 'success');
+    if (skipped.length > 0) {
+      const preview = skipped.slice(0, 3).join('、');
+      const more = skipped.length > 3 ? ` 等 ${skipped.length} 条` : '';
+      useToastStore
+        .getState()
+        .showToast(`已跳过 ${preview}${more}（URL 必须以 http:// 或 https:// 开头）`, 'warning');
+    }
     setBatchVariantOpen(false);
   };
 
   const handleAvatarFromFile = async (file: File) => {
+    // 本地上传总开关（默认关闭，用户需在编辑器/角色/模板页任一处开启）
+    if (!useSettingStore.getState().localUploadEnabled) {
+      useToastStore
+        .getState()
+        .showToast('本地上传未启用，请到设置 → 图片存储模式 → 启用本地上传', 'error');
+      return;
+    }
     // 本地模式：先弹警告
     const confirmed = await ensureLocalWarning();
     if (!confirmed) return;
@@ -702,7 +741,9 @@ function CharacterEditorModal({
           className="flex items-center justify-between px-4 py-2"
           style={{ borderBottom: '1px solid var(--border-color)' }}
         >
-          <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>✎ 编辑角色</div>
+          <div className="flex items-center gap-3">
+            <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>✎ 编辑角色</div>
+          </div>
           <button
             onClick={onClose}
             className="text-sm transition-colors"
@@ -738,19 +779,34 @@ function CharacterEditorModal({
 
               <label
                 className="text-xs px-2 py-1 rounded cursor-pointer transition-colors"
-                style={{ background: 'var(--bg-sidebar)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                style={{
+                  background: 'var(--bg-sidebar)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border-color)',
+                  opacity: isLocalUploadDisabled ? 0.45 : 1,
+                  cursor: isLocalUploadDisabled ? 'not-allowed' : 'pointer',
+                }}
                 onMouseEnter={(e) => {
+                  if (isLocalUploadDisabled) return;
                   e.currentTarget.style.background = 'var(--bg-hover)';
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.background = 'var(--bg-sidebar)';
                 }}
+                onClick={(e) => {
+                  if (isLocalUploadDisabled) {
+                    e.preventDefault();
+                    useToastStore.getState().showToast(localUploadDisabledReason, 'error');
+                  }
+                }}
+                title={isLocalUploadDisabled ? localUploadDisabledReason : ''}
               >
                 上传图片
                 <input
                   type="file"
                   accept="image/*"
                   className="hidden"
+                  disabled={isLocalUploadDisabled}
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (file) handleAvatarFromFile(file);
@@ -875,15 +931,29 @@ function CharacterEditorModal({
                   className="flex items-center gap-2 px-2 py-1.5 rounded border"
                   style={{ borderColor: 'var(--border-color)', background: 'var(--bg-sidebar)' }}
                 >
-                  <img
-                    src={v.url}
-                    alt={v.name}
-                    className="w-10 h-10 rounded object-cover shrink-0"
-                    style={{ background: 'var(--bg-base)' }}
-                    onError={(e) => {
-                      (e.currentTarget as HTMLImageElement).style.display = 'none';
-                    }}
-                  />
+                  <div
+                    className="w-10 h-10 rounded shrink-0 relative overflow-hidden"
+                    style={{ background: 'var(--bg-base)', border: '1px solid var(--border-color)' }}
+                  >
+                    <img
+                      src={v.url}
+                      alt={v.name}
+                      className="absolute inset-0 w-full h-full object-cover"
+                      onError={(e) => {
+                        const img = e.currentTarget as HTMLImageElement;
+                        img.style.display = 'none';
+                        const fallback = img.parentElement?.querySelector('.img-fallback') as HTMLElement | null;
+                        if (fallback) fallback.style.display = 'flex';
+                        console.warn('[VariantImage] 加载失败:', v.url);
+                      }}
+                    />
+                    <div
+                      className="img-fallback absolute inset-0 hidden items-center justify-center text-xs font-semibold"
+                      style={{ color: 'var(--text-muted, #999)' }}
+                    >
+                      {(v.name || '?').charAt(0)}
+                    </div>
+                  </div>
                   <input
                     value={v.name}
                     onChange={(e) => updateVariant(v.id, { name: e.target.value })}
@@ -972,18 +1042,44 @@ function CharacterEditorModal({
                 style={inputStyle}
               />
               <button
-                onClick={() => newVariantFileRef.current?.click()}
+                onClick={() => {
+                  if (isLocalUploadDisabled) {
+                    useToastStore.getState().showToast(localUploadDisabledReason, 'error');
+                    return;
+                  }
+                  newVariantFileRef.current?.click();
+                }}
+                disabled={isLocalUploadDisabled}
                 className="text-xs px-2 py-1 rounded whitespace-nowrap"
-                style={{ background: 'var(--bg-sidebar)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
-                title="从本地上传"
+                style={{
+                  background: 'var(--bg-sidebar)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border-color)',
+                  opacity: isLocalUploadDisabled ? 0.45 : 1,
+                  cursor: isLocalUploadDisabled ? 'not-allowed' : 'pointer',
+                }}
+                title={isLocalUploadDisabled ? localUploadDisabledReason : '从本地上传'}
               >
                 📁 上传
               </button>
               <button
-                onClick={() => batchUploadRef.current?.click()}
+                onClick={() => {
+                  if (isLocalUploadDisabled) {
+                    useToastStore.getState().showToast(localUploadDisabledReason, 'error');
+                    return;
+                  }
+                  batchUploadRef.current?.click();
+                }}
+                disabled={isLocalUploadDisabled}
                 className="text-xs px-2 py-1 rounded whitespace-nowrap"
-                style={{ background: 'var(--bg-sidebar)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
-                title="批量上传差分（最多50张）"
+                style={{
+                  background: 'var(--bg-sidebar)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border-color)',
+                  opacity: isLocalUploadDisabled ? 0.45 : 1,
+                  cursor: isLocalUploadDisabled ? 'not-allowed' : 'pointer',
+                }}
+                title={isLocalUploadDisabled ? localUploadDisabledReason : '批量上传差分（最多50张）'}
               >
                 📂 批量上传
               </button>
@@ -1127,15 +1223,17 @@ function CharacterEditorModal({
       />
 
       <InputDialog
-        open={batchVariantOpen}
-        title="批量添加差分"
-        placeholder={'差分1:https://example.com/1.png,\n差分2:https://example.com/2.png'}
-        defaultValue=""
-        multiline
-        confirmText="添加"
-        onConfirm={handleBatchAddVariants}
-        onCancel={() => setBatchVariantOpen(false)}
-      />
+              open={batchVariantOpen}
+              title="批量添加差分"
+              placeholder={'差分1:https://example.com/1.png,\n差分2:https://example.com/2.png'}
+              defaultValue=""
+              multiline
+              rows={10}
+              maxLength={10000}
+              confirmText="添加"
+              onConfirm={handleBatchAddVariants}
+              onCancel={() => setBatchVariantOpen(false)}
+            />
 
       {/* 上传进度弹窗 */}
       <UploadProgressDialog

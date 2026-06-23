@@ -6,7 +6,7 @@
 //   - 编辑已有骰子块的配置
 // ============================================================
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { DiceBlockPayloadV2, DiceConfig, DiceKind } from '../../types';
 import {
   useDiceStore,
@@ -37,6 +37,11 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
 
   // 临时错误提示（覆盖校验失败时显示）
   const [coverageWarning, setCoverageWarning] = useState<string | null>(null);
+
+  // 跟踪遮罩 mousedown 是否起于遮罩本身：
+  // - 避免在 input/textarea 中全选文字后，鼠标拖出 UI 误关弹窗
+  // - 只有 mousedown 和 mouseup 都在遮罩时才关闭
+  const mouseDownOnOverlayRef = useRef(false);
 
   // NGA 文本添加面板状态
   const [ngaText, setNgaText] = useState('');
@@ -140,11 +145,20 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
       style={{ background: 'var(--bg-overlay)' }}
-      onClick={closeDialog}
+      onMouseDown={(e) => {
+        mouseDownOnOverlayRef.current = e.target === e.currentTarget;
+      }}
+      onMouseUp={(e) => {
+        if (mouseDownOnOverlayRef.current && e.target === e.currentTarget) {
+          closeDialog();
+        }
+        mouseDownOnOverlayRef.current = false;
+      }}
     >
       <div
         className="w-[560px] max-h-[86vh] flex flex-col rounded-2xl shadow-2xl overflow-hidden"
         style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
+        onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
       >
         {/* 标题栏 */}
@@ -577,9 +591,58 @@ function NumericEditor({
               {exprValidation.error}
             </div>
           )}
-          <div className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
-            支持四则运算和括号，例如 <span className="font-mono" style={{ color: 'var(--text-primary)' }}>2*3d100</span>、<span className="font-mono" style={{ color: 'var(--text-primary)' }}>1d10+2d50</span>、<span className="font-mono" style={{ color: 'var(--text-primary)' }}>(1d6+2)*3</span>
-          </div>
+          <details
+            className="text-[11px] rounded-md px-3 py-2"
+            style={{ background: 'var(--bg-toolbar)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}
+          >
+            <summary
+              className="cursor-pointer select-none font-medium"
+              style={{ color: 'var(--text-primary)' }}
+            >
+              📖 表达式语法说明（点击展开）
+            </summary>
+            <div className="mt-2 space-y-2 leading-relaxed">
+              <div>
+                <div className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>基础语法</div>
+                <ul className="list-disc list-inside space-y-0.5 ml-1">
+                  <li>
+                    <span className="font-mono" style={{ color: 'var(--text-primary)' }}>NdM</span>：投掷 <span className="font-mono">N</span> 颗 <span className="font-mono">M</span> 面骰，每颗取值 1~M 概率均等；省略 N 默认 1（如 <span className="font-mono">d100</span> ≡ <span className="font-mono">1d100</span>）
+                  </li>
+                  <li>
+                    <span className="font-mono" style={{ color: 'var(--text-primary)' }}>NdM±K</span>：所有骰子点数之和 ± 固定常数 K
+                  </li>
+                  <li>多个骰子项可用 + - * / 连接，遵循常规运算优先级（乘除 &gt; 加减）</li>
+                </ul>
+              </div>
+              <div>
+                <div className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>进阶语法</div>
+                <ul className="list-disc list-inside space-y-0.5 ml-1">
+                  <li>
+                    <span className="font-mono" style={{ color: 'var(--text-primary)' }}>NdMkhX</span>：投 N 颗 M 面，<b>保留最高的 X 颗</b>求和（如 <span className="font-mono">4d6kh3</span> 投 4 颗 d6 取最大 3 颗）
+                  </li>
+                  <li>
+                    <span className="font-mono" style={{ color: 'var(--text-primary)' }}>NdMklX</span>：投 N 颗 M 面，<b>保留最低的 X 颗</b>求和（如 <span className="font-mono">5d10kl2</span>）
+                  </li>
+                  <li>
+                    <span className="font-mono" style={{ color: 'var(--text-primary)' }}>NdM!</span>：<b>爆炸骰</b>，单颗掷出最大值 M 时追加 1 颗同面骰，递归直到未掷出最大值（典型 <span className="font-mono">1d6!</span>）
+                  </li>
+                  <li>
+                    <span className="font-mono" style={{ color: 'var(--text-primary)' }}>NdM&gt;=X</span>：<b>骰池计数</b>，统计点数 ≥ X 的骰子颗数，结果为<b>成功次数</b>而非点数（如 <span className="font-mono">6d10&gt;=7</span> 投 6 颗 d10 数 ≥7 的颗数）
+                  </li>
+                </ul>
+              </div>
+              <div>
+                <div className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>示例</div>
+                <div className="font-mono space-y-0.5 ml-1" style={{ color: 'var(--text-primary)' }}>
+                  <div>2d6+3</div>
+                  <div>4d6kh3</div>
+                  <div>1d6!+2d6</div>
+                  <div>6d10&gt;=7</div>
+                  <div>3d10+2d10</div>
+                </div>
+              </div>
+            </div>
+          </details>
         </>
       )}
 

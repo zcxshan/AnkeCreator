@@ -1,14 +1,16 @@
 // 安价收集页面
 // - 表单：NGA 链接 / 起始楼层 / 末尾楼层 / 匹配文本（可留空 = 全部）
+// - 可选 authorid（从 URL 的 ?authorid=XXX 自动解析）：仅收集该用户回复
 // - 进度：抓取中 X/Y + 取消按钮
 // - 结果列表：单条删除（可撤销）/ 单条复制 / 全部复制 / 复制 NGA 格式
 // - 自动检测总楼层 / 保存到历史 / 历史下拉
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useSettingStore } from '../../store/settingStore';
 import { useToastStore } from '../../store/toastStore';
 import {
   formatForClipboard,
   formatAsNGABBCode,
+  parseThreadUrl,
   type AnjiaItem,
 } from '../../utils/ngaCrawler';
 import {
@@ -62,6 +64,22 @@ export function AnjiaPage({ onBack }: AnjiaPageProps) {
   useEffect(() => {
     setHistory(loadHistory());
   }, []);
+
+  // 从 URL 自动解析 authorid（可选）
+  const parsedAuthorid = useMemo(() => {
+    const parsed = parseThreadUrl(url);
+    return parsed?.authorid;
+  }, [url]);
+
+  /** 清除 URL 中的 authorid 参数 */
+  const clearAuthorid = () => {
+    const parsed = parseThreadUrl(url);
+    if (!parsed) return;
+    // 重建 URL：去掉 &authorid=... 或 ?authorid=...& 这种参数
+    const u = url.trim();
+    const cleaned = u.replace(/([?&])authorid=\d+/i, '').replace(/[?&]$/, '');
+    setUrl(cleaned);
+  };
 
   /** 校验表单（② 移除 prefix 必填检查） */
   const validate = (): { ok: boolean; message?: string } => {
@@ -124,6 +142,7 @@ export function AnjiaPage({ onBack }: AnjiaPageProps) {
         startFloor: start,
         endFloor: end,
         prefix: prefix.trim(),
+        authorid: parsedAuthorid,
         cookies: ngaCookies || undefined,
       });
       if (!res.ok) {
@@ -140,7 +159,9 @@ export function AnjiaPage({ onBack }: AnjiaPageProps) {
           `未找到${prefixDesc}的楼层。请确认：\n` +
             `1. 起始/末尾楼层是否正确\n` +
             `2. 匹配文本是否与帖子中的文字一致（含空格/标点）\n` +
-            `3. 如帖子需登录，请在设置中粘贴 NGA Cookie 后重试`,
+            (ngaCookies
+              ? `3. 当前 Cookie 已配置但仍无结果，请检查 Cookie 是否过期`
+              : `3. 如帖子需登录，请在设置中粘贴 NGA Cookie 后重试`),
         );
         showToast('未找到匹配楼层', 'info');
       } else {
@@ -283,6 +304,7 @@ export function AnjiaPage({ onBack }: AnjiaPageProps) {
       startFloor: start,
       endFloor: end,
       prefix: prefix.trim(),
+      authorid: parsedAuthorid,
       items,
     });
     setLastSavedId(entry.id);
@@ -493,7 +515,7 @@ export function AnjiaPage({ onBack }: AnjiaPageProps) {
                     type="text"
                     value={url}
                     onChange={(e) => setUrl(e.target.value)}
-                    placeholder="https://nga.178.com/read.php?tid=12345"
+                    placeholder="https://nga.178.com/read.php?tid=12345（可加 &authorid=XXX 仅收集该用户）"
                     disabled={status === 'collecting'}
                     className="flex-1 px-3.5 py-2 text-sm rounded-lg outline-none transition-all disabled:opacity-50"
                     style={{
@@ -540,6 +562,36 @@ export function AnjiaPage({ onBack }: AnjiaPageProps) {
                     )}
                   </button>
                 </div>
+                {/* authorid 徽章：当 URL 包含 authorid 时显示当前用户筛选状态 */}
+                {parsedAuthorid && (
+                  <div
+                    className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs"
+                    style={{
+                      background: 'var(--accent-bg)',
+                      color: 'var(--accent)',
+                      border: '1px solid var(--accent)',
+                    }}
+                    title="仅收集该用户的回复"
+                  >
+                    <span>🎯</span>
+                    <span>仅收集用户 uid={parsedAuthorid} 的回复</span>
+                    <button
+                      onClick={clearAuthorid}
+                      disabled={status === 'collecting'}
+                      className="ml-0.5 px-1 rounded transition-colors disabled:opacity-50"
+                      style={{ color: 'var(--accent)' }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'rgba(0,0,0,0.08)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'transparent';
+                      }}
+                      title="清除用户筛选（恢复全员）"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* 楼层范围 */}

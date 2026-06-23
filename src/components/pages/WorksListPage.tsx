@@ -218,6 +218,14 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
     const full = await db.getStoryWithAll(id);
     if (!full) return;
     const relations = await db.listCharacterRelations(id);
+    // 导出时剥离每个小节里的旧版 content_blocks（已切到新版富文本编辑器，导入完全不用）
+    const sanitizedChapters = (full.chapters || []).map((ch: any) => ({
+      ...ch,
+      sections: (ch.sections || []).map((sec: any) => {
+        const { blocks, ...rest } = sec;
+        return rest;
+      }),
+    }));
     const exportData = {
       format: 'anke-creator-export',
       version: '1.0',
@@ -225,6 +233,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
       appVersion: '0.1.0',
       data: {
         ...full,
+        chapters: sanitizedChapters,
         character_relations: relations,
       },
     };
@@ -403,13 +412,13 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
           return;
         }
         const data = unwrapExportData(res.data);
-        if (!data || !data.story) {
+        if (!data || !data.title) {
           showToast('文件格式不正确，无法导入', 'error');
           return;
         }
         setImportState({
-          originalTitle: data.story.title || '导入作品',
-          description: data.story.description || '',
+          originalTitle: data.title || '导入作品',
+          description: data.description || '',
           data,
         });
       } catch (err) {
@@ -429,13 +438,13 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
         const text = await file.text();
         const parsed = JSON.parse(text);
         const data = unwrapExportData(parsed);
-        if (!data || !data.story) {
+        if (!data || !data.title) {
           showToast('文件格式不正确，无法导入', 'error');
           return;
         }
         setImportState({
-          originalTitle: data.story.title || '导入作品',
-          description: data.story.description || '',
+          originalTitle: data.title || '导入作品',
+          description: data.description || '',
           data,
         });
       } catch (err) {
@@ -458,12 +467,15 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
   const performImportStory = async (customTitle: string) => {
     if (!importState) return;
     const data = importState.data;
+    // 记录新创建的作品 ID，导入失败时用于回滚（避免列表里残留半截空作品）
+    const rollbackState: { storyId?: string } = {};
     try {
       const newStory = await db.createStory({
         title: customTitle,
-        description: data.story.description || '',
-        category: data.story.category,
+        description: data.description || '',
+        category: data.category,
       });
+      rollbackState.storyId = newStory.id;
 
       const volumeIdMap: Record<string, string> = {};
       if (data.volumes) {
@@ -494,6 +506,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
                 chapter_id: newChapter.id,
                 title: sec.title,
                 content: sec.content,
+                order_index: sec.order_index,
               });
             }
           }
@@ -587,7 +600,17 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
       showToast(`导入成功：${customTitle}`, 'success');
     } catch (err) {
       console.error('[import] 导入失败:', err);
-      showToast('导入失败，请检查文件格式是否正确', 'error');
+      const errMsg = err instanceof Error ? err.message : String(err);
+      // 回滚：删除已创建的新作品（永久删除会级联清理下属所有数据）
+      if (rollbackState.storyId) {
+        try {
+          await db.permanentlyDeleteStory(rollbackState.storyId);
+          await useStoryStore.getState().loadTrashedStories();
+        } catch (rollbackErr) {
+          console.error('[import] 回滚失败:', rollbackErr);
+        }
+      }
+      showToast(`导入失败：${errMsg}（已自动清理临时数据）`, 'error');
     } finally {
       setImportState(null);
     }
@@ -1157,7 +1180,6 @@ function TrashCard({ work, onRestore, onPermanentDelete }: { work: WorkSummary; 
       <span className="text-2xl">📖</span>
       <div className="flex-1 min-w-0">
         <div className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{work.title}</div>
-        <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>{work.wordCount} 字 · {work.chapterCount} 章</div>
       </div>
       <button
         onClick={onRestore}

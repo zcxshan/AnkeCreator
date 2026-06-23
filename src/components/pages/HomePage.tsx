@@ -9,6 +9,7 @@ interface HomePageProps {
   onShowTutorial?: () => void;
   onShowAuthor?: () => void;
   onShowAnjia?: () => void;
+  onShowFindAnke?: () => void;
 }
 
 interface StatItem {
@@ -44,7 +45,7 @@ interface RecentStorySummary {
  *   │ 最近编辑的作品（点击进入编辑）         │
  *   └────────────────────────────────────────┘
  */
-export function HomePage({ onOpenStory, onShowWorks, onShowTemplates, onShowTutorial, onShowAuthor, onShowAnjia }: HomePageProps) {
+export function HomePage({ onOpenStory, onShowWorks, onShowTemplates, onShowTutorial, onShowAuthor, onShowAnjia, onShowFindAnke }: HomePageProps) {
   const { stories, createStory, setActiveStory } = useStoryStore();
 
   const [showNewStoryModal, setShowNewStoryModal] = useState(false);
@@ -224,6 +225,17 @@ export function HomePage({ onOpenStory, onShowWorks, onShowTemplates, onShowTuto
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
               >
                 <span>📜</span> 收集安价
+              </button>
+            )}
+            {onShowFindAnke && (
+              <button
+                onClick={onShowFindAnke}
+                className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all"
+                style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
+              >
+                <span>🔍</span> 寻找安科
               </button>
             )}
           </div>

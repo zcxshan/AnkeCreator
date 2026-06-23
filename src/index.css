@@ -29,6 +29,11 @@
   --text-link: #0066bf;
   --text-on-accent: #ffffff;
 
+  --quote-bg: #f2eddf;
+  --quote-border: #c8b88a;
+  --collapse-head-bg: #ead5bc;
+  --collapse-body-bg: #fff7d9;
+
   --border-color: #e0e0e0;
   --border-light: #eeeeee;
 
@@ -110,6 +115,11 @@
   --text-muted: #888888;
   --text-link: #3794ff;
   --text-on-accent: #ffffff;
+
+  --quote-bg: #3e4c5b;
+  --quote-border: #2a3645;
+  --collapse-head-bg: #2a3645;
+  --collapse-body-bg: #3e4c5b;
 
   --border-color: #3c3c3c;
   --border-light: #2d2d2d;
@@ -522,4 +532,79 @@ textarea {
 
 [data-type="dice-card"] [data-slot="roll-display"].anke-dice-rolling {
   animation: ankeDiceRollFade 200ms ease-out;
+}
+
+/* ================================
+   移动端响应式（Capacitor / 窄屏浏览器）
+   - 禁用双击缩放
+   - 优化触摸滚动
+   - 触摸目标最小尺寸
+   ================================ */
+@media (max-width: 768px) {
+  html,
+  body {
+    touch-action: manipulation;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* 工具栏等密集按钮区域给 32px，避免过于拥挤 */
+  button,
+  [role="button"] {
+    min-height: 32px;
+  }
+}
+
+/* ================================
+   Capacitor 状态栏安全区
+   - 顶部 status bar 高度 + 8px 内边距
+   ================================ */
+html.capacitor-platform-android,
+html.capacitor-platform-ios {
+  padding-top: env(safe-area-inset-top, 0);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+/* ================================
+   引用块 & 折叠块配色（CSS 变量化，亮/暗模式自适应）
+   - 引用块背景：--quote-bg（亮：米色 / 暗：深蓝灰 #3e4c5b）
+   - 引用块左边框：--quote-border
+   - 折叠块头：--collapse-head-bg
+   - 折叠块体：--collapse-body-bg
+   - 暗模式文字色继承自 --text-primary（白色），背景深色，对比度足够
+   - 注意选择器只用 .anke-editor-content（项目用的是 contenteditable，不用 ProseMirror）
+   ================================ */
+
+/* 引用块：覆盖 contenteditableUtils 里设置的硬编码内联 style 的回退样式 */
+.anke-editor-content blockquote[data-type="quote-block"] {
+  border-left: 3px solid var(--quote-border);
+  border-radius: 4px;
+  padding: 8px 12px;
+  margin: 6px 0;
+}
+
+/* 折叠块：覆盖内联 style 的回退样式 */
+.anke-editor-content div[data-type="collapse-block"] {
+  border-left: 3px solid var(--quote-border);
+  border-radius: 4px;
+  padding: 0;
+  margin: 6px 0;
+}
+.anke-editor-content div[data-type="collapse-block"] .collapse-head {
+  background: var(--collapse-head-bg);
+  padding: 6px 10px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 4px 4px 0 0;
+}
+.anke-editor-content div[data-type="collapse-block"] .collapse-body {
+  background: var(--collapse-body-bg);
+  padding: 8px 12px;
+  border-radius: 0 0 4px 4px;
+}
+
+/* 暗模式：文字色强制白色（保证白字在深色背景上清晰） */
+[data-theme='dark'] .anke-editor-content blockquote[data-type="quote-block"],
+[data-theme='dark'] .anke-editor-content div[data-type="collapse-block"] {
+  color: #ffffff;
 }

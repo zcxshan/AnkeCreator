@@ -57,6 +57,13 @@ export function ExportDialog({ onClose, activeSectionId }: ExportDialogProps) {
   const code = result?.code ?? '';
   const title = result?.title ?? '';
 
+  // 可编辑副本：用户可在保存/复制前手动修改 BBCode
+  const [editableCode, setEditableCode] = useState(code);
+  useEffect(() => {
+    setEditableCode(code);
+  }, [code]);
+  const isDirty = editableCode !== code;
+
   const copy = async (text: string, label: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -101,7 +108,7 @@ export function ExportDialog({ onClose, activeSectionId }: ExportDialogProps) {
       onClick={onClose}
     >
       <div
-        className="w-[760px] max-w-full h-[560px] max-h-full rounded-lg shadow-2xl flex flex-col"
+        className="w-[960px] max-w-full h-[800px] max-h-full rounded-lg shadow-2xl flex flex-col"
         style={{
           background: 'var(--bg-base)',
           border: '1px solid var(--border-color)',
@@ -118,7 +125,7 @@ export function ExportDialog({ onClose, activeSectionId }: ExportDialogProps) {
             <div className="text-sm font-semibold">📋 导出当前节为 NGA 代码</div>
             <div className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
               {story
-                ? `故事：${story.title} · 节：${title || '未选择节'}（${code.length} 字符）`
+                ? `故事：${story.title} · 节：${title || '未选择节'}（${editableCode.length} 字符${isDirty ? ' · 已修改' : ''}）`
                 : '未选择故事'}
             </div>
           </div>
@@ -148,10 +155,33 @@ export function ExportDialog({ onClose, activeSectionId }: ExportDialogProps) {
           <div className="flex-1" />
           {code && (
             <div className="flex items-center gap-1">
+              {isDirty && (
+                <button
+                  onClick={() => {
+                    setEditableCode(code);
+                    setCopied('已恢复原始内容');
+                    setTimeout(() => setCopied(null), 1500);
+                  }}
+                  className="text-xs px-3 py-1 rounded transition"
+                  style={{
+                    background: 'var(--bg-hover)',
+                    color: 'var(--text-primary)',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'var(--border-color)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'var(--bg-hover)';
+                  }}
+                  title="放弃当前修改，回到系统导出的原始内容"
+                >
+                  ↶ 恢复原始
+                </button>
+              )}
               <button
                 onClick={() =>
                   saveAsTxt(
-                    code,
+                    editableCode,
                     `${safeFilename(
                       (story?.title ?? 'nga-post') + '-' + (title || 'section'),
                       'nga-post',
@@ -173,7 +203,7 @@ export function ExportDialog({ onClose, activeSectionId }: ExportDialogProps) {
                 保存为 .txt
               </button>
               <button
-                onClick={() => copy(code, '已复制本节')}
+                onClick={() => copy(editableCode, '已复制本节')}
                 className="text-xs px-3 py-1 rounded transition"
                 style={{
                   background: 'var(--accent)',
@@ -221,19 +251,25 @@ export function ExportDialog({ onClose, activeSectionId }: ExportDialogProps) {
                 className="text-[10px] mb-2 font-mono"
                 style={{ color: 'var(--text-secondary)' }}
               >
-                本节内容（{code.length} 字符）
+                本节内容（{editableCode.length} 字符{isDirty ? ' · 已修改' : ''}）
               </div>
-              <pre
-                className="text-xs rounded p-3 whitespace-pre-wrap break-all leading-relaxed font-mono overflow-y-auto"
-                style={{
-                  background: 'var(--bg-sidebar)',
-                  border: '1px solid var(--border-color)',
-                  color: 'var(--text-primary)',
-                  maxHeight: '420px',
-                }}
-              >
-                {code || '（当前节没有内容）'}
-              </pre>
+              <textarea
+      value={editableCode}
+      onChange={(e) => setEditableCode(e.target.value)}
+      placeholder="（当前节没有内容）"
+      className="text-xs rounded p-3 font-mono"
+      style={{
+        background: 'var(--bg-sidebar)',
+        border: '1px solid var(--border-color)',
+        color: 'var(--text-primary)',
+        flex: 1,
+        minHeight: '520px',
+        lineHeight: '1.6',
+        resize: 'none',
+        width: '100%',
+        outline: 'none',
+      }}
+    />
             </div>
           )}
         </div>

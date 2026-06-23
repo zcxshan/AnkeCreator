@@ -28,6 +28,9 @@ interface DirectoryTreeProps {
   onReorderVolumes: (orderedIds: string[]) => void;
   onReorderChapters: (orderedIds: string[]) => void;
   onReorderSections: (chapterId: string, orderedIds: string[]) => void;
+  // 跨卷 / 跨章拖动（同时更新 volume_id / chapter_id）
+  onMoveChapters: (targetVolumeId: string | null, orderedIds: string[]) => void;
+  onMoveSections: (targetChapterId: string, orderedIds: string[]) => void;
   onSyncToOutline?: () => void;
 }
 
@@ -57,6 +60,8 @@ export function DirectoryTree(props: DirectoryTreeProps) {
     onReorderVolumes,
     onReorderChapters,
     onReorderSections,
+    onMoveChapters,
+    onMoveSections,
     onSyncToOutline,
   } = props;
 
@@ -156,13 +161,32 @@ export function DirectoryTree(props: DirectoryTreeProps) {
             setDragSectionId(null);
             return;
           }
-          const ids = chapterSecs.map((s) => s.id);
-          const fromIdx = ids.indexOf(dragSectionId);
-          const toIdx = ids.indexOf(sec.id);
-          const newOrder = [...ids];
-          newOrder.splice(fromIdx, 1);
-          newOrder.splice(toIdx, 0, dragSectionId);
-          onReorderSections(sec.chapter_id, newOrder);
+          const dragSec = sections.find((s) => s.id === dragSectionId);
+          if (!dragSec) {
+            setDragSectionId(null);
+            return;
+          }
+          const targetChapterId = sec.chapter_id;
+          // 取目标章下所有节（已按 order_index 排序），跨章时包含被拖入的节不在其中
+          const targetChapterSecs = sections
+            .filter((s) => s.chapter_id === targetChapterId)
+            .sort((a, b) => a.order_index - b.order_index);
+          const targetIds = targetChapterSecs.map((s) => s.id);
+          const fromIdx = targetIds.indexOf(dragSectionId);
+          const toIdx = targetIds.indexOf(sec.id);
+          const newOrder = [...targetIds];
+          if (fromIdx >= 0) {
+            newOrder.splice(fromIdx, 1);
+            newOrder.splice(toIdx, 0, dragSectionId);
+          } else {
+            // 来自其他章：直接把拖入节插入到目标位置
+            newOrder.splice(toIdx, 0, dragSectionId);
+          }
+          if (dragSec.chapter_id === targetChapterId) {
+            onReorderSections(targetChapterId, newOrder);
+          } else {
+            onMoveSections(targetChapterId, newOrder);
+          }
           setDragSectionId(null);
         }}
         onDragEnd={() => setDragSectionId(null)}
@@ -239,13 +263,32 @@ export function DirectoryTree(props: DirectoryTreeProps) {
               setDragChapterId(null);
               return;
             }
-            const ids = dragScope.map((c) => c.id);
-            const fromIdx = ids.indexOf(dragChapterId);
-            const toIdx = ids.indexOf(ch.id);
-            const newOrder = [...ids];
-            newOrder.splice(fromIdx, 1);
-            newOrder.splice(toIdx, 0, dragChapterId);
-            onReorderChapters(newOrder);
+            const dragCh = chapters.find((c) => c.id === dragChapterId);
+            if (!dragCh) {
+              setDragChapterId(null);
+              return;
+            }
+            const targetVolumeId = ch.volume_id;
+            // 取目标卷下所有章（已按 order_index 排序），跨卷时被拖入的章不在其中
+            const targetVolumeChapters = chapters
+              .filter((c) => c.volume_id === targetVolumeId)
+              .sort((a, b) => a.order_index - b.order_index);
+            const targetIds = targetVolumeChapters.map((c) => c.id);
+            const fromIdx = targetIds.indexOf(dragChapterId);
+            const toIdx = targetIds.indexOf(ch.id);
+            const newOrder = [...targetIds];
+            if (fromIdx >= 0) {
+              newOrder.splice(fromIdx, 1);
+              newOrder.splice(toIdx, 0, dragChapterId);
+            } else {
+              // 来自其他卷：直接把拖入章插入到目标位置
+              newOrder.splice(toIdx, 0, dragChapterId);
+            }
+            if (dragCh.volume_id === targetVolumeId) {
+              onReorderChapters(newOrder);
+            } else {
+              onMoveChapters(targetVolumeId, newOrder);
+            }
             setDragChapterId(null);
           }}
           onDragEnd={() => setDragChapterId(null)}

@@ -23,6 +23,7 @@ import { SyncDialog } from '../common/SyncDialog';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { InputDialog } from '../common/InputDialog';
 import { useToastStore } from '../../store/toastStore';
+import { useSettingStore } from '../../store/settingStore';
 import { uploadImagesWithProgress, ensureLocalWarning, type UploadProgressEvent } from '../../utils/uploadImage';
 import { UploadProgressDialog } from '../common/UploadProgressDialog';
 import { LocalModeBanner } from '../common/LocalModeBanner';
@@ -179,6 +180,8 @@ export function EditorPage({ onBack, onExport }: EditorPageProps) {
     reorderVolumes,
     reorderChapters,
     reorderSections,
+    moveChapters,
+    moveSections,
     createOutlineVolume,
     createOutlineChapter,
     renameOutline,
@@ -202,6 +205,18 @@ export function EditorPage({ onBack, onExport }: EditorPageProps) {
   const richTextEditorCommandsRef = useRef<RichTextEditorCommands | null>(null);
   const [selectedImage, setSelectedImage] = useState<{ width: number; height: number; src?: string; dataSize?: string } | null>(null);
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(256);
+  // 移动端：默认更窄的侧栏
+  useEffect(() => {
+    const updateForViewport = () => {
+      if (window.innerWidth < 768 && leftSidebarWidth > 200) {
+        setLeftSidebarWidth(200);
+      }
+    };
+    updateForViewport();
+    window.addEventListener('resize', updateForViewport);
+    return () => window.removeEventListener('resize', updateForViewport);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(384);
 
   // 同步对话框状态（支持双向：目录→大纲、大纲→目录）
@@ -571,7 +586,9 @@ export function EditorPage({ onBack, onExport }: EditorPageProps) {
               }}
               onCreateChapter={(volumeId) => {
                 if (activeStoryId) {
-                  createChapter(activeStoryId, `第${chapters.length + 1}章`, volumeId);
+                  // 按 volumeId 过滤后的章序号（per-volume 计数）
+                  const chapCount = chapters.filter((c) => c.volume_id === volumeId).length + 1;
+                  createChapter(activeStoryId, `第${chapCount}章`, volumeId);
                 }
               }}
               onCreateSection={(chapterId) => {
@@ -591,6 +608,12 @@ export function EditorPage({ onBack, onExport }: EditorPageProps) {
               }
               onReorderChapters={(orderedIds) =>
                 activeStoryId && reorderChapters(orderedIds)
+              }
+              onMoveChapters={(targetVolumeId, orderedIds) =>
+                activeStoryId && moveChapters(activeStoryId, targetVolumeId, orderedIds)
+              }
+              onMoveSections={(targetChapterId, orderedIds) =>
+                moveSections(targetChapterId, orderedIds)
               }
               onReorderSections={reorderSections}
               onSyncToOutline={handleOpenSyncDialog}
@@ -661,6 +684,28 @@ export function EditorPage({ onBack, onExport }: EditorPageProps) {
               // 等下一个 tick，编辑器内容被重新渲染后再滚动
               window.setTimeout(() => {
                 richTextEditorCommandsRef.current?.scrollToDiceCard(payloadSnapshot);
+              }, 80);
+            }}
+            onRestoreDice={(sectionId, payloadSnapshot) => {
+              // 跳到目标节
+              if (sectionId !== activeSectionId) {
+                const setActive = useStoryStore.getState().setActiveSection;
+                setActive(sectionId);
+              }
+              window.setTimeout(() => {
+                try {
+                  const payload = JSON.parse(payloadSnapshot);
+                  // 给恢复的骰子换个新 id，避免和原 id 冲突
+                  payload.id = `dice-${Date.now().toString(36)}-${Math.random()
+                    .toString(36)
+                    .slice(2, 8)}`;
+                  // 标记为"已恢复"结果
+                  payload.restored = true;
+                  richTextEditorCommandsRef.current?.insertDice(payload);
+                  setToast('已恢复骰子到编辑区');
+                } catch (e) {
+                  setToast('恢复失败：骰子数据格式错误');
+                }
               }, 80);
             }}
             selectedImage={selectedImage}
@@ -752,6 +797,7 @@ function RightPanel({
   section,
   onRenameSection,
   onJumpToDice,
+  onRestoreDice,
   selectedImage,
   onSetImageSize,
   richTextEditorCommandsRef,
@@ -763,6 +809,7 @@ function RightPanel({
   section: Section | undefined;
   onRenameSection: (newTitle: string) => void;
   onJumpToDice: (sectionId: string, payloadSnapshot: string) => void;
+  onRestoreDice: (sectionId: string, payloadSnapshot: string) => void;
   selectedImage: { width: number; height: number; src?: string; dataSize?: string } | null;
   onSetImageSize: (size: string) => void;
   richTextEditorCommandsRef: React.MutableRefObject<RichTextEditorCommands | null>;
@@ -923,7 +970,12 @@ function RightPanel({
         {activeTab === 'relation' && activeStoryId && (
           <RelationshipPanel storyId={activeStoryId} />
         )}
-        {activeTab === 'dice' && <DiceHistoryPanel onJumpToDice={onJumpToDice} />}
+        {activeTab === 'dice' && (
+            <DiceHistoryPanel
+              onJumpToDice={onJumpToDice}
+              onRestoreDice={onRestoreDice}
+            />
+          )}
       </div>
     </aside>
   );
@@ -933,8 +985,10 @@ function RightPanel({
 
 function DiceHistoryPanel({
   onJumpToDice,
+  onRestoreDice,
 }: {
   onJumpToDice: (sectionId: string, payloadSnapshot: string) => void;
+  onRestoreDice: (sectionId: string, payloadSnapshot: string) => void;
 }) {
   const records = useDiceHistoryStore((s) => s.records);
   const clearAll = useDiceHistoryStore((s) => s.clearAll);
@@ -1009,13 +1063,23 @@ function DiceHistoryPanel({
                 <div className="text-[10px] truncate flex-1 pr-2" style={{ color: 'var(--text-secondary)' }}>
                   → {r.sectionTitle || '(未命名节)'}
                 </div>
-                <button
-                  onClick={() => onJumpToDice(r.sectionId, r.payloadSnapshot)}
-                  className="text-[10px] px-2 py-1 rounded-md font-medium shrink-0"
-                  style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
-                >
-                  跳转
-                </button>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => onRestoreDice(r.sectionId, r.payloadSnapshot)}
+                    className="text-[10px] px-2 py-1 rounded-md font-medium border"
+                    style={{ borderColor: 'var(--accent)', color: 'var(--accent)', background: 'transparent' }}
+                    title="在编辑区重新插入一个相同的骰子"
+                  >
+                    恢复
+                  </button>
+                  <button
+                    onClick={() => onJumpToDice(r.sectionId, r.payloadSnapshot)}
+                    className="text-[10px] px-2 py-1 rounded-md font-medium"
+                    style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
+                  >
+                    跳转
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -1568,7 +1632,7 @@ function ByCharacterContent({
                         <button
                           key={v.id}
                           onClick={() => handleInsertVariant(v.name, v.url)}
-                          className="w-7 h-7 rounded border overflow-hidden shrink-0 transition"
+                          className="w-7 h-7 rounded border overflow-hidden shrink-0 transition relative"
                           style={{ borderColor: 'var(--border-color)' }}
                           onMouseEnter={(e) => {
                             e.currentTarget.style.outline = '2px solid var(--accent)';
@@ -1581,8 +1645,21 @@ function ByCharacterContent({
                           <img
                             src={v.url}
                             alt={v.name}
-                            className="w-full h-full object-cover"
+                            className="absolute inset-0 w-full h-full object-cover"
+                            onError={(e) => {
+                              const img = e.currentTarget as HTMLImageElement;
+                              img.style.display = 'none';
+                              const fallback = img.parentElement?.querySelector('.img-fallback') as HTMLElement | null;
+                              if (fallback) fallback.style.display = 'flex';
+                              console.warn('[VariantImage] 加载失败:', v.url);
+                            }}
                           />
+                          <div
+                            className="img-fallback absolute inset-0 hidden items-center justify-center text-[10px] font-semibold"
+                            style={{ color: 'var(--text-muted, #999)' }}
+                          >
+                            {(v.name || '?').charAt(0)}
+                          </div>
                         </button>
                       ))}
                     </div>
@@ -1790,16 +1867,26 @@ function VariantThumbnail({
       }}
       title={`点击插入：${variant.characterName} · ${variant.name}`}
     >
-      <div className="aspect-square w-full" style={{ background: 'var(--bg-toolbar)' }}>
+      <div className="aspect-square w-full relative overflow-hidden" style={{ background: 'var(--bg-toolbar)' }}>
         <img
           src={variant.url}
           alt={variant.name}
-          className="w-full h-full object-cover"
+          className="absolute inset-0 w-full h-full object-cover"
           loading="lazy"
           onError={(e) => {
-            (e.currentTarget as HTMLImageElement).style.opacity = '0.3';
+            const img = e.currentTarget as HTMLImageElement;
+            img.style.display = 'none';
+            const fallback = img.parentElement?.querySelector('.img-fallback') as HTMLElement | null;
+            if (fallback) fallback.style.display = 'flex';
+            console.warn('[VariantImage] 加载失败:', variant.url);
           }}
         />
+        <div
+          className="img-fallback absolute inset-0 hidden items-center justify-center text-base font-semibold"
+          style={{ color: 'var(--text-muted, #999)' }}
+        >
+          {(variant.name || '?').charAt(0)}
+        </div>
       </div>
       <div
         className="text-[9px] px-1 py-0.5 truncate"
@@ -1859,6 +1946,12 @@ function CharacterEditorInline({
   const [pendingNewAttr, setPendingNewAttr] = useState(false);
   const [newAttrName, setNewAttrName] = useState('');
 
+  // 订阅本地上传总开关：关闭时把上传按钮置灰
+  const imageStoreMode = useSettingStore((s) => s.imageStoreMode);
+  const localUploadEnabled = useSettingStore((s) => s.localUploadEnabled);
+  const localUploadDisabledReason = '本地上传未启用，请到设置 → 图片存储模式 → 启用本地上传';
+  const isLocalUploadDisabled = !localUploadEnabled;
+
   // 上传进度弹窗状态
   const [uploadTasks, setUploadTasks] = useState<UploadProgressEvent[]>([]);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
@@ -1879,6 +1972,13 @@ function CharacterEditorInline({
   };
 
   const handleAvatarFile = async (file: File) => {
+    // 检查本地上传总开关（默认关闭）
+    if (!useSettingStore.getState().localUploadEnabled) {
+      useToastStore
+        .getState()
+        .showToast('本地上传未启用，请到设置 → 图片存储模式 → 启用本地上传', 'error');
+      return;
+    }
     // 本地模式：先弹警告（统一由全局 store 管理）
     const confirmed = await ensureLocalWarning();
     if (!confirmed) return;
@@ -1908,6 +2008,13 @@ function CharacterEditorInline({
   };
 
   const handleVariantFile = async (file: File) => {
+    // 检查本地上传总开关（默认关闭）
+    if (!useSettingStore.getState().localUploadEnabled) {
+      useToastStore
+        .getState()
+        .showToast('本地上传未启用，请到设置 → 图片存储模式 → 启用本地上传', 'error');
+      return;
+    }
     // 本地模式：先弹警告
     const confirmed = await ensureLocalWarning();
     if (!confirmed) return;
@@ -1970,9 +2077,20 @@ function CharacterEditorInline({
       <div className="flex items-start gap-3">
         <div
           className="shrink-0 w-16 h-16 rounded-lg flex items-center justify-center text-2xl cursor-pointer overflow-hidden border"
-          style={{ background: 'var(--bg-page)', borderColor: 'var(--border-color)' }}
-          onClick={() => avatarFileRef.current?.click()}
-          title="点击更换头像"
+          style={{
+            background: 'var(--bg-page)',
+            borderColor: 'var(--border-color)',
+            opacity: isLocalUploadDisabled ? 0.45 : 1,
+            cursor: isLocalUploadDisabled ? 'not-allowed' : 'pointer',
+          }}
+          onClick={() => {
+            if (isLocalUploadDisabled) {
+              useToastStore.getState().showToast(localUploadDisabledReason, 'error');
+              return;
+            }
+            avatarFileRef.current?.click();
+          }}
+          title={isLocalUploadDisabled ? localUploadDisabledReason : '点击更换头像'}
         >
           {avatar ? (
             <img 
@@ -2131,15 +2249,29 @@ function CharacterEditorInline({
               className="flex items-center gap-1.5 px-1.5 py-1 rounded border"
               style={{ borderColor: 'var(--border-color)' }}
             >
-              <img
-                src={v.url}
-                alt={v.name}
-                className="w-8 h-8 rounded object-cover shrink-0"
-                style={{ background: 'var(--bg-input)' }}
-                onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).style.display = 'none';
-                }}
-              />
+              <div
+                className="w-8 h-8 rounded shrink-0 relative overflow-hidden"
+                style={{ background: 'var(--bg-input)', border: '1px solid var(--border-color)' }}
+              >
+                <img
+                  src={v.url}
+                  alt={v.name}
+                  className="absolute inset-0 w-full h-full object-cover"
+                  onError={(e) => {
+                    const img = e.currentTarget as HTMLImageElement;
+                    img.style.display = 'none';
+                    const fallback = img.parentElement?.querySelector('.img-fallback') as HTMLElement | null;
+                    if (fallback) fallback.style.display = 'flex';
+                    console.warn('[VariantImage] 加载失败:', v.url);
+                  }}
+                />
+                <div
+                  className="img-fallback absolute inset-0 hidden items-center justify-center text-[10px] font-semibold"
+                  style={{ color: 'var(--text-muted, #999)' }}
+                >
+                  {(v.name || '?').charAt(0)}
+                </div>
+              </div>
               <input
                 value={v.name}
                 onChange={(e) => updateVariant(v.id, { name: e.target.value })}
@@ -2224,14 +2356,23 @@ function CharacterEditorInline({
             style={inputStyle}
           />
           <button
-            onClick={() => variantFileRef.current?.click()}
-            className="text-[10px] px-1.5 py-1 rounded border"
-            style={{ 
-              background: 'var(--bg-sidebar)', 
-              color: 'var(--text-primary)', 
-              borderColor: 'var(--border-color)' 
+            onClick={() => {
+              if (isLocalUploadDisabled) {
+                useToastStore.getState().showToast(localUploadDisabledReason, 'error');
+                return;
+              }
+              variantFileRef.current?.click();
             }}
-            title="上传"
+            disabled={isLocalUploadDisabled}
+            className="text-[10px] px-1.5 py-1 rounded border"
+            style={{
+              background: 'var(--bg-sidebar)',
+              color: 'var(--text-primary)',
+              borderColor: 'var(--border-color)',
+              opacity: isLocalUploadDisabled ? 0.45 : 1,
+              cursor: isLocalUploadDisabled ? 'not-allowed' : 'pointer',
+            }}
+            title={isLocalUploadDisabled ? localUploadDisabledReason : '上传'}
           >
             📁
           </button>

@@ -5,6 +5,7 @@ import { EditorPage } from './components/pages/EditorPage';
 import { TemplatesPage } from './components/pages/TemplatesPage';
 import { TutorialPage } from './components/pages/TutorialPage';
 import { AnjiaPage } from './components/pages/AnjiaPage';
+import { FindAnkePage } from './components/pages/FindAnkePage';
 import { TitleBar } from './components/common/TitleBar';
 import { AuthorInfo } from './components/common/AuthorInfo';
 import { ExportDialog } from './components/common/ExportDialog';
@@ -16,7 +17,7 @@ import { useMetaStore } from './store/metaStore';
 import { initDatabase } from './db/database';
 import './index.css';
 
-type Route = 'home' | 'works' | 'editor' | 'templates' | 'tutorial' | 'anjia';
+type Route = 'home' | 'works' | 'editor' | 'templates' | 'tutorial' | 'anjia' | 'find-anke';
 
 function App() {
   const { activeSectionId, activeStoryId } = useStoryStore();
@@ -84,6 +85,7 @@ function App() {
           onShowTutorial={() => setRoute('tutorial')}
           onShowAuthor={() => setShowAuthor(true)}
           onShowAnjia={() => setRoute('anjia')}
+          onShowFindAnke={() => setRoute('find-anke')}
         />
         {authorModal}
       </>,
@@ -120,6 +122,12 @@ function App() {
   if (route === 'anjia') {
     return renderWithTitleBar(
       <AnjiaPage onBack={() => setRoute('home')} />,
+    );
+  }
+
+  if (route === 'find-anke') {
+    return renderWithTitleBar(
+      <FindAnkePage onBack={() => setRoute('home')} />,
     );
   }
 
