@@ -29,6 +29,8 @@
 export interface RawPost {
   floor: number;
   author: string;
+  /** 从 postauthorN 链接的 uid= 提取，用于按用户筛选 */
+  uid?: string;
   content: string;
   pid?: string;
   /** post timestamp（秒） */
@@ -55,13 +57,21 @@ export interface CollectResult {
  * - 支持：nga.178.com / ngabbs.com / bbs.nga.cn
  * - 支持带或不带 page 参数
  * - 支持带或不带 # 锚点
+ * - 支持可选的 authorid 参数（用于按用户筛选回复）
  */
-export function parseThreadUrl(url: string): { tid: string; baseUrl: string } | null {
+export function parseThreadUrl(
+  url: string,
+): { tid: string; baseUrl: string; authorid?: string } | null {
   const trimmed = url.trim();
   if (!trimmed) return null;
   const m = trimmed.match(/^(https?:\/\/[^\/]+).*?[?&]tid=(\d+)/i);
   if (!m) return null;
-  return { tid: m[2], baseUrl: m[1] };
+  const authoridMatch = trimmed.match(/[?&]authorid=(\d+)/i);
+  return {
+    tid: m[2],
+    baseUrl: m[1],
+    authorid: authoridMatch ? authoridMatch[1] : undefined,
+  };
 }
 
 /**
@@ -151,6 +161,7 @@ export function extractPostsFromHtml(html: string): RawPost[] {
       posts.push({
         floor,
         author,
+        uid: uid || undefined,
         content,
         pid: extractPid(segment, floor),
         time: time || undefined,
@@ -216,6 +227,8 @@ function extractPid(segment: string, floor: number): string {
  * - 楼层范围：start <= floor <= end
  * - prefix 匹配：content.trim().startsWith(prefix)
  *   - prefix 为空 = 不过滤（返回所有范围内帖子）
+ * - authorid 匹配：p.uid === authorid
+ *   - authorid 为空 = 不过滤
  * - 转换 UBB 引用为纯文本（移除 [uid=XXX]name[/uid] 形式）
  */
 export function filterAnjiaPosts(
@@ -223,11 +236,14 @@ export function filterAnjiaPosts(
   startFloor: number,
   endFloor: number,
   prefix: string,
+  authorid?: string,
 ): AnjiaItem[] {
   const trimmedPrefix = prefix.trim();
+  const trimmedAuthorid = authorid?.trim();
   return posts
     .filter((p) => p.floor >= startFloor && p.floor <= endFloor)
     .filter((p) => !trimmedPrefix || p.content.trim().startsWith(trimmedPrefix))
+    .filter((p) => !trimmedAuthorid || p.uid === trimmedAuthorid)
     .map((p) => ({
       floor: p.floor,
       author: p.author,

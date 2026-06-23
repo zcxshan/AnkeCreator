@@ -1,5 +1,6 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { EditorToolbar } from './EditorToolbar';
+import { SectionSearchDialog } from './SectionSearchDialog';
 import {
   insertImageBlock,
   attachImageBlockHandlers,
@@ -13,8 +14,11 @@ import {
   attachCollapseBlockHandlers,
   getCurrentStyles,
   applyActiveStylesToInsertion,
+  setLastEditorRange,
 } from './contenteditableUtils';
 import { useEditorStore } from '../../store/editorStore';
+import { useEditorHistoryStore } from '../../store/editorHistoryStore';
+import { useToastStore } from '../../store/toastStore';
 import type { DiceBlockPayloadV2 } from '../../types';
 
 interface RichTextEditorProps {
@@ -56,6 +60,18 @@ export function RichTextEditor({
   const divRef = useRef<HTMLElement | null>(null);
   const lastContentRef = useRef<string>('');
   const savedRangeRef = useRef<Range | null>(null);
+  /** 标记：正在应用历史快照（undo/redo 触发的 innerHTML 设置），此时不要推历史 */
+  const applyingHistoryRef = useRef<boolean>(false);
+  /** 防抖：把短时间内的连续输入合并为一条历史 */
+  const historyTimerRef = useRef<number | null>(null);
+
+  // 自定义右键菜单
+  const [ctxMenu, setCtxMenu] = useState<{
+    x: number;
+    y: number;
+    hasSelection: boolean;
+  } | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
 
   // 持续保存编辑器内的光标位置（工具栏按钮点击后编辑器失焦时恢复用）
   // 同时把光标处的样式同步到 useEditorStore.cursorStyles（供工具栏展示）
@@ -65,10 +81,17 @@ export function RichTextEditor({
     if (!el) return;
     const onSelectionChange = () => {
       const sel = window.getSelection();
-      if (!sel || sel.rangeCount === 0) return;
+      if (!sel || sel.rangeCount === 0) {
+        // 光标完全没选区（点了别处）→ 清空模块级 range，下次插入会走 fallback
+        setLastEditorRange(null);
+        return;
+      }
       const r = sel.getRangeAt(0);
       if (el.contains(r.startContainer)) {
-        savedRangeRef.current = r.cloneRange();
+        const cloned = r.cloneRange();
+        savedRangeRef.current = cloned;
+        // 同步到模块，供 insertDiceCard/insertImageBlock 等不 focus 的插入函数使用
+        setLastEditorRange(cloned.cloneRange());
         // 同步光标处样式到 cursorStyles（仅展示用，不影响新输入）
         const cur = getCurrentStyles(el);
         const store = useEditorStore.getState();
@@ -86,6 +109,9 @@ export function RichTextEditor({
         if (!same) {
           useEditorStore.setState({ cursorStyles: cur });
         }
+      } else {
+        // 光标在 editor 之外（弹窗 / 工具栏）→ 保留旧模块级 range（不更新到 null）
+        // 因为接下来可能要在弹窗里编辑然后插入到 editor 的原光标位置
       }
     };
     document.addEventListener('selectionchange', onSelectionChange);
@@ -101,6 +127,8 @@ export function RichTextEditor({
     if (el.innerHTML !== safeContent) {
       el.innerHTML = safeContent;
       lastContentRef.current = safeContent;
+      // 内容从外部加载（切章节/导入等），重置历史栈
+      useEditorHistoryStore.getState().reset(safeContent);
     }
   }, [content]);
 
@@ -169,6 +197,13 @@ export function RichTextEditor({
     if (html === lastContentRef.current) return;
     lastContentRef.current = html;
     onChangeContent(html);
+    // 推历史：debounce 800ms 合并连续输入
+    if (applyingHistoryRef.current) return;
+    if (historyTimerRef.current) window.clearTimeout(historyTimerRef.current);
+    historyTimerRef.current = window.setTimeout(() => {
+      useEditorHistoryStore.getState().push(html);
+      historyTimerRef.current = null;
+    }, 800);
   };
 
   // 拦截 input 事件：把活动样式应用到即将插入的字符上
@@ -272,19 +307,39 @@ export function RichTextEditor({
       }
     }
     
-    // Ctrl+Z 撤销 - 确保编辑器聚焦后执行原生操作
+    // Ctrl+Z 撤销 - 使用应用级历史栈（替代 execCommand）
     if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
       e.preventDefault();
       el.focus();
-      document.execCommand('undo', false);
+      const restored = useEditorHistoryStore.getState().undo();
+      if (restored != null) {
+        applyingHistoryRef.current = true;
+        try {
+          el.innerHTML = restored;
+          lastContentRef.current = restored;
+          onChangeContent(restored);
+        } finally {
+          applyingHistoryRef.current = false;
+        }
+      }
       return;
     }
-    
-    // Ctrl+Y / Ctrl+Shift+Z 重做
+
+    // Ctrl+Y / Ctrl+Shift+Z 重做 - 使用应用级历史栈
     if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
       e.preventDefault();
       el.focus();
-      document.execCommand('redo', false);
+      const restored = useEditorHistoryStore.getState().redo();
+      if (restored != null) {
+        applyingHistoryRef.current = true;
+        try {
+          el.innerHTML = restored;
+          lastContentRef.current = restored;
+          onChangeContent(restored);
+        } finally {
+          applyingHistoryRef.current = false;
+        }
+      }
       return;
     }
     
@@ -804,6 +859,12 @@ export function RichTextEditor({
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          const sel = window.getSelection();
+          const hasSelection = !!(sel && !sel.isCollapsed && sel.toString().trim());
+          setCtxMenu({ x: e.clientX, y: e.clientY, hasSelection });
+        }}
         className="anke-editor-content"
         style={{
           flex: 1,
@@ -816,6 +877,166 @@ export function RichTextEditor({
           ...(style || {}),
         }}
       />
+      {ctxMenu && (
+        <div
+          role="menu"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: 'fixed',
+            left: ctxMenu.x,
+            top: ctxMenu.y,
+            zIndex: 1000,
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border-color)',
+            borderRadius: 6,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
+            padding: 4,
+            minWidth: 180,
+            fontSize: 13,
+            color: 'var(--text-primary)',
+            userSelect: 'none',
+          }}
+        >
+          <ContextMenuItem
+            label="复制"
+            disabled={!ctxMenu.hasSelection}
+            onClick={async () => {
+              const sel = window.getSelection();
+              const text = sel ? sel.toString() : '';
+              if (!text) return;
+              try {
+                await navigator.clipboard.writeText(text);
+                useToastStore.getState().showToast('已复制', 'success');
+              } catch {
+                // fallback：execCommand
+                document.execCommand('copy');
+              }
+              setCtxMenu(null);
+            }}
+          />
+          <ContextMenuItem
+            label="粘贴"
+            onClick={async () => {
+              try {
+                const text = await navigator.clipboard.readText();
+                if (!text) {
+                  setCtxMenu(null);
+                  return;
+                }
+                const el = divRef.current;
+                if (!el) return;
+                el.focus();
+                const ok = document.execCommand('insertText', false, text);
+                if (!ok) {
+                  // fallback：直接插入到光标
+                  const sel = window.getSelection();
+                  if (sel && sel.rangeCount) {
+                    sel.getRangeAt(0).insertNode(document.createTextNode(text));
+                    sel.collapseToEnd();
+                    handleInput();
+                  }
+                }
+              } catch (err) {
+                useToastStore
+                  .getState()
+                  .showToast('粘贴失败：' + (err as Error).message, 'error');
+              }
+              setCtxMenu(null);
+            }}
+          />
+          <ContextMenuItem
+            label="剪切"
+            disabled={!ctxMenu.hasSelection}
+            onClick={async () => {
+              const sel = window.getSelection();
+              const text = sel ? sel.toString() : '';
+              if (!text) return;
+              try {
+                await navigator.clipboard.writeText(text);
+                document.execCommand('delete');
+                useToastStore.getState().showToast('已剪切', 'success');
+              } catch {
+                document.execCommand('cut');
+              }
+              setCtxMenu(null);
+            }}
+          />
+          <div
+            style={{
+              height: 1,
+              background: 'var(--border-color)',
+              margin: '4px 0',
+            }}
+          />
+          <ContextMenuItem
+            label="在当前节中搜索"
+            onClick={() => {
+              // 先关闭右键菜单
+              setCtxMenu(null);
+              // 先 focus 编辑器，确保 window.find 在编辑器内匹配
+              const el = divRef.current;
+              if (el) el.focus();
+              // 再打开搜索框
+              setSearchOpen(true);
+            }}
+          />
+        </div>
+      )}
+      {ctxMenu && (
+        <div
+          aria-hidden
+          onClick={() => setCtxMenu(null)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setCtxMenu(null);
+          }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 999,
+          }}
+        />
+      )}
+      <SectionSearchDialog
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        editorRef={divRef}
+      />
+    </div>
+  );
+}
+
+/** 自定义右键菜单项 */
+function ContextMenuItem({
+  label,
+  onClick,
+  disabled,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div
+      role="menuitem"
+      onClick={disabled ? undefined : onClick}
+      style={{
+        padding: '6px 12px',
+        borderRadius: 4,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.4 : 1,
+        transition: 'background 0.12s',
+      }}
+      onMouseEnter={(e) => {
+        if (disabled) return;
+        e.currentTarget.style.background = 'var(--bg-hover, rgba(99,102,241,0.1))';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = 'transparent';
+      }}
+    >
+      {label}
     </div>
   );
 }

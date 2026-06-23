@@ -52,6 +52,7 @@ import {
   removeLinkAtCursor,
 } from './contenteditableUtils';
 import { useEditorStore } from '../../store/editorStore';
+import { useSettingStore } from '../../store/settingStore';
 import { useToastStore } from '../../store/toastStore';
 import { useDiceStore } from '../../store/diceStore';
 import { uploadImagesWithProgress, ensureLocalWarning, type UploadProgressEvent } from '../../utils/uploadImage';
@@ -155,26 +156,33 @@ function ToolbarBtn({
   active,
   title,
   style,
+  disabled,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   active?: boolean;
   title?: string;
   style?: React.CSSProperties;
+  disabled?: boolean;
 }) {
   const [hover, setHover] = useState(false);
   const base = active
     ? { ...toolbarBtn, ...toolbarBtnActive }
-    : { ...toolbarBtn, ...(hover ? toolbarBtnHover : {}) };
+    : { ...toolbarBtn, ...(hover && !disabled ? toolbarBtnHover : {}) };
   return (
     <button
       type="button"
       onMouseDown={(e) => e.preventDefault()}
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
       title={title}
+      disabled={disabled}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      style={{ ...base, ...style }}
+      style={{
+        ...base,
+        ...(disabled ? { opacity: 0.45, cursor: 'not-allowed' } : {}),
+        ...style,
+      }}
     >
       {children}
     </button>
@@ -264,6 +272,11 @@ export function EditorToolbar({
   const [urlInput, setUrlInput] = useState('');
   const [showUrlBox, setShowUrlBox] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 订阅本地上传总开关：关闭时把"本地上传"按钮置灰
+  const localUploadEnabled = useSettingStore((s) => s.localUploadEnabled);
+  const localUploadDisabledReason = '本地上传未启用，请到设置 → 图片存储模式 → 启用本地上传';
+  const isLocalUploadDisabled = !localUploadEnabled;
 
   // 状态
   const [smileyOpen, setSmileyOpen] = useState(false);
@@ -451,6 +464,13 @@ export function EditorToolbar({
     firstName?: string,
     filePath?: string,
   ) => {
+    // 检查本地上传总开关（默认关闭，用户需在设置中显式开启）
+    if (!useSettingStore.getState().localUploadEnabled) {
+      useToastStore
+        .getState()
+        .showToast('本地上传未启用，请到设置 → 图片存储模式 → 启用本地上传', 'error');
+      return;
+    }
     const confirmed = await ensureLocalWarning();
     if (!confirmed) {
       useToastStore.getState().showToast('已取消本地保存', 'info');
@@ -924,7 +944,13 @@ export function EditorToolbar({
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', marginTop: 8 }}>
-                <ToolbarBtn onClick={handlePickFile}>本地上传</ToolbarBtn>
+                <ToolbarBtn
+                  onClick={handlePickFile}
+                  disabled={isLocalUploadDisabled}
+                  title={isLocalUploadDisabled ? localUploadDisabledReason : '从本机选择图片'}
+                >
+                  本地上传
+                </ToolbarBtn>
                 <ToolbarBtn
                   onClick={() => {
                     setImageSizeOpen(false);
