@@ -1,25 +1,38 @@
 // ============================================================
-// Capacitor 配置 - 安科作者助手 移动端打包
+// Capacitor 移动端打包配置（Android）
 //
-// webDir: 'dist' - Vite 构建产物
-// appId:  Android 包名（与现有 Electron appId 区分）
+// - appId: 与 electron-builder 对齐（com.shanshian.ankecreator）
+// - Android backgroundColor: 与项目暗色 UI 一致（#1e293b slate-800）
+// - webContentsDebuggingEnabled: 仅开发模式开启
+// - SplashScreen: 完善 spinner / 资源名 / 缩放
+// - StatusBar: 暗色样式 + 暗色背景
 // ============================================================
+
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.ankecreator.app',
+  appId: 'com.shanshian.ankecreator',
   appName: '安科作者助手',
   webDir: 'dist',
   android: {
-    // 允许 https/http 混排（开发期方便；生产期应去除）
+    // 与项目暗色 UI 一致（#1e293b slate-800）
+    backgroundColor: '#1e293b',
+    // 仅开发模式开启（NODE_ENV !== production）
+    webContentsDebuggingEnabled: process.env.NODE_ENV !== 'production',
+    // 安全策略：禁止 http/https 混排
     allowMixedContent: false,
-    // 用户数据目录
-    webContentsDebuggingEnabled: false,
   },
   plugins: {
     SplashScreen: {
-      launchShowDuration: 1000,
-      backgroundColor: '#1e1e1e',
+      launchShowDuration: 2000,
+      backgroundColor: '#1e293b',
+      showSpinner: false,
+      androidSplashResourceName: 'splash',
+      androidScaleType: 'CENTER_CROP',
+    },
+    StatusBar: {
+      style: 'DARK',
+      backgroundColor: '#1e293b',
     },
   },
 };
