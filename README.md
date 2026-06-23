@@ -82,7 +82,7 @@ npm run dev          # 启动 Vite + Electron，自动 reload
 ### Windows 打包产物
 
 ```
-dist-release/
+release/
 └── 安科作者助手-2.2.0-x64-setup.exe    # NSIS 安装包
 ```
 

@@ -62,7 +62,7 @@
     "productName": "安科作者助手",
     "copyright": "Copyright © 2026 点点星辰 (zcxshan)",
     "directories": {
-      "output": "dist-release",
+      "output": "release",
       "buildResources": "build"
     },
     "files": [

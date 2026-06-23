@@ -202,7 +202,7 @@ npm run cap:sync
 
 ### Q: 怎样打 Windows 便携版（不需安装）？
 
-**A**: `npm run build:win` 会在 `dist-release/win-unpacked/` 生成可执行文件 + DLL 依赖，可直接打包成 zip 分发。
+**A**: `npm run build:win` 会在 `release/win-unpacked/` 生成可执行文件 + DLL 依赖，可直接打包成 zip 分发。
 
 ### Q: 怎样给不同渠道打包（多 APK）？
 

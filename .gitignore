@@ -153,8 +153,5 @@ ios/
 *.aab
 *.ipa
 
-# electron-builder 输出目录 - 每次打包重新生成，完全忽略
-dist-release/
-
 # npm 临时缓存 - 完全忽略
 .npm-cache/
