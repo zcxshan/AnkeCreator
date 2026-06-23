@@ -40,9 +40,12 @@ database/*.sqlite-shm
 database/*.sqlite3-wal
 database/*.sqlite3-shm
 
-# 临时测试资源 — 完全忽略
+# 临时测试资源 — 完全忽略（白名单必要的构建脚本）
 smile.png
-scripts/
+scripts/*
+!scripts/generate-icon.js
+!scripts/clear-icon-cache.js
+!scripts/generate-keystore.js
 
 # IDE / AI 助手配置 — 完全忽略
 .trae/

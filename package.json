@@ -23,7 +23,8 @@
     "cap:build:apk": "npm run cap:sync && gradle -p android assembleDebug --no-daemon",
     "cap:build:apk:release": "npm run cap:sync && gradle -p android assembleRelease --no-daemon",
     "apk:debug": "npm run cap:build:apk",
-    "apk:release": "npm run cap:build:apk:release"
+    "apk:release": "npm run cap:build:apk:release",
+    "keystore:gen": "node scripts/generate-keystore.js"
   },
   "dependencies": {
     "@capacitor/browser": "^6.0.6",
