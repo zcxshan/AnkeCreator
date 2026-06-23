@@ -124,7 +124,26 @@ ehthumbs_vista.db
 *.orig
 
 # Capacitor 移动端打包产物 - 每次构建重新生成，完全忽略
-android/
+# 关键配置白名单追踪，build 产物忽略（与 android/.gitignore 配合使用）
+android/.gradle/
+android/build/
+android/app/build/
+android/app/release/
+android/local.properties
+android/capacitor-cordova-android-plugins/
+android/.idea/
+android/captures/
+android/app/.cxx/
+# 密钥文件（绝对不入仓！keystore 在 android/app/anke-release.jks，密码在 android/keystore.properties）
+android/app/*.jks
+android/app/*.keystore
+android/keystore.properties
+android/app/keystore.properties
+# 已构建资源（cap sync 会重新生成）
+android/app/src/main/assets/public
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+android/app/src/main/res/xml/config.xml
 ios/
 .capacitor/
 *.apk
