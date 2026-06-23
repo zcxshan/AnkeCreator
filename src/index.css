@@ -555,14 +555,100 @@ textarea {
   }
 }
 
+/* 全局触摸优化（仅在 Capacitor 原生 App 生效，不影响桌面端 WebView） */
+html.capacitor-platform-android,
+html.capacitor-platform-ios {
+  body {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    user-select: none;
+  }
+  /* 编辑器内容区允许选择（覆盖上面的 user-select: none） */
+  .anke-editor-content,
+  .anke-editor-content * {
+    user-select: text;
+    -webkit-user-select: text;
+  }
+}
+
+/* ================================
+   移动端增强样式
+   - 触摸目标 44px（Material Design 最小推荐尺寸）
+   - scrollbar-hide 工具类
+   - 富文本移动端优化
+   ================================ */
+@media (max-width: 768px) {
+  /* 主要交互按钮最小 44px（Material Design 规范） */
+  .mobile-touch-target,
+  button:not(.text-[10px]):not(.text-[11px]):not([class*="px-2"]) {
+    min-height: 44px;
+  }
+
+  /* 隐藏滚动条（横向滚动列表用） */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* 富文本编辑器移动端优化 */
+  .anke-editor-content[contenteditable="true"] {
+    font-size: 15px;
+    line-height: 1.9;
+    padding: 12px !important;
+  }
+  .anke-editor-content p {
+    margin: 0.6em 0;
+  }
+
+  /* 输入框 16px 字号（避免 iOS Safari 自动放大） */
+  input[type="text"],
+  input[type="search"],
+  input[type="email"],
+  input[type="url"],
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
 /* ================================
    Capacitor 状态栏安全区
    - 顶部 status bar 高度 + 8px 内边距
+   - 底部 nav bar 安全区
    ================================ */
 html.capacitor-platform-android,
 html.capacitor-platform-ios {
   padding-top: env(safe-area-inset-top, 0);
   padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+/* 移动端抽屉动画（仅移动端） */
+@keyframes mobile-drawer-slide-in-left {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+@keyframes mobile-drawer-slide-in-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+@keyframes mobile-drawer-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (max-width: 768px) {
+  .mobile-drawer-panel-left {
+    animation: mobile-drawer-slide-in-left 200ms ease-out;
+  }
+  .mobile-drawer-panel-right {
+    animation: mobile-drawer-slide-in-right 200ms ease-out;
+  }
+  .mobile-drawer-backdrop {
+    animation: mobile-drawer-fade-in 200ms ease-out;
+  }
 }
 
 /* ================================

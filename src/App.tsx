@@ -15,6 +15,7 @@ import { useStoryStore } from './store/storyStore';
 import { useEditorStore } from './store/editorStore';
 import { useMetaStore } from './store/metaStore';
 import { initDatabase } from './db/database';
+import { isCapacitor, isElectron } from './utils/platform';
 import './index.css';
 
 type Route = 'home' | 'works' | 'editor' | 'templates' | 'tutorial' | 'anjia' | 'find-anke';
@@ -59,13 +60,13 @@ function App() {
     setRoute('home');
   };
 
-  // TitleBar 位于所有页面顶部（Electron 无边框窗口的自定义控制栏）
+  // TitleBar 位于所有页面顶部（仅 Electron 无边框窗口显示；Capacitor / Web 走系统状态栏沉浸式）
   const renderWithTitleBar = (content: React.ReactNode) => (
     <div
       className="h-screen w-screen flex flex-col overflow-hidden"
       style={{ background: 'var(--bg-page)', color: 'var(--text-primary)' }}
     >
-      <TitleBar />
+      {isElectron && <TitleBar />}
       <div className="flex-1 overflow-hidden">{content}</div>
       <ToastContainer />
       {/* 全局唯一的本地上传警告弹窗（订阅 imageWarningStore.open） */}
