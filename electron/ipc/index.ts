@@ -15,6 +15,7 @@ import { registerStructureIpc } from './structure'
 import { registerSystemIpc } from './system'
 import { registerImageIpc } from '../imageUploader'
 import { registerNgaIpc } from '../ngaCrawler'
+import { registerDataIpc } from '../dataManager'
 
 /** 注册所有 IPC handler
  *
@@ -31,4 +32,5 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   registerSystemIpc(getWindow)
   registerImageIpc(getWindow)
   registerNgaIpc()
+  registerDataIpc(getWindow)
 }

@@ -172,6 +172,16 @@ const appAPI = {
   openDataDirectory: (): Promise<boolean> => ipcRenderer.invoke('app:open-data-directory'),
 }
 
+// 数据清理（应用内"清空所有数据"入口）
+const dataAPI = {
+  clearAll: (): Promise<{ ok: boolean; error?: string; cleared: string[] }> =>
+    ipcRenderer.invoke('data:clearAll'),
+  openUninstallGuide: (): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('data:openUninstallGuide'),
+  openDataDirectory: (): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('data:openDataDirectory'),
+}
+
 contextBridge.exposeInMainWorld('windowAPI', windowAPI)
 contextBridge.exposeInMainWorld('electronAPI', {
   // 保留原有的接口
@@ -223,6 +233,9 @@ export type ElectronAPI = {
   }>
   saveStoryAsFile: (data: any, suggestedName?: string) => Promise<{ ok: boolean; canceled?: boolean; filePath?: string; error?: string }>
   openStoryFile: () => Promise<{ ok: boolean; canceled?: boolean; filePath?: string; data?: any; error?: string }>
+  clearAllData: () => Promise<{ ok: boolean; error?: string; cleared: string[] }>
+  openUninstallGuide: () => Promise<{ ok: boolean }>
+  openDataDirectory: () => Promise<{ ok: boolean; error?: string }>
 }
 
 declare global {
@@ -231,6 +244,7 @@ declare global {
     electronAPI: ElectronAPI
     dbAPI: typeof dbAPI
     appAPI: typeof appAPI
+    dataAPI: typeof dataAPI
   }
 }
 

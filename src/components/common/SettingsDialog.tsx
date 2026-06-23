@@ -346,6 +346,82 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
           )}
         </Section>
 
+        {/* 分组：数据管理（清空所有数据） */}
+        <Section title="数据管理">
+          <div
+            style={{
+              padding: '4px 6px 8px',
+              fontSize: 11,
+              lineHeight: 1.6,
+              color: 'var(--text-secondary)',
+            }}
+          >
+            卸载时会询问是否删除个人数据（默认「是」）。
+            <br />
+            如需在卸载前主动清空数据，可点下方按钮。此操作不可恢复，请确认已导出重要作品。
+          </div>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '4px 6px 0',
+              flexWrap: 'wrap',
+            }}
+          >
+            <button
+              onClick={async () => {
+                if (typeof window === 'undefined' || !window.electronAPI?.clearAllData) {
+                  setOpenFolderHint('当前环境不支持此功能（仅 Electron 桌面端可用）。Android 卸载时系统会自动清空数据。')
+                  return
+                }
+                // 二次确认
+                const ok = window.confirm('确定要清空所有本地数据吗？\n\n将清理：所有作品、世界观、人物、图片、NGA 登录 Cookie 等\n此操作不可恢复！')
+                if (!ok) return
+                const res = await window.electronAPI.clearAllData()
+                if (res.ok) {
+                  useToastStore.getState().showToast('已清空所有数据，请重启应用', 'success')
+                } else {
+                  useToastStore.getState().showToast(`清空失败：${res.error || '未知错误'}`, 'error')
+                }
+              }}
+              style={{
+                padding: '5px 12px',
+                fontSize: 11,
+                fontWeight: 500,
+                border: '1px solid var(--danger, #dc2626)55',
+                borderRadius: 5,
+                background: 'rgba(220,38,38,0.08)',
+                color: 'var(--danger, #dc2626)',
+                cursor: 'pointer',
+              }}
+            >
+              🗑️ 清空所有本地数据
+            </button>
+            <button
+              onClick={() => {
+                if (window.electronAPI?.openUninstallGuide) {
+                  window.electronAPI.openUninstallGuide()
+                } else {
+                  setOpenFolderHint('当前环境不支持此功能')
+                }
+              }}
+              style={{
+                padding: '5px 12px',
+                fontSize: 11,
+                fontWeight: 500,
+                border: '1px solid var(--border-color)',
+                borderRadius: 5,
+                background: 'var(--bg-hover, rgba(0,0,0,0.04))',
+                color: 'var(--text-primary)',
+                cursor: 'pointer',
+              }}
+            >
+              了解卸载行为
+            </button>
+          </div>
+        </Section>
+
         {/* 分组：NGA 登录态（可选） */}
         <Section title="NGA 登录态（可选）">
           <div>
