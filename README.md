@@ -75,7 +75,8 @@ npm run dev          # 启动 Vite + Electron，自动 reload
 | `npm run cap:sync` | 同步 web 产物到 Capacitor |
 | `npm run cap:open:android` | 打开 Android Studio |
 | `npm run cap:build:apk` | **Android Debug APK**（`assembleDebug`） |
-| `npm run cap:build:apk:release` | **Android Release APK**（`assembleRelease`） |
+| `npm run cap:build:apk:release` | **Android Release APK**（`assembleRelease`，已签名） |
+| `npm run keystore:gen` | **生成 Android release keystore**（首次打包前必跑） |
 | `npm run preview` | Vite 预览构建产物 |
 
 ### Windows 打包产物
@@ -84,6 +85,20 @@ npm run dev          # 启动 Vite + Electron，自动 reload
 dist-release/
 └── 安科作者助手-2.2.0-x64-setup.exe    # NSIS 安装包
 ```
+
+### Android 本地签名
+
+首次打包 Android 前需生成 release 签名 keystore：
+
+```bash
+npm run keystore:gen       # 交互式生成（密码、DN、有效期）
+```
+
+产物：
+- `android/app/anke-release.jks`（**不入仓**）
+- `android/keystore.properties`（**不入仓**）
+
+> 完整本地打包步骤见 [docs/BUILDING.md](docs/BUILDING.md)。
 
 ## 数据存储
 

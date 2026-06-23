@@ -98,7 +98,8 @@
       "shortcutName": "安科作者助手",
       "installerIcon": "build/installerIcon.ico",
       "uninstallerIcon": "build/uninstallerIcon.ico",
-      "runAfterFinish": true
+      "runAfterFinish": true,
+      "license": "build/LICENSE.txt"
     }
   }
 }
