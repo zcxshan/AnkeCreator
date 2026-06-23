@@ -99,7 +99,9 @@
       "installerIcon": "build/installerIcon.ico",
       "uninstallerIcon": "build/uninstallerIcon.ico",
       "runAfterFinish": true,
-      "license": "build/LICENSE.txt"
+      "license": "build/LICENSE.txt",
+      "deleteAppDataOnUninstall": false,
+      "include": "build/installer.nsh"
     }
   }
 }
