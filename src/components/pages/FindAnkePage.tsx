@@ -46,7 +46,7 @@ export function FindAnkePage({ onBack }: FindAnkePageProps) {
       </div>
 
       {/* 主体占位 */}
-      <div className="flex-1 flex items-center justify-center p-8">
+      <div className="flex-1 flex items-center justify-center p-4 md:p-8">
         <div
           className="max-w-md text-center p-8 rounded-2xl"
           style={{

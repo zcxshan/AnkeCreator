@@ -157,7 +157,7 @@ export function HomePage({ onOpenStory, onShowWorks, onShowTemplates, onShowTuto
 
   return (
     <div className="h-full w-full flex flex-col items-center overflow-y-auto" style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}>
-      <div className="w-full max-w-4xl px-8 py-12">
+      <div className="w-full max-w-4xl px-4 py-6 md:px-8 md:py-12">
         {/* 欢迎区 */}
         <section className="mb-10">
           <div className="inline-flex items-center gap-2 px-3 py-1 mb-5 rounded-full bg-emerald-100/70 text-emerald-700 text-xs font-medium tracking-wide">

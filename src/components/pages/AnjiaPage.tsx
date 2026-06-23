@@ -487,8 +487,8 @@ export function AnjiaPage({ onBack }: AnjiaPageProps) {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-6 py-6">
-        <div className="max-w-4xl mx-auto space-y-5">
+      <div className="flex-1 overflow-y-auto px-3 py-3 md:px-6 md:py-6">
+        <div className="max-w-4xl mx-auto space-y-4 md:space-y-5">
           {/* 表单卡片 */}
           <section
             className="rounded-2xl p-5"
