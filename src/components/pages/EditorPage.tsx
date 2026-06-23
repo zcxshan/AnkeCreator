@@ -219,6 +219,19 @@ export function EditorPage({ onBack, onExport }: EditorPageProps) {
   }, []);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(384);
 
+  // 移动端判断：Capacitor 原生 App 或窗口宽度 < 768px
+  const [isMobile, setIsMobile] = useState<boolean>(
+    () => isCapacitor || (typeof window !== 'undefined' && window.innerWidth < 768),
+  );
+  // 移动端：左/右抽屉开关
+  const [leftDrawerOpen, setLeftDrawerOpen] = useState(false);
+  const [rightDrawerOpen, setRightDrawerOpen] = useState(false);
+  useEffect(() => {
+    const onResize = () => setIsMobile(isCapacitor || window.innerWidth < 768);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
   // 同步对话框状态（支持双向：目录→大纲、大纲→目录）
   const [syncDialogOpen, setSyncDialogOpen] = useState(false);
   const [syncDialogSource, setSyncDialogSource] = useState<'directory' | 'outline'>('directory');
@@ -447,9 +460,21 @@ export function EditorPage({ onBack, onExport }: EditorPageProps) {
     >
       {/* 顶部导航栏 */}
       <header
-        className="shrink-0 flex items-center gap-4 px-4 py-2.5"
+        className="shrink-0 flex items-center gap-2 md:gap-4 px-3 md:px-4 py-2 md:py-2.5"
         style={{ background: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)' }}
       >
+        {/* 移动端：左抽屉按钮 ☰ */}
+        {isMobile && (
+          <button
+            onClick={() => setLeftDrawerOpen(true)}
+            className="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg transition-colors md:hidden"
+            style={{ color: 'var(--text-secondary)' }}
+            title="打开目录"
+          >
+            ☰
+          </button>
+        )}
+
         <button
           onClick={onBack}
           className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg transition-colors"
@@ -467,7 +492,7 @@ export function EditorPage({ onBack, onExport }: EditorPageProps) {
           ←
         </button>
 
-        <div className="shrink-0 min-w-0 max-w-[280px]">
+        <div className="shrink-0 min-w-0 max-w-[160px] md:max-w-[280px]">
           {isEditingTitle ? (
             <input
               autoFocus
@@ -500,7 +525,7 @@ export function EditorPage({ onBack, onExport }: EditorPageProps) {
           )}
         </div>
 
-        <nav className="flex-1 flex items-center justify-center gap-1">
+        <nav className="flex-1 flex items-center justify-center gap-0.5 md:gap-1">
           {(['世界观', '目录编辑', '大纲', '人物角色'] as const).map((label, idx) => {
             const key: EditorView = ['info', 'directory', 'outline', 'character'][idx] as EditorView;
             const icons = ['🌍', '📑', '📝', '🎭'];
@@ -511,7 +536,8 @@ export function EditorPage({ onBack, onExport }: EditorPageProps) {
                 onClick={() => {
                   setView(key);
                 }}
-                className="relative px-3 py-1.5 text-xs font-medium rounded-lg transition-all"
+                className="relative px-2 md:px-3 py-1.5 text-xs font-medium rounded-lg transition-all"
+                title={isMobile ? label : undefined}
                 style={{
                   color: active ? 'var(--accent)' : 'var(--text-secondary)',
                   background: active ? 'var(--accent-soft)' : 'transparent',
@@ -529,8 +555,8 @@ export function EditorPage({ onBack, onExport }: EditorPageProps) {
                   }
                 }}
               >
-                <span className="mr-1">{icons[idx]}</span>
-                {label}
+                <span className={isMobile ? '' : 'mr-1'}>{icons[idx]}</span>
+                {!isMobile && <span>{label}</span>}
                 {active && (
                   <span
                     className="absolute bottom-0 left-1/2 -translate-x-1/2 w-6 h-0.5 rounded-full"
@@ -542,7 +568,7 @@ export function EditorPage({ onBack, onExport }: EditorPageProps) {
           })}
         </nav>
 
-        <div className="shrink-0 flex items-center gap-1.5">
+        <div className="shrink-0 flex items-center gap-1 md:gap-1.5">
           <span
             className="text-xs px-2 py-1 rounded-md flex items-center gap-1"
             style={{ color: 'var(--text-secondary)', background: 'var(--bg-hover)' }}
@@ -551,9 +577,22 @@ export function EditorPage({ onBack, onExport }: EditorPageProps) {
               className="w-1.5 h-1.5 rounded-full"
               style={{ background: 'var(--accent)' }}
             />
-            {sectionWordCount.toLocaleString()} 字
+            <span className="hidden sm:inline">{sectionWordCount.toLocaleString()} 字</span>
+            <span className="sm:hidden">{sectionWordCount > 999 ? `${(sectionWordCount/1000).toFixed(1)}k` : sectionWordCount}</span>
           </span>
-          
+
+          {/* 移动端：右抽屉按钮 ⚙ */}
+          {isMobile && (
+            <button
+              onClick={() => setRightDrawerOpen(true)}
+              className="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg transition-colors md:hidden"
+              style={{ color: 'var(--text-secondary)' }}
+              title="打开属性"
+            >
+              ⚙
+            </button>
+          )}
+
         </div>
       </header>
 
@@ -565,69 +604,74 @@ export function EditorPage({ onBack, onExport }: EditorPageProps) {
       {view === 'character' && <CharacterPanel richTextEditorCommandsRef={richTextEditorCommandsRef} />}
 
       {view === 'directory' && (
-        <div className="flex-1 flex overflow-hidden min-h-0">
-          <div className="shrink-0 flex flex-col overflow-hidden" style={{ width: leftSidebarWidth }}>
-            <DirectoryTree
-              volumes={volumes}
-              chapters={chapters}
-              sections={sections}
-              activeChapterId={activeChapterId}
-              activeSectionId={activeSectionId}
-              sectionStats={sectionStats}
-              expandedVolumeIds={expandedVolumeIds}
-              expandedChapterIds={expandedChapterIds}
-              onSelectChapter={setActiveChapter}
-              onSelectSection={setActiveSection}
-              onCreateVolume={() => {
-                if (activeStoryId) {
-                  const volCount = volumes.length + 1;
-                  createVolume(activeStoryId, `第${volCount}卷`);
-                }
-              }}
-              onCreateChapter={(volumeId) => {
-                if (activeStoryId) {
-                  // 按 volumeId 过滤后的章序号（per-volume 计数）
-                  const chapCount = chapters.filter((c) => c.volume_id === volumeId).length + 1;
-                  createChapter(activeStoryId, `第${chapCount}章`, volumeId);
-                }
-              }}
-              onCreateSection={(chapterId) => {
-                const chapterSections = sections.filter((s) => s.chapter_id === chapterId);
-                createSection(chapterId, `第${chapterSections.length + 1}节`);
-              }}
-              onRenameVolume={renameVolume}
-              onRenameChapter={renameChapter}
-              onRenameSection={renameSection}
-              onDeleteVolume={deleteVolume}
-              onDeleteChapter={deleteChapter}
-              onDeleteSection={deleteSection}
-              onToggleVolume={toggleVolume}
-              onToggleChapter={toggleChapter}
-              onReorderVolumes={(orderedIds) =>
-                activeStoryId && reorderVolumes(orderedIds)
-              }
-              onReorderChapters={(orderedIds) =>
-                activeStoryId && reorderChapters(orderedIds)
-              }
-              onMoveChapters={(targetVolumeId, orderedIds) =>
-                activeStoryId && moveChapters(activeStoryId, targetVolumeId, orderedIds)
-              }
-              onMoveSections={(targetChapterId, orderedIds) =>
-                moveSections(targetChapterId, orderedIds)
-              }
-              onReorderSections={reorderSections}
-              onSyncToOutline={handleOpenSyncDialog}
-            />
-          </div>
+        <div className="flex-1 flex overflow-hidden min-h-0 relative">
+          {/* ===== 桌面端：3 列布局（目录 + 编辑区 + 右侧栏） ===== */}
+          {!isMobile && (
+            <>
+              <div className="shrink-0 flex flex-col overflow-hidden" style={{ width: leftSidebarWidth }}>
+                <DirectoryTree
+                  volumes={volumes}
+                  chapters={chapters}
+                  sections={sections}
+                  activeChapterId={activeChapterId}
+                  activeSectionId={activeSectionId}
+                  sectionStats={sectionStats}
+                  expandedVolumeIds={expandedVolumeIds}
+                  expandedChapterIds={expandedChapterIds}
+                  onSelectChapter={setActiveChapter}
+                  onSelectSection={setActiveSection}
+                  onCreateVolume={() => {
+                    if (activeStoryId) {
+                      const volCount = volumes.length + 1;
+                      createVolume(activeStoryId, `第${volCount}卷`);
+                    }
+                  }}
+                  onCreateChapter={(volumeId) => {
+                    if (activeStoryId) {
+                      // 按 volumeId 过滤后的章序号（per-volume 计数）
+                      const chapCount = chapters.filter((c) => c.volume_id === volumeId).length + 1;
+                      createChapter(activeStoryId, `第${chapCount}章`, volumeId);
+                    }
+                  }}
+                  onCreateSection={(chapterId) => {
+                    const chapterSections = sections.filter((s) => s.chapter_id === chapterId);
+                    createSection(chapterId, `第${chapterSections.length + 1}节`);
+                  }}
+                  onRenameVolume={renameVolume}
+                  onRenameChapter={renameChapter}
+                  onRenameSection={renameSection}
+                  onDeleteVolume={deleteVolume}
+                  onDeleteChapter={deleteChapter}
+                  onDeleteSection={deleteSection}
+                  onToggleVolume={toggleVolume}
+                  onToggleChapter={toggleChapter}
+                  onReorderVolumes={(orderedIds) =>
+                    activeStoryId && reorderVolumes(orderedIds)
+                  }
+                  onReorderChapters={(orderedIds) =>
+                    activeStoryId && reorderChapters(orderedIds)
+                  }
+                  onMoveChapters={(targetVolumeId, orderedIds) =>
+                    activeStoryId && moveChapters(activeStoryId, targetVolumeId, orderedIds)
+                  }
+                  onMoveSections={(targetChapterId, orderedIds) =>
+                    moveSections(targetChapterId, orderedIds)
+                  }
+                  onReorderSections={reorderSections}
+                  onSyncToOutline={handleOpenSyncDialog}
+                />
+              </div>
 
-          <ResizeHandle
-            side="left"
-            onResize={(delta) => setLeftSidebarWidth((w) => Math.min(400, Math.max(160, w + delta)))}
-          />
+              <ResizeHandle
+                side="left"
+                onResize={(delta) => setLeftSidebarWidth((w) => Math.min(400, Math.max(160, w + delta)))}
+              />
+            </>
+          )}
 
           <main
             className="flex-1 flex flex-col overflow-hidden"
-            style={{ borderLeft: '1px solid var(--border-color)', borderRight: '1px solid var(--border-color)', minHeight: 0 }}
+            style={{ borderLeft: !isMobile ? '1px solid var(--border-color)' : 'none', borderRight: !isMobile ? '1px solid var(--border-color)' : 'none', minHeight: 0 }}
           >
             {section && activeChapter && activeVolume && volIdx >= 0 && chIdx >= 0 ? (
               <>
@@ -666,56 +710,214 @@ export function EditorPage({ onBack, onExport }: EditorPageProps) {
             )}
           </main>
 
-          <ResizeHandle
-            side="right"
-            onResize={(delta) => setRightSidebarWidth((w) => Math.min(600, Math.max(200, w + delta)))}
-          />
+          {!isMobile && (
+            <>
+              <ResizeHandle
+                side="right"
+                onResize={(delta) => setRightSidebarWidth((w) => Math.min(600, Math.max(200, w + delta)))}
+              />
 
-          <RightPanel
-            activeTab={rightPanelTab}
-            setActiveTab={setRightPanelTab}
-            section={section}
-            onRenameSection={(t) => section && renameSection(section.id, t)}
-            onJumpToDice={(sectionId, payloadSnapshot) => {
-              if (sectionId !== activeSectionId) {
-                const setActive = useStoryStore.getState().setActiveSection;
-                setActive(sectionId);
-              }
-              // 等下一个 tick，编辑器内容被重新渲染后再滚动
-              window.setTimeout(() => {
-                richTextEditorCommandsRef.current?.scrollToDiceCard(payloadSnapshot);
-              }, 80);
-            }}
-            onRestoreDice={(sectionId, payloadSnapshot) => {
-              // 跳到目标节
-              if (sectionId !== activeSectionId) {
-                const setActive = useStoryStore.getState().setActiveSection;
-                setActive(sectionId);
-              }
-              window.setTimeout(() => {
-                try {
-                  const payload = JSON.parse(payloadSnapshot);
-                  // 给恢复的骰子换个新 id，避免和原 id 冲突
-                  payload.id = `dice-${Date.now().toString(36)}-${Math.random()
-                    .toString(36)
-                    .slice(2, 8)}`;
-                  // 标记为"已恢复"结果
-                  payload.restored = true;
-                  richTextEditorCommandsRef.current?.insertDice(payload);
-                  setToast('已恢复骰子到编辑区');
-                } catch (e) {
-                  setToast('恢复失败：骰子数据格式错误');
-                }
-              }, 80);
-            }}
-            selectedImage={selectedImage}
-            onSetImageSize={(size) => {
-              richTextEditorCommandsRef.current?.setSelectedImageSize(size);
-            }}
-            richTextEditorCommandsRef={richTextEditorCommandsRef}
-            onShowToast={(msg) => setToast(msg)}
-            width={rightSidebarWidth}
-          />
+              <RightPanel
+                activeTab={rightPanelTab}
+                setActiveTab={setRightPanelTab}
+                section={section}
+                onRenameSection={(t) => section && renameSection(section.id, t)}
+                onJumpToDice={(sectionId, payloadSnapshot) => {
+                  if (sectionId !== activeSectionId) {
+                    const setActive = useStoryStore.getState().setActiveSection;
+                    setActive(sectionId);
+                  }
+                  // 等下一个 tick，编辑器内容被重新渲染后再滚动
+                  window.setTimeout(() => {
+                    richTextEditorCommandsRef.current?.scrollToDiceCard(payloadSnapshot);
+                  }, 80);
+                }}
+                onRestoreDice={(sectionId, payloadSnapshot) => {
+                  // 跳到目标节
+                  if (sectionId !== activeSectionId) {
+                    const setActive = useStoryStore.getState().setActiveSection;
+                    setActive(sectionId);
+                  }
+                  window.setTimeout(() => {
+                    try {
+                      const payload = JSON.parse(payloadSnapshot);
+                      // 给恢复的骰子换个新 id，避免和原 id 冲突
+                      payload.id = `dice-${Date.now().toString(36)}-${Math.random()
+                        .toString(36)
+                        .slice(2, 8)}`;
+                      // 标记为"已恢复"结果
+                      payload.restored = true;
+                      richTextEditorCommandsRef.current?.insertDice(payload);
+                      setToast('已恢复骰子到编辑区');
+                    } catch (e) {
+                      setToast('恢复失败：骰子数据格式错误');
+                    }
+                  }, 80);
+                }}
+                selectedImage={selectedImage}
+                onSetImageSize={(size) => {
+                  richTextEditorCommandsRef.current?.setSelectedImageSize(size);
+                }}
+                richTextEditorCommandsRef={richTextEditorCommandsRef}
+                onShowToast={(msg) => setToast(msg)}
+                width={rightSidebarWidth}
+              />
+            </>
+          )}
+
+          {/* ===== 移动端：左抽屉（目录） ===== */}
+          {isMobile && leftDrawerOpen && (
+            <div
+              className="mobile-drawer-backdrop absolute inset-0 z-30 bg-black/50"
+              onClick={() => setLeftDrawerOpen(false)}
+            >
+              <div
+                className="mobile-drawer-panel-left absolute left-0 top-0 bottom-0 w-[85%] max-w-[320px] shadow-2xl flex flex-col"
+                style={{ background: 'var(--bg-card)' }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* 抽屉头部：关闭按钮 + 标题 */}
+                <div
+                  className="shrink-0 flex items-center justify-between px-3 py-2 border-b"
+                  style={{ borderColor: 'var(--border-color)' }}
+                >
+                  <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>目录</div>
+                  <button
+                    onClick={() => setLeftDrawerOpen(false)}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="flex-1 overflow-hidden">
+                  <DirectoryTree
+                    volumes={volumes}
+                    chapters={chapters}
+                    sections={sections}
+                    activeChapterId={activeChapterId}
+                    activeSectionId={activeSectionId}
+                    sectionStats={sectionStats}
+                    expandedVolumeIds={expandedVolumeIds}
+                    expandedChapterIds={expandedChapterIds}
+                    onSelectChapter={(id) => { setActiveChapter(id); }}
+                    onSelectSection={(id) => { setActiveSection(id); setLeftDrawerOpen(false); }}
+                    onCreateVolume={() => {
+                      if (activeStoryId) {
+                        const volCount = volumes.length + 1;
+                        createVolume(activeStoryId, `第${volCount}卷`);
+                      }
+                    }}
+                    onCreateChapter={(volumeId) => {
+                      if (activeStoryId) {
+                        const chapCount = chapters.filter((c) => c.volume_id === volumeId).length + 1;
+                        createChapter(activeStoryId, `第${chapCount}章`, volumeId);
+                      }
+                    }}
+                    onCreateSection={(chapterId) => {
+                      const chapterSections = sections.filter((s) => s.chapter_id === chapterId);
+                      createSection(chapterId, `第${chapterSections.length + 1}节`);
+                    }}
+                    onRenameVolume={renameVolume}
+                    onRenameChapter={renameChapter}
+                    onRenameSection={renameSection}
+                    onDeleteVolume={deleteVolume}
+                    onDeleteChapter={deleteChapter}
+                    onDeleteSection={deleteSection}
+                    onToggleVolume={toggleVolume}
+                    onToggleChapter={toggleChapter}
+                    onReorderVolumes={(orderedIds) =>
+                      activeStoryId && reorderVolumes(orderedIds)
+                    }
+                    onReorderChapters={(orderedIds) =>
+                      activeStoryId && reorderChapters(orderedIds)
+                    }
+                    onMoveChapters={(targetVolumeId, orderedIds) =>
+                      activeStoryId && moveChapters(activeStoryId, targetVolumeId, orderedIds)
+                    }
+                    onMoveSections={(targetChapterId, orderedIds) =>
+                      moveSections(targetChapterId, orderedIds)
+                    }
+                    onReorderSections={reorderSections}
+                    onSyncToOutline={handleOpenSyncDialog}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ===== 移动端：右抽屉（属性/世界/人物/骰点/关系） ===== */}
+          {isMobile && rightDrawerOpen && (
+            <div
+              className="mobile-drawer-backdrop absolute inset-0 z-30 bg-black/50"
+              onClick={() => setRightDrawerOpen(false)}
+            >
+              <div
+                className="mobile-drawer-panel-right absolute right-0 top-0 bottom-0 w-[90%] max-w-[380px] shadow-2xl flex flex-col"
+                style={{ background: 'var(--bg-card)' }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div
+                  className="shrink-0 flex items-center justify-between px-3 py-2 border-b"
+                  style={{ borderColor: 'var(--border-color)' }}
+                >
+                  <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>属性面板</div>
+                  <button
+                    onClick={() => setRightDrawerOpen(false)}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="flex-1 overflow-hidden">
+                  <RightPanel
+                    activeTab={rightPanelTab}
+                    setActiveTab={setRightPanelTab}
+                    section={section}
+                    onRenameSection={(t) => section && renameSection(section.id, t)}
+                    onJumpToDice={(sectionId, payloadSnapshot) => {
+                      if (sectionId !== activeSectionId) {
+                        const setActive = useStoryStore.getState().setActiveSection;
+                        setActive(sectionId);
+                      }
+                      window.setTimeout(() => {
+                        richTextEditorCommandsRef.current?.scrollToDiceCard(payloadSnapshot);
+                      }, 80);
+                      setRightDrawerOpen(false);
+                    }}
+                    onRestoreDice={(sectionId, payloadSnapshot) => {
+                      if (sectionId !== activeSectionId) {
+                        const setActive = useStoryStore.getState().setActiveSection;
+                        setActive(sectionId);
+                      }
+                      window.setTimeout(() => {
+                        try {
+                          const payload = JSON.parse(payloadSnapshot);
+                          payload.id = `dice-${Date.now().toString(36)}-${Math.random()
+                            .toString(36)
+                            .slice(2, 8)}`;
+                          payload.restored = true;
+                          richTextEditorCommandsRef.current?.insertDice(payload);
+                          setToast('已恢复骰子到编辑区');
+                        } catch (e) {
+                          setToast('恢复失败：骰子数据格式错误');
+                        }
+                      }, 80);
+                      setRightDrawerOpen(false);
+                    }}
+                    selectedImage={selectedImage}
+                    onSetImageSize={(size) => {
+                      richTextEditorCommandsRef.current?.setSelectedImageSize(size);
+                    }}
+                    richTextEditorCommandsRef={richTextEditorCommandsRef}
+                    onShowToast={(msg) => setToast(msg)}
+                    width={undefined}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
