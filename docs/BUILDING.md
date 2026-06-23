@@ -66,6 +66,22 @@ release/
 2. 启动应用
 3. 检查：作品列表、编辑器、图片上传、NGA 抓取全部正常
 
+### 卸载行为
+
+应用使用 NSIS 自定义卸载脚本（`build/installer.nsh`），卸载时行为如下：
+
+- **默认询问**：弹出 MessageBox「是否同时删除所有个人数据？」（默认按钮 = 「是」）
+- **选「是」**：
+  - 递归删除 `%APPDATA%\com.shanshian.ankecreator\`
+  - 递归删除 `%APPDATA%\安科作者助手\`（历史命名兼容）
+  - 递归删除 `%LOCALAPPDATA%\com.shanshian.ankecreator\`
+  - 递归删除 `%LOCALAPPDATA%\安科作者助手\`
+  - 覆盖 Electron 全部 userData（图片、JSON 数据库、IndexedDB、Cache、Cookie 等）
+- **选「否」**：保留 userData，下次重装自动恢复
+
+> 💡 应用内也提供「设置 → 数据管理 → 清空所有本地数据」按钮，可在卸载前主动清理。
+> 💡 「了解卸载行为」按钮弹出系统对话框，展示完整说明。
+
 ### 自定义图标
 
 ```bash
@@ -114,6 +130,22 @@ android/app/build/outputs/apk/
 ├── debug/app-debug.apk              # 调试包
 └── release/app-release.apk          # 发布包（已签名）
 ```
+
+### 卸载行为
+
+Android 卸载时行为：
+
+- **系统卸载**：自动清空 app 私有目录（`/data/data/<package>/`），包括：
+  - WebView 缓存（图片缓存、JS 缓存等）
+  - WebView IndexedDB（包含 zustand persist 持久化的设置）
+  - WebView localStorage（主题、安价历史等）
+  - 所有用户保存的作品数据
+- **云备份已禁用**：`android:allowBackup="false"` + `android:dataExtractionRules="@xml/data_extraction_rules"`
+  - 不备份到 Google Drive，避免卸载重装后从云端恢复旧数据
+  - 设备转移（device-transfer）保留：换机迁移时数据仍跟随
+
+> 💡 卸载时无需额外操作，Android 系统会自动清理所有应用数据。
+> 💡 如需在卸载前主动清空数据，可使用应用内「设置 → 数据管理 → 清空所有本地数据」（仅 Windows 端有效，Android 通过系统卸载即可）。
 
 ### 验证签名
 

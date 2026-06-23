@@ -165,6 +165,18 @@ const TUTORIAL_TOPICS: TutorialTopic[] = [
       { title: '4. 数据存储位置', description: '所有创作数据自动保存在应用数据目录下的 <code>AnkeCreatorData</code> 文件夹中（Windows 路径：<code>%APPDATA%/AnkeCreator/AnkeCreatorData</code>）。每个数据表对应一个 JSON 文件，采用原子写入确保数据安全。如需整体备份，可直接复制该文件夹。' },
     ],
   },
+  {
+    id: 'uninstall',
+    icon: '🗑️',
+    title: '卸载与数据清理',
+    summary: '卸载时询问是否删除个人数据，可在应用内主动清空',
+    steps: [
+      { title: '1. 卸载时的数据询问（Windows）', description: '运行卸载程序时，会弹出对话框询问「是否同时删除所有个人数据？」（默认按钮 = 「是」）。选「是」会彻底清理 <code>%APPDATA%</code> 和 <code>%LOCALAPPDATA%</code> 下的 appId/productName 目录（覆盖历史命名），下次重装数据全空。选「否」则保留 userData，下次重装自动恢复。' },
+      { title: '2. 卸载行为（Android）', description: 'Android 卸载时系统会自动清空 app 私有目录（<code>/data/data/&lt;package&gt;/</code>），包括 WebView 缓存、IndexedDB、localStorage 和所有用户作品数据。已禁用云备份（<code>allowBackup="false"</code>），避免卸载重装后从云端恢复旧数据。设备转移（换机迁移）时数据仍跟随。' },
+      { title: '3. 应用内主动清空', description: '在「⚙ 设置 → 数据管理」中，可点「🗑️ 清空所有本地数据」按钮主动清理（仅 Windows 端，Android 通过系统卸载即可）。此操作会清空所有作品、世界观、人物、图片、NGA 登录 Cookie 等，且不可恢复。点「了解卸载行为」可查看完整说明弹窗。' },
+      { title: '4. 卸载前建议', description: '• 重要作品先「导出」为 <code>.anke.json</code> 备份到非系统盘<br>• NGA Cookie 重新登录即可（不影响服务器端）<br>• 主题、模板等个人偏好需重新设置（可考虑同步到 .anke.json 中）' },
+    ],
+  },
 ];
 
 export function TutorialPage({ onBack, onShowAuthor }: TutorialPageProps) {
