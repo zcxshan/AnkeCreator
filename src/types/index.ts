@@ -118,24 +118,14 @@ export interface Section extends Entity {
   chapter_id: string;
   title: string;
   order_index: number;
-  /** 新一代富文本：JSON 字符串（TipTap 文档格式）。有此字段时优先使用。
-   *  老的 ContentBlock 列表仍然保留以便迁移。 */
+  /** 新一代富文本：contenteditable HTML 字符串（含 data-type 节点）。
+   *  老 content_blocks 表系统已删除，本字段是节的唯一正文存储。 */
   content?: string;
 }
 
 // ------------------------------------------------------------
-// ContentBlock - 内容块（核心）
+// 富文本相关类型
 // ------------------------------------------------------------
-
-export type ContentBlockType = 'text' | 'image' | 'dice';
-
-export interface ContentBlockBase extends Entity {
-  section_id: string;
-  type: ContentBlockType;
-  order_index: number;
-}
-
-// --- 文本块 ---
 
 export type NGA_COLOR =
   | 'red'
@@ -175,30 +165,6 @@ export interface TextStyles {
    */
   size?: number;
   font?: NGA_FONT;
-}
-
-export interface TextBlockPayload {
-  text: string;
-  styles?: TextStyles;
-}
-
-export interface TextBlock extends ContentBlockBase {
-  type: 'text';
-  payload: TextBlockPayload;
-}
-
-// --- 图片块 ---
-
-export interface ImageBlockPayload {
-  src: string;
-  width?: number;
-  height?: number;
-  caption?: string;
-}
-
-export interface ImageBlock extends ContentBlockBase {
-  type: 'image';
-  payload: ImageBlockPayload;
 }
 
 // --- 骰点块 ---
@@ -275,25 +241,12 @@ export interface DiceBlockPayloadV2 {
 /** 最终对外：DiceBlock 的 payload 可能是老版本或新版本 */
 export type DiceBlockPayloadUnion = DiceBlockPayload | DiceBlockPayloadV2;
 
-export interface DiceBlock extends ContentBlockBase {
-  type: 'dice';
-  payload: DiceBlockPayloadUnion;
-}
-
-// --- 联合 ---
-
-export type AnyContentBlock = TextBlock | ImageBlock | DiceBlock;
-
 // ------------------------------------------------------------
 // 聚合
 // ------------------------------------------------------------
 
-export interface SectionWithBlocks extends Section {
-  blocks: AnyContentBlock[];
-}
-
 export interface ChapterWithSections extends Chapter {
-  sections: SectionWithBlocks[];
+  sections: Section[];
 }
 
 export interface StoryWithAll extends Story {
