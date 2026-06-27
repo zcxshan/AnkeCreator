@@ -19,9 +19,13 @@ interface SettingsDialogProps {
 export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   const mode = useSettingStore((s) => s.imageStoreMode);
   const setMode = useSettingStore((s) => s.setImageStoreMode);
+  const localUploadEnabled = useSettingStore((s) => s.localUploadEnabled);
+  const setLocalUploadEnabled = useSettingStore((s) => s.setLocalUploadEnabled);
   const ngaCookies = useSettingStore((s) => s.ngaCookies);
   const setNgaCookies = useSettingStore((s) => s.setNgaCookies);
   const clearNgaCookies = useSettingStore((s) => s.clearNgaCookies);
+  const soundEnabled = useSettingStore((s) => s.soundEnabled);
+  const setSoundEnabled = useSettingStore((s) => s.setSoundEnabled);
   const [cookieDraft, setCookieDraft] = useState('');
   const [openFolderHint, setOpenFolderHint] = useState<string | null>(null);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
@@ -86,10 +90,13 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
           background: 'var(--bg-card, #fff)',
           borderRadius: 10,
           boxShadow: '0 12px 40px rgba(0,0,0,0.2)',
-          padding: '20px 24px 16px',
-          minWidth: 420,
-          maxWidth: 520,
           width: '90vw',
+          maxWidth: 520,
+          minWidth: 420,
+          maxHeight: '85vh',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
           animation: 'modalSlideIn 0.18s ease-out',
           border: '1px solid var(--border-color, #e5e7eb)',
         }}
@@ -100,7 +107,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            marginBottom: 4,
+            padding: '20px 24px 4px',
           }}
         >
           <h3
@@ -141,8 +148,81 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
           </button>
         </div>
 
+        {/* 内容区（可滚动） */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '4px 24px 8px' }}>
         {/* 分组：图片存储模式 */}
         <Section title="图片存储模式">
+          {/* 本地上传总开关（统一控制 4 个上传入口） */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              padding: '4px 6px 10px',
+              borderBottom: '1px dashed var(--border-color)',
+              marginBottom: 10,
+            }}
+          >
+            <span
+              style={{
+                fontSize: 13,
+                fontWeight: 500,
+                color: 'var(--text-primary, #111)',
+              }}
+            >
+              📁 启用本地上传
+            </span>
+            <button
+              role="switch"
+              aria-checked={localUploadEnabled}
+              onClick={() => setLocalUploadEnabled(!localUploadEnabled)}
+              style={{
+                width: 36,
+                height: 20,
+                borderRadius: 10,
+                background: localUploadEnabled ? 'var(--accent, #2563eb)' : 'var(--border-color, #e5e7eb)',
+                border: 'none',
+                cursor: 'pointer',
+                position: 'relative',
+                transition: 'background 0.2s',
+                flexShrink: 0,
+              }}
+              title="关闭时所有本地上传入口不可用（编辑器图片、人物模板差分、角色差分）"
+            >
+              <span
+                style={{
+                  display: 'block',
+                  width: 16,
+                  height: 16,
+                  borderRadius: 8,
+                  background: '#fff',
+                  position: 'absolute',
+                  top: 2,
+                  left: localUploadEnabled ? 18 : 2,
+                  transition: 'left 0.2s',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                }}
+              />
+            </button>
+            <span
+              style={{
+                fontSize: 11,
+                color: localUploadEnabled ? 'var(--accent, #2563eb)' : 'var(--text-muted, #999)',
+              }}
+            >
+              {localUploadEnabled ? '已开启' : '默认关闭'}
+            </span>
+            <span
+              style={{
+                fontSize: 10,
+                color: 'var(--text-muted, #999)',
+                marginLeft: 'auto',
+              }}
+            >
+              控制编辑器/角色/模板页的本地上传
+            </span>
+          </div>
+
           <RadioRow
             label="远端图床"
             description="上传到 uguu.se 公开图床（匿名/免费、需联网）。NGA 导出时直接使用返回的 URL。"
@@ -165,9 +245,10 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
           )}
           <RadioRow
             label="本地保存"
-            description="保存到本地 userData/images/，通过 local:// 协议访问。无需联网；NGA 导出时自动替换为占位符。"
+            description="保存到本地 userData/images/，通过 local:// 协议访问。无需联网；NGA 导出时自动替换为占位符。需先在上方开启「本地上传」开关。"
             checked={mode === 'local'}
             onChange={() => handleModeChange('local')}
+            disabled={!localUploadEnabled}
           />
           {mode === 'local' && (
             <div
@@ -225,6 +306,79 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
           )}
         </Section>
 
+        {/* 分组：音效 */}
+        <Section title="音效">
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              padding: '4px 6px 10px',
+              borderBottom: '1px dashed var(--border-color)',
+              marginBottom: 10,
+            }}
+          >
+            <span
+              style={{
+                fontSize: 13,
+                fontWeight: 500,
+                color: 'var(--text-primary, #111)',
+              }}
+            >
+              🔊 启用掷骰音效
+            </span>
+            <button
+              role="switch"
+              aria-checked={soundEnabled}
+              onClick={() => setSoundEnabled(!soundEnabled)}
+              style={{
+                width: 36,
+                height: 20,
+                borderRadius: 10,
+                background: soundEnabled ? 'var(--accent, #2563eb)' : 'var(--border-color, #e5e7eb)',
+                border: 'none',
+                cursor: 'pointer',
+                position: 'relative',
+                transition: 'background 0.2s',
+                flexShrink: 0,
+              }}
+              title="关闭后掷骰不再发出声音"
+            >
+              <span
+                style={{
+                  display: 'block',
+                  width: 16,
+                  height: 16,
+                  borderRadius: 8,
+                  background: '#fff',
+                  position: 'absolute',
+                  top: 2,
+                  left: soundEnabled ? 18 : 2,
+                  transition: 'left 0.2s',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                }}
+              />
+            </button>
+            <span
+              style={{
+                fontSize: 11,
+                color: soundEnabled ? 'var(--accent, #2563eb)' : 'var(--text-muted, #999)',
+              }}
+            >
+              {soundEnabled ? '已开启' : '已关闭'}
+            </span>
+            <span
+              style={{
+                fontSize: 10,
+                color: 'var(--text-muted, #999)',
+                marginLeft: 'auto',
+              }}
+            >
+              关闭后掷骰不再发出声音
+            </span>
+          </div>
+        </Section>
+
         {/* 分组：本地图片目录 */}
         <Section title="本地图片目录">
           <div
@@ -270,6 +424,82 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
               {openFolderHint}
             </div>
           )}
+        </Section>
+
+        {/* 分组：数据管理（清空所有数据） */}
+        <Section title="数据管理">
+          <div
+            style={{
+              padding: '4px 6px 8px',
+              fontSize: 11,
+              lineHeight: 1.6,
+              color: 'var(--text-secondary)',
+            }}
+          >
+            卸载时会询问是否删除个人数据（默认「是」）。
+            <br />
+            如需在卸载前主动清空数据，可点下方按钮。此操作不可恢复，请确认已导出重要作品。
+          </div>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '4px 6px 0',
+              flexWrap: 'wrap',
+            }}
+          >
+            <button
+              onClick={async () => {
+                if (typeof window === 'undefined' || !window.electronAPI?.clearAllData) {
+                  setOpenFolderHint('当前环境不支持此功能（仅 Electron 桌面端可用）。Android 卸载时系统会自动清空数据。')
+                  return
+                }
+                // 二次确认
+                const ok = window.confirm('确定要清空所有本地数据吗？\n\n将清理：所有作品、世界观、人物、图片、NGA 登录 Cookie 等\n此操作不可恢复！')
+                if (!ok) return
+                const res = await window.electronAPI.clearAllData()
+                if (res.ok) {
+                  useToastStore.getState().showToast('已清空所有数据，请重启应用', 'success')
+                } else {
+                  useToastStore.getState().showToast(`清空失败：${res.error || '未知错误'}`, 'error')
+                }
+              }}
+              style={{
+                padding: '5px 12px',
+                fontSize: 11,
+                fontWeight: 500,
+                border: '1px solid var(--danger, #dc2626)55',
+                borderRadius: 5,
+                background: 'rgba(220,38,38,0.08)',
+                color: 'var(--danger, #dc2626)',
+                cursor: 'pointer',
+              }}
+            >
+              🗑️ 清空所有本地数据
+            </button>
+            <button
+              onClick={() => {
+                if (window.electronAPI?.openUninstallGuide) {
+                  window.electronAPI.openUninstallGuide()
+                } else {
+                  setOpenFolderHint('当前环境不支持此功能')
+                }
+              }}
+              style={{
+                padding: '5px 12px',
+                fontSize: 11,
+                fontWeight: 500,
+                border: '1px solid var(--border-color)',
+                borderRadius: 5,
+                background: 'var(--bg-hover, rgba(0,0,0,0.04))',
+                color: 'var(--text-primary)',
+                cursor: 'pointer',
+              }}
+            >
+              了解卸载行为
+            </button>
+          </div>
         </Section>
 
         {/* 分组：NGA 登录态（可选） */}
@@ -369,6 +599,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
             </div>
           </div>
         </Section>
+        </div>
 
         {/* 底部按钮 */}
         <div
@@ -376,7 +607,8 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
             display: 'flex',
             justifyContent: 'flex-end',
             gap: 8,
-            marginTop: 16,
+            padding: '12px 24px 16px',
+            borderTop: '1px solid var(--border-color)',
           }}
         >
           <button
@@ -445,11 +677,13 @@ function RadioRow({
   description,
   checked,
   onChange,
+  disabled,
 }: {
   label: string;
   description: string;
   checked: boolean;
   onChange: () => void;
+  disabled?: boolean;
 }) {
   return (
     <label
@@ -459,13 +693,16 @@ function RadioRow({
         gap: 8,
         padding: '8px 6px',
         borderRadius: 4,
-        cursor: 'pointer',
+        cursor: disabled ? 'not-allowed' : 'pointer',
         background: checked ? 'rgba(37,99,235,0.06)' : 'transparent',
+        opacity: disabled ? 0.4 : 1,
       }}
       onMouseEnter={(e) => {
+        if (disabled) return;
         if (!checked) e.currentTarget.style.background = 'var(--bg-hover, rgba(0,0,0,0.04))';
       }}
       onMouseLeave={(e) => {
+        if (disabled) return;
         e.currentTarget.style.background = checked
           ? 'rgba(37,99,235,0.06)'
           : 'transparent';
@@ -474,7 +711,8 @@ function RadioRow({
       <input
         type="radio"
         checked={checked}
-        onChange={onChange}
+        onChange={disabled ? undefined : onChange}
+        disabled={disabled}
         style={{ marginTop: 2, flexShrink: 0 }}
       />
       <div style={{ flex: 1, minWidth: 0 }}>

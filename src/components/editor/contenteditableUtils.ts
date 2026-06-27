@@ -3,18 +3,55 @@
 // 依赖 document.execCommand + Selection API
 // ============================================================
 
+/**
+ * 模块级"编辑器最后一次选区"
+ * - 工具栏 / 弹窗 input 等位置会触发 selectionchange，selectionchange 监听里
+ *   同步到这里（仅当光标在 editor 内时记录）
+ * - insertDiceCard / insertImageBlock 等插入函数优先用它，避免 focusEditor 把光标重置到 (0,0)
+ */
+let _lastEditorRange: Range | null = null;
+
+/** 由 RichTextEditor 的 selectionchange 监听调用 */
+export function setLastEditorRange(range: Range | null): void {
+  _lastEditorRange = range;
+}
+
+/** 由插入函数读取 */
+export function getLastEditorRange(): Range | null {
+  return _lastEditorRange;
+}
+
 import {
   NGA_IMAGE_SIZES,
   NGA_DEFAULT_IMAGE_SIZE,
-  NGA_QUOTE_BG,
-  NGA_COLLAPSE_HEAD_BG,
-  NGA_COLLAPSE_BODY_BG,
   NGA_CODE_BG,
   NGA_FONTS,
   NGA_FONT_SIZES,
   NGA_COLORS,
   NGA_LINK_COLOR,
 } from '../../types';
+import { rollDice } from '../../utils/diceEngine';
+import { useSettingStore } from '../../store/settingStore';
+import { useEditorHistoryStore } from '../../store/editorHistoryStore';
+import { playDiceRollSound } from '../../utils/diceSound';
+
+/**
+ * 原子块 push helper（Phase E — 子卡点 3.3）：
+ *   - 推历史快照到 useEditorHistoryStore
+ *   - 同时清掉 RichTextEditor 的待推 timer（window.__editorHistoryTimer），
+ *     避免 handleInput 的 200ms debounce 在原子操作后又推一次
+ *
+ * RichTextEditor.handleInput 会写 window.__editorHistoryTimer；
+ * 这里 6 处 atomic push（insert/remove × image/dice/collapse）都调它。
+ */
+function pushAtomicHistory(html: string): void {
+  const w = window as any;
+  if (w.__editorHistoryTimer != null) {
+    window.clearTimeout(w.__editorHistoryTimer);
+    w.__editorHistoryTimer = null;
+  }
+  useEditorHistoryStore.getState().push(html);
+}
 
 /** 把 <font> / <b> / <i> / <u> / <s> 等旧标签规范化为带 style 的 <span>。
  *  这里我们保持原生 execCommand 的输出（浏览器默认产出 b/i/u 等），
@@ -35,6 +72,54 @@ export function isNodeInsideEditor(
 
 export function focusEditor(editor: HTMLElement): void {
   editor.focus();
+}
+
+/**
+ * 统一获取插入位置（光标优先，底部兜底）
+ * 1. 优先使用 savedRange（编辑器失焦时由 selectionchange 保存的）
+ * 2. 其次使用 window.getSelection() 当前光标
+ * 3. 最后 fallback 到编辑器末尾
+ * 如果 savedRange 有效，会同步设置到当前 selection
+ */
+export function getInsertionPoint(
+  editor: HTMLElement,
+  savedRange: Range | null = null,
+): Range {
+  // 1. 优先 saved range（参数传入或模块级缓存）
+  const range = savedRange ?? _lastEditorRange;
+  if (
+    range &&
+    range.startContainer &&
+    editor.contains(range.startContainer)
+  ) {
+    const sel = window.getSelection();
+    if (sel) {
+      try {
+        sel.removeAllRanges();
+        sel.addRange(range);
+      } catch {
+        // ignore
+      }
+    }
+    return range.cloneRange();
+  }
+
+  // 2. 当前 sel
+  const sel = window.getSelection();
+  if (
+    sel &&
+    sel.rangeCount > 0 &&
+    sel.anchorNode &&
+    editor.contains(sel.anchorNode)
+  ) {
+    return sel.getRangeAt(0).cloneRange();
+  }
+
+  // 3. 兜底：末尾
+  const fallback = document.createRange();
+  fallback.selectNodeContents(editor);
+  fallback.collapse(false);
+  return fallback;
 }
 
 /** 手动派发 input 事件，触发 onChangeContent 保存 */
@@ -723,22 +808,15 @@ export function insertImageBlock(
   src: string,
   opts?: { size?: string; alt?: string; name?: string },
 ): HTMLElement | null {
-  focusEditor(editor);
+  // 关键：不要先 focusEditor！focus 会把 contenteditable 的 selection 重置到 (0,0)
+  // getInsertionPoint 内部会优先用 _lastEditorRange（用户最后在 editor 内的光标）
   const sel = window.getSelection();
   if (!sel) return null;
 
   const sizeValue = opts?.size ?? NGA_DEFAULT_IMAGE_SIZE;
   const sizeInfo = NGA_IMAGE_SIZES.find((s) => s.value === sizeValue) ?? NGA_IMAGE_SIZES[0];
 
-  let range: Range;
-  if (sel.rangeCount === 0 || !editor.contains(sel.anchorNode)) {
-    range = document.createRange();
-    range.selectNodeContents(editor);
-    range.collapse(false);
-  } else {
-    range = sel.getRangeAt(0).cloneRange();
-    range.collapse(true);
-  }
+  const range = getInsertionPoint(editor);
 
   const wrapper = document.createElement('div');
   wrapper.setAttribute('data-type', 'image-block');
@@ -747,7 +825,7 @@ export function insertImageBlock(
   wrapper.setAttribute('contentEditable', 'false');
   wrapper.setAttribute('draggable', 'true');
   wrapper.setAttribute('tabindex', '-1');
-  wrapper.style.display = 'inline-block';
+  wrapper.style.display = 'block';
   wrapper.style.margin = '2px 4px';
   wrapper.style.verticalAlign = 'middle';
   wrapper.style.outline = 'none';
@@ -794,13 +872,24 @@ export function insertImageBlock(
 
   range.insertNode(wrapper);
 
+  // 紧跟 wrapper 之后插入 <br> 占位，让用户可以点击空行放下光标
+  const placeholder = document.createElement('br');
+  wrapper.parentNode?.insertBefore(placeholder, wrapper.nextSibling);
+
+  // 移动光标到 <br> 占位之后；这样连续插入会接在 <br> 之后，
+  // 形成 wrapper → <br> → 新块 的结构
+  focusEditor(editor);
   const newRange = document.createRange();
-  newRange.setStartAfter(wrapper);
+  newRange.setStartAfter(placeholder);
   newRange.collapse(true);
   sel.removeAllRanges();
   sel.addRange(newRange);
+  // 把新的"块后位置"也同步到模块，让下一次插入仍接在后面
+  setLastEditorRange(newRange.cloneRange());
 
   dispatchInput(editor);
+  // 原子块插入立即 push 历史（跳过 200ms 防抖，让每次插入可独立撤销）
+  pushAtomicHistory(editor.innerHTML);
   return wrapper;
 }
 
@@ -890,6 +979,8 @@ export function removeImageBlock(editor: HTMLElement, block: HTMLElement): void 
   sel?.addRange(newRange);
 
   dispatchInput(editor);
+  // 原子块删除立即 push 历史（跳过 200ms 防抖，让每次删除可独立撤销）
+  pushAtomicHistory(editor.innerHTML);
 }
 
 /** 清除图片块上的 resize 手柄和删除按钮 */
@@ -1282,6 +1373,7 @@ export function renderDiceCard(block: HTMLElement): void {
   if (!block.dataset.initialized) {
     block.setAttribute('contenteditable', 'false');
     block.setAttribute('contentEditable', 'false');
+    block.style.display = 'block';
     block.style.margin = '12px 0';
     block.style.padding = '12px 14px';
     block.style.borderRadius = '10px';
@@ -1410,7 +1502,7 @@ export function renderDiceCard(block: HTMLElement): void {
 
   // 填值：名称
   const finalNameEl = block.querySelector<HTMLElement>('[data-slot="name"]');
-  if (finalNameEl) finalNameEl.textContent = cfg.name || '未命名骰子';
+  if (finalNameEl) finalNameEl.textContent = cfg.name || '';
 
   // 填值：类型标签
   const finalKindEl = block.querySelector<HTMLElement>('[data-slot="kind"]');
@@ -1443,9 +1535,11 @@ export function renderDiceCard(block: HTMLElement): void {
         row.style.padding = '3px 6px';
         row.style.borderRadius = '6px';
         if (hitId && opt.id === hitId) {
-          row.style.background = 'var(--dice-card-roll-bg)';
-          row.style.color = 'var(--text-on-accent)';
+          row.style.background = 'var(--dice-card-hit-bg)';
+          row.style.color = 'var(--dice-card-hit-fg)';
           row.style.fontWeight = '600';
+          row.style.border = '1px solid var(--dice-card-hit-border)';
+          row.classList.add('anke-dice-hit');
         } else {
           row.style.background = 'var(--dice-card-bg)';
           row.style.color = 'var(--dice-card-ink)';
@@ -1524,19 +1618,9 @@ export function insertDiceCard(
   editor: HTMLElement,
   payload: any,
 ): HTMLElement | null {
-  focusEditor(editor);
-  const sel = window.getSelection();
-  if (!sel) return null;
-
-  let range: Range;
-  if (sel.rangeCount === 0 || !editor.contains(sel.anchorNode)) {
-    range = document.createRange();
-    range.selectNodeContents(editor);
-    range.collapse(false);
-  } else {
-    range = sel.getRangeAt(0).cloneRange();
-    range.collapse(true);
-  }
+  // 关键：不要先 focusEditor！focus 会把 contenteditable 的 selection 重置到 (0,0)
+  // getInsertionPoint 内部会优先用 _lastEditorRange（用户最后在 editor 内的光标）
+  const range = getInsertionPoint(editor);
 
   const wrapper = document.createElement('div');
   wrapper.setAttribute('data-type', 'dice-card');
@@ -1545,19 +1629,33 @@ export function insertDiceCard(
   wrapper.style.userSelect = 'auto';
   wrapper.style.cursor = 'grab';
   wrapper.style.outline = 'none';
-  wrapper.style.display = 'inline-block';
+  wrapper.style.display = 'block';
   setDicePayload(wrapper, payload);
   renderDiceCard(wrapper);
 
   range.insertNode(wrapper);
 
-  const newRange = document.createRange();
-  newRange.setStartAfter(wrapper);
-  newRange.collapse(true);
-  sel.removeAllRanges();
-  sel.addRange(newRange);
+  // 紧跟 wrapper 之后插入 <br> 占位，让用户可以点击空行放下光标
+  const placeholder = document.createElement('br');
+  wrapper.parentNode?.insertBefore(placeholder, wrapper.nextSibling);
+
+  // 移动光标到 <br> 占位之后；这样连续插入会接在 <br> 之后，
+  // 形成 wrapper → <br> → 新块 的结构（与测试期望一致）
+  const sel = window.getSelection();
+  if (sel) {
+    const newRange = document.createRange();
+    newRange.setStartAfter(placeholder);
+    newRange.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(newRange);
+    // 同步到模块，让连续插入接在后面
+    setLastEditorRange(newRange.cloneRange());
+  }
+  focusEditor(editor);
 
   dispatchInput(editor);
+  // 原子块插入立即 push 历史（跳过 200ms 防抖，让每次插入可独立撤销）
+  pushAtomicHistory(editor.innerHTML);
   return wrapper;
 }
 
@@ -1585,6 +1683,8 @@ export function removeDiceCard(editor: HTMLElement, block: HTMLElement): void {
   focusEditor(editor);
   sel?.addRange(newRange);
   dispatchInput(editor);
+  // 原子块删除立即 push 历史（跳过 200ms 防抖，让每次删除可独立撤销）
+  pushAtomicHistory(editor.innerHTML);
 }
 
 /** 对 dice-card 执行掷骰：读取 payload → rollDice → 更新 payload → 重渲染 → dispatchInput
@@ -1599,13 +1699,30 @@ export function rollDiceOnCard(editor: HTMLElement, block: HTMLElement): void {
   // 一次性约束：已投掷过则不再触发（renderDiceCard 已隐藏按钮，双保险）
   if (payload.lastResult) return;
 
-  // 1. 启动动画：隐藏按钮 + 显示滚动区
+  // 1. 启动动画：摇一摇卡片 + 按钮按压 + 显示滚动区
   const rollBtn = block.querySelector<HTMLButtonElement>('button[data-role="roll"]');
   const rollDisplay = block.querySelector<HTMLElement>('[data-slot="roll-display"]');
   const rollEmoji = block.querySelector<HTMLElement>('[data-slot="roll-emoji"]');
   const rollNumber = block.querySelector<HTMLElement>('[data-slot="roll-number"]');
 
-  if (rollBtn) rollBtn.style.display = 'none';
+  // 播放音效（仅在设置开启时；playDiceRollSound 内部 try/catch，失败安全 no-op）
+  if (useSettingStore.getState().soundEnabled) {
+    playDiceRollSound();
+  }
+
+  // 摇一摇卡片（350ms 后自动清除 class）
+  block.classList.add('anke-dice-shaking');
+  window.setTimeout(() => block.classList.remove('anke-dice-shaking'), 350);
+
+  // 按钮按压（180ms 后清除，180ms 后再隐藏）
+  if (rollBtn) rollBtn.classList.add('anke-dice-btn-press');
+  window.setTimeout(() => {
+    if (rollBtn) {
+      rollBtn.classList.remove('anke-dice-btn-press');
+      rollBtn.style.display = 'none';
+    }
+  }, 180);
+
   if (rollDisplay) {
     rollDisplay.style.display = 'inline-flex';
     rollDisplay.classList.add('anke-dice-rolling');
@@ -1622,7 +1739,7 @@ export function rollDiceOnCard(editor: HTMLElement, block: HTMLElement): void {
     history: history.slice(-20),
   };
 
-  // 3. 数字滚动：每 50ms 切换一次
+  // 3. 数字滚动：渐进减速节奏（6 快速 + 4 中速 + 2 慢速 = 800ms）
   const kind: string = cfg.kind || 'option';
   const maxValue =
     kind === 'numeric'
@@ -1630,22 +1747,21 @@ export function rollDiceOnCard(editor: HTMLElement, block: HTMLElement): void {
       : Math.max(1, Math.floor(cfg.faces ?? 2));
   const displayText = kind === 'numeric' ? `${cfg.count ?? 1}d${maxValue}` : `D${maxValue}`;
 
-  const ROLL_TOTAL_MS = 600;
-  const ROLL_TICK_MS = 50;
-  const startTime = Date.now();
-  const intervalId = window.setInterval(() => {
-    const elapsed = Date.now() - startTime;
-    if (elapsed >= ROLL_TOTAL_MS) {
-      window.clearInterval(intervalId);
-      return;
-    }
+  const tickDelays = [50, 50, 50, 50, 50, 50, 75, 75, 75, 75, 100, 100];
+  const ROLL_TOTAL_MS = tickDelays.reduce((a, b) => a + b, 0); // 800
+  let tickIdx = 0;
+  const tickFn = () => {
     const v = Math.floor(Math.random() * maxValue) + 1;
     if (rollNumber) rollNumber.textContent = `[${displayText}=${v}]`;
-  }, ROLL_TICK_MS);
+    if (tickIdx < tickDelays.length) {
+      window.setTimeout(tickFn, tickDelays[tickIdx]);
+      tickIdx++;
+    }
+  };
+  tickFn();
 
-  // 4. 600ms 后：写入 payload、隐藏滚动区、清空动画
+  // 4. ROLL_TOTAL_MS 后：写入 payload、隐藏滚动区、清空动画
   window.setTimeout(() => {
-    window.clearInterval(intervalId);
     if (rollDisplay) {
       rollDisplay.classList.remove('anke-dice-rolling');
       rollDisplay.style.display = 'none';
@@ -1672,66 +1788,14 @@ export function rollDiceOnCard(editor: HTMLElement, block: HTMLElement): void {
   }, ROLL_TOTAL_MS);
 }
 
-/** 纯函数版 rollDice：不依赖 store，直接用 diceEngine */
+/** 纯函数版 rollDice：不依赖 store，直接调 diceEngine.rollDice
+ *  - diceEngine.rollDice 已正确处理：
+ *    · 数值骰子简单模式：count 上限 NUMERIC_MAX_COUNT (100)，faces 上限 NUMERIC_MAX_FACES (9999999)
+ *    · 数值骰子表达式模式：自动走 rollExpression（支持 + - * / 和括号）
+ *    · 选项骰子：1Dfaces 投掷 + 命中选项
+ */
 function rollDicePure(cfg: any): any {
-  const kind: string = cfg.kind || 'option';
-  if (kind === 'numeric') {
-    const count = Math.max(1, Math.min(10, Math.floor(cfg.count ?? 1)));
-    const faces = Math.max(1, Math.min(1000, Math.floor(cfg.numericFaces ?? 100)));
-    const modifier = Math.floor(cfg.modifier ?? 0);
-    const rolls: number[] = [];
-    for (let i = 0; i < count; i++) rolls.push(rollOnePure(faces));
-    const total = rolls.reduce((a, b) => a + b, 0) + modifier;
-    const head = `${count > 1 ? count : ''}D${faces}${
-      modifier === 0 ? '' : modifier > 0 ? `+${modifier}` : modifier
-    }`;
-    let tail: string;
-    if (count === 1 && modifier === 0) {
-      tail = `=${total}`;
-    } else {
-      tail = `=${rolls.join('+')}${
-        modifier === 0 ? '' : modifier > 0 ? `+${modifier}` : modifier
-      }=${total}`;
-    }
-    return {
-      configId: cfg.id,
-      kind: 'numeric',
-      rolls,
-      total,
-      modifier,
-      displayText: `[${head}${tail}]`,
-      timestamp: Date.now(),
-    };
-  }
-  // option
-  const faces = Math.max(1, Math.floor(cfg.faces ?? 2));
-  const value = rollOnePure(faces);
-  const opts: any[] = cfg.options || [];
-  let hitId: string | null = null;
-  let hitContent: string | null = null;
-  for (const opt of opts) {
-    if (Array.isArray(opt.values) && opt.values.includes(value)) {
-      hitId = opt.id;
-      hitContent = opt.content;
-      break;
-    }
-  }
-  return {
-    configId: cfg.id,
-    kind: 'option',
-    rolls: [value],
-    total: value,
-    modifier: 0,
-    displayText: `[1D${faces}=${value}]`,
-    hitOptionId: hitId,
-    hitOptionContent: hitContent,
-    timestamp: Date.now(),
-  };
-}
-
-function rollOnePure(faces: number): number {
-  const safe = Math.max(1, Math.floor(faces));
-  return Math.floor(Math.random() * safe) + 1;
+  return rollDice(cfg as any);
 }
 
 /** 给编辑器挂载 dice-card 交互：点击选中、Delete/Backspace 删除、掷骰按钮；并对所有已有 dice-card 重渲染 */
@@ -1994,9 +2058,21 @@ export function removeCollapseBlock(editor: HTMLElement, block: HTMLElement): vo
   focusEditor(editor);
   sel?.addRange(newRange);
   dispatchInput(editor);
+  // 原子块删除立即 push 历史（跳过 200ms 防抖，让每次删除可独立撤销）
+  pushAtomicHistory(editor.innerHTML);
 }
 
-/** 给编辑器挂载 collapse-block 交互：点击选中、Delete/Backspace 删除 */
+/** 判断折叠块是否为空（body 无文本且无原子块） */
+function isCollapseBlockEmpty(block: HTMLElement): boolean {
+  const body = block.querySelector('.collapse-body');
+  if (!body) return true;
+  const text = (body.textContent || '').trim();
+  if (text) return false;
+  // body 内还有图片/骰子/嵌套 collapse 等原子块则非空
+  return !body.querySelector('[data-type="image-block"],[data-type="dice-card"],[data-type="collapse-block"]');
+}
+
+/** 给编辑器挂载 collapse-block 交互：点击选中、Delete/Backspace 删除、点击 head 展开/折叠 */
 export function attachCollapseBlockHandlers(
   editor: HTMLElement,
 ): () => void {
@@ -2022,10 +2098,55 @@ export function attachCollapseBlockHandlers(
     clearCollapseSelection(editor);
   };
 
+  /**
+   * 点击 .collapse-head 切换 body 展开/折叠。
+   * - 默认折叠（data-collapsed="true" + body display:none），点 + 展开
+   * - 再次点击 − 折叠回去
+   * - 触发展开/折叠后调 dispatchInput 让外部 onChangeContent 收到新 HTML
+   */
+  const onClick = (e: MouseEvent) => {
+    const target = e.target as Node | null;
+    if (!target || !editor.contains(target)) return;
+    const targetEl = target as HTMLElement;
+    const head = targetEl.closest?.('.collapse-head') as HTMLElement | null;
+    if (!head) return;
+    const block = head.closest?.(COLLAPSE_BLOCK_SELECTOR) as HTMLElement | null;
+    if (!block) return;
+    const body = block.querySelector<HTMLElement>('.collapse-body');
+    const toggle = block.querySelector<HTMLElement>('.collapse-toggle');
+    const isCollapsed = block.dataset.collapsed === 'true';
+    if (isCollapsed) {
+      if (body) body.style.display = 'block';
+      if (toggle) toggle.textContent = '−';
+      block.dataset.collapsed = 'false';
+    } else {
+      if (body) body.style.display = 'none';
+      if (toggle) toggle.textContent = '+';
+      block.dataset.collapsed = 'true';
+    }
+    // 触发编辑器更新事件（让外部 onChangeContent 拿到新 HTML，保存/历史记录同步）
+    dispatchInput(editor);
+    e.preventDefault();
+  };
+
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key !== 'Delete' && e.key !== 'Backspace') return;
     const selected = getSelectedCollapseBlock(editor);
     if (selected) {
+      // 光标若在 collapse-body / collapse-title 内部，让浏览器默认删字符
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0 && sel.isCollapsed) {
+        const node = sel.anchorNode;
+        if (node && node.parentElement) {
+          const inBody = node.parentElement.closest('.collapse-body');
+          const inTitle = node.parentElement.closest('.collapse-title');
+          if (inBody || inTitle) {
+            // 清掉 selected 标记，避免后续重复触发，让浏览器默认删字符
+            selected.removeAttribute('data-selected');
+            return; // 不 preventDefault
+          }
+        }
+      }
       e.preventDefault();
       removeCollapseBlock(editor, selected);
       return;
@@ -2043,15 +2164,21 @@ export function attachCollapseBlockHandlers(
       if (e.key === 'Backspace') {
         const target = el.childNodes[offset - 1] as HTMLElement | undefined;
         if (target && target.nodeType === Node.ELEMENT_NODE && isCollapseBlock(target)) {
-          e.preventDefault();
-          removeCollapseBlock(editor, target);
+          if (isCollapseBlockEmpty(target)) {
+            e.preventDefault();
+            removeCollapseBlock(editor, target);
+          }
+          // 否则不 preventDefault，浏览器默认行为（光标跳入块内或无操作）
           return;
         }
       } else {
         const target = el.childNodes[offset] as HTMLElement | undefined;
         if (target && target.nodeType === Node.ELEMENT_NODE && isCollapseBlock(target)) {
-          e.preventDefault();
-          removeCollapseBlock(editor, target);
+          if (isCollapseBlockEmpty(target)) {
+            e.preventDefault();
+            removeCollapseBlock(editor, target);
+          }
+          // 否则不 preventDefault，浏览器默认行为（光标跳入块内或无操作）
           return;
         }
       }
@@ -2064,8 +2191,11 @@ export function attachCollapseBlockHandlers(
       if (e.key === 'Backspace' && offset === 0) {
         const prev = parent.childNodes[idx - 1] as HTMLElement | undefined;
         if (prev && prev.nodeType === Node.ELEMENT_NODE && isCollapseBlock(prev)) {
-          e.preventDefault();
-          removeCollapseBlock(editor, prev);
+          if (isCollapseBlockEmpty(prev)) {
+            e.preventDefault();
+            removeCollapseBlock(editor, prev);
+          }
+          // 否则不 preventDefault，浏览器默认行为（光标跳入块内或无操作）
           return;
         }
       } else if (
@@ -2074,8 +2204,11 @@ export function attachCollapseBlockHandlers(
       ) {
         const next = parent.childNodes[idx + 1] as HTMLElement | undefined;
         if (next && next.nodeType === Node.ELEMENT_NODE && isCollapseBlock(next)) {
-          e.preventDefault();
-          removeCollapseBlock(editor, next);
+          if (isCollapseBlockEmpty(next)) {
+            e.preventDefault();
+            removeCollapseBlock(editor, next);
+          }
+          // 否则不 preventDefault，浏览器默认行为（光标跳入块内或无操作）
           return;
         }
       }
@@ -2083,9 +2216,11 @@ export function attachCollapseBlockHandlers(
   };
 
   editor.addEventListener('mousedown', onMouseDown, true);
+  editor.addEventListener('click', onClick, true);
   editor.addEventListener('keydown', onKeyDown, true);
   return () => {
     editor.removeEventListener('mousedown', onMouseDown, true);
+    editor.removeEventListener('click', onClick, true);
     editor.removeEventListener('keydown', onKeyDown, true);
   };
 }
@@ -2296,7 +2431,8 @@ export function insertQuoteBlock(editor: HTMLElement): void {
     return;
   }
 
-  const blockquoteStyle = `background:${NGA_QUOTE_BG};padding:8px 12px;border-left:3px solid #c8b88a;border-radius:4px;margin:6px 0;`;
+  // 使用 CSS 变量，让亮/暗模式自动适配（暗模式文字继承 --text-primary 白色）
+  const blockquoteStyle = `background:var(--quote-bg);color:inherit;padding:8px 12px;border-left:3px solid var(--quote-border, #c8b88a);border-radius:4px;margin:6px 0;`;
 
   if (range.collapsed) {
     // 2) 折叠光标：插入空 blockquote
@@ -2323,9 +2459,11 @@ export function insertQuoteBlock(editor: HTMLElement): void {
  *  使用 range.insertNode() 避免 execCommand('insertHTML') 将块级元素包裹在 <p> 中 */
 export function insertCollapseBlock(editor: HTMLElement, title: string): void {
   focusEditor(editor);
+  // 同步光标到 saved range
+  getInsertionPoint(editor);
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0) return;
-  const range = getInsertionRange(editor);
+  const range = sel.getRangeAt(0);
 
   const safeTitle = (title || '折叠').replace(/"/g, '&quot;');
 
@@ -2353,7 +2491,7 @@ export function insertCollapseBlock(editor: HTMLElement, title: string): void {
 
   const head = document.createElement('div');
   head.className = 'collapse-head';
-  head.style.background = NGA_COLLAPSE_HEAD_BG;
+  head.style.background = 'var(--collapse-head-bg)';
   head.style.padding = '6px 10px';
   head.style.fontWeight = '600';
   head.style.display = 'flex';
@@ -2382,7 +2520,7 @@ export function insertCollapseBlock(editor: HTMLElement, title: string): void {
   const body = document.createElement('div');
   body.className = 'collapse-body';
   body.setAttribute('contenteditable', 'true');
-  body.style.background = NGA_COLLAPSE_BODY_BG;
+  body.style.background = 'var(--collapse-body-bg)';
   body.style.padding = '8px 12px';
   body.style.display = 'block';
   body.style.whiteSpace = 'normal';
@@ -2403,6 +2541,8 @@ export function insertCollapseBlock(editor: HTMLElement, title: string): void {
 
   initCollapseBlockEvents(block, safeTitle);
   dispatchInput(editor);
+  // 原子块插入立即 push 历史（跳过 200ms 防抖，让每次插入可独立撤销）
+  pushAtomicHistory(editor.innerHTML);
 }
 
 /** 为折叠块初始化展开/折叠事件 */
@@ -2507,6 +2647,8 @@ export function insertTable(editor: HTMLElement, rows: number, cols: number): vo
 /** 在光标处插入一个 pre.code-block（保留 \n 换行，使用 DOM 插入避免 insertHTML 吞换行） */
 export function insertCodeBlock(editor: HTMLElement, code: string): void {
   focusEditor(editor);
+  // 同步光标到 saved range
+  getInsertionPoint(editor);
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0) return;
   const range = sel.getRangeAt(0);
@@ -2724,26 +2866,5 @@ function findSelectedImageBlock(editor: HTMLElement): HTMLElement | null {
   }
 
   return null;
-}
-
-// ------------------------------------------------------------
-// NGA 导入：BBCode → HTML → 插入到光标处
-// ------------------------------------------------------------
-
-import { bbcodeToHtml } from '../../utils/ngaBBCodeToHtml';
-
-/** 把 NGA BBCode 文本解析为 HTML 并插入到光标处 */
-export function importNGAAtCursor(editor: HTMLElement, bbcode: string): void {
-  const html = bbcodeToHtml(bbcode);
-  if (!html) return;
-  focusEditor(editor);
-  const sel = window.getSelection();
-  if (!sel) return;
-  const range = getInsertionRange(editor);
-  if (!range.collapsed) range.deleteContents();
-  // 用 insertHTML：浏览器解析 html 字符串并塞进光标处
-  document.execCommand('insertHTML', false, html);
-  // 给新建的 image-block 重新挂上 data-size（bbcode 解析时已写入）
-  dispatchInput(editor);
 }
 

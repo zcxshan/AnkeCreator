@@ -120,19 +120,49 @@ function processBlockChildren(container: Node): string[] {
     if (line.trim()) lines.push(line.trim());
     return lines;
   }
+
+  // 遍历子节点，把连续的文本+内联元素聚合成 inline run
+  const inlineRunNodes: Node[] = [];
+  const flushInlineRun = () => {
+    if (inlineRunNodes.length === 0) return;
+    // 用临时 div 包裹 inline run，调 processInlineChildren
+    const tmp = document.createElement('div');
+    inlineRunNodes.forEach((n) => tmp.appendChild(n.cloneNode(true)));
+    const line = processInlineChildren(tmp);
+    if (line.trim()) lines.push(line.trim());
+    inlineRunNodes.length = 0;
+  };
+
   for (let i = 0; i < container.childNodes.length; i++) {
     const child = container.childNodes[i];
     if (child.nodeType === 3) {
-      const t = (child as Text).textContent || '';
-      // 保留换行符，只压缩连续空格（不吞掉 \n）
-      const trimmed = t.replace(/[^\S\n]+/g, ' ').trim();
-      if (trimmed) lines.push(trimmed);
+      // 文本节点：加入 inline run
+      inlineRunNodes.push(child);
     } else if (child.nodeType === 1) {
-      const res = processBlockElement(child as HTMLElement);
-      for (const r of res) if (r) lines.push(r);
+      const el = child as HTMLElement;
+      if (isInlineElement(el)) {
+        // 内联元素：加入 inline run
+        inlineRunNodes.push(el);
+      } else {
+        // 块元素：先 flush inline run，再处理块
+        flushInlineRun();
+        const res = processBlockElement(el);
+        for (const r of res) if (r) lines.push(r);
+      }
     }
   }
+  flushInlineRun();
   return lines;
+}
+
+/** 判断是否为内联元素（无自定义块 data-type 且 tag 在内联集合中） */
+function isInlineElement(el: HTMLElement): boolean {
+  const dt = el.dataset?.type;
+  if (dt === 'dice-card' || dt === 'image-block' || dt === 'collapse-block' || dt === 'quote-block' || dt === 'quote-line' || dt === 'table-block') {
+    return false; // 自定义块
+  }
+  const tag = el.tagName.toLowerCase();
+  return ['b','i','u','del','s','strong','em','strike','span','a','img','sup','sub','br','font','mark','code','small'].includes(tag);
 }
 
 function containsBlockChild(container: Node): boolean {
@@ -157,6 +187,13 @@ function containsBlockChild(container: Node): boolean {
 function processBlockElement(el: HTMLElement): string[] {
   const dt = el.dataset?.type;
   const tag = el.tagName.toLowerCase();
+
+  // 收集安科 v1.0 兼容：<div class="anke-section"> 仅作包装，展开其子节点递归处理。
+  // 必须放在 collapse-block 后备匹配之前（anke-section 可能包裹 collapse-block，
+  // 内部含 .collapse-head/.collapse-title/.collapse-body，会被后备误识别成 collapse-block）。
+  if (tag === 'div' && el.classList.contains('anke-section')) {
+    return processBlockChildren(el);
+  }
 
   if (dt === 'dice-card') return processDiceCard(el);
   if (dt === 'image-block') return processImageBlock(el);
@@ -221,13 +258,38 @@ function processInlineChildren(el: Node): string {
 
 function processInlineElement(el: HTMLElement): string {
   const tag = el.tagName.toLowerCase();
-  if (tag === 'b' || tag === 'strong') return `[b]${processInlineChildren(el)}[/b]`;
-  if (tag === 'i' || tag === 'em') return `[i]${processInlineChildren(el)}[/i]`;
-  if (tag === 'u') return `[u]${processInlineChildren(el)}[/u]`;
-  if (tag === 's' || tag === 'strike' || tag === 'del') return `[del]${processInlineChildren(el)}[/del]`;
-  if (tag === 'sup') return `[sup]${processInlineChildren(el)}[/sup]`;
-  if (tag === 'sub') return `[sub]${processInlineChildren(el)}[/sub]`;
-  if (tag === 'br') return '';
+
+  // Returns true if el has exactly one child element whose tag is in `sameTags`
+  const hasSingleChildWithTag = (sameTags: string[]): boolean => {
+    if (el.childNodes.length !== 1) return false;
+    const child = el.childNodes[0];
+    return child.nodeType === 1 && sameTags.includes((child as HTMLElement).tagName.toLowerCase());
+  };
+
+  // 内联标签自身带 style 时，提取样式并去重（避免 [b][b]x[/b][/b]）。
+  // 顺序：[tag] 在外，styleWrap 在内（如 <b style="color:red">x</b> → [b][color=red]x[/color][/b]）。
+  // 若 styleWrap 已含相同 tag（来自 font-weight/font-style/text-decoration），则去重不再加 [tag]。
+  const wrapInlineWithStyle = (bbTag: string, sameTags: string[]): string => {
+    const styleWrap = parseSpanStyle(el);
+    const inner = processInlineChildren(el);
+    const tagOpen = `[${bbTag}]`;
+    const tagClose = `[/${bbTag}]`;
+    if (hasSingleChildWithTag(sameTags)) {
+      return `${styleWrap.open}${inner}${styleWrap.close}`;
+    }
+    if (styleWrap.open.includes(tagOpen)) {
+      return `${styleWrap.open}${inner}${styleWrap.close}`;
+    }
+    return `${tagOpen}${styleWrap.open}${inner}${styleWrap.close}${tagClose}`;
+  };
+
+  if (tag === 'b' || tag === 'strong') return wrapInlineWithStyle('b', ['b', 'strong']);
+  if (tag === 'i' || tag === 'em') return wrapInlineWithStyle('i', ['i', 'em']);
+  if (tag === 'u') return wrapInlineWithStyle('u', ['u']);
+  if (tag === 's' || tag === 'strike' || tag === 'del') return wrapInlineWithStyle('del', ['s', 'strike', 'del']);
+  if (tag === 'sup') return wrapInlineWithStyle('sup', ['sup']);
+  if (tag === 'sub') return wrapInlineWithStyle('sub', ['sub']);
+  if (tag === 'br') return '\n';
   if (tag === 'a') {
     const href = el.getAttribute('href') || '';
     const text = processInlineChildren(el) || href;
@@ -244,6 +306,38 @@ function processInlineElement(el: HTMLElement): string {
       return `[本地图片：${name}（已用占位符替换）]`;
     }
     return `[img]${src}[/img]`;
+  }
+  if (tag === 'font') {
+    const opens: string[] = [];
+    const closes: string[] = [];
+    const color = el.getAttribute('color');
+    if (color) {
+      const ngaColor = cssColorToNga(color) || color;
+      if (ngaColor && ngaColor !== NGA_DEFAULT_COLOR) {
+        opens.push(`[color=${ngaColor}]`);
+        closes.unshift('[/color]');
+      }
+    }
+    const size = el.getAttribute('size');
+    if (size) {
+      // HTML font size 1-7 映射到 NGA 百分比
+      const sizeMap: Record<string, number> = { '1': 80, '2': 100, '3': 120, '4': 140, '5': 160, '6': 180, '7': 200 };
+      const percent = sizeMap[size];
+      if (percent && percent !== NGA_DEFAULT_FONT_SIZE) {
+        opens.push(`[size=${percent}%]`);
+        closes.unshift('[/size]');
+      }
+    }
+    const face = el.getAttribute('face');
+    if (face) {
+      const ngaFont = cssFontToNga(face) || face;
+      if (ngaFont && ngaFont !== NGA_DEFAULT_FONT) {
+        opens.push(`[font=${ngaFont}]`);
+        closes.unshift('[/font]');
+      }
+    }
+    const inner = processInlineChildren(el);
+    return `${opens.join('')}${inner}${closes.join('')}`;
   }
   if (tag === 'span') {
     // 内联引用 span
@@ -413,6 +507,35 @@ function parseSpanStyle(el: HTMLElement): { open: string; close: string } {
     if (ngaFont && ngaFont !== NGA_DEFAULT_FONT) {
       tags.push(`[font=${ngaFont}]`);
       closers.push('[/font]');
+    }
+  }
+
+  // font-weight（bold/700 等）→ [b]
+  const fontWeight = el.style.fontWeight;
+  if (fontWeight && fontWeight !== 'normal' && fontWeight !== '400') {
+    tags.push('[b]');
+    closers.push('[/b]');
+  }
+
+  // font-style（italic/oblique）→ [i]
+  const fontStyle = el.style.fontStyle;
+  if (fontStyle && fontStyle !== 'normal') {
+    tags.push('[i]');
+    closers.push('[/i]');
+  }
+
+  // text-decoration → [u] / [del]
+  const textDecoration = el.style.textDecoration;
+  if (textDecoration) {
+    if (textDecoration.includes('underline')) {
+      tags.push('[u]');
+      closers.push('[/u]');
+    } else if (
+      textDecoration.includes('line-through') ||
+      textDecoration.includes('strike')
+    ) {
+      tags.push('[del]');
+      closers.push('[/del]');
     }
   }
 

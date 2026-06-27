@@ -107,11 +107,11 @@ const TUTORIAL_TOPICS: TutorialTopic[] = [
     id: 'export',
     icon: '📤',
     title: '导出为 NGA 格式',
-    summary: '导出当前节 BBCode、复制到剪贴板',
+    summary: '在 BBCode 视图直接复制，或粘贴 NGA BBCode 反向导入',
     steps: [
-      { title: '1. 打开导出对话框', description: '在编辑页面右上角找到「📤 导出」按钮，点击打开导出面板。' },
-      { title: '2. 导出当前节', description: '导出面板会显示当前正在编辑的节的内容，自动转换为 NGA 论坛兼容的 BBCode 格式。图片会变为 [img] 标签，列表变为 [list] 标签，折叠块变为 [collapse] 标签，骰子按类型输出，代码块变为 [code] 标签等。' },
-      { title: '3. 复制到剪贴板', description: '点击「复制本节」按钮，完整 BBCode 会被复制到系统剪贴板，直接粘贴到 NGA 论坛即可。也可以点击「保存为 .txt」将 BBCode 保存为文本文件。' },
+      { title: '1. 切换到 BBCode 编辑视图', description: '在编辑页面底部点击「📝 BBcode编辑」按钮，主区域会显示当前节的 NGA 兼容 BBCode 文本。' },
+      { title: '2. 复制到 NGA 论坛', description: '在 BBCode 视图里按 Ctrl+A 全选、Ctrl+C 复制，然后直接粘贴到 NGA 论坛编辑器。图片自动是 [img] 标签，列表是 [list]，折叠块是 [collapse]，骰子按类型输出，代码块是 [code] 等。' },
+      { title: '3. 粘贴 NGA BBCode 反向导入', description: '反过来，从 NGA 论坛复制一段 BBCode，切换到 BBCode 编辑视图后 Ctrl+V 粘贴。编辑停止 300ms 后切回「🎨 可视化编辑」视图即可看到带样式的渲染效果。' },
     ],
   },
   {
@@ -131,13 +131,29 @@ const TUTORIAL_TOPICS: TutorialTopic[] = [
     title: '收集安价（从 NGA 抓取）',
     summary: '抓取 NGA 主题帖中"以指定文本开头"的楼层',
     steps: [
-      { title: '1. 进入收集安价页面', description: '在首页找到「📜 收集安价」入口，点击进入。可以从 NGA 主题帖中快速抓取多个匹配楼层。' },
+      { title: '1. 进入收集安价页面', description: '在首页找到「📜 收集安价/安科」入口，点击进入。可以从 NGA 主题帖中快速抓取多个匹配楼层。' },
       { title: '2. 输入 NGA 链接与楼层范围', description: '粘贴 NGA 主题帖链接（必须包含 <code>tid=XXX</code> 参数），填写起始楼层与末尾楼层。可以点击 URL 旁的「🔍 自动检测」按钮，让应用自动获取主题帖的总页数。' },
       { title: '3. 设置匹配文本（可留空）', description: '匹配文本用于过滤出"以该文本开头"的楼层。如果留空，则抓取起始楼到末尾楼的所有内容（适合全量收集）。需要登录态时，在「设置」中粘贴 NGA Cookie 即可访问受限内容。' },
       { title: '4. 抓取中可取消', description: '点击「开始收集」后，进度条会显示抓取进度。若需要中途停止，点击「取消」即可立即停止并返回已抓取的部分结果。' },
       { title: '5. 管理抓取结果', description: '结果列表中每条都支持：<br>• <b>📋 复制</b>：复制单条内容<br>• <b>🗑 删除</b>：删除单条（删除后可点击 toast 中的「撤销」复原）<br>• <b>📋 复制全部</b>：复制全部楼层为纯文本<br>• <b>📋 复制 NGA 格式</b>：复制为 NGA BBCode 格式（标题加粗，可直接贴到 NGA 编辑器）' },
       { title: '6. 保存与加载历史', description: '抓取成功后，点击「💾 保存到历史」将本次抓取存到本地（最多 10 条）。下次需要时，点击顶栏「📂 历史」下拉，选择对应历史即可一键恢复（链接、范围、结果全部还原）。' },
       { title: '7. 注意事项', description: '• 重新爬取会清空当前列表的删除撤销栈（不可"穿越"撤销）<br>• 单次范围建议不超过 200 楼，超出可能触发 NGA 限流<br>• 抓取历史存在浏览器 localStorage，单条 items 自动截断到 100 条' },
+    ],
+  },
+  {
+    id: 'anke-collector',
+    icon: '📖',
+    title: '收集安科（从 NGA 抓取整段安科）',
+    summary: '把 NGA 帖子里指定范围的楼层抓下来，自动分成节并导出为安科作品',
+    steps: [
+      { title: '1. 进入收集安科', description: '首页点击「📜 收集安价/安科」进入页面，顶部 Tab 切换到「📖 收集安科」。' },
+      { title: '2. 填写 NGA 帖子 URL', description: '粘贴 NGA 主题帖链接（必须包含 <code>tid=XXX</code>），例如 <code>https://nga.178.com/read.php?tid=12345678</code>。' },
+      { title: '3. 设置楼层范围与分节粒度', description: '<b>起始楼层</b> / <b>终止楼层</b>：要抓的楼号区间。<br><b>每 N 楼一节</b>：默认 10，程序会按这个粒度把内容切成多个节，方便后续阅读和编辑。' },
+      { title: '4. 作品标题（可选）', description: '留空则用「安科-{tid}」作为标题。也可以手动填一个有意义的标题，例如「安科-2026」。' },
+      { title: '5. 只看作者（可选）', description: '想只收集某一作者的楼时，粘贴 NGA 上"只看该作者"页面的 URL（含 <code>authorid=XXX</code> 参数）。留空则收集所有人的楼。' },
+      { title: '6. 点击「📥 确认收集」', description: '程序会：① 调用主进程爬取 NGA 帖子 ② 把 BBCode 转成对应的 HTML 样式 ③ 每 N 楼一节加小标题"—— N 楼 @作者 ——" + 楼间分隔线 ④ 拼成 <code>anke-creator-export</code> 格式的作品 JSON ⑤ 弹出系统保存对话框（或 Web 端直接下载 <code>.anke.json</code>）。' },
+      { title: '7. 在「我的作品」中导入', description: '切到「我的作品」页面，点击「📥 导入作品」按钮，选刚才下载的 <code>.anke.json</code> 即可还原为安科作品，每节对应一个章节小节，可直接在编辑器中查看和修改。' },
+      { title: '8. 注意事项', description: '• 一次抓取的范围过大可能触发 NGA 限流，建议不超过 200 楼<br>• 每节内容包含 ① 楼号小标题 ② BBCode 转后的正文 ③ 楼间虚线分隔<br>• 导入后的作品分类为「安科」，可在作品列表中重命名' },
     ],
   },
   {
@@ -163,6 +179,58 @@ const TUTORIAL_TOPICS: TutorialTopic[] = [
       { title: '2. 导入作品数据', description: '在「我的作品」页面顶部，点击「📥 导入作品」按钮，选择之前导出的 <code>.anke.json</code> 文件。系统会自动创建一个新作品并还原所有数据，包括章节结构、正文内容、人物差分和世界观设定等。导入的作品标题会自动添加「(导入)」后缀。' },
       { title: '3. 批量上传差分', description: '在人物角色编辑面板中，差分管理区域新增了「📂 批量上传」按钮。点击后可一次选择多张图片（最多 50 张），系统会自动以文件名作为差分名称批量创建。适合一次性导入大量表情差分或服装变体。' },
       { title: '4. 数据存储位置', description: '所有创作数据自动保存在应用数据目录下的 <code>AnkeCreatorData</code> 文件夹中（Windows 路径：<code>%APPDATA%/AnkeCreator/AnkeCreatorData</code>）。每个数据表对应一个 JSON 文件，采用原子写入确保数据安全。如需整体备份，可直接复制该文件夹。' },
+    ],
+  },
+  {
+    id: 'uninstall',
+    icon: '🗑️',
+    title: '卸载与数据清理',
+    summary: '卸载时询问是否删除个人数据，可在应用内主动清空',
+    steps: [
+      { title: '1. 卸载时的数据询问（Windows）', description: '运行卸载程序时，会弹出对话框询问「是否同时删除所有个人数据？」（默认按钮 = 「是」）。选「是」会彻底清理 <code>%APPDATA%</code> 和 <code>%LOCALAPPDATA%</code> 下的 appId/productName 目录（覆盖历史命名），下次重装数据全空。选「否」则保留 userData，下次重装自动恢复。' },
+      { title: '2. 卸载行为（Android）', description: 'Android 卸载时系统会自动清空 app 私有目录（<code>/data/data/&lt;package&gt;/</code>），包括 WebView 缓存、IndexedDB、localStorage 和所有用户作品数据。已禁用云备份（<code>allowBackup="false"</code>），避免卸载重装后从云端恢复旧数据。设备转移（换机迁移）时数据仍跟随。' },
+      { title: '3. 应用内主动清空', description: '在「⚙ 设置 → 数据管理」中，可点「🗑️ 清空所有本地数据」按钮主动清理（仅 Windows 端，Android 通过系统卸载即可）。此操作会清空所有作品、世界观、人物、图片、NGA 登录 Cookie 等，且不可恢复。点「了解卸载行为」可查看完整说明弹窗。' },
+      { title: '4. 卸载前建议', description: '• 重要作品先「导出」为 <code>.anke.json</code> 备份到非系统盘<br>• NGA Cookie 重新登录即可（不影响服务器端）<br>• 主题、模板等个人偏好需重新设置（可考虑同步到 .anke.json 中）' },
+    ],
+  },
+  {
+    id: 'find-anke',
+    icon: '🔍',
+    title: '寻找安科作品',
+    summary: '从骨碌碌网站和 NGA 安科版块发现想读的安科',
+    steps: [
+      { title: '1. 进入寻找安科页面', description: '首页点击「🔍 寻找安科」入口。该功能提供两个来源：骨碌碌（gululu.world）和 NGA 安科版块（fid=784）。' },
+      { title: '2. 输入关键字搜索', description: '在搜索框输入作品名或作者关键字，点击搜索。系统会调用主进程爬虫真实抓取两个站点的列表，匹配关键字的作品会展示在结果列表。' },
+      { title: '3. 本地筛选与排序', description: '搜索完成后，可以通过顶部筛选条对结果进行二次过滤和排序（如按字数、回复数、更新时间等）。修改筛选条件不会触发重新爬取，仅在本地结果集中过滤。' },
+      { title: '4. 打开作品原文', description: '点击结果条目可复制链接或在新窗口打开 NGA 帖子原文。配合「收集安科」功能，可以把找到的 tid 复制过去快速抓取正文。' },
+      { title: '5. 注意事项', description: '• 该功能仅桌面版可用（安卓版会显示不支持提示）<br>• 关键字未变时不会重新爬取，仅本地筛选，可避免重复请求<br>• NGA 站点需要 Cookie 才能访问部分帖子，请在设置中配置' },
+    ],
+  },
+  {
+    id: 'export-epub',
+    icon: '📚',
+    title: '导出为 EPUB 电子书',
+    summary: '把安科作品导出为可在手机/Kindle 阅读器阅读的 EPUB 文件',
+    steps: [
+      { title: '1. 入口位置', description: '在「我的作品」页面，点击作品卡片右下角的菜单按钮（⋮），选择「导出为 EPUB 电子书」。' },
+      { title: '2. 选择保存位置', description: '点击后会弹出系统保存对话框，选择 EPUB 文件保存路径（默认文件名「作品名.epub」），点击保存开始导出。' },
+      { title: '3. 进度展示', description: '导出过程中会显示进度弹窗，包含 6 个阶段：扫描图片 → 下载图片 → 构建 HTML → 打包 EPUB → 完成。每个阶段都会显示当前进度百分比和具体操作描述。' },
+      { title: '4. 图片离线处理', description: 'EPUB 中的图片会被下载并嵌入到 EPUB 文件内部（离线可读）。图片来源支持：远端图床 URL、本地 <code>local://</code> 协议、base64 内嵌。下载失败的图片会替换为占位图，不中断导出。' },
+      { title: '5. 特殊块处理', description: '• 骰子卡片：导出为静态文本（保留骰子结果）<br>• 折叠块：转换为 EPUB 兼容的 <code>&lt;details&gt;</code> 标签，依然可折叠展开<br>• 内联 JS（如 onerror）：自动移除（EPUB 阅读器不允许 JS）' },
+      { title: '6. 阅读设备', description: '导出的 EPUB 文件可在 Apple Books、Calibre、KOReader、各种安卓阅读器（如静读天下、Moon+ Reader）、Kindle（需转换）等设备上阅读。' },
+    ],
+  },
+  {
+    id: 'android-edit',
+    icon: '📱',
+    title: '安卓端编辑优化',
+    summary: '键盘弹出时的智能布局调整和全屏专注编辑模式',
+    steps: [
+      { title: '1. 智能折叠', description: '在安卓端编辑安科时，弹出键盘后系统会自动隐藏底部导航条等非必要元素，并自动折叠面包屑、底状态条、同步按钮行等次要控件，把有限的屏幕空间让给编辑器。' },
+      { title: '2. 进入全屏专注编辑', description: '在编辑页面的顶部工具栏找到「⤢」全屏按钮，点击进入「全屏专注编辑模式」。此模式下编辑器会铺满整个屏幕（覆盖系统状态栏），所有其他 UI 都隐藏，适合长段文字创作。' },
+      { title: '3. 退出全屏', description: '在全屏模式下，点击右上角的「⤢」按钮（或按返回键）即可退出全屏，返回正常编辑视图。' },
+      { title: '4. 键盘弹出行为', description: '安卓端已配置 <code>windowSoftInputMode=adjustResize</code> + <code>interactive-widget=resizes-content</code>，键盘弹出时整个网页会被压缩而不是被覆盖，编辑区域始终可见，光标位置会自动滚动到可视范围。' },
+      { title: '5. 注意事项', description: '• 全屏模式下不会自动保存（与正常模式一致，编辑停止 800ms 后自动保存）<br>• 如果使用外接蓝牙键盘，键盘弹出/收起的判定可能略有延迟，属于系统 WebView 行为<br>• 安卓端不支持部分桌面端功能（如 EPUB 导出、寻找安科），相关入口会显示「仅桌面版可用」提示' },
     ],
   },
 ];
@@ -208,7 +276,7 @@ export function TutorialPage({ onBack, onShowAuthor }: TutorialPageProps) {
         >
           <div className="text-sm font-semibold mb-1" style={{ color: 'var(--accent)' }}>快速上手</div>
           <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-            点击下方任意主题卡片展开详细步骤指南，共 12 个主题，涵盖从创建作品到导出 NGA BBCode 的完整创作流程。
+            点击下方任意主题卡片展开详细步骤指南，共 17 个主题，涵盖从创建作品到导出 NGA BBCode 的完整创作流程。
           </div>
         </div>
 

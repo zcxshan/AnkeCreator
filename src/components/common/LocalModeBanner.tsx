@@ -3,7 +3,7 @@ import { useSettingStore } from '../../store/settingStore';
 
 /**
  * 编辑区顶部常驻警告横幅
- * - 当 imageStoreMode === 'local' 时持续显示
+ * - 当 imageStoreMode === 'local' 且 localUploadEnabled === true 时持续显示
  * - 黄色警告色（#f59e0b 渐变到 #d97706）+ 白字
  * - 含三条警告信息（与 LocalImageWarningDialog 内容一致）
  * - 右上角 ✕ 关闭：关闭后本次会话内不再显示
@@ -12,8 +12,11 @@ import { useSettingStore } from '../../store/settingStore';
  */
 export function LocalModeBanner() {
   const mode = useSettingStore((s) => s.imageStoreMode);
+  const localUploadEnabled = useSettingStore((s) => s.localUploadEnabled);
   const [dismissed, setDismissed] = useState(false);
 
+  // 总开关关闭时永远不显示
+  if (!localUploadEnabled) return null;
   if (mode !== 'local' || dismissed) return null;
 
   return (
@@ -22,7 +25,7 @@ export function LocalModeBanner() {
       style={{
         background: 'linear-gradient(90deg, #f59e0b 0%, #d97706 100%)',
         color: '#fff',
-        padding: '8px 12px',
+        padding: 'calc(8px + env(safe-area-inset-top, 0px)) 12px 8px',
         fontSize: 12,
         lineHeight: 1.6,
         display: 'flex',

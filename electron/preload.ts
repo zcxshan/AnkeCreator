@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { GululuResult, NgaResult } from './searchAnke'
 
 // ============================================================
 // 通过 contextBridge 暴露给渲染进程的 API
@@ -30,15 +31,48 @@ const ngaAPI = {
     startFloor: number;
     endFloor: number;
     prefix: string;
+    authorid?: string;
+    matchMode?: string;
     cookies?: string;
+    retryPages?: number[];
   }): Promise<{
     ok: boolean;
-    items: { floor: number; author: string; content: string }[];
+    items: { floor: number; author: string; uid?: string; content: string }[];
     totalPages: number;
     error?: string;
+    failedPages?: number[];
+    actualMaxFloor?: number;
   }> => ipcRenderer.invoke('nga:collect', payload),
   cancelCollect: (taskId?: number): Promise<{ ok: boolean }> =>
     ipcRenderer.invoke('nga:collect:cancel', taskId),
+  pauseCollect: (taskId?: number, paused?: boolean): Promise<{ ok: boolean; paused: boolean }> =>
+    ipcRenderer.invoke('nga:collect:pause', taskId, paused),
+  onCollectProgress: (
+    callback: (progress: {
+      taskId: number;
+      current: number;
+      total: number;
+      phase: 'starting' | 'fetching' | 'parsing' | 'filtering' | 'done' | 'error' | 'cancelled' | 'paused';
+      message: string;
+      itemsFound?: number;
+    }) => void,
+  ): (() => void) => {
+    const listener = (
+      _e: Electron.IpcRendererEvent,
+      progress: {
+        taskId: number;
+        current: number;
+        total: number;
+        phase: string;
+        message: string;
+        itemsFound?: number;
+      },
+    ) => {
+      callback(progress as any)
+    }
+    ipcRenderer.on('nga:collect:progress', listener)
+    return () => ipcRenderer.removeListener('nga:collect:progress', listener)
+  },
   fetchThreadInfo: (
     url: string,
     cookies?: string,
@@ -58,6 +92,7 @@ const ngaAPI = {
 const dbAPI = {
   // Story
   listStories: (): Promise<any[]> => ipcRenderer.invoke('db:list-stories'),
+  listStoriesWithStats: (): Promise<any[]> => ipcRenderer.invoke('db:list-stories-with-stats'),
   getStory: (id: string): Promise<any> => ipcRenderer.invoke('db:get-story', id),
   createStory: (data: { title: string; description?: string; category?: string }): Promise<any> =>
     ipcRenderer.invoke('db:create-story', data),
@@ -123,26 +158,26 @@ const dbAPI = {
   updateChapter: (id: string, patch: any): Promise<any> => ipcRenderer.invoke('db:update-chapter', id, patch),
   deleteChapter: (id: string): Promise<boolean> => ipcRenderer.invoke('db:delete-chapter', id),
   reorderChapters: (storyId: string, orderedIds: string[]): Promise<boolean> => ipcRenderer.invoke('db:reorder-chapters', storyId, orderedIds),
+  moveChapters: (storyId: string, targetVolumeId: string | null, orderedIds: string[]): Promise<boolean> => ipcRenderer.invoke('db:move-chapters', storyId, targetVolumeId, orderedIds),
 
   // Sections
   listSections: (chapterId: string): Promise<any[]> => ipcRenderer.invoke('db:list-sections', chapterId),
+  listSectionMetadata: (chapterId: string): Promise<any[]> => ipcRenderer.invoke('db:list-section-metadata', chapterId),
   createSection: (data: any): Promise<any> => ipcRenderer.invoke('db:create-section', data),
   updateSection: (id: string, patch: any): Promise<any> => ipcRenderer.invoke('db:update-section', id, patch),
   deleteSection: (id: string): Promise<boolean> => ipcRenderer.invoke('db:delete-section', id),
   reorderSections: (chapterId: string, orderedIds: string[]): Promise<boolean> => ipcRenderer.invoke('db:reorder-sections', chapterId, orderedIds),
+  moveSections: (targetChapterId: string | null, orderedIds: string[]): Promise<boolean> => ipcRenderer.invoke('db:move-sections', targetChapterId, orderedIds),
+
+  // Bulk Create (导入加速)
+  bulkCreateVolumes: (rows: any[]): Promise<any[]> => ipcRenderer.invoke('db:bulk-create-volumes', rows),
+  bulkCreateChapters: (rows: any[]): Promise<any[]> => ipcRenderer.invoke('db:bulk-create-chapters', rows),
+  bulkCreateSections: (rows: any[]): Promise<any[]> => ipcRenderer.invoke('db:bulk-create-sections', rows),
 
   // Section content
   getSectionContent: (id: string): Promise<string | null> => ipcRenderer.invoke('db:get-section-content', id),
   setSectionContent: (id: string, content: string | null): Promise<boolean> => ipcRenderer.invoke('db:set-section-content', id, content),
-
-  // Content blocks
-  listBlocks: (sectionId: string): Promise<any[]> => ipcRenderer.invoke('db:list-blocks', sectionId),
-  createTextBlock: (sectionId: string, payload: any, orderIndex?: number): Promise<any> => ipcRenderer.invoke('db:create-text-block', sectionId, payload, orderIndex),
-  createImageBlock: (sectionId: string, payload: any, orderIndex?: number): Promise<any> => ipcRenderer.invoke('db:create-image-block', sectionId, payload, orderIndex),
-  createDiceBlock: (sectionId: string, payload: any, orderIndex?: number): Promise<any> => ipcRenderer.invoke('db:create-dice-block', sectionId, payload, orderIndex),
-  updateBlockPayload: (id: string, payload: any): Promise<any> => ipcRenderer.invoke('db:update-block-payload', id, payload),
-  reorderBlocks: (sectionId: string, orderedIds: string[]): Promise<boolean> => ipcRenderer.invoke('db:reorder-blocks', sectionId, orderedIds),
-  deleteBlock: (id: string): Promise<boolean> => ipcRenderer.invoke('db:delete-block', id),
+  setSectionBBCode: (id: string, bbcode: string | null): Promise<boolean> => ipcRenderer.invoke('db:set-section-bbcode', id, bbcode),
 
   // World Templates
   listWorldSettingTemplates: (): Promise<any[]> => ipcRenderer.invoke('db:list-world-setting-templates'),
@@ -179,6 +214,16 @@ const appAPI = {
   openDataDirectory: (): Promise<boolean> => ipcRenderer.invoke('app:open-data-directory'),
 }
 
+// 数据清理（应用内"清空所有数据"入口）
+const dataAPI = {
+  clearAll: (): Promise<{ ok: boolean; error?: string; cleared: string[] }> =>
+    ipcRenderer.invoke('data:clearAll'),
+  openUninstallGuide: (): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('data:openUninstallGuide'),
+  openDataDirectory: (): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('data:openDataDirectory'),
+}
+
 contextBridge.exposeInMainWorld('windowAPI', windowAPI)
 contextBridge.exposeInMainWorld('electronAPI', {
   // 保留原有的接口
@@ -190,10 +235,29 @@ contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
   collectNga: ngaAPI.collect,
   cancelNgaCollect: ngaAPI.cancelCollect,
+  pauseNgaCollect: ngaAPI.pauseCollect,
+  onNgaCollectProgress: ngaAPI.onCollectProgress,
   fetchNgaThreadInfo: ngaAPI.fetchThreadInfo,
   // 整作品另存为 + 导入（代理 dbAPI）
   saveStoryAsFile: dbAPI.saveStoryAsFile,
   openStoryFile: dbAPI.openStoryFile,
+  // 寻找安科：搜索骨碌碌 / NGA 安科版块
+  searchAnke: {
+    gululu: (keyword: string): Promise<{ ok: boolean; data?: any[]; error?: string }> =>
+      ipcRenderer.invoke('search:gululu', keyword),
+    ngaAnke: (keyword: string): Promise<{ ok: boolean; data?: any[]; error?: string }> =>
+      ipcRenderer.invoke('search:nga-anke', keyword),
+  },
+  // 在系统浏览器打开外链
+  openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url),
+  // 导出为 EPUB 电子书（仅桌面端，含图片离线化 + 进度推送）
+  exportEpub: (storyId: string, suggestedName?: string): Promise<{ ok: boolean; canceled?: boolean; filePath?: string; error?: string }> =>
+    ipcRenderer.invoke('story:export-epub', { storyId, suggestedName }),
+  onEpubExportProgress: (cb: (p: any) => void): (() => void) => {
+    const listener = (_e: any, p: any) => cb(p)
+    ipcRenderer.on('epub:export:progress', listener)
+    return () => ipcRenderer.removeListener('epub:export:progress', listener)
+  },
 })
 contextBridge.exposeInMainWorld('dbAPI', dbAPI)
 contextBridge.exposeInMainWorld('appAPI', appAPI)
@@ -213,14 +277,25 @@ export type ElectronAPI = {
     startFloor: number;
     endFloor: number;
     prefix: string;
+    authorid?: string;
+    matchMode?: string;
     cookies?: string;
   }) => Promise<{
     ok: boolean;
-    items: { floor: number; author: string; content: string }[];
+    items: { floor: number; author: string; uid?: string; content: string }[];
     totalPages: number;
     error?: string;
   }>
   cancelNgaCollect: (taskId?: number) => Promise<{ ok: boolean }>
+  pauseNgaCollect: (taskId?: number, paused?: boolean) => Promise<{ ok: boolean; paused: boolean }>
+  onNgaCollectProgress: (callback: (progress: {
+    taskId: number;
+    current: number;
+    total: number;
+    phase: 'starting' | 'fetching' | 'parsing' | 'filtering' | 'done' | 'error' | 'cancelled' | 'paused';
+    message: string;
+    itemsFound?: number;
+  }) => void) => () => void
   fetchNgaThreadInfo: (url: string, cookies?: string) => Promise<{
     ok: boolean;
     totalPages?: number;
@@ -229,6 +304,16 @@ export type ElectronAPI = {
   }>
   saveStoryAsFile: (data: any, suggestedName?: string) => Promise<{ ok: boolean; canceled?: boolean; filePath?: string; error?: string }>
   openStoryFile: () => Promise<{ ok: boolean; canceled?: boolean; filePath?: string; data?: any; error?: string }>
+  clearAllData: () => Promise<{ ok: boolean; error?: string; cleared: string[] }>
+  openUninstallGuide: () => Promise<{ ok: boolean }>
+  openDataDirectory: () => Promise<{ ok: boolean; error?: string }>
+  searchAnke: {
+    gululu: (keyword: string) => Promise<{ ok: boolean; data?: GululuResult[]; error?: string }>
+    ngaAnke: (keyword: string) => Promise<{ ok: boolean; data?: NgaResult[]; error?: string }>
+  }
+  openExternal: (url: string) => Promise<void>
+  exportEpub: (storyId: string, suggestedName?: string) => Promise<{ ok: boolean; canceled?: boolean; filePath?: string; error?: string }>
+  onEpubExportProgress: (cb: (p: any) => void) => () => void
 }
 
 declare global {
@@ -237,6 +322,7 @@ declare global {
     electronAPI: ElectronAPI
     dbAPI: typeof dbAPI
     appAPI: typeof appAPI
+    dataAPI: typeof dataAPI
   }
 }
 

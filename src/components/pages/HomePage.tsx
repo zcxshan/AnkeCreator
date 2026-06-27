@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useStoryStore } from '../../store/storyStore';
+import { useDiceHistoryStore } from '../../store/diceHistoryStore';
 import * as db from '../../db/database';
+import { isCapacitor } from '../../utils/platform';
 
 interface HomePageProps {
   onOpenStory: (storyId: string) => void;
@@ -9,6 +11,7 @@ interface HomePageProps {
   onShowTutorial?: () => void;
   onShowAuthor?: () => void;
   onShowAnjia?: () => void;
+  onShowFindAnke?: () => void;
 }
 
 interface StatItem {
@@ -44,7 +47,7 @@ interface RecentStorySummary {
  *   │ 最近编辑的作品（点击进入编辑）         │
  *   └────────────────────────────────────────┘
  */
-export function HomePage({ onOpenStory, onShowWorks, onShowTemplates, onShowTutorial, onShowAuthor, onShowAnjia }: HomePageProps) {
+export function HomePage({ onOpenStory, onShowWorks, onShowTemplates, onShowTutorial, onShowAuthor, onShowAnjia, onShowFindAnke }: HomePageProps) {
   const { stories, createStory, setActiveStory } = useStoryStore();
 
   const [showNewStoryModal, setShowNewStoryModal] = useState(false);
@@ -62,24 +65,17 @@ export function HomePage({ onOpenStory, onShowWorks, onShowTemplates, onShowTuto
   useEffect(() => {
     let cancelled = false;
     const compute = async () => {
-      let totalWords = 0;
-      let totalDice = 0;
-      const storyCount = stories.length;
+      // 一次性聚合查询：3 次文件读 vs 原来 N×M 次（消灭 N+1）
+      const storiesWithStats = await db.listStoriesWithStats();
+      const diceRecords = useDiceHistoryStore.getState().records;
 
-      for (const story of stories) {
-        const chapters = await db.listChapters(story.id);
-        for (const chapter of chapters) {
-          const sections = await db.listSections(chapter.id);
-          for (const section of sections) {
-            const content = section.content;
-            if (content) {
-              const { words, dice } = countContent(content);
-              totalWords += words;
-              totalDice += dice;
-            }
-          }
-        }
+      let totalWords = 0;
+      const storyCount = storiesWithStats.length;
+      for (const s of storiesWithStats) {
+        totalWords += s.wordCount || 0;
       }
+
+      const totalDice = diceRecords.length;
 
       if (!cancelled) {
         setStats([
@@ -88,51 +84,21 @@ export function HomePage({ onOpenStory, onShowWorks, onShowTemplates, onShowTuto
           { icon: '📚', label: '安科作品数', value: storyCount.toLocaleString() },
         ]);
       }
-    };
-    compute();
-    return () => {
-      cancelled = true;
-    };
-  }, [stories]);
 
-  // 最近编辑的作品摘要（最多 3 个）
-  const [recentStories, setRecentStories] = useState<RecentStorySummary[]>([]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const compute = async () => {
-      const sorted = [...stories]
+      // 最近编辑的作品摘要（最多 3 个），复用已聚合的统计字段
+      const sorted = [...storiesWithStats]
         .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
         .slice(0, 3);
 
-      const results: RecentStorySummary[] = [];
-      for (const story of sorted) {
-        let sectionCount = 0;
-        let diceCount = 0;
-        let wordCount = 0;
-        const chapters = await db.listChapters(story.id);
-        for (const chapter of chapters) {
-          const sections = await db.listSections(chapter.id);
-          sectionCount += sections.length;
-          for (const section of sections) {
-            const content = section.content;
-            if (content) {
-              const { words, dice } = countContent(content);
-              wordCount += words;
-              diceCount += dice;
-            }
-          }
-        }
-        results.push({
-          id: story.id,
-          title: story.title,
-          description: story.description || '',
-          updatedAt: formatDate(story.updated_at),
-          sectionCount,
-          diceCount,
-          wordCount,
-        });
-      }
+      const results: RecentStorySummary[] = sorted.map((story) => ({
+        id: story.id,
+        title: story.title,
+        description: story.description || '',
+        updatedAt: formatDate(story.updated_at),
+        sectionCount: story.sectionCount || 0,
+        diceCount: diceRecords.filter((r) => r.storyId === story.id).length,
+        wordCount: story.wordCount || 0,
+      }));
 
       if (!cancelled) {
         setRecentStories(results);
@@ -151,12 +117,18 @@ export function HomePage({ onOpenStory, onShowWorks, onShowTemplates, onShowTuto
     setNewStoryTitle('');
     setNewStoryDescription('');
     await setActiveStory(storyId);
-    onOpenStory(storyId);
+    // 安卓版：创建后跳到作品列表，让用户从列表点开作品进编辑（不直接进入编辑区）
+    // 桌面端：保持原行为，创建后立即进入编辑
+    if (isCapacitor) {
+      onShowWorks?.();
+    } else {
+      onOpenStory(storyId);
+    }
   };
 
   return (
     <div className="h-full w-full flex flex-col items-center overflow-y-auto" style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}>
-      <div className="w-full max-w-4xl px-8 py-12">
+      <div className="w-full max-w-4xl px-4 py-6 md:px-8 md:py-12">
         {/* 欢迎区 */}
         <section className="mb-10">
           <div className="inline-flex items-center gap-2 px-3 py-1 mb-5 rounded-full bg-emerald-100/70 text-emerald-700 text-xs font-medium tracking-wide">
@@ -173,20 +145,24 @@ export function HomePage({ onOpenStory, onShowWorks, onShowTemplates, onShowTuto
             骰子决定命运，故事由此展开 —— 让每一次掷骰都成为精彩的转折。
           </p>
 
-          <div className="mt-8 flex flex-wrap gap-3">
+          <div className={isCapacitor ? 'mt-8 grid grid-cols-2 gap-2' : 'mt-8 flex flex-wrap gap-3'}>
             <button
               onClick={() => setShowNewStoryModal(true)}
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium shadow-sm hover:-translate-y-0.5 active:translate-y-0 transition-all"
+              className={isCapacitor
+                ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium shadow-sm active:translate-y-0 transition-all'
+                : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium shadow-sm hover:-translate-y-0.5 active:translate-y-0 transition-all'}
               style={{ background: 'var(--accent-bg)', color: 'var(--accent)', border: '1px solid var(--accent)' }}
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent)'; e.currentTarget.style.color = 'var(--text-on-accent)' }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--accent-bg)'; e.currentTarget.style.color = 'var(--accent)' }}
             >
-              <span className="text-lg leading-none">+</span>
+              <span className={isCapacitor ? 'text-sm leading-none' : 'text-lg leading-none'}>+</span>
               新建安科
             </button>
             <button
               onClick={() => setShowOpenModal(true)}
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all"
+              className={isCapacitor
+                ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
+                : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'}
               style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)' }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)' }}
@@ -196,7 +172,9 @@ export function HomePage({ onOpenStory, onShowWorks, onShowTemplates, onShowTuto
             {onShowTemplates && (
               <button
                 onClick={onShowTemplates}
-                className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all"
+                className={isCapacitor
+                  ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
+                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'}
                 style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
@@ -207,7 +185,9 @@ export function HomePage({ onOpenStory, onShowWorks, onShowTemplates, onShowTuto
             {onShowTutorial && (
               <button
                 onClick={onShowTutorial}
-                className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all"
+                className={isCapacitor
+                  ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
+                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'}
                 style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
@@ -215,15 +195,30 @@ export function HomePage({ onOpenStory, onShowWorks, onShowTemplates, onShowTuto
                 <span>📚</span> 使用教程
               </button>
             )}
-            {onShowAnjia && (
+            {onShowAnjia && !isCapacitor && (
               <button
                 onClick={onShowAnjia}
-                className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all"
+                className={isCapacitor
+                  ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
+                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'}
                 style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)' }}
               >
-                <span>📜</span> 收集安价
+                <span>📜</span> 收集安价/安科
+              </button>
+            )}
+            {onShowFindAnke && !isCapacitor && (
+              <button
+                onClick={onShowFindAnke}
+                className={isCapacitor
+                  ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
+                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'}
+                style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)' }}
+              >
+                <span>🔍</span> 寻找安科
               </button>
             )}
           </div>
@@ -291,7 +286,13 @@ export function HomePage({ onOpenStory, onShowWorks, onShowTemplates, onShowTuto
                   key={story.id}
                   onClick={() => {
                     setActiveStory(story.id);
-                    onOpenStory(story.id);
+                    // 安卓版：跳到作品列表，让用户从列表点开作品进编辑（不直接进入编辑区）
+                    // 桌面端：保持原行为，直接进入编辑
+                    if (isCapacitor) {
+                      onShowWorks?.();
+                    } else {
+                      onOpenStory(story.id);
+                    }
                   }}
                   className="w-full text-left rounded-2xl p-5 hover:shadow-md transition-all group"
                   style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
@@ -483,7 +484,7 @@ function Modal({
 }
 
 /** 基于 HTML 字符串统计字数（用于 contenteditable 编辑器） */
-function countWordsFromHtml(html: string): { words: number; dice: number } {
+export function countWordsFromHtml(html: string): { words: number; dice: number } {
   if (!html) return { words: 0, dice: 0 };
   try {
     const tmp = document.createElement('div');
@@ -494,11 +495,12 @@ function countWordsFromHtml(html: string): { words: number; dice: number } {
       acceptNode(node: Node): number {
         if (node.nodeType === Node.ELEMENT_NODE) {
           const el = node as HTMLElement;
-          if (
-            el.dataset?.type === 'image-block' ||
-            el.dataset?.type === 'dice-card'
-          ) {
+          if (el.dataset?.type === 'dice-card') {
+            // 只 dice-card 算骰子；image-block 不算
             dice++;
+            return NodeFilter.FILTER_REJECT;
+          }
+          if (el.dataset?.type === 'image-block') {
             return NodeFilter.FILTER_REJECT;
           }
           return NodeFilter.FILTER_SKIP;
@@ -522,7 +524,7 @@ function countWordsFromHtml(html: string): { words: number; dice: number } {
 }
 
 /** 兼容两种格式：先尝试旧版 JSON（TipTap），失败则走 HTML（contenteditable） */
-function countContent(content: string): { words: number; dice: number } {
+export function countContent(content: string): { words: number; dice: number } {
   if (!content) return { words: 0, dice: 0 };
   try {
     const json = JSON.parse(content);
@@ -536,7 +538,7 @@ function countContent(content: string): { words: number; dice: number } {
 }
 
 /** 从富文本 JSON 中统计字数和骰点数 */
-function countWordsAndDice(json: any): { words: number; dice: number } {
+export function countWordsAndDice(json: any): { words: number; dice: number } {
   let words = 0;
   let dice = 0;
   const walk = (node: any) => {

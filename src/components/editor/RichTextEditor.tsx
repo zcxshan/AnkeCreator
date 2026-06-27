@@ -1,5 +1,7 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { EditorToolbar } from './EditorToolbar';
+
+import { ContextMenu, type ContextMenuItemConfig } from '../common/ContextMenu';
 import {
   insertImageBlock,
   attachImageBlockHandlers,
@@ -13,8 +15,11 @@ import {
   attachCollapseBlockHandlers,
   getCurrentStyles,
   applyActiveStylesToInsertion,
+  setLastEditorRange,
 } from './contenteditableUtils';
 import { useEditorStore } from '../../store/editorStore';
+import { useEditorHistoryStore } from '../../store/editorHistoryStore';
+import { useToastStore } from '../../store/toastStore';
 import type { DiceBlockPayloadV2 } from '../../types';
 
 interface RichTextEditorProps {
@@ -28,6 +33,18 @@ interface RichTextEditorProps {
   style?: React.CSSProperties;
   commandsRef?: React.MutableRefObject<RichTextEditorCommands | null>;
   onShowToast?: (msg: string) => void;
+  /** 撤销回调（由父组件绑定到工具栏按钮，走自定义历史栈） */
+  onUndo?: () => void;
+  /** 重做回调（由父组件绑定到工具栏按钮，走自定义历史栈） */
+  onRedo?: () => void;
+  /** 是否可撤销（控制工具栏按钮禁用态） */
+  canUndo?: boolean;
+  /** 是否可重做（控制工具栏按钮禁用态） */
+  canRedo?: boolean;
+  /** 外部 ref（供搜索面板访问编辑器 DOM） */
+  editorRef?: React.MutableRefObject<HTMLDivElement | null>;
+  /** Ctrl+F / 右键搜索触发回调（切换到搜索面板） */
+  onSearchOpen?: () => void;
 }
 
 export interface RichTextEditorCommands {
@@ -52,10 +69,28 @@ export function RichTextEditor({
   style,
   commandsRef,
   onShowToast,
+  onUndo,
+  onRedo,
+  canUndo = false,
+  canRedo = false,
+  editorRef,
+  onSearchOpen,
 }: RichTextEditorProps) {
-  const divRef = useRef<HTMLElement | null>(null);
+  const internalDivRef = useRef<HTMLDivElement | null>(null);
+  const divRef = (editorRef ?? internalDivRef) as React.MutableRefObject<HTMLElement | null>;
   const lastContentRef = useRef<string>('');
   const savedRangeRef = useRef<Range | null>(null);
+  /** 标记：正在应用历史快照（undo/redo 触发的 innerHTML 设置），此时不要推历史 */
+  const applyingHistoryRef = useRef<boolean>(false);
+  /** 防抖：把短时间内的连续输入合并为一条历史 */
+  const historyTimerRef = useRef<number | null>(null);
+
+  // 自定义右键菜单
+  const [ctxMenu, setCtxMenu] = useState<{
+    x: number;
+    y: number;
+    hasSelection: boolean;
+  } | null>(null);
 
   // 持续保存编辑器内的光标位置（工具栏按钮点击后编辑器失焦时恢复用）
   // 同时把光标处的样式同步到 useEditorStore.cursorStyles（供工具栏展示）
@@ -65,10 +100,17 @@ export function RichTextEditor({
     if (!el) return;
     const onSelectionChange = () => {
       const sel = window.getSelection();
-      if (!sel || sel.rangeCount === 0) return;
+      if (!sel || sel.rangeCount === 0) {
+        // 光标完全没选区（点了别处）→ 清空模块级 range，下次插入会走 fallback
+        setLastEditorRange(null);
+        return;
+      }
       const r = sel.getRangeAt(0);
       if (el.contains(r.startContainer)) {
-        savedRangeRef.current = r.cloneRange();
+        const cloned = r.cloneRange();
+        savedRangeRef.current = cloned;
+        // 同步到模块，供 insertDiceCard/insertImageBlock 等不 focus 的插入函数使用
+        setLastEditorRange(cloned.cloneRange());
         // 同步光标处样式到 cursorStyles（仅展示用，不影响新输入）
         const cur = getCurrentStyles(el);
         const store = useEditorStore.getState();
@@ -86,6 +128,9 @@ export function RichTextEditor({
         if (!same) {
           useEditorStore.setState({ cursorStyles: cur });
         }
+      } else {
+        // 光标在 editor 之外（弹窗 / 工具栏）→ 保留旧模块级 range（不更新到 null）
+        // 因为接下来可能要在弹窗里编辑然后插入到 editor 的原光标位置
       }
     };
     document.addEventListener('selectionchange', onSelectionChange);
@@ -98,9 +143,14 @@ export function RichTextEditor({
     if (!el) return;
     const safeContent: string =
       content == null || content === '' ? '' : content;
-    if (el.innerHTML !== safeContent) {
-      el.innerHTML = safeContent;
+    // 实际写入的 HTML：空内容时插入 <br> 占位，让 contenteditable 能显示光标
+    // （contenteditable div 为空时浏览器不显示光标）
+    const displayHTML = safeContent === '' ? '<br>' : safeContent;
+    if (el.innerHTML !== displayHTML) {
+      el.innerHTML = displayHTML;
       lastContentRef.current = safeContent;
+      // 内容从外部加载（切章节/导入等），重置历史栈
+      useEditorHistoryStore.getState().reset(safeContent);
     }
   }, [content]);
 
@@ -169,6 +219,60 @@ export function RichTextEditor({
     if (html === lastContentRef.current) return;
     lastContentRef.current = html;
     onChangeContent(html);
+    // 推历史：debounce 200ms 合并连续输入（缩短 debounce 让 Ctrl+Z 跨度更细）
+    if (applyingHistoryRef.current) return;
+    if (historyTimerRef.current) {
+      window.clearTimeout(historyTimerRef.current);
+      // 清掉对应的全局 timer 标记（原子块 push 用同一窗口）
+      (window as any).__editorHistoryTimer = null;
+    }
+    historyTimerRef.current = window.setTimeout(() => {
+      useEditorHistoryStore.getState().push(html);
+      historyTimerRef.current = null;
+      (window as any).__editorHistoryTimer = null;
+    }, 200);
+    (window as any).__editorHistoryTimer = historyTimerRef.current;
+  };
+
+  // 应用历史快照到编辑器（undo/redo 共用）
+  // 设置 innerHTML + 重置光标到末尾 + 通知内容变化
+  const applyHistory = (restored: string) => {
+    const el = divRef.current;
+    if (!el) return;
+    applyingHistoryRef.current = true;
+    try {
+      el.innerHTML = restored;
+      lastContentRef.current = restored;
+      // 重置光标到内容末尾，避免光标停留在无效位置
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+      // 直接通知内容变化（不走 dispatchInput，否则 handleInput 会因 lastContentRef 相同而跳过）
+      onChangeContent(restored);
+    } finally {
+      applyingHistoryRef.current = false;
+    }
+  };
+
+  // 撤销：从历史栈弹出上一快照并应用
+  const handleUndo = () => {
+    const el = divRef.current;
+    if (!el) return;
+    el.focus();
+    const restored = useEditorHistoryStore.getState().undo();
+    if (restored != null) applyHistory(restored);
+  };
+
+  // 重做：从 future 栈弹出下一快照并应用
+  const handleRedo = () => {
+    const el = divRef.current;
+    if (!el) return;
+    el.focus();
+    const restored = useEditorHistoryStore.getState().redo();
+    if (restored != null) applyHistory(restored);
   };
 
   // 拦截 input 事件：把活动样式应用到即将插入的字符上
@@ -272,19 +376,24 @@ export function RichTextEditor({
       }
     }
     
-    // Ctrl+Z 撤销 - 确保编辑器聚焦后执行原生操作
-    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+    // Ctrl+F 打开节内搜索
+    if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
       e.preventDefault();
-      el.focus();
-      document.execCommand('undo', false);
+      onSearchOpen?.();
       return;
     }
-    
-    // Ctrl+Y / Ctrl+Shift+Z 重做
+
+    // Ctrl+Z 撤销 - 使用应用级历史栈（替代 execCommand）
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+      e.preventDefault();
+      handleUndo();
+      return;
+    }
+
+    // Ctrl+Y / Ctrl+Shift+Z 重做 - 使用应用级历史栈
     if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
       e.preventDefault();
-      el.focus();
-      document.execCommand('redo', false);
+      handleRedo();
       return;
     }
     
@@ -788,6 +897,10 @@ export function RichTextEditor({
         onInsertImage={handleInsertImage}
         onInsertDice={onInsertDiceRequest}
         onShowToast={onShowToast}
+        onUndo={onUndo ?? handleUndo}
+        onRedo={onRedo ?? handleRedo}
+        canUndo={canUndo}
+        canRedo={canRedo}
       />
       <div
         ref={(el) => {
@@ -804,6 +917,12 @@ export function RichTextEditor({
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          const sel = window.getSelection();
+          const hasSelection = !!(sel && !sel.isCollapsed && sel.toString().trim());
+          setCtxMenu({ x: e.clientX, y: e.clientY, hasSelection });
+        }}
         className="anke-editor-content"
         style={{
           flex: 1,
@@ -816,6 +935,89 @@ export function RichTextEditor({
           ...(style || {}),
         }}
       />
+      {ctxMenu && (
+        <ContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          onClose={() => setCtxMenu(null)}
+          separatorsBefore={[3]}
+          items={[
+            {
+              label: '复制',
+              disabled: !ctxMenu.hasSelection,
+              onClick: async () => {
+                const sel = window.getSelection();
+                const text = sel ? sel.toString() : '';
+                if (!text) return;
+                try {
+                  await navigator.clipboard.writeText(text);
+                  useToastStore.getState().showToast('已复制', 'success');
+                } catch {
+                  // fallback：execCommand
+                  document.execCommand('copy');
+                }
+                setCtxMenu(null);
+              },
+            },
+            {
+              label: '粘贴',
+              onClick: async () => {
+                try {
+                  const text = await navigator.clipboard.readText();
+                  if (!text) {
+                    setCtxMenu(null);
+                    return;
+                  }
+                  const el = divRef.current;
+                  if (!el) return;
+                  el.focus();
+                  const ok = document.execCommand('insertText', false, text);
+                  if (!ok) {
+                    // fallback：直接插入到光标
+                    const sel = window.getSelection();
+                    if (sel && sel.rangeCount) {
+                      sel.getRangeAt(0).insertNode(document.createTextNode(text));
+                      sel.collapseToEnd();
+                      handleInput();
+                    }
+                  }
+                } catch (err) {
+                  useToastStore
+                    .getState()
+                    .showToast('粘贴失败：' + (err as Error).message, 'error');
+                }
+                setCtxMenu(null);
+              },
+            },
+            {
+              label: '剪切',
+              disabled: !ctxMenu.hasSelection,
+              onClick: async () => {
+                const sel = window.getSelection();
+                const text = sel ? sel.toString() : '';
+                if (!text) return;
+                try {
+                  await navigator.clipboard.writeText(text);
+                  document.execCommand('delete');
+                  useToastStore.getState().showToast('已剪切', 'success');
+                } catch {
+                  document.execCommand('cut');
+                }
+                setCtxMenu(null);
+              },
+            },
+            {
+              label: '在当前节中搜索',
+              onClick: () => {
+                setCtxMenu(null);
+                const el = divRef.current;
+                if (el) el.focus();
+                onSearchOpen?.();
+              },
+            },
+          ] as ContextMenuItemConfig[]}
+        />
+      )}
     </div>
   );
 }

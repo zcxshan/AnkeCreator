@@ -1,7 +1,7 @@
 // 统一封装：图片上传/保存
 // - 根据 useSettingStore.imageStoreMode 分发：
 //     'remote' → 走 4 图床链（catbox → sm.ms → 0x0.st → telegra.ph）
-//     'local'  → 走 Electron 主进程写文件 + local:// 协议
+//     'local'  → 走 Electron 主进程写文件 + local:// 协议；Capacitor 走 Filesystem
 // - 单张：uploadImageFile()
 // - 多张 + 进度回调：uploadImagesWithProgress()
 // - 失败时返回 { ok: false, error }，**不**降级到 base64（用户硬约束）
@@ -10,6 +10,7 @@
 import { useSettingStore } from '../store/settingStore';
 import { useImageWarningStore } from '../store/imageWarningStore';
 import { LOCAL_IMAGE_WARNING_DISMISSED_KEY } from '../components/common/LocalImageWarningDialog';
+import { isCapacitor } from './platform';
 
 export interface UploadedImage {
   ok: boolean;
@@ -55,6 +56,10 @@ function fileToBase64(file: File): Promise<string> {
  */
 export async function ensureLocalWarning(): Promise<boolean> {
   const isLocal = useSettingStore.getState().imageStoreMode === 'local';
+  // 本地上传总开关关闭时，本地上传入口应直接返回 false（调用方应中止并提示）
+  if (isLocal && !useSettingStore.getState().localUploadEnabled) {
+    return false;
+  }
   if (!isLocal) return true;
   let dismissed = false;
   try {
@@ -132,47 +137,102 @@ export async function uploadImagesWithProgress(
 
 /**
  * 本地保存：Electron 模式下直接用图片的绝对路径作为 URL（不复制文件）
- * - 浏览器：返回错误（用户要求"浏览器直接报错"）
- * - 优先用 IPC 传入的 filePath；fallback 到 File.path
+ * - Electron：主进程写文件 + local:// 协议
+ * - Capacitor：@capacitor/filesystem 写入设备 Documents
+ * - 浏览器：返回错误
  *
- * URL 存储 = 用户原图路径（如 C:\Users\foo\image.png）
+ * URL 存储 = 用户原图路径（如 C:\Users\foo\image.png 或 Capacitor file:// 路径）
  * NGA 导出时由 ngaHtmlToBBCode.isUnreachableImage 识别为"不可达"，替换为占位符
  */
 async function saveImageLocal(
   file: File | Blob,
   filePath?: string,
 ): Promise<UploadedImage> {
-  if (typeof window === 'undefined' || !window.electronAPI?.saveImageLocal) {
+  // 1. Electron 环境
+  if (typeof window !== 'undefined' && window.electronAPI) {
+    // 优先用 IPC 传过来的 filePath（selectImage 选择文件时的真实绝对路径）
+    let actualPath = filePath;
+    if (!actualPath) {
+      // 兼容：尝试从 File 对象取 path（Electron 老版本 File.path）
+      try {
+        actualPath = (file as any).path;
+      } catch {
+        actualPath = undefined;
+      }
+    }
+    if (!actualPath) {
+      return {
+        ok: false,
+        error: '本地保存无法获取文件路径，请重新选择文件',
+        host: 'local',
+      };
+    }
+    // 直接用绝对路径作为 URL（不复制文件到 userData/images/）
     return {
-      ok: false,
-      error: '本地保存仅支持 Electron 应用，请切换到"远端图床"模式',
+      ok: true,
+      url: actualPath,
       host: 'local',
+      fileName: file instanceof File ? file.name : '',
     };
   }
-  // 优先用 IPC 传过来的 filePath（selectImage 选择文件时的真实绝对路径）
-  let actualPath = filePath;
-  if (!actualPath) {
-    // 兼容：尝试从 File 对象取 path（Electron 老版本 File.path）
+
+  // 2. Capacitor 环境：写入设备 Documents 目录
+  if (isCapacitor) {
     try {
-      actualPath = (file as any).path;
-    } catch {
-      actualPath = undefined;
+      const { Filesystem, Directory } = await import('@capacitor/filesystem');
+      const dataUrl = await fileToDataURL(file);
+      const base64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+      const fileName =
+        file instanceof File && file.name
+          ? `${Date.now()}_${file.name}`
+          : `image_${Date.now()}.png`;
+      try {
+        const result = await Filesystem.writeFile({
+          path: `images/${fileName}`,
+          data: base64,
+          directory: Directory.Documents,
+          recursive: true,
+        });
+        return {
+          ok: true,
+          url: dataUrl,
+          host: 'local',
+          fileName: file instanceof File ? file.name : fileName,
+        };
+      } catch {
+        // Fallback to base64 data URL when Filesystem.writeFile fails
+        return {
+          ok: true,
+          url: dataUrl,
+          host: 'local',
+          fileName: file instanceof File ? file.name : fileName,
+        };
+      }
+    } catch (e) {
+      return {
+        ok: false,
+        error: (e as Error)?.message || 'Capacitor 本地保存失败',
+        host: 'local',
+      };
     }
   }
-  if (!actualPath) {
-    return {
-      ok: false,
-      error: '本地保存无法获取文件路径，请重新选择文件',
-      host: 'local',
-    };
-  }
-  // 直接用绝对路径作为 URL（不复制文件到 userData/images/）
+
+  // 3. 纯浏览器：返回错误
   return {
-    ok: true,
-    url: actualPath,
+    ok: false,
+    error: '本地保存仅支持 Electron 或 Capacitor 应用，请切换到"远端图床"模式',
     host: 'local',
-    fileName: file instanceof File ? file.name : '',
   };
+}
+
+/** File/Blob → data URL（用于 Capacitor 写入） */
+function fileToDataURL(file: File | Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
 }
 
 /**
@@ -208,12 +268,18 @@ async function uploadToRemote(file: File | Blob): Promise<UploadedImage> {
   // 浏览器：直接 fetch
   try {
     const mod = await import('./imageHosting');
-    const res = await mod.uploadImage(
+    const uploadPromise = mod.uploadImage(
       file,
       file instanceof File ? file.name : undefined,
     );
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('图床上传超时（30s），建议改用本地上传')), 30000);
+    });
+    const res = await Promise.race([uploadPromise, timeoutPromise]);
     return { ok: res.ok, url: res.url, error: res.error, host: res.host };
   } catch (e) {
-    return { ok: false, error: (e as Error)?.message || '上传失败' };
+    const msg = (e as Error)?.message || '上传失败';
+    const hint = isCapacitor ? '（图床可能 CORS 拦截或网络超时，建议改用本地上传）' : '';
+    return { ok: false, error: msg + hint };
   }
 }

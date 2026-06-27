@@ -2,16 +2,18 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 interface InputDialogProps {
-  open: boolean;
-  title?: string;
-  placeholder?: string;
-  defaultValue?: string;
-  multiline?: boolean;
-  confirmText?: string;
-  cancelText?: string;
-  onConfirm: (value: string) => void;
-  onCancel: () => void;
-}
+    open: boolean;
+    title?: string;
+    placeholder?: string;
+    defaultValue?: string;
+    multiline?: boolean;
+    rows?: number; // 仅 multiline=true 时生效，默认 4
+    maxLength?: number; // textarea 和 input 都生效
+    confirmText?: string;
+    cancelText?: string;
+    onConfirm: (value: string) => void;
+    onCancel: () => void;
+  }
 
 /**
  * 通用输入对话框
@@ -27,16 +29,18 @@ interface InputDialogProps {
  *   />
  */
 export function InputDialog({
-  open,
-  title = '输入',
-  placeholder = '',
-  defaultValue = '',
-  multiline = false,
-  confirmText = '确定',
-  cancelText = '取消',
-  onConfirm,
-  onCancel,
-}: InputDialogProps) {
+    open,
+    title = '输入',
+    placeholder = '',
+    defaultValue = '',
+    multiline = false,
+    rows = 4,
+    maxLength,
+    confirmText = '确定',
+    cancelText = '取消',
+    onConfirm,
+    onCancel,
+  }: InputDialogProps) {
   const [value, setValue] = useState(defaultValue);
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
 
@@ -120,7 +124,8 @@ export function InputDialog({
             value={value}
             onChange={(e) => setValue(e.target.value)}
             placeholder={placeholder}
-            rows={4}
+            rows={rows}
+            maxLength={maxLength}
             style={{
               width: '100%',
               boxSizing: 'border-box',
@@ -143,6 +148,7 @@ export function InputDialog({
             value={value}
             onChange={(e) => setValue(e.target.value)}
             placeholder={placeholder}
+            maxLength={maxLength}
             style={{
               width: '100%',
               boxSizing: 'border-box',

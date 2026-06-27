@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ 数据提取规则（targetSdk >= 31）
+  - cloud-backup：完全排除（不备份到 Google Drive）
+    原因：用户卸载后不希望从云端恢复旧数据
+  - device-transfer：保留（用户从旧手机迁移到新手机时数据仍跟随）
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="root" />
+        <include domain="file" />
+        <include domain="database" />
+        <include domain="sharedpref" />
+    </device-transfer>
+</data-extraction-rules>

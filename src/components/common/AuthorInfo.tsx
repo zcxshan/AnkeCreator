@@ -78,6 +78,8 @@ export function AuthorInfo({ onClose }: AuthorInfoProps) {
                 }}
               >
                 感谢使用安科作者助手！本工具旨在帮助创作者更高效地编写和导出安科内容。
+                想要很多小红点desuwa！！！！！
+                https://ngabbs.com/read.php?tid=47008305
               </div>
 
               {/* 联系方式 */}

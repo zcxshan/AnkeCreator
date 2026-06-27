@@ -16,15 +16,34 @@ export type { DiceKind, DiceOptionValue, DiceConfig, DiceResult };
 // -------------------- 表达式解析器 --------------------
 
 /** 表达式 AST 节点类型 */
+type DiceMode = 'kh' | 'kl' | '!' | 'pool';
+
 type ExprNode =
   | { type: 'number'; value: number }
-  | { type: 'dice'; count: number; faces: number }
+  | {
+      type: 'dice';
+      count: number;
+      faces: number;
+      /** 进阶模式：保留高/低、爆炸、骰池计数；undefined = 传统求和 */
+      mode?: DiceMode;
+      /** kh/kl 保留数量（默认 1） */
+      keep?: number;
+      /** pool 阈值（>=X） */
+      threshold?: number;
+    }
   | { type: 'binary'; op: '+' | '-' | '*' | '/'; left: ExprNode; right: ExprNode };
 
 /** Token 类型 */
 type Token =
   | { type: 'number'; value: number }
-  | { type: 'dice'; count: number; faces: number }
+  | {
+      type: 'dice';
+      count: number;
+      faces: number;
+      mode?: DiceMode;
+      keep?: number;
+      threshold?: number;
+    }
   | { type: 'op'; op: '+' | '-' | '*' | '/' }
   | { type: 'lparen' }
   | { type: 'rparen' }
@@ -83,7 +102,51 @@ function tokenize(expr: string): Token[] {
         if (!Number.isFinite(count) || !Number.isFinite(faces) || count < 1 || faces < 1) {
           throw new Error(`无效骰子格式: ${numStr}d${facesStr}`);
         }
-        tokens.push({ type: 'dice', count, faces });
+
+        // 解析可选后缀：khX / klX / ! / >=X
+        let mode: DiceMode | undefined;
+        let keep: number | undefined;
+        let threshold: number | undefined;
+        if (i < normalized.length) {
+          // kh/kl 后必须跟数字
+          if ((normalized[i] === 'k' || normalized[i] === 'K') &&
+              i + 1 < normalized.length &&
+              (normalized[i + 1] === 'h' || normalized[i + 1] === 'H' ||
+               normalized[i + 1] === 'l' || normalized[i + 1] === 'L')) {
+            const hl = normalized[i + 1].toLowerCase();
+            const kStart = i + 2;
+            let kStr = '';
+            let k = kStart;
+            while (k < normalized.length && /\d/.test(normalized[k])) {
+              kStr += normalized[k];
+              k++;
+            }
+            if (kStr === '') throw new Error(`kh/kl 后必须指定保留数量：${numStr}d${facesStr}k${hl}`);
+            mode = (hl === 'h' ? 'kh' : 'kl') as DiceMode;
+            keep = parseInt(kStr, 10);
+            if (keep < 1 || keep > count) {
+              throw new Error(`kh/kl 保留数量 ${keep} 超出骰子数 ${count}`);
+            }
+            i = k;
+          } else if (normalized[i] === '!') {
+            mode = '!';
+            i++;
+            // 爆炸骰建议 count=1（多颗爆炸是高级用法，单独说明）
+          } else if (normalized[i] === '>' && i + 1 < normalized.length && normalized[i + 1] === '=') {
+            i += 2;
+            let tStr = '';
+            while (i < normalized.length && /\d/.test(normalized[i])) {
+              tStr += normalized[i];
+              i++;
+            }
+            if (tStr === '') throw new Error(`>= 后必须指定阈值：${numStr}d${facesStr}>=`);
+            mode = 'pool';
+            threshold = parseInt(tStr, 10);
+            if (threshold < 1) throw new Error(`>= 阈值必须 >=1`);
+          }
+        }
+
+        tokens.push({ type: 'dice', count, faces, mode, keep, threshold });
       } else {
         const value = parseInt(numStr, 10);
         if (!Number.isFinite(value)) {
@@ -208,10 +271,71 @@ function evaluateAst(ast: ExprNode, originalExpr: string): EvalResult {
         rolls.push(r);
         allRolls.push(r);
       }
+
+      // 默认（无 mode）：传统求和
+      if (!node.mode) {
+        const sum = rolls.reduce((a, b) => a + b, 0);
+        const rollText = node.count === 1 ? String(sum) : rolls.join('+');
+        return { value: sum, rollText, isMultiDice: node.count > 1 };
+      }
+
+      // kh：保留最高 X 颗求和
+      if (node.mode === 'kh') {
+        const keep = node.keep ?? 1;
+        const sorted = [...rolls].sort((a, b) => b - a);
+        const kept = sorted.slice(0, keep);
+        const sum = kept.reduce((a, b) => a + b, 0);
+        // rollText 形如 "[4,2,1,3]k3=4+2+3"
+        const rollText = node.count === 1
+          ? String(rolls[0])
+          : `[${rolls.join(',')}]k${keep}=${kept.join('+')}`;
+        return { value: sum, rollText, isMultiDice: true };
+      }
+
+      // kl：保留最低 X 颗求和
+      if (node.mode === 'kl') {
+        const keep = node.keep ?? 1;
+        const sorted = [...rolls].sort((a, b) => a - b);
+        const kept = sorted.slice(0, keep);
+        const sum = kept.reduce((a, b) => a + b, 0);
+        const rollText = node.count === 1
+          ? String(rolls[0])
+          : `[${rolls.join(',')}]k${keep}(低)=${kept.join('+')}`;
+        return { value: sum, rollText, isMultiDice: true };
+      }
+
+      // ! 爆炸：单颗若掷出 faces 则追加 1 颗，递归直到非最大
+      if (node.mode === '!') {
+        const chain: number[] = [];
+        for (const first of rolls) {
+          chain.push(first);
+          if (first === node.faces) {
+            let cur = first;
+            while (cur === node.faces) {
+              cur = rollOne(node.faces);
+              chain.push(cur);
+              allRolls.push(cur);
+            }
+          }
+        }
+        const sum = chain.reduce((a, b) => a + b, 0);
+        const rollText = node.count === 1
+          ? `!${chain.length - 1}=${chain.join('+')}`
+          : `[${rolls.join(',')}]!=${chain.join('+')}`;
+        return { value: sum, rollText, isMultiDice: true };
+      }
+
+      // pool 骰池：统计 >= 阈值的颗数作为"成功次数"
+      if (node.mode === 'pool') {
+        const threshold = node.threshold ?? 1;
+        const successes = rolls.filter((v) => v >= threshold).length;
+        const rollText = `[${rolls.join(',')}]>=${threshold} → ${successes}次成功`;
+        return { value: successes, rollText, isMultiDice: true };
+      }
+
+      // 兜底（不应该到达）
       const sum = rolls.reduce((a, b) => a + b, 0);
-      // 单骰：直接显示值；多骰：显示每个骰子的值
-      const rollText = node.count === 1 ? String(sum) : rolls.join('+');
-      return { value: sum, rollText, isMultiDice: node.count > 1 };
+      return { value: sum, rollText: String(sum), isMultiDice: false };
     }
 
     if (node.type === 'binary') {
@@ -272,7 +396,14 @@ export function parseDiceExpression(expr: string): { ok: boolean; error?: string
 /** 生成 AST 结构预览（不投掷） */
 function astPreview(node: ExprNode): string {
   if (node.type === 'number') return String(node.value);
-  if (node.type === 'dice') return `${node.count}d${node.faces}`;
+  if (node.type === 'dice') {
+    const base = `${node.count}d${node.faces}`;
+    if (node.mode === 'kh') return `${base}kh${node.keep ?? 1}`;
+    if (node.mode === 'kl') return `${base}kl${node.keep ?? 1}`;
+    if (node.mode === '!') return `${base}!`;
+    if (node.mode === 'pool') return `${base}>=${node.threshold ?? 1}`;
+    return base;
+  }
   if (node.type === 'binary') {
     const left = astPreview(node.left);
     const right = astPreview(node.right);
@@ -524,7 +655,7 @@ export function createDefaultOptionDice(overrides: Partial<DiceConfig> = {}): Di
   return {
     id,
     kind: 'option',
-    name: '是/否抉择',
+    name: '',
     faces: 2,
     options: [
       { id: createOptionId(), displayValue: '1', values: [1], content: '否' },

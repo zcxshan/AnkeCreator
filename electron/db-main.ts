@@ -16,7 +16,6 @@
 //    ├── volumes.json              // 卷
 //    ├── chapters.json             // 章
 //    ├── sections.json             // 节（含 content 正文）
-//    ├── content_blocks.json       // 内容块
 //    ├── character_relations.json  // 人物关系
 //    ├── world_templates.json      // 世界观模板
 //    └── character_templates.json  // 人物模板
@@ -107,12 +106,21 @@ export function initMainDatabase(): void {
     'volumes',
     'chapters',
     'sections',
-    'content_blocks',
     'character_relations',
   ];
   for (const t of emptyTables) {
     if (!fs.existsSync(filePath(t + '.json'))) {
       saveJSON(t + '.json', {} as Record<string, any>);
+    }
+  }
+
+  // 旧版 content_blocks.json 一次性清理（已切换到新版富文本，不再使用）
+  const legacyBlocksPath = filePath('content_blocks.json');
+  if (fs.existsSync(legacyBlocksPath)) {
+    try {
+      fs.unlinkSync(legacyBlocksPath);
+    } catch {
+      /* ignore */
     }
   }
 
@@ -133,7 +141,30 @@ export function initMainDatabase(): void {
     cleanupLegacyPresetTemplates('character_templates.json');
   }
 
+  // —— story_stats 缓存表 —— //
+  // 首次创建时初始化为空对象；已存在时执行首次运行迁移（兼容老数据）
+  if (!fs.existsSync(filePath('story_stats.json'))) {
+    saveJSON('story_stats.json', {} as Record<string, any>);
+  }
+
   initialized = true;
+
+  // 启动迁移：如果 story_stats.json 为空但 stories 不为空，全量填充
+  // （用户从老版本升级到带 stats 缓存的新版本时自动执行）
+  migrateStoryStatsIfNeeded();
+}
+
+/** 首次运行迁移：如果 story_stats.json 为空但 stories 不为空，全量填充 */
+function migrateStoryStatsIfNeeded(): void {
+  const statsAll = readStoryStatsAll();
+  const stories = listStories();
+  if (stories.length > 0 && Object.keys(statsAll).length === 0) {
+    console.log(
+      `[db-main] 首次运行 stats 迁移：开始为 ${stories.length} 个作品计算 stats...`,
+    );
+    for (const s of stories) recomputeStoryStats(s.id);
+    console.log('[db-main] stats 迁移完成');
+  }
 }
 
 // 一次性清理老版本遗留的预置模板（is_preset === 1）
@@ -221,6 +252,100 @@ export function listStories(): StoryRow[] {
     });
 }
 
+export interface StoryWithStats extends StoryRow {
+  wordCount: number;
+  sectionCount: number;
+  chapterCount: number;
+}
+
+// —— Story Stats 缓存 —— //
+// 设计：把首页/作品列表常用的聚合统计（字数/节数/章数）预计算到 story_stats.json
+// 写入点维护：每次章节/节增删或正文修改时主动更新缓存
+type StoryStatsRow = {
+  story_id: string;
+  word_count: number;
+  section_count: number;
+  chapter_count: number;
+  updated_at: string;
+};
+
+/** 读取整个 stats 缓存表 */
+function readStoryStatsAll(): Record<string, StoryStatsRow> {
+  return readTable<StoryStatsRow>('story_stats');
+}
+
+/** 写入整个 stats 缓存表（原子写入） */
+function writeStoryStatsAll(all: Record<string, StoryStatsRow>): void {
+  writeTable('story_stats', all);
+}
+
+/** 读取单个 story 的 stats 缓存行（不存在则返回 null） */
+function readStoryStats(storyId: string): StoryStatsRow | null {
+  return readStoryStatsAll()[storyId] || null;
+}
+
+/** 写入单个 story 的 stats 缓存行（覆盖） */
+function writeStoryStats(
+  storyId: string,
+  row: Omit<StoryStatsRow, 'story_id' | 'updated_at'>,
+): void {
+  const all = readStoryStatsAll();
+  all[storyId] = { ...row, story_id: storyId, updated_at: nowISO() };
+  writeStoryStatsAll(all);
+}
+
+/** 删除单个 story 的 stats 缓存行 */
+function deleteStoryStats(storyId: string): void {
+  const all = readStoryStatsAll();
+  if (all[storyId]) {
+    delete all[storyId];
+    writeStoryStatsAll(all);
+  }
+}
+
+/**
+ * 全量重算单个 story 的统计（用于章节/节增删场景）。
+ * 读 chapters.json + sections.json 中属于该 story 的部分，重新聚合并写入缓存。
+ */
+function recomputeStoryStats(storyId: string): void {
+  const allChapters = Object.values(readTable<ChapterRow>('chapters')).filter(
+    (c) => c.story_id === storyId,
+  );
+  const chapterIds = new Set(allChapters.map((c) => c.id));
+  const allSections = Object.values(readTable<SectionRow>('sections')).filter(
+    (s) => s.chapter_id != null && chapterIds.has(s.chapter_id),
+  );
+  let wordCount = 0;
+  for (const sec of allSections) {
+    wordCount += sec.word_count || 0;
+  }
+  writeStoryStats(storyId, {
+    word_count: wordCount,
+    section_count: allSections.length,
+    chapter_count: allChapters.length,
+  });
+}
+
+/**
+ * 读取所有作品 + 预聚合统计（字数/节数/章数）。
+ * 改为读 story_stats.json 缓存表（1 次文件读），首次运行 / 缓存缺失时返回 0 兜底。
+ * chapters/sections 是物理删除（无 is_deleted 字段），无需过滤。
+ */
+export function listStoriesWithStats(): StoryWithStats[] {
+  const stories = listStories();
+  if (stories.length === 0) return [];
+  const statsAll = readStoryStatsAll();
+  return stories.map((story) => {
+    const stats = statsAll[story.id];
+    return {
+      ...story,
+      wordCount: stats?.word_count ?? 0,
+      sectionCount: stats?.section_count ?? 0,
+      chapterCount: stats?.chapter_count ?? 0,
+    };
+  });
+}
+
 export function getStory(id: string): StoryRow | undefined {
   return readTable<StoryRow>('stories')[id];
 }
@@ -228,7 +353,7 @@ export function getStory(id: string): StoryRow | undefined {
 export function createStory(data: { title: string; description?: string; category?: string }): StoryRow {
   const existing = listStories();
   const order = existing.length > 0 ? Math.max(...existing.map((s) => s.order_index || 0)) + 1 : 0;
-  return createRow<StoryRow>('stories', {
+  const row = createRow<StoryRow>('stories', {
     title: data.title || '未命名作品',
     description: data.description || '',
     category: data.category || '',
@@ -236,6 +361,9 @@ export function createStory(data: { title: string; description?: string; categor
     is_starred: 0,
     is_pinned: 0,
   } as any);
+  // 维护 stats 缓存：新增作品时初始化为空统计行
+  writeStoryStats(row.id, { word_count: 0, section_count: 0, chapter_count: 0 });
+  return row;
 }
 
 export function updateStory(id: string, patch: Partial<StoryRow>): StoryRow | undefined {
@@ -246,7 +374,7 @@ export function updateStory(id: string, patch: Partial<StoryRow>): StoryRow | un
 export function deleteStory(id: string): void {
   // 删除故事 → 连带删除其下所有相关数据
   deleteRow('stories', id);
-  // 级联：world_settings, characters, outlines, volumes, chapters, sections, content_blocks, relations
+  // 级联：world_settings, characters, outlines, volumes, chapters, sections, relations
   const cascadeByStory = (table: string) => {
     const all = readTable<any>(table);
     for (const key of Object.keys(all)) {
@@ -260,7 +388,7 @@ export function deleteStory(id: string): void {
   cascadeByStory('volumes');
   cascadeByStory('character_relations');
 
-  // 删除章 / 节 / 内容块（通过卷 → 章 → 节）
+  // 删除章 / 节（通过卷 → 章 → 节）
   const chapters = Object.values(readTable<any>('chapters')).filter((c: any) => c.story_id === id);
   const volumes = Object.values(readTable<any>('volumes')).filter((v: any) => v.story_id === id);
   const allChapters = readTable<any>('chapters');
@@ -274,23 +402,14 @@ export function deleteStory(id: string): void {
   // sections 级联：通过该故事的章 id 找到所有节并删除
   const chapterIdsOfStory = new Set(chapters.map((c: any) => c.id));
   const allSections2 = readTable<any>('sections');
-  const sectionIdsOfStory = new Set<string>();
   for (const key of Object.keys(allSections2)) {
     if (chapterIdsOfStory.has(allSections2[key].chapter_id)) {
-      sectionIdsOfStory.add(key);
       delete allSections2[key];
     }
   }
   writeTable('sections', allSections2);
-
-  // content_blocks
-  const allBlocks = readTable<any>('content_blocks');
-  for (const key of Object.keys(allBlocks)) {
-    if (sectionIdsOfStory.has(allBlocks[key].section_id)) {
-      delete allBlocks[key];
-    }
-  }
-  writeTable('content_blocks', allBlocks);
+  // 维护 stats 缓存：删除作品时一并删除对应 stats 缓存行
+  deleteStoryStats(id);
 }
 
 // —— 回收站：软删除 / 恢复 / 永久删除 ——
@@ -754,12 +873,15 @@ export function listChaptersByVolume(volumeId: string): ChapterRow[] {
 export function createChapter(data: { story_id: string; volume_id?: string | null; title: string; order_index?: number }): ChapterRow {
   const existing = listChapters(data.story_id);
   const order = typeof data.order_index === 'number' ? data.order_index : existing.length;
-  return createRow<ChapterRow>('chapters', {
+  const row = createRow<ChapterRow>('chapters', {
     story_id: data.story_id,
     volume_id: data.volume_id ?? null,
     title: data.title,
     order_index: order,
   } as any);
+  // 维护 stats 缓存：新增章节后 chapterCount+1
+  recomputeStoryStats(data.story_id);
+  return row;
 }
 
 export function updateChapter(id: string, patch: Partial<ChapterRow>): ChapterRow | undefined {
@@ -767,24 +889,53 @@ export function updateChapter(id: string, patch: Partial<ChapterRow>): ChapterRo
 }
 
 export function deleteChapter(id: string): void {
+  // 先取 chapter.story_id，删除后用于重算 stats
+  const chapter = readTable<ChapterRow>('chapters')[id];
   // 连带删除此章下的节
   const sections = Object.values(readTable<SectionRow>('sections')).filter((s) => s.chapter_id === id);
   for (const s of sections) deleteSection(s.id);
   deleteRow('chapters', id);
+  // 维护 stats 缓存：删除章节后 chapterCount-N（一次性重算覆盖所有变化）
+  if (chapter?.story_id) recomputeStoryStats(chapter.story_id);
 }
 
 export function reorderChapters(storyId: string, orderedIds: string[]): void {
   orderedIds.forEach((id, i) => updateChapter(id, { order_index: i }));
 }
 
+// 跨卷拖动：同时更新 chapter.volume_id 和 order_index
+export function moveChapters(
+  storyId: string,
+  targetVolumeId: string | null,
+  orderedIds: string[],
+): void {
+  orderedIds.forEach((id, i) => {
+    updateChapter(id, { volume_id: targetVolumeId, order_index: i });
+  });
+}
+
+function countWordsInHtml(html: string | null | undefined): number {
+  if (!html) return 0;
+  const text = String(html)
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&[a-z]+;/gi, ' ')
+    .replace(/\s+/g, '');
+  return text.length;
+}
+
 // —— Section —— //
 
 type SectionRow = {
   id: string;
-  chapter_id: string;
+  chapter_id: string | null;
   title: string;
   content: string | null; // 正文（富文本 JSON）
+  bbcode?: string | null; // 原始 BBCode 文本（来自"收集安科"导入的节；BBCode 视图优先用本字段）
   order_index: number;
+  word_count?: number;
   created_at: string;
   updated_at: string;
 };
@@ -796,26 +947,136 @@ export function listSections(chapterId: string): SectionRow[] {
     .sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
 }
 
-export function createSection(data: { chapter_id: string; title: string; content?: string | null; order_index?: number }): SectionRow {
+export function listSectionMetadata(chapterId: string) {
+  return listSections(chapterId).map((r) => ({
+    id: r.id,
+    chapter_id: r.chapter_id,
+    title: r.title,
+    order_index: r.order_index,
+    word_count: r.word_count || 0,
+    created_at: r.created_at,
+    updated_at: r.updated_at,
+  }));
+}
+
+export function createSection(data: { chapter_id: string; title: string; content?: string | null; bbcode?: string | null; order_index?: number }): SectionRow {
   const existing = listSections(data.chapter_id);
   const order = typeof data.order_index === 'number' ? data.order_index : existing.length;
-  return createRow<SectionRow>('sections', {
+  const wc = countWordsInHtml(data.content ?? null);
+  const row = createRow<SectionRow>('sections', {
     chapter_id: data.chapter_id,
     title: data.title,
     content: data.content ?? null,
+    bbcode: data.bbcode ?? null,
+    word_count: wc,
     order_index: order,
   } as any);
+  // 维护 stats 缓存：新增节后 sectionCount+1, wordCount+=wc
+  const chapter = readTable<ChapterRow>('chapters')[data.chapter_id];
+  if (chapter?.story_id) recomputeStoryStats(chapter.story_id);
+  return row;
 }
 
 export function updateSection(id: string, patch: Partial<SectionRow>): SectionRow | undefined {
-  return updateRow<SectionRow>('sections', id, patch as any) || undefined;
+  const r = updateRow<SectionRow>('sections', id, patch as any) || undefined;
+  // 维护 stats 缓存：patch 可能含 content（影响 word_count）→ 重算最稳
+  if (r && r.chapter_id && patch.content !== undefined) {
+    const chapter = readTable<ChapterRow>('chapters')[r.chapter_id];
+    if (chapter?.story_id) recomputeStoryStats(chapter.story_id);
+  }
+  return r;
 }
 
 export function deleteSection(id: string): void {
-  // 连带删除内容块
-  const blocks = Object.values(readTable<any>('content_blocks')).filter((b) => b.section_id === id);
-  for (const b of blocks) deleteBlock(b.id);
+  // 先取 section.chapter_id，删除后用于反查 story_id 重算 stats
+  const section = readTable<SectionRow>('sections')[id];
   deleteRow('sections', id);
+  // 维护 stats 缓存：删除节后 sectionCount-1, wordCount-=wc
+  if (section?.chapter_id) {
+    const chapter = readTable<ChapterRow>('chapters')[section.chapter_id];
+    if (chapter?.story_id) recomputeStoryStats(chapter.story_id);
+  }
+}
+
+// —— Bulk Create (导入加速：只读写文件一次) —— //
+
+export function bulkCreateVolumes(rows: Array<{ story_id: string; title: string; order_index?: number; _oldId?: string }>): Array<{ id: string; _oldId?: string }> {
+  const all = readTable<VolumeRow>('volumes');
+  const now = nowISO();
+  const result: Array<{ id: string; _oldId?: string }> = [];
+  for (const r of rows) {
+    const id = uuid4();
+    const order = typeof r.order_index === 'number' ? r.order_index : Object.values(all).filter((v: any) => v.story_id === r.story_id).length;
+    all[id] = {
+      id,
+      story_id: r.story_id,
+      title: r.title,
+      order_index: order,
+      created_at: now,
+      updated_at: now,
+    } as VolumeRow;
+    result.push({ id, _oldId: r._oldId });
+  }
+  writeTable('volumes', all);
+  return result;
+}
+
+export function bulkCreateChapters(rows: Array<{ story_id: string; volume_id?: string | null; title: string; order_index?: number; _oldId?: string }>): Array<{ id: string; _oldId?: string }> {
+  const all = readTable<ChapterRow>('chapters');
+  const now = nowISO();
+  const result: Array<{ id: string; _oldId?: string }> = [];
+  for (const r of rows) {
+    const id = uuid4();
+    const order = typeof r.order_index === 'number' ? r.order_index : Object.values(all).filter((c: any) => c.story_id === r.story_id).length;
+    all[id] = {
+      id,
+      story_id: r.story_id,
+      volume_id: r.volume_id ?? null,
+      title: r.title,
+      order_index: order,
+      created_at: now,
+      updated_at: now,
+    } as ChapterRow;
+    result.push({ id, _oldId: r._oldId });
+  }
+  writeTable('chapters', all);
+  // 维护 stats 缓存：批量导入章节后，对所有涉及的 story 各重算一次（去重后通常 1 次）
+  const involvedStoryIds = new Set(rows.map((r) => r.story_id));
+  for (const sid of involvedStoryIds) recomputeStoryStats(sid);
+  return result;
+}
+
+export function bulkCreateSections(rows: Array<{ chapter_id: string; title: string; content?: string | null; bbcode?: string | null; order_index?: number; _oldId?: string }>): Array<{ id: string; _oldId?: string }> {
+  const all = readTable<SectionRow>('sections');
+  const now = nowISO();
+  const result: Array<{ id: string; _oldId?: string }> = [];
+  for (const r of rows) {
+    const id = uuid4();
+    const order = typeof r.order_index === 'number' ? r.order_index : Object.values(all).filter((s: any) => s.chapter_id === r.chapter_id).length;
+    const wc = countWordsInHtml(r.content ?? null);
+    all[id] = {
+      id,
+      chapter_id: r.chapter_id,
+      title: r.title,
+      content: r.content ?? null,
+      bbcode: r.bbcode ?? null,
+      word_count: wc,
+      order_index: order,
+      created_at: now,
+      updated_at: now,
+    } as SectionRow;
+    result.push({ id, _oldId: r._oldId });
+  }
+  writeTable('sections', all);
+  // 维护 stats 缓存：批量导入节后，通过 chapter_id 反查 story_id，对所有涉及的 story 各重算一次
+  const allChapters = readTable<ChapterRow>('chapters');
+  const involvedStoryIds = new Set<string>();
+  for (const r of rows) {
+    const ch = allChapters[r.chapter_id];
+    if (ch?.story_id) involvedStoryIds.add(ch.story_id);
+  }
+  for (const sid of involvedStoryIds) recomputeStoryStats(sid);
+  return result;
 }
 
 export function getSectionContent(id: string): string | null {
@@ -824,85 +1085,52 @@ export function getSectionContent(id: string): string | null {
 }
 
 export function setSectionContent(id: string, content: string | null): void {
-  updateRow<SectionRow>('sections', id, { content } as any);
+  // 增量优化：避免每次改一个字就重算整个 story 的所有节
+  // 读旧 word_count → 算 delta → 直接更新 stats 缓存行
+  const all = readTable<SectionRow>('sections');
+  const old = all[id];
+  const oldWc = old?.word_count || 0;
+  const wc = countWordsInHtml(content);
+  if (old) {
+    all[id] = { ...old, content, word_count: wc, updated_at: nowISO() };
+    writeTable('sections', all);
+    // 增量更新 story stats 缓存（反查 story_id 通过 chapter_id）
+    if (old.chapter_id) {
+      const chapter = readTable<ChapterRow>('chapters')[old.chapter_id];
+      if (chapter?.story_id) {
+        const stats = readStoryStats(chapter.story_id);
+        if (stats) {
+          writeStoryStats(chapter.story_id, {
+            word_count: Math.max(0, stats.word_count + (wc - oldWc)),
+            section_count: stats.section_count,
+            chapter_count: stats.chapter_count,
+          });
+        } else {
+          // 缓存缺失，兜底全量重算
+          recomputeStoryStats(chapter.story_id);
+        }
+      }
+    }
+  }
+  // 节不存在时无操作
+}
+
+export function setSectionBBCode(id: string, bbcode: string | null): void {
+  updateRow<SectionRow>('sections', id, { bbcode } as any);
 }
 
 export function reorderSections(chapterId: string, orderedIds: string[]): void {
   orderedIds.forEach((id, i) => updateSection(id, { order_index: i }));
 }
 
-// —— Content Blocks —— //
-
-type BlockRow = {
-  id: string;
-  section_id: string;
-  type: 'text' | 'image' | 'dice';
-  payload: string; // JSON
-  order_index: number;
-  created_at: string;
-  updated_at: string;
-};
-
-export function listBlocks(sectionId: string): any[] {
-  const all = readTable<BlockRow>('content_blocks');
-  return Object.values(all)
-    .filter((r) => r.section_id === sectionId)
-    .sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
-    .map((r) => ({
-      id: r.id,
-      section_id: r.section_id,
-      type: r.type,
-      payload: parseJSON<any>(r.payload, {}),
-      order_index: r.order_index,
-      created_at: r.created_at,
-      updated_at: r.updated_at,
-    }));
-}
-
-export function createBlock(sectionId: string, type: 'text' | 'image' | 'dice', payload: any, orderIndex?: number): any {
-  const existing = listBlocks(sectionId);
-  const order = typeof orderIndex === 'number' ? orderIndex : existing.length;
-  const row = createRow<BlockRow>('content_blocks', {
-    section_id: sectionId,
-    type,
-    payload: serializeJSON(payload),
-    order_index: order,
-  } as any);
-  return {
-    id: row.id,
-    section_id: row.section_id,
-    type: row.type,
-    payload: parseJSON<any>(row.payload, {}),
-    order_index: row.order_index,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-  };
-}
-
-export function updateBlockPayload(id: string, payload: any): any {
-  updateRow<BlockRow>('content_blocks', id, { payload: serializeJSON(payload) } as any);
-  const all = readTable<BlockRow>('content_blocks');
-  const row = all[id];
-  if (!row) return null;
-  return {
-    id: row.id,
-    section_id: row.section_id,
-    type: row.type,
-    payload: parseJSON<any>(row.payload, {}),
-    order_index: row.order_index,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-  };
-}
-
-export function reorderBlocks(sectionId: string, orderedIds: string[]): void {
+// 跨章拖动：同时更新 section.chapter_id 和 order_index
+export function moveSections(
+  targetChapterId: string | null,
+  orderedIds: string[],
+): void {
   orderedIds.forEach((id, i) => {
-    updateRow<BlockRow>('content_blocks', id, { order_index: i } as any);
+    updateSection(id, { chapter_id: targetChapterId, order_index: i });
   });
-}
-
-export function deleteBlock(id: string): void {
-  deleteRow('content_blocks', id);
 }
 
 // —— Templates —— //
@@ -1056,10 +1284,7 @@ export function getStoryWithAll(storyId: string): any {
     volumes: listVolumes(storyId),
     chapters: listChapters(storyId).map((ch) => ({
       ...ch,
-      sections: listSections(ch.id).map((sec) => ({
-        ...sec,
-        blocks: listBlocks(sec.id),
-      })),
+      sections: listSections(ch.id),
     })),
   };
 }

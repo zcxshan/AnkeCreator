@@ -39,6 +39,35 @@ import {
   NGA_LINK_COLOR,
 } from '../types';
 
+/**
+ * bbcodeToHtml 显式支持的 BBCode 标签集合。
+ * 不在集合中的标签会走 buildOpenNode 的 default 分支，按原始 BBCode 文本透传输出。
+ * NGA 坛友标签 [s:xxx:xxx] 与 NGA 骰子标签 [d\d*] 不在此集合，由 tokenize 阶段直接视为文本。
+ */
+const KNOWN_BB_TAGS = new Set<string>([
+  'b', 'i', 'u', 'del', 's',
+  'color', 'size', 'font', 'align',
+  'sup', 'sub', 'url', 'img',
+  'quote', 'collapse', 'code',
+  'list', '*', 'table', 'tr', 'td', 'th',
+  'h', 'hr', 'br',
+]);
+
+/**
+ * 判定一段 `[...]` 的内容是否属于 NGA 论坛特有的"非标准标签"语法：
+ * - `[s:xxx:xxx]` 坛友标签 / 表情
+ * - `[d\d*]` 骰子标签（如 [d]、[d6]、[d100]）
+ * 这些标签在 tokenize 阶段直接作为文本处理，不进入标签栈。
+ */
+function isNgaSpecialTagRaw(raw: string): boolean {
+  if (!raw) return false;
+  // [s:xxx:xxx] —— 坛友标签，含两个冒号且无 '='
+  if (raw.startsWith('s:') && raw.indexOf('=') < 0) return true;
+  // [d] / [d6] / [d100] —— 骰子标签
+  if (/^d\d*$/i.test(raw)) return true;
+  return false;
+}
+
 type Node =
   | { kind: 'text'; text: string }
   | {
@@ -86,6 +115,12 @@ function tokenize(input: string): Array<{ type: 'text' | 'open' | 'close' | 'sel
           buf = '';
         }
         const raw = input.slice(start, end).trim();
+        // NGA 坛友标签 [s:xxx:xxx] / 骰子标签 [d\d*] —— 整段视为文本
+        if (!close && isNgaSpecialTagRaw(raw)) {
+          buf += `[${input.slice(start, end)}]`;
+          i = end + 1;
+          continue;
+        }
         if (close) {
           tokens.push({ type: 'close', tag: raw.toLowerCase(), attrs: '' });
         } else if (raw.endsWith('/')) {
@@ -136,11 +171,15 @@ function escapeHtml(s: string): string {
 }
 
 /** children → HTML（递归） */
-function childrenToHTML(children: Node[]): string {
+function childrenToHTML(children: Node[], inPre: boolean = false): string {
   return children
     .map((c) => {
-      if (c.kind === 'text') return escapeHtml(c.text);
-      const inner = childrenToHTML(c.children);
+      if (c.kind === 'text') {
+        const escaped = escapeHtml(c.text);
+        return inPre ? escaped : escaped.replace(/\n/g, '<br>');
+      }
+      const childPre = inPre || (c.kind === 'el' && c.tag === 'code');
+      const inner = childrenToHTML(c.children, childPre);
       const innerBBCode = childrenToBBCode(c.children);
       return c.render(inner, innerBBCode);
     })
@@ -167,7 +206,7 @@ function tagToBBCode(tag: string, attrStr: string, inner: string): string {
   return `[${tag}=${attrStr}]${inner}[/${tag}]`;
 }
 
-const SELF_CLOSING_TAGS = new Set(['h', 'hr', 'br', 'img']);
+const SELF_CLOSING_TAGS = new Set(['h', 'hr', 'br']);
 
 /** 主入口：BBCode → HTML 字符串 */
 export function bbcodeToHtml(input: string | null | undefined): string {
@@ -317,8 +356,11 @@ function buildOpenNode(tag: string, attrRaw: string): Node {
       void src;
       // [img]xxx[/img] 这种会通过 children 形式被处理
       return elNode('img', {}, (_inner, innerBBCode) => {
-        const url = (innerBBCode || '').trim();
-        return `<div data-type="image-block" data-size="original" style="display:inline-block;margin:2px 4px;vertical-align:middle;outline:none;user-select:none"><img src="${escapeHtml(url)}" style="max-width:100%;height:auto;display:inline-block;cursor:pointer;user-select:none" alt=""></div>`;
+        const url = expandNgaImageUrl((innerBBCode || '').trim());
+        // onerror 兜底：图片加载失败时显示占位（保持和 insertImageBlock 一致）
+        // 用内联 JS 而非 base64 SVG 占位图，因为图片可能在 Electron 渲染进程/Capacitor 加载
+        const onerror = `this.onerror=null;this.style.minHeight='40px';this.style.background='var(--bg-hover, #f0f0f0)';this.alt='图片加载失败';this.insertAdjacentHTML('afterend','<span style=&quot;display:inline-block;color:#999;font-size:12px;padding:4px 6px;background:var(--bg-hover,#f0f0f0);border-radius:3px;margin:2px 4px&quot;>[图片无法加载]</span>');`;
+        return `<div data-type="image-block" data-size="original" style="display:inline-block;margin:2px 4px;vertical-align:middle;outline:none;user-select:none"><img src="${escapeHtml(url)}" onerror="${onerror}" style="max-width:100%;height:auto;display:inline-block;cursor:pointer;user-select:none" alt=""></div>`;
       });
     }
     case 'quote': {
@@ -332,7 +374,10 @@ function buildOpenNode(tag: string, attrRaw: string): Node {
     case 'collapse': {
       const title = attrRaw || '折叠';
       return elNode('collapse', { title }, (inner) => {
-        return `<div data-type="collapse-block" data-title="${escapeHtml(title)}" style="display:block;margin:6px 0;border-radius:4px;overflow:hidden"><div class="collapse-head" style="background:${NGA_COLLAPSE_HEAD_BG};padding:6px 10px;font-weight:600;user-select:none">+ ${escapeHtml(title)}</div><div class="collapse-body" contenteditable="true" style="background:${NGA_COLLAPSE_BODY_BG};padding:8px 12px">${inner}</div></div>`;
+        // 与 insertCollapseBlock 保持一致结构（toggle span + title span + data-collapsed）
+        // 让 BBCode 转换产物和工具栏插入的 collapse-block 都能被 attachCollapseBlockHandlers
+        // 的 click toggle 识别。head 设 contenteditable="false" 避免点击被吞。
+        return `<div data-type="collapse-block" data-title="${escapeHtml(title)}" data-collapsed="true" style="display:block;margin:6px 0;border-radius:4px;overflow:hidden;outline:none"><div class="collapse-head" contenteditable="false" style="background:${NGA_COLLAPSE_HEAD_BG};padding:6px 10px;font-weight:600;display:flex;align-items:center;gap:4px;user-select:none;cursor:pointer"><span class="collapse-toggle" style="cursor:pointer;user-select:none;flex-shrink:0">+</span><span class="collapse-title" style="flex:1;min-width:0">${escapeHtml(title)}</span></div><div class="collapse-body" style="background:${NGA_COLLAPSE_BODY_BG};padding:8px 12px;display:none">${inner}</div></div>`;
       });
     }
     case 'code':
@@ -390,6 +435,25 @@ function lookupFont(value: string): string {
   const f = NGA_FONTS.find((x) => x.value === value);
   if (f) return f.cssFamily;
   return value || 'serif';
+}
+
+/**
+ * 把 NGA 论坛里的相对图片路径补全为可访问的完整 URL
+ * - 已带 http(s):// 或 // 开头 → 原样返回
+ * - 以 ./ 开头（如 ./mon_xxx）→ 补全为 https://img.nga.178.com/attachments/...
+ * - 以 mon_ 开头（无 ./）→ 同样补全
+ * - 其余（带 [img] 属性的）原样返回
+ */
+export function expandNgaImageUrl(url: string): string {
+  if (!url) return '';
+  if (/^https?:\/\//i.test(url) || url.startsWith('//')) return url;
+  if (url.startsWith('./')) {
+    return `https://img.nga.178.com/attachments/${url.slice(2)}`;
+  }
+  if (url.startsWith('mon_')) {
+    return `https://img.nga.178.com/attachments/${url}`;
+  }
+  return url;
 }
 
 function collapseBlankLines(s: string): string {

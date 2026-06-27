@@ -1,0 +1,347 @@
+// ============================================================
+// 收集安科：NGA 帖子 → 安科作品 JSON
+//
+// 流程：解析 URL → 调主进程爬取 → 按 authorid 过滤（如指定） → BBCode 转 HTML
+//       → 切分为多个 section → 拼 anke-creator-export JSON
+// ============================================================
+
+import { parseThreadUrl, type RawPost } from './ngaCrawler';
+import { bbcodeToHtml } from './ngaBBCodeToHtml';
+
+/** 节切分模式 */
+export type SectionMode = 'single' | 'one-per-floor' | 'every-n';
+
+/**
+ * 收集安科 JSON 的"格式详细设置"：
+ * 用占位符自定义卷名/章名/节名/节内容的范围标记。
+ *
+ * 支持的占位符：
+ * - `{volIndex}`: 卷序号（当前仅 1）
+ * - `{chapterIndex}`: 章序号（当前仅 1）
+ * - `{startFloor}`: 该节起始楼层号
+ * - `{endFloor}`: 该节结束楼层号
+ *
+ * 模板示例：
+ * - `第{volIndex}卷` → 渲染为 `第1卷`
+ * - `第一章` → 渲染为 `第一章`（无占位符，直接使用）
+ * - `第 {startFloor}-{endFloor} 楼` → 渲染为 `第 1-10 楼`
+ * - `这节内容是{startFloor}楼到{endFloor}楼` → 渲染为 `这节内容是1楼到10楼`
+ *
+ * 默认值与原硬编码行为完全一致（向后兼容）。
+ */
+export interface FormatSettings {
+  volumeTitleFormat: string;
+  chapterTitleFormat: string;
+  sectionTitleFormat: string;
+  /**
+   * 节内容范围标记（可选，空 = 不加）。
+   * 用户填入的字符串会作为节内容的最前面一行插入，例如
+   * `这节内容是{startFloor}楼到{endFloor}楼的内容`
+   * 占位符替换后会变成 `这节内容是1楼到10楼的内容`。
+   */
+  sectionContentRangeFormat: string;
+}
+
+/** FormatSettings 默认值（与原硬编码行为完全一致，向后兼容） */
+export const DEFAULT_FORMAT_SETTINGS: FormatSettings = {
+  volumeTitleFormat: '第一卷',
+  chapterTitleFormat: '第一章',
+  sectionTitleFormat: '第 {startFloor}-{endFloor} 楼',
+  sectionContentRangeFormat: '',
+};
+
+/** 切分后的一个节 */
+export interface Section {
+  title: string;
+  order_index: number;
+  content: string; // 完整 HTML（含所有楼 + 楼间 hr）
+  posts: RawPost[]; // 原始 posts，方便测试断言
+}
+
+export interface AnkeCollectOptions {
+  url: string;
+  startFloor: number;
+  endFloor: number;
+  workTitle: string;
+  /** 切分模式：'single' / 'one-per-floor' / 'every-n'（默认 'every-n'） */
+  sectionMode?: SectionMode;
+  /** 每 N 楼一节（仅 sectionMode='every-n' 时有效，默认 10） */
+  floorsPerSection?: number;
+  /** NGA Cookie（登录受限帖子需要） */
+  cookies?: string;
+  /** 只看该作者（从 URL 的 &authorid=XXX 解析，或显式传入） */
+  authorid?: string;
+  /**
+   * JSON 格式详细设置（卷/章/节命名模板）。可选，缺省使用 DEFAULT_FORMAT_SETTINGS。
+   * 详见 FormatSettings 注释。
+   */
+  formatSettings?: FormatSettings;
+}
+
+export interface AnkeCollectResult {
+  ok: boolean;
+  error?: string;
+  jsonData?: unknown;
+  fileName?: string;
+  stats?: { totalFloors: number; sectionCount: number };
+  /** 抓取失败的页码列表（透传自主进程） */
+  failedPages?: number[];
+  /** 帖子实际最高楼层（透传自主进程，用于超范围提示） */
+  actualMaxFloor?: number;
+}
+
+/** 主入口：爬取 → 转换 → 切分 → 拼作品 JSON */
+export async function collectAnkeToWorkJson(
+  opts: AnkeCollectOptions,
+): Promise<AnkeCollectResult> {
+  // 1. 解析 URL
+  const parsed = parseThreadUrl(opts.url);
+  if (!parsed) {
+    return { ok: false, error: 'URL 格式不正确，请确认包含 ?tid=XXX' };
+  }
+
+  // 2. 楼层范围校验
+  if (
+    !Number.isFinite(opts.startFloor) ||
+    !Number.isFinite(opts.endFloor) ||
+    opts.startFloor < 1 ||
+    opts.endFloor < opts.startFloor
+  ) {
+    return { ok: false, error: '楼层范围不合法' };
+  }
+
+  // 3. 调主进程（用与 collectNga 一致的 IPC shape）
+  //    后端已有单页自动重试 3 次，此处不再外层重试（避免重复爬全部页面且丢失 failedPages）
+  //    authorid 优先用 opts.authorid，其次从 URL 解析（兼容旧调用方）
+  const parsedAuthorid = opts.authorid || parsed.authorid;
+  const collectRes = await window.electronAPI?.collectNga?.({
+    url: opts.url,
+    startFloor: opts.startFloor,
+    endFloor: opts.endFloor,
+    prefix: '',
+    authorid: parsedAuthorid,
+    cookies: opts.cookies,
+  });
+  if (!collectRes || !collectRes.ok) {
+    return { ok: false, error: collectRes?.error || '抓取失败：主进程不可用' };
+  }
+
+  // 4. 主进程已按 authorid 抓取"只看该作者"页面，无需渲染进程二次 uid 过滤
+  let posts = collectRes.items || [];
+  // 5. 楼层范围裁剪
+  //    - authorid 模式：主进程已按作者回复序号裁剪，这里直接用返回结果
+  //    - 非 authorid 模式：按楼层号过滤
+  if (!parsedAuthorid) {
+    posts = posts.filter(
+      (p: any) => p.floor >= opts.startFloor && p.floor <= opts.endFloor,
+    );
+  }
+  // 6. 按 floor 去重（保留首次出现），防止任何来源的重复楼层进入 JSON
+  const seenFloors = new Set<number>();
+  posts = posts.filter((p: any) => {
+    if (seenFloors.has(p.floor)) return false;
+    seenFloors.add(p.floor);
+    return true;
+  });
+  // 7. 排序
+  posts.sort((a: any, b: any) => a.floor - b.floor);
+
+  if (posts.length === 0) {
+    return { ok: false, error: '指定范围内无内容' };
+  }
+
+  // 7. 按 sectionMode + floorsPerSection 切分
+  const sections = splitPostsIntoSections(
+    posts as RawPost[],
+    opts.sectionMode ?? 'every-n',
+    opts.floorsPerSection ?? 10,
+  );
+
+  // 8. 拼作品 JSON
+  const finalTitle = opts.workTitle?.trim() || `安科-${parsed.tid}`;
+  // 合并 formatSettings（用户自定义覆盖默认值）
+  const fmt: FormatSettings = {
+    ...DEFAULT_FORMAT_SETTINGS,
+    ...(opts.formatSettings || {}),
+  };
+  // 当前只支持单卷单章：{volIndex}=1, {chapterIndex}=1
+  const volIndex = 1;
+  const chapterIndex = 1;
+  const volumeTitle = fmt.volumeTitleFormat
+    .replace(/\{volIndex\}/g, String(volIndex))
+    .replace(/\{chapterIndex\}/g, String(chapterIndex));
+  const chapterTitle = fmt.chapterTitleFormat
+    .replace(/\{volIndex\}/g, String(volIndex))
+    .replace(/\{chapterIndex\}/g, String(chapterIndex));
+  // 默认 volume 占位 id 'vol-default'：导入端 volumeIdMap[vol.id] 会重新映射为真实 DB id，
+  // 所以这里用稳定字符串即可。chapter 通过 volume_id 关联到该 volume，
+  // 避免导入后所有 chapter 落到"未归卷"。
+  const jsonData = {
+    format: 'anke-creator-export',
+    version: '1.1',
+    exportedAt: new Date().toISOString(),
+    appVersion: '0.1.0',
+    data: {
+      title: finalTitle,
+      description: `源：NGA tid=${parsed.tid}，第 ${opts.startFloor}-${opts.endFloor} 楼`,
+      category: '安科',
+      volumes: [
+        {
+          id: 'vol-default',
+          title: volumeTitle,
+          order_index: 0,
+        },
+      ],
+      chapters: [
+        {
+          title: chapterTitle,
+          volume_id: 'vol-default',
+          order_index: 0,
+          sections: sections.map((s) => {
+            const startF = s.posts[0]?.floor ?? 0;
+            const endF = s.posts[s.posts.length - 1]?.floor ?? 0;
+            const sectionTitle = fmt.sectionTitleFormat
+              .replace(/\{startFloor\}/g, String(startF))
+              .replace(/\{endFloor\}/g, String(endF))
+              .replace(/\{volIndex\}/g, String(volIndex))
+              .replace(/\{chapterIndex\}/g, String(chapterIndex));
+            // 节内容范围标记（可选）：插在帖子内容之前，单独一行 + 空行分隔
+            const rangeLine = fmt.sectionContentRangeFormat
+              ? `<p class="anke-section-range">${fmt.sectionContentRangeFormat
+                  .replace(/\{startFloor\}/g, String(startF))
+                  .replace(/\{endFloor\}/g, String(endF))}</p>\n\n`
+              : '';
+            return {
+              title: sectionTitle,
+              order_index: s.order_index,
+              // 保留原帖图片（含 image-block），导入后可视化视图可正常显示
+              content: rangeLine + s.content,
+            };
+          }),
+        },
+      ],
+      characters: [],
+      world_settings: [],
+      outlines: [],
+      character_relations: [],
+      dice_history: [],
+    },
+  };
+
+  const safeTitle = finalTitle.replace(/[\/:*?"<>|]/g, '_');
+  return {
+    ok: true,
+    jsonData,
+    fileName: safeTitle,
+    stats: { totalFloors: posts.length, sectionCount: sections.length },
+    failedPages: collectRes.failedPages,
+    actualMaxFloor: collectRes.actualMaxFloor,
+  };
+}
+
+/**
+ * 把 posts 切成多个 section（mode + n 控制粒度）
+ * - 'single' 整段一节
+ * - 'one-per-floor' 每楼一节
+ * - 'every-n' 每 N 楼一节（N=1 等价于 one-per-floor）
+ */
+export function splitPostsIntoSections(
+  posts: RawPost[],
+  mode: SectionMode,
+  n: number = 10,
+): Section[] {
+  if (posts.length === 0) return [];
+
+  const groups: RawPost[][] = [];
+  if (mode === 'single') {
+    groups.push(posts);
+  } else if (mode === 'one-per-floor') {
+    for (const p of posts) groups.push([p]);
+  } else {
+    // every-n
+    const step = Math.max(1, Math.floor(n));
+    for (let i = 0; i < posts.length; i += step) {
+      groups.push(posts.slice(i, i + step));
+    }
+  }
+
+  return groups.map((g, i) => {
+    const startF = g[0].floor;
+    const endF = g[g.length - 1].floor;
+    const inner = buildSectionHtml(g);
+    // 多楼合节用 <div class="anke-section"> 整体包装（BBCode 同步可整体处理）；
+    // 单楼 section 不嵌包装，避免 BBCode 同步时被丢弃。
+    const content = g.length > 1
+      ? `<div class="anke-section">${inner}</div>`
+      : inner;
+    return {
+      title: g.length === 1
+        ? `第 ${startF} 楼`
+        : `第 ${startF}-${endF} 楼`,
+      order_index: i,
+      content,
+      posts: g,
+    };
+  });
+}
+
+/**
+ * 一节内容：每楼前加 h4 小标题"—— 3 楼 @作者 · 时间 ——" + 楼间虚线 <hr>。
+ * 返回纯 inner HTML（不含 <div class="anke-section"> 包装），由 splitPostsIntoSections
+ * 根据是否多楼决定是否补一层包装。
+ * 保留原帖图片（含 image-block），导入后可视化视图可正常显示。
+ */
+export function buildSectionHtml(posts: RawPost[]): string {
+  const blocks = posts.map((p) => {
+    const inner = bbcodeToHtml(p.content);
+    const timeStr = formatPostTime(p.time);
+    const header = timeStr
+      ? `—— ${p.floor} 楼 @${escapeHtml(p.author)} · ${timeStr} ——`
+      : `—— ${p.floor} 楼 @${escapeHtml(p.author)} ——`;
+    return `<h4 style="margin: 12px 0 8px; color: var(--accent); font-size: 14px; font-weight: 600;">${header}</h4>${inner}`;
+  });
+  return blocks.join(
+    '<hr style="border:none; border-top:1px dashed var(--border-color); margin:16px 0;" />',
+  );
+}
+
+/** 剥离 image-block 元素（收集安科不应把原帖 [img] 带入新作品，避免 BBCode 同步时混入旧骰点图） */
+export function stripImageBlocks(html: string): string {
+  if (typeof html !== 'string' || !html) return html || '';
+  if (typeof document === 'undefined') {
+    // happy-dom / Node 环境无 document：退化为正则兜底，匹配 <div ... data-type="image-block" ...>...</div>
+    return html.replace(/<div\b[^>]*data-type="image-block"[^>]*>[\s\S]*?<\/div>/gi, '');
+  }
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  tmp.querySelectorAll('[data-type="image-block"]').forEach((el) => el.remove());
+  return tmp.innerHTML;
+}
+
+/** 把秒级时间戳格式化为 YYYY-MM-DD HH:mm（本地时区）；非法值返回空字符串 */
+export function formatPostTime(ts: number | undefined | null): string {
+  if (ts === undefined || ts === null) return '';
+  if (!Number.isFinite(ts) || ts <= 0) return '';
+  const d = new Date(ts * 1000);
+  if (isNaN(d.getTime())) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${y}-${m}-${day} ${hh}:${mm}`;
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(
+    /[&<>"']/g,
+    (c) =>
+      ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      }[c] as string),
+  );
+}

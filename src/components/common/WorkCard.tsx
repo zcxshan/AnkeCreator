@@ -18,6 +18,10 @@ interface WorkCardProps {
   onDuplicate: (id: string) => void;
   onStarred?: (id: string) => void;
   onPinned?: (id: string) => void;
+  onExportMarkdown?: (id: string) => void;
+  onExportPlainText?: (id: string) => void;
+  onExportEpub?: (id: string) => void;
+  onReader?: (id: string) => void;
 }
 
 export function WorkCard({
@@ -30,6 +34,10 @@ export function WorkCard({
   onDuplicate,
   onStarred,
   onPinned,
+  onExportMarkdown,
+  onExportPlainText,
+  onExportEpub,
+  onReader,
 }: WorkCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -157,11 +165,39 @@ export function WorkCard({
             style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)' }}
           >
             <MenuItem icon="✏️" label="重命名" onClick={() => { onRename(work.id); setMenuOpen(false); }} />
+            {onReader && (
+              <MenuItem
+                icon="📖"
+                label="阅读"
+                onClick={() => { onReader(work.id); setMenuOpen(false); }}
+              />
+            )}
             {onSaveAs && (
               <MenuItem
                 icon="💾"
                 label="另存为安科文件"
                 onClick={() => { onSaveAs(work.id); setMenuOpen(false); }}
+              />
+            )}
+            {onExportMarkdown && (
+              <MenuItem
+                icon="📝"
+                label="导出为 Markdown"
+                onClick={() => { onExportMarkdown(work.id); setMenuOpen(false); }}
+              />
+            )}
+            {onExportPlainText && (
+              <MenuItem
+                icon="📄"
+                label="导出为纯文本"
+                onClick={() => { onExportPlainText(work.id); setMenuOpen(false); }}
+              />
+            )}
+            {onExportEpub && (
+              <MenuItem
+                icon="📚"
+                label="导出为 EPUB 电子书"
+                onClick={() => { onExportEpub(work.id); setMenuOpen(false); }}
               />
             )}
             <MenuItem icon="📋" label="复制副本" onClick={() => { onDuplicate(work.id); setMenuOpen(false); }} />

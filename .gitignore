@@ -8,9 +8,14 @@ dist-electron/
 release/
 out/
 
-# build 目录 — 仅保留 icon.png（electron-builder 需要），其他全部忽略
+# build 目录 — 仅保留图标与许可文件（electron-builder + Windows 打包需要），其他全部忽略
 build/*
 !build/icon.png
+!build/icon.ico
+!build/installerIcon.ico
+!build/uninstallerIcon.ico
+!build/LICENSE.txt
+!build/installer.nsh
 
 # 编译缓存 — 完全忽略
 *.tsbuildinfo
@@ -36,9 +41,12 @@ database/*.sqlite-shm
 database/*.sqlite3-wal
 database/*.sqlite3-shm
 
-# 临时测试资源 — 完全忽略
+# 临时测试资源 — 完全忽略（白名单必要的构建脚本）
 smile.png
-scripts/
+scripts/*
+!scripts/generate-icon.js
+!scripts/clear-icon-cache.js
+!scripts/generate-keystore.js
 
 # IDE / AI 助手配置 — 完全忽略
 .trae/
@@ -118,3 +126,33 @@ ehthumbs_vista.db
 *.backup
 *.old
 *.orig
+
+# Capacitor 移动端打包产物 - 每次构建重新生成，完全忽略
+# 关键配置白名单追踪，build 产物忽略（与 android/.gitignore 配合使用）
+android/.gradle/
+android/build/
+android/app/build/
+android/app/release/
+android/local.properties
+android/capacitor-cordova-android-plugins/
+android/.idea/
+android/captures/
+android/app/.cxx/
+# 密钥文件（绝对不入仓！keystore 在 android/app/anke-release.jks，密码在 android/keystore.properties）
+android/app/*.jks
+android/app/*.keystore
+android/keystore.properties
+android/app/keystore.properties
+# 已构建资源（cap sync 会重新生成）
+android/app/src/main/assets/public
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+android/app/src/main/res/xml/config.xml
+ios/
+.capacitor/
+*.apk
+*.aab
+*.ipa
+
+# npm 临时缓存 - 完全忽略
+.npm-cache/

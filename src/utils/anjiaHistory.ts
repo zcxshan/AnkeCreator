@@ -10,6 +10,8 @@ export interface AnjiaHistoryEntry {
   startFloor: number;
   endFloor: number;
   prefix: string;
+  /** 可选：按用户筛选（来自 URL 中的 authorid） */
+  authorid?: string;
   items: AnjiaItem[];
   createdAt: number;
   label: string;
@@ -25,13 +27,20 @@ function genId(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
-function buildLabel(url: string, startFloor: number, endFloor: number, prefix: string): string {
+function buildLabel(
+  url: string,
+  startFloor: number,
+  endFloor: number,
+  prefix: string,
+  authorid?: string,
+): string {
   // 从 URL 提取 tid
   const tidMatch = url.match(/[?&]tid=(\d+)/i);
   const tid = tidMatch ? tidMatch[1] : '???';
   const range = startFloor === endFloor ? `${startFloor}楼` : `${startFloor}-${endFloor}楼`;
   const prefixPart = prefix ? ` · ${prefix}` : '';
-  return `tid=${tid} · ${range}${prefixPart}`;
+  const authoridPart = authorid ? ` · uid=${authorid}` : '';
+  return `tid=${tid} · ${range}${prefixPart}${authoridPart}`;
 }
 
 export function loadHistory(): AnjiaHistoryEntry[] {
@@ -67,9 +76,10 @@ export function saveToHistory(draft: AnjiaHistoryDraft): AnjiaHistoryEntry {
     startFloor: draft.startFloor,
     endFloor: draft.endFloor,
     prefix: draft.prefix,
+    authorid: draft.authorid,
     items,
     createdAt: Date.now(),
-    label: buildLabel(draft.url, draft.startFloor, draft.endFloor, draft.prefix),
+    label: buildLabel(draft.url, draft.startFloor, draft.endFloor, draft.prefix, draft.authorid),
   };
   // 新条目放到最前
   const next = [entry, ...list].slice(0, MAX_ENTRIES);

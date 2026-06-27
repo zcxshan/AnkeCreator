@@ -2,7 +2,7 @@
 // 故事状态管理 - storyStore
 //
 // 负责：
-//  - 加载/缓存当前故事的所有关联数据（章节/节/块）
+//  - 加载/缓存当前故事的所有关联数据（章节/节）
 //  - 故事 CRUD
 //  - 章/节 CRUD 与重排
 //  - 当前选中的章/节
@@ -11,7 +11,7 @@
 // ============================================================
 
 import { create } from 'zustand';
-import type { Story, Volume, Chapter, Section, AnyContentBlock, Outline, OutlinePayload, OutlineTargetType } from '../types';
+import type { Story, Volume, Chapter, SectionMeta, Outline, OutlinePayload, OutlineTargetType } from '../types';
 import { parseOutlineContent, stringifyOutlinePayload } from '../types';
 import * as db from '../db/database';
 
@@ -22,7 +22,7 @@ interface StoryState {
 
   volumes: Volume[];
   chapters: Chapter[];
-  sections: Section[];
+  sections: SectionMeta[];
 
   activeChapterId: string | null;
   activeSectionId: string | null;
@@ -61,12 +61,14 @@ interface StoryState {
   toggleChapter: (chapterId: string) => void;
   setActiveChapter: (id: string | null) => void;
   reorderChapters: (orderedIds: string[]) => Promise<void>;
+  moveChapters: (storyId: string, targetVolumeId: string | null, orderedIds: string[]) => Promise<void>;
 
   createSection: (chapterId: string, title: string) => Promise<string>;
   renameSection: (sectionId: string, title: string) => Promise<void>;
   deleteSection: (sectionId: string) => Promise<void>;
   setActiveSection: (id: string) => void;
   reorderSections: (chapterId: string, orderedIds: string[]) => Promise<void>;
+  moveSections: (targetChapterId: string, orderedIds: string[]) => Promise<void>;
 
   // ---------- Outline 操作 ----------
   loadOutlines: (storyId: string) => Promise<void>;
@@ -89,14 +91,14 @@ interface StoryState {
   createOutlineChapter: (parentOutlineId: string, title: string) => Promise<string>;
 }
 
-// 加载指定故事的卷/章节/节/大纲数据
+// 加载指定故事的卷/章节/节/大纲数据（节只加载元数据，content 由 editorStore 按需加载）
 async function loadStoryData(set: (patch: Partial<StoryState>) => void, storyId: string) {
   const [volumes, chapters, outlines] = await Promise.all([
     db.listVolumes(storyId),
     db.listChapters(storyId),
     db.listOutlines(storyId),
   ]);
-  const sections: Section[] = (await Promise.all(chapters.map((ch) => db.listSections(ch.id)))).flat();
+  const sections: SectionMeta[] = (await Promise.all(chapters.map((ch) => db.listSectionMetadata(ch.id)))).flat();
   const expandedVolumes: Record<string, boolean> = {};
   const expandedChapters: Record<string, boolean> = {};
   volumes.forEach((v) => (expandedVolumes[v.id] = true));
@@ -415,6 +417,28 @@ export const useStoryStore = create<StoryState>((set, get) => ({
     });
   },
 
+  // 跨卷拖动：同时更新 volume_id 和 order_index
+  moveChapters: async (storyId, targetVolumeId, orderedIds) => {
+    await db.moveChapters(storyId, targetVolumeId, orderedIds);
+    set((state) => {
+      const orderMap: Record<string, number> = {};
+      orderedIds.forEach((id, i) => (orderMap[id] = i));
+      const updated = state.chapters.map((c) =>
+        orderMap[c.id] !== undefined
+          ? { ...c, volume_id: targetVolumeId, order_index: orderMap[c.id] }
+          : c,
+      );
+      // 保持全局排序：未归卷(null) 在末尾
+      updated.sort((a, b) => {
+        if (a.volume_id === b.volume_id) return a.order_index - b.order_index;
+        if (a.volume_id === null) return 1;
+        if (b.volume_id === null) return -1;
+        return 0;
+      });
+      return { chapters: updated };
+    });
+  },
+
   deleteChapter: async (chapterId) => {
     await db.deleteChapter(chapterId);
     set((state) => {
@@ -494,6 +518,28 @@ export const useStoryStore = create<StoryState>((set, get) => ({
             ...s,
             order_index: orderMap[s.id] ?? s.order_index,
           })),
+      };
+    });
+  },
+
+  // 跨章拖动：同时更新 chapter_id 和 order_index
+  moveSections: async (targetChapterId, orderedIds) => {
+    await db.moveSections(targetChapterId, orderedIds);
+    set((state) => {
+      const orderMap: Record<string, number> = {};
+      orderedIds.forEach((id, i) => (orderMap[id] = i));
+      return {
+        sections: state.sections
+          .slice()
+          .map((s) =>
+            orderMap[s.id] !== undefined
+              ? { ...s, chapter_id: targetChapterId, order_index: orderMap[s.id] }
+              : s,
+          )
+          .sort((a, b) => {
+            if (a.chapter_id === b.chapter_id) return a.order_index - b.order_index;
+            return 0;
+          }),
       };
     });
   },

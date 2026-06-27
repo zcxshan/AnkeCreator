@@ -6,11 +6,17 @@ import { parseOutlineContent, stringifyOutlinePayload } from '../../types';
 import { WorkCard, type WorkSummary } from '../common/WorkCard';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { InputDialog } from '../common/InputDialog';
+import { EpubExportProgressDialog } from '../common/EpubExportProgressDialog';
+import { exportStoryAsMarkdown, exportStoryAsPlainText } from '../../utils/storyExport';
+import { validateImportFormat, ensureDefaultVolumeAndChapter } from '../../utils/storyImport';
+import { useDiceHistoryStore } from '../../store/diceHistoryStore';
+import { isCapacitor } from '../../utils/platform';
 
 interface WorksListPageProps {
   onOpenStory: (storyId: string) => void;
   onBack: () => void;
   onShowAuthor?: () => void;
+  onOpenReader?: (storyId: string) => void;
 }
 
 type FilterKey = 'all' | 'trash';
@@ -34,7 +40,7 @@ function compareWorks(a: WorkSummary, b: WorkSummary): number {
   return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
 }
 
-export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPageProps) {
+export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader }: WorksListPageProps) {
   const { stories, trashedStories, loadTrashedStories, softDeleteStory, restoreStory, permanentlyDeleteStory, renameStory, setActiveStory, toggleStarred, togglePinned, setStoryOrder } = useStoryStore();
   const showToast = useToastStore((s) => s.showToast);
 
@@ -51,6 +57,12 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
   const [confirmState, setConfirmState] = useState<null | { type: 'soft-delete' | 'permanent-delete' | 'clear-trash' | 'duplicate'; work?: WorkSummary }>(null);
   const [pendingRename, setPendingRename] = useState<WorkSummary | null>(null);
   const [importState, setImportState] = useState<null | { originalTitle: string; description?: string; data: any }>(null);
+  const [importProgress, setImportProgress] = useState<{ current: number; total: number; message: string } | null>(null);
+  const [batchMode, setBatchMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [actionMenuOpen, setActionMenuOpen] = useState(false);
+  // EPUB 导出进度弹窗
+  const [epubExportOpen, setEpubExportOpen] = useState(false);
 
   useEffect(() => {
     loadTrashedStories();
@@ -64,32 +76,16 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
     let cancelled = false;
     const loadWorks = async () => {
       setWorksLoading(true);
-      const result: WorkSummary[] = [];
-      for (const story of stories) {
-        let wordCount = 0;
-        let diceCount = 0;
-        let sectionCount = 0;
-        const chapters = await db.listChapters(story.id);
-        for (const chapter of chapters) {
-          const sections = await db.listSections(chapter.id);
-          sectionCount += sections.length;
-          sections.forEach((section) => {
-            const content = section.content;
-            if (content) {
-              const { words, dice } = countContent(content);
-              wordCount += words;
-              diceCount += dice;
-            }
-          });
-        }
-        result.push({
-          ...story,
-          wordCount,
-          diceCount,
-          sectionCount,
-          chapterCount: chapters.length,
-        });
-      }
+      // 一次性聚合查询：3 次文件读 vs 原来 N×M 次（消灭 N+1）
+      const storiesWithStats = await db.listStoriesWithStats();
+      const diceRecords = useDiceHistoryStore.getState().records;
+      const result: WorkSummary[] = storiesWithStats.map((story: any) => ({
+        ...story,
+        wordCount: story.wordCount || 0,
+        diceCount: diceRecords.filter((r: any) => r.storyId === story.id).length,
+        sectionCount: story.sectionCount || 0,
+        chapterCount: story.chapterCount || 0,
+      }));
       if (!cancelled) {
         setWorks(result);
         setWorksLoading(false);
@@ -218,14 +214,26 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
     const full = await db.getStoryWithAll(id);
     if (!full) return;
     const relations = await db.listCharacterRelations(id);
+    // 导出时剥离每个小节里的旧版 content_blocks（已切到新版富文本编辑器，导入完全不用）
+    // 同时剥离 bbcode（导出 JSON 不带 bbcode，导入时 DB 留空，用户在 BBCode 视图主动加载可视化得到）
+    const sanitizedChapters = (full.chapters || []).map((ch: any) => ({
+      ...ch,
+      sections: (ch.sections || []).map((sec: any) => {
+        const { blocks, bbcode, ...rest } = sec;
+        return rest;
+      }),
+    }));
+    const diceHistory = useDiceHistoryStore.getState().getRecordsByStory(id);
     const exportData = {
       format: 'anke-creator-export',
-      version: '1.0',
+      version: '1.1',
       exportedAt: new Date().toISOString(),
       appVersion: '0.1.0',
       data: {
         ...full,
+        chapters: sanitizedChapters,
         character_relations: relations,
+        dice_history: diceHistory,
       },
     };
     const safeTitle = (full.title || 'anke-work').replace(/[\/:*?"<>|]/g, '_');
@@ -257,6 +265,78 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
     }, 200);
   };
 
+  // 导出为 Markdown
+  const handleExportMarkdown = async (id: string) => {
+    const full = await db.getStoryWithAll(id);
+    if (!full) return;
+    const md = exportStoryAsMarkdown(full as any);
+    const safeTitle = (full.title || 'anke-work').replace(/[\/:*?"<>|]/g, '_');
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${safeTitle}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 100);
+    showToast(`已导出 Markdown：${full.title}`, 'success');
+  };
+
+  // 导出为纯文本
+  const handleExportPlainText = async (id: string) => {
+    const full = await db.getStoryWithAll(id);
+    if (!full) return;
+    const txt = exportStoryAsPlainText(full as any);
+    const safeTitle = (full.title || 'anke-work').replace(/[\/:*?"<>|]/g, '_');
+    const blob = new Blob([txt], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${safeTitle}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 100);
+    showToast(`已导出纯文本：${full.title}`, 'success');
+  };
+
+  // 导出为 EPUB 电子书（仅桌面端，含图片离线化 + 进度推送）
+  const handleExportEpub = async (id: string) => {
+    const story = stories.find((s) => s.id === id);
+    if (!story) return;
+    if (!window.electronAPI?.exportEpub) {
+      showToast('EPUB 导出仅在桌面版可用', 'info');
+      return;
+    }
+    setEpubExportOpen(true);
+    const safeTitle = (story.title || '安科作品').replace(/[\/:*?"<>|]/g, '_');
+    const res = await window.electronAPI.exportEpub(id, safeTitle);
+    if (res.canceled) {
+      setEpubExportOpen(false);
+      return;
+    }
+    if (!res.ok) {
+      showToast(`EPUB 导出失败：${res.error || '未知错误'}`, 'error');
+      setEpubExportOpen(false);
+      return;
+    }
+    // 成功时不立即关闭弹窗，等收到 done 进度后再由弹窗内部关闭
+  };
+
+  // 批量导出（无 JSZip 降级：逐个下载，间隔 300ms）
+  const handleBatchExport = async () => {
+    if (selectedIds.size === 0) return;
+    const ids = Array.from(selectedIds);
+    for (const id of ids) {
+      await handleExportStory(id);
+      await new Promise((r) => setTimeout(r, 300)); // small delay between downloads
+    }
+    setBatchMode(false);
+    setSelectedIds(new Set());
+    showToast(`已导出 ${ids.length} 个作品`, 'success');
+  };
+
   // 处理复制作品
   const handleDuplicateStory = async (id: string) => {
     const full = await db.getStoryWithAll(id);
@@ -267,34 +347,17 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
       description: full.description || '',
     });
 
-    // 1. 复制 volumes（卷），并记录 oldId -> newId 映射
-    const volumeIdMap: Record<string, string> = {};
-    for (const vol of full.volumes) {
-      const newVol = await db.createVolume({
-        story_id: created.id,
-        title: vol.title,
-        order_index: vol.order_index,
-      });
-      volumeIdMap[vol.id] = newVol.id;
-    }
-
-    // 2. 复制 chapters + sections（保留 volume_id 归属和富文本 content）
-    for (const ch of full.chapters) {
-      const mappedVolumeId = ch.volume_id ? volumeIdMap[ch.volume_id] || null : null;
-      const newChapter = await db.createChapter({
-        story_id: created.id,
-        title: ch.title,
-        volume_id: mappedVolumeId,
-        order_index: ch.order_index,
-      });
-      for (const sec of ch.sections) {
-        await db.createSection({
-          chapter_id: newChapter.id,
-          title: sec.title,
-          content: sec.content,
-        });
-      }
-    }
+    // 1+2. 复制 volumes + chapters + sections，保证不产生「未归卷」chapter
+    // （full 来自 db.getStoryWithAll，正常必有 volumes/chapters；此调用同时做防御性兜底）
+    await ensureDefaultVolumeAndChapter(
+      created.id,
+      full,
+      {
+        createVolume: db.createVolume,
+        createChapter: db.createChapter,
+        createSection: db.createSection,
+      },
+    );
 
     // 3. 复制 world_settings
     if (full.world_settings) {
@@ -402,14 +465,19 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
           showToast(`导入失败：${res.error || '未知错误'}`, 'error');
           return;
         }
+        const validation = validateImportFormat(res.data);
+        if (!validation.valid) {
+          showToast(`导入失败：${validation.error}`, 'error');
+          return;
+        }
         const data = unwrapExportData(res.data);
-        if (!data || !data.story) {
+        if (!data || !data.title) {
           showToast('文件格式不正确，无法导入', 'error');
           return;
         }
         setImportState({
-          originalTitle: data.story.title || '导入作品',
-          description: data.story.description || '',
+          originalTitle: data.title || '导入作品',
+          description: data.description || '',
           data,
         });
       } catch (err) {
@@ -428,14 +496,19 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
       try {
         const text = await file.text();
         const parsed = JSON.parse(text);
+        const validation = validateImportFormat(parsed);
+        if (!validation.valid) {
+          showToast(`导入失败：${validation.error}`, 'error');
+          return;
+        }
         const data = unwrapExportData(parsed);
-        if (!data || !data.story) {
+        if (!data || !data.title) {
           showToast('文件格式不正确，无法导入', 'error');
           return;
         }
         setImportState({
-          originalTitle: data.story.title || '导入作品',
-          description: data.story.description || '',
+          originalTitle: data.title || '导入作品',
+          description: data.description || '',
           data,
         });
       } catch (err) {
@@ -458,50 +531,67 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
   const performImportStory = async (customTitle: string) => {
     if (!importState) return;
     const data = importState.data;
+    const rollbackState: { storyId?: string } = {};
+
+    // 计算总任务数（用于进度条）
+    const volumeCount = Array.isArray(data.volumes) ? data.volumes.length : 1;
+    const chapterCount = Array.isArray(data.chapters) ? data.chapters.length : 1;
+    const sectionCount = Array.isArray(data.chapters)
+      ? data.chapters.reduce((acc: number, ch: any) => acc + (Array.isArray(ch.sections) ? ch.sections.length : 0), 0)
+      : Array.isArray(data.sections) ? data.sections.length : 0;
+    const wsCount = Array.isArray(data.world_settings) ? data.world_settings.length : 0;
+    const charCount = Array.isArray(data.characters) ? data.characters.length : 0;
+    const relCount = Array.isArray(data.character_relations) ? data.character_relations.length : 0;
+    const outlineCount = Array.isArray(data.outlines) ? data.outlines.length : 0;
+    // 批量模式下结构创建只用 3-4 个 tick（批量卷/章/节），而非 volumeCount+chapterCount+sectionCount 个
+    const useBulkForStructure = !!(db.bulkCreateVolumes && db.bulkCreateChapters && db.bulkCreateSections)
+      && Array.isArray(data.volumes) && data.volumes.length > 0
+      && Array.isArray(data.chapters) && data.chapters.length > 0;
+    const structureTicks = useBulkForStructure
+      ? 4 // 上限：1 外层 + 1 批量卷 + 1 批量章 + 1 批量节
+      : (1 + volumeCount + chapterCount + sectionCount);
+    const totalSteps = 1 + structureTicks + wsCount + charCount + relCount + outlineCount + 1;
+    let currentStep = 0;
+
+    const tick = (msg: string) => {
+      currentStep++;
+      setImportProgress({ current: currentStep, total: totalSteps, message: msg });
+    };
+    const yieldUI = () => new Promise((r) => setTimeout(r, 0));
+
     try {
+      tick('创建作品...');
+      await yieldUI();
       const newStory = await db.createStory({
         title: customTitle,
-        description: data.story.description || '',
-        category: data.story.category,
+        description: data.description || '',
+        category: data.category,
       });
+      rollbackState.storyId = newStory.id;
 
-      const volumeIdMap: Record<string, string> = {};
-      if (data.volumes) {
-        for (const vol of data.volumes) {
-          const newVol = await db.createVolume({
-            story_id: newStory.id,
-            title: vol.title,
-            order_index: vol.order_index,
-          });
-          volumeIdMap[vol.id] = newVol.id;
-        }
-      }
-
-      const chapterIdMap: Record<string, string> = {};
-      if (data.chapters) {
-        for (const ch of data.chapters) {
-          const mappedVolumeId = ch.volume_id ? volumeIdMap[ch.volume_id] || null : null;
-          const newChapter = await db.createChapter({
-            story_id: newStory.id,
-            title: ch.title,
-            volume_id: mappedVolumeId,
-            order_index: ch.order_index,
-          });
-          chapterIdMap[ch.id] = newChapter.id;
-          if (ch.sections) {
-            for (const sec of ch.sections) {
-              await db.createSection({
-                chapter_id: newChapter.id,
-                title: sec.title,
-                content: sec.content,
-              });
-            }
-          }
-        }
-      }
+      tick('创建卷/章/节结构...');
+      await yieldUI();
+      const { sectionIdMap } = await ensureDefaultVolumeAndChapter(
+        newStory.id,
+        data,
+        {
+          createVolume: db.createVolume,
+          createChapter: db.createChapter,
+          createSection: db.createSection,
+          bulkCreateVolumes: db.bulkCreateVolumes,
+          bulkCreateChapters: db.bulkCreateChapters,
+          bulkCreateSections: db.bulkCreateSections,
+        },
+        (current, total, msg) => {
+          tick(msg);
+        },
+      );
+      // 不再强制跳跃 currentStep——让 onProgress 回调的 tick 自然驱动进度
+      // （批量模式 tick 数已通过 structureTicks 计入 totalSteps）
 
       if (data.world_settings) {
         for (const ws of data.world_settings) {
+          tick(`导入世界观：${ws.title || '未命名'}...`);
           await db.createWorldSetting({
             story_id: newStory.id,
             title: ws.title,
@@ -514,6 +604,8 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
       const characterIdMap: Record<string, string> = {};
       if (data.characters) {
         for (const char of data.characters) {
+          tick(`导入角色：${char.name || '未命名'}...`);
+          await yieldUI();
           const newChar = await db.createCharacter({
             story_id: newStory.id,
             name: char.name,
@@ -538,6 +630,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
 
       if (data.character_relations) {
         for (const rel of data.character_relations) {
+          tick(`导入人物关系...`);
           const newSourceId = characterIdMap[rel.source_id];
           const newTargetId = characterIdMap[rel.target_id];
           if (newSourceId && newTargetId) {
@@ -558,6 +651,8 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
         for (const o of data.outlines) {
           const payload = typeof o.content === 'string' ? JSON.parse(o.content) : o.content;
           if (payload.target_type === 'volume') {
+            tick(`导入大纲：${payload.title || '卷纲'}...`);
+            await yieldUI();
             payload.target_id = '';
             const newOutline = await db.createOutline({
               story_id: newStory.id,
@@ -583,11 +678,36 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
         }
       }
 
+      // 导入骰子记录
+      if (Array.isArray((data as any).dice_history)) {
+        tick('导入骰子记录...');
+        const newRecords = (data as any).dice_history.map((r: any) => ({
+          ...r,
+          id: '',
+          storyId: newStory.id,
+          sectionId: (r.sectionId && sectionIdMap[r.sectionId]) || '',
+        }));
+        useDiceHistoryStore.getState().addRecords(newRecords);
+      }
+
+      tick('完成，刷新列表...');
+      await yieldUI();
       await useStoryStore.getState().loadStories();
+      setImportProgress(null);
       showToast(`导入成功：${customTitle}`, 'success');
     } catch (err) {
       console.error('[import] 导入失败:', err);
-      showToast('导入失败，请检查文件格式是否正确', 'error');
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (rollbackState.storyId) {
+        try {
+          await db.permanentlyDeleteStory(rollbackState.storyId);
+          await useStoryStore.getState().loadTrashedStories();
+        } catch (rollbackErr) {
+          console.error('[import] 回滚失败:', rollbackErr);
+        }
+      }
+      setImportProgress(null);
+      showToast(`导入失败：${errMsg}（已自动清理临时数据）`, 'error');
     } finally {
       setImportState(null);
     }
@@ -621,51 +741,169 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
             <h1 className="text-xl font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>我的安科作品</h1>
             <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>共 {works.length} 部</span>
           </div>
-          {onShowAuthor && (
-            <button
-              onClick={onShowAuthor}
-              className="ml-auto text-sm transition-colors"
-              style={{ color: 'var(--text-secondary)' }}
-              onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; }}
-            >
-              关于作者
-            </button>
-          )}
 
-          <div className="ml-auto flex items-center gap-2">
-            <button
-              onClick={() => setActiveFilter('trash')}
-              className="px-3 py-2 text-xs rounded-lg transition-colors inline-flex items-center gap-1.5"
-              style={{ color: 'var(--text-secondary)' }}
-              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-              onMouseLeave={(e) => e.currentTarget.style.background = ''}
-              title="回收站"
-            >
-              <span>🗑️</span>
-              <span>回收站{trashedStories.length > 0 ? `(${trashedStories.length})` : ''}</span>
-            </button>
-            <button
-              onClick={() => setShowNewModal(true)}
-              className="px-4 py-2 text-xs rounded-lg font-medium transition-colors inline-flex items-center gap-1.5"
-              style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
-              onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
-              onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
-            >
-              <span className="text-base leading-none">+</span>
-              <span>新建安科</span>
-            </button>
-            <button
-              onClick={handleImportStory}
-              className="px-4 py-2 text-xs rounded-lg font-medium transition-colors inline-flex items-center gap-1.5"
-              style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
-              onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.background = 'var(--bg-hover)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.background = 'var(--bg-card)'; }}
-            >
-              <span>📥</span>
-              <span>导入作品</span>
-            </button>
-          </div>
+          {isCapacitor ? (
+            // 移动端：折叠按钮菜单
+            <div className="ml-auto relative">
+              <button
+                onClick={() => setActionMenuOpen((v) => !v)}
+                className="px-3 py-2 text-xs rounded-lg font-medium transition-colors inline-flex items-center gap-1.5"
+                style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                title="操作"
+              >
+                <span>☰</span>
+                <span>操作</span>
+              </button>
+              {actionMenuOpen && (
+                <>
+                  {/* 点击遮罩关闭菜单 */}
+                  <div
+                    className="fixed inset-0 z-30"
+                    onClick={() => setActionMenuOpen(false)}
+                  />
+                  <div
+                    className="absolute right-0 top-full mt-1 z-40 min-w-[180px] rounded-lg shadow-lg overflow-hidden"
+                    style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
+                  >
+                    {onShowAuthor && (
+                      <button
+                        onClick={() => { setActionMenuOpen(false); onShowAuthor(); }}
+                        className="w-full px-4 py-2.5 text-left text-xs transition-colors inline-flex items-center gap-2"
+                        style={{ color: 'var(--text-secondary)' }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = ''; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+                      >
+                        <span>👤</span>
+                        <span>关于作者</span>
+                      </button>
+                    )}
+                    <button
+                      onClick={() => { setActionMenuOpen(false); setActiveFilter('trash'); }}
+                      className="w-full px-4 py-2.5 text-left text-xs transition-colors inline-flex items-center gap-2"
+                      style={{ color: 'var(--text-secondary)' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = ''; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+                    >
+                      <span>🗑️</span>
+                      <span>回收站{trashedStories.length > 0 ? `(${trashedStories.length})` : ''}</span>
+                    </button>
+                    <button
+                      onClick={() => { setActionMenuOpen(false); setShowNewModal(true); }}
+                      className="w-full px-4 py-2.5 text-left text-xs font-medium transition-colors inline-flex items-center gap-2"
+                      style={{ color: 'var(--accent)' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = ''; }}
+                    >
+                      <span>+</span>
+                      <span>新建安科</span>
+                    </button>
+                    <button
+                      onClick={() => { setActionMenuOpen(false); handleImportStory(); }}
+                      className="w-full px-4 py-2.5 text-left text-xs transition-colors inline-flex items-center gap-2"
+                      style={{ color: 'var(--text-primary)' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = ''; }}
+                    >
+                      <span>📥</span>
+                      <span>导入作品</span>
+                    </button>
+                    <button
+                      onClick={() => { setActionMenuOpen(false); setBatchMode(!batchMode); setSelectedIds(new Set()); }}
+                      className="w-full px-4 py-2.5 text-left text-xs transition-colors inline-flex items-center gap-2"
+                      style={{ color: 'var(--text-primary)', background: batchMode ? 'var(--accent-soft)' : 'transparent' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = batchMode ? 'var(--accent-soft)' : ''; }}
+                    >
+                      <span>📦</span>
+                      <span>{batchMode ? '取消批量' : '批量导出'}</span>
+                    </button>
+                    {batchMode && (
+                      <button
+                        onClick={() => { setActionMenuOpen(false); handleBatchExport(); }}
+                        disabled={selectedIds.size === 0}
+                        className="w-full px-4 py-2.5 text-left text-xs font-medium transition-colors inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        style={{ color: 'var(--text-on-accent)', background: 'var(--accent)' }}
+                      >
+                        <span>📤</span>
+                        <span>导出选中 ({selectedIds.size})</span>
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          ) : (
+            <>
+              {onShowAuthor && (
+                <button
+                  onClick={onShowAuthor}
+                  className="ml-auto text-sm transition-colors"
+                  style={{ color: 'var(--text-secondary)' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; }}
+                >
+                  关于作者
+                </button>
+              )}
+
+              <div className="ml-auto flex items-center gap-2">
+                <button
+                  onClick={() => setActiveFilter('trash')}
+                  className="px-3 py-2 text-xs rounded-lg transition-colors inline-flex items-center gap-1.5"
+                  style={{ color: 'var(--text-secondary)' }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = ''}
+                  title="回收站"
+                >
+                  <span>🗑️</span>
+                  <span>回收站{trashedStories.length > 0 ? `(${trashedStories.length})` : ''}</span>
+                </button>
+                <button
+                  onClick={() => setShowNewModal(true)}
+                  className="px-4 py-2 text-xs rounded-lg font-medium transition-colors inline-flex items-center gap-1.5"
+                  style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
+                  onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
+                  onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                >
+                  <span className="text-base leading-none">+</span>
+                  <span>新建安科</span>
+                </button>
+                <button
+                  onClick={handleImportStory}
+                  className="px-4 py-2 text-xs rounded-lg font-medium transition-colors inline-flex items-center gap-1.5"
+                  style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.background = 'var(--bg-card)'; }}
+                >
+                  <span>📥</span>
+                  <span>导入作品</span>
+                </button>
+                <button
+                  onClick={() => { setBatchMode(!batchMode); setSelectedIds(new Set()); }}
+                  className="px-4 py-2 text-xs rounded-lg font-medium transition-colors inline-flex items-center gap-1.5"
+                  style={{ background: batchMode ? 'var(--accent-soft)' : 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.background = batchMode ? 'var(--accent-soft)' : 'var(--bg-card)'; }}
+                >
+                  <span>📦</span>
+                  <span>{batchMode ? '取消批量' : '批量导出'}</span>
+                </button>
+                {batchMode && (
+                  <button
+                    onClick={handleBatchExport}
+                    disabled={selectedIds.size === 0}
+                    className="px-4 py-2 text-xs rounded-lg font-medium transition-colors inline-flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                    style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
+                    onMouseEnter={(e) => { if (selectedIds.size > 0) e.currentTarget.style.opacity = '0.9'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
+                  >
+                    <span>📤</span>
+                    <span>导出选中 ({selectedIds.size})</span>
+                  </button>
+                )}
+              </div>
+            </>
+          )}
         </div>
 
         {/* 筛选栏 */}
@@ -775,7 +1013,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
         ) : (
           <div
             ref={gridRef}
-            className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 gap-5"
+            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5"
             onDragStart={handleGridDragStart}
             onDragOver={handleGridDragOver}
             onDragLeave={handleGridDragLeave}
@@ -791,11 +1029,44 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
                   opacity: dragIdRef.current === work.id ? 0.6 : 1,
                   boxShadow: dragOverId === work.id ? '0 0 0 2px var(--accent)' : undefined,
                   borderRadius: '1rem',
+                  position: 'relative',
                 }}
               >
+                {batchMode && (
+                  <div
+                    className="absolute top-2 left-2 z-30"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const next = new Set(selectedIds);
+                      if (next.has(work.id)) next.delete(work.id);
+                      else next.add(work.id);
+                      setSelectedIds(next);
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(work.id)}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        const next = new Set(selectedIds);
+                        if (e.target.checked) next.add(work.id);
+                        else next.delete(work.id);
+                        setSelectedIds(next);
+                      }}
+                      style={{ width: '20px', height: '20px', cursor: 'pointer', accentColor: 'var(--accent)' }}
+                    />
+                  </div>
+                )}
                 <WorkCard
                   work={work}
                   onOpen={(id) => {
+                    if (batchMode) {
+                      const next = new Set(selectedIds);
+                      if (next.has(id)) next.delete(id);
+                      else next.add(id);
+                      setSelectedIds(next);
+                      return;
+                    }
                     setActiveStory(id);
                     onOpenStory(id);
                   }}
@@ -812,6 +1083,10 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
                   onDuplicate={(id) => handleDuplicateStory(id)}
                   onStarred={(id) => toggleStarred(id)}
                   onPinned={(id) => togglePinned(id)}
+                  onExportMarkdown={(id) => handleExportMarkdown(id)}
+                  onExportPlainText={(id) => handleExportPlainText(id)}
+                  onExportEpub={(id) => handleExportEpub(id)}
+                  onReader={onOpenReader ? (id) => onOpenReader(id) : undefined}
                 />
               </div>
             ))}
@@ -986,7 +1261,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
           onCancel={() => setConfirmState(null)}
         />
       )}
-      {importState && (
+      {importState && !importProgress && (
         <InputDialog
           open={true}
           title="导入作品"
@@ -997,6 +1272,38 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor }: WorksListPa
           onCancel={() => setImportState(null)}
         />
       )}
+      {importProgress && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)' }}>
+          <div
+            className="rounded-2xl p-6 w-96 max-w-[90vw]"
+            style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
+          >
+            <div className="text-sm font-medium mb-3" style={{ color: 'var(--text-primary)' }}>
+              正在导入作品...
+            </div>
+            <div className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
+              {importProgress.message}
+            </div>
+            <div className="h-2 rounded-full overflow-hidden mb-2" style={{ background: 'var(--bg-hover)' }}>
+              <div
+                className="h-full transition-all"
+                style={{
+                  width: `${importProgress.total > 0 ? Math.round((importProgress.current / importProgress.total) * 100) : 0}%`,
+                  background: 'var(--accent)',
+                }}
+              />
+            </div>
+            <div className="text-xs text-right" style={{ color: 'var(--text-secondary)' }}>
+              {importProgress.current}/{importProgress.total}
+            </div>
+          </div>
+        </div>
+      )}
+      {/* EPUB 导出进度弹窗 */}
+      <EpubExportProgressDialog
+        open={epubExportOpen}
+        onClose={() => setEpubExportOpen(false)}
+      />
     </div>
   );
 }
@@ -1076,7 +1383,7 @@ function Modal({
 }
 
 /** 基于 HTML 字符串统计字数（用于 contenteditable 编辑器） */
-function countWordsFromHtml(html: string): { words: number; dice: number } {
+export function countWordsFromHtml(html: string): { words: number; dice: number } {
   if (!html) return { words: 0, dice: 0 };
   try {
     const tmp = document.createElement('div');
@@ -1087,11 +1394,12 @@ function countWordsFromHtml(html: string): { words: number; dice: number } {
       acceptNode(node: Node): number {
         if (node.nodeType === Node.ELEMENT_NODE) {
           const el = node as HTMLElement;
-          if (
-            el.dataset?.type === 'image-block' ||
-            el.dataset?.type === 'dice-card'
-          ) {
+          if (el.dataset?.type === 'dice-card') {
+            // 只 dice-card 算骰子；image-block 不算
             dice++;
+            return NodeFilter.FILTER_REJECT;
+          }
+          if (el.dataset?.type === 'image-block') {
             return NodeFilter.FILTER_REJECT;
           }
           return NodeFilter.FILTER_SKIP;
@@ -1115,7 +1423,7 @@ function countWordsFromHtml(html: string): { words: number; dice: number } {
 }
 
 /** 兼容两种格式：先尝试旧版 JSON（TipTap），失败则走 HTML（contenteditable） */
-function countContent(content: string): { words: number; dice: number } {
+export function countContent(content: string): { words: number; dice: number } {
   if (!content) return { words: 0, dice: 0 };
   try {
     const json = JSON.parse(content);
@@ -1129,7 +1437,7 @@ function countContent(content: string): { words: number; dice: number } {
 }
 
 /** 从富文本 JSON 中统计字数和骰点数 */
-function countWordsAndDice(json: any): { words: number; dice: number } {
+export function countWordsAndDice(json: any): { words: number; dice: number } {
   let words = 0;
   let dice = 0;
   const walk = (node: any) => {
@@ -1157,7 +1465,6 @@ function TrashCard({ work, onRestore, onPermanentDelete }: { work: WorkSummary; 
       <span className="text-2xl">📖</span>
       <div className="flex-1 min-w-0">
         <div className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{work.title}</div>
-        <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>{work.wordCount} 字 · {work.chapterCount} 章</div>
       </div>
       <button
         onClick={onRestore}

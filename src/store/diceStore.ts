@@ -226,7 +226,7 @@ export const useDiceStore = create<DiceStoreState>((set, get) => ({
       const base: DiceConfig = {
         id: current.id,
         kind,
-        name: current.name || (kind === 'numeric' ? '数值骰点' : '选项骰点'),
+        name: current.name,
       };
       const next: DiceConfig =
         kind === 'numeric'

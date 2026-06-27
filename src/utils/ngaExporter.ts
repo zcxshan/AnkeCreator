@@ -37,13 +37,13 @@ export function renderDiceBlock(
   const markHit = opts.mark_hit ?? true;
   const kind = cfg.kind || 'option';
 
-  const name = (cfg.name || (kind === 'numeric' ? '数值骰' : '选项骰')).trim();
+  const name = (cfg.name || '').trim();
 
   if (kind === 'option') {
     const faces = Math.max(1, Math.floor(cfg.faces ?? 2));
     const optsArr = cfg.options || [];
     if (optsArr.length === 0) {
-      return `[b]${name}（未配置选项）[/b]`;
+      return `[b]（未配置选项）[/b]`;
     }
     // 按 value 升序
     const sorted = [...optsArr].sort(
@@ -52,8 +52,8 @@ export function renderDiceBlock(
     const value = last ? last.total : faces;
     const rollText = last ? `ROLL 1d${faces}=${value}` : `ROLL 1d${faces}=?`;
     const lines: string[] = [];
-    // 首行：标题（不含 ROLL）
-    lines.push(`[b]${name}[/b]`);
+    // 首行：标题（不含 ROLL），空标题则跳过
+    if (name) lines.push(`[b]${name}[/b]`);
     sorted.forEach((opt) => {
       const lo = Math.min(...opt.values);
       const hi = Math.max(...opt.values);
@@ -65,7 +65,7 @@ export function renderDiceBlock(
     // 末行：ROLL 1dN=命中值
     lines.push(`[b]${rollText}[/b]`);
     if (optsArr.length > 10) {
-      return `[collapse=${name} ${rollText}]\n${lines.join('\n')}\n[/collapse]`;
+      return `[collapse=${name ? name + ' ' : ''}${rollText}]\n${lines.join('\n')}\n[/collapse]`;
     }
     return `[quote]\n${lines.join('\n')}\n[/quote]`;
   }
@@ -76,7 +76,7 @@ export function renderDiceBlock(
   if (cfg.expression) {
     // 表达式模式：使用 displayText 或简化格式
     const displayText = last?.displayText || `[${cfg.expression}=?]`;
-    return `[b]${name}ROLL ${displayText.slice(1, -1)}[/b]`;
+    return `[b]${name ? name + ' ' : ''}ROLL ${displayText.slice(1, -1)}[/b]`;
   }
 
   // 传统模式
@@ -86,7 +86,7 @@ export function renderDiceBlock(
   const modStr = modifier === 0 ? '' : modifier > 0 ? `+${modifier}` : `${modifier}`;
   const expr = `${count}d${faces}${modStr}`;
   // 用户示例是 1dN；我们按 1dN 输出最简形式
-  return `[b]${name}ROLL ${expr}=${total}[/b]`;
+  return `[b]${name ? name + ' ' : ''}ROLL ${expr}=${total}[/b]`;
 }
 
 /** 节级 NGA 导出选项 */
@@ -160,73 +160,6 @@ function applyCharacterColorPlaceholders(
     const color = nameToColor[trimmed] ?? DEFAULT_CHARACTER_COLORS[0];
     return `[color=${color}]${trimmed}[/color]`;
   });
-}
-
-// ------------------------------------------------------------
-// 反向解析：把 NGA 文本解析成最简化的 TextBlock 列表
-//   （用于"已有稿子导入"的场景，可选功能）
-// 只处理最常见的 [b]/[i]/[u]/[color]/[size]/[font]/[img]。
-// ------------------------------------------------------------
-
-import type { TextBlockPayload, TextStyles } from '../types';
-
-export function parseNGATextToBlocks(input: string): TextBlockPayload[] {
-  const blocks: TextBlockPayload[] = [];
-  const segments = input.split(/\n\s*\n/);
-
-  segments.forEach((seg) => {
-    const { text, styles } = parseSegment(seg);
-    const trimmed = text.trim();
-    if (trimmed) blocks.push({ text: trimmed, styles });
-  });
-
-  return blocks;
-}
-
-function parseSegment(seg: string): { text: string; styles: TextStyles } {
-  const styles: TextStyles = {};
-  let s = seg;
-
-  s = s.replace(/\[img\][\s\S]*?\[\/img\]/gi, '');
-  s = s.replace(/\[collapse[^\]]*\]/gi, '').replace(/\[\/collapse\]/gi, '');
-  s = s.replace(/\[quote[^\]]*\]/gi, '').replace(/\[\/quote\]/gi, '');
-
-  const rules: Array<{ re: RegExp; apply: () => void }> = [
-    { re: /\[b\]([\s\S]*)\[\/b\]/i, apply: () => (styles.bold = true) },
-    { re: /\[i\]([\s\S]*)\[\/i\]/i, apply: () => (styles.italic = true) },
-    { re: /\[u\]([\s\S]*)\[\/u\]/i, apply: () => (styles.underline = true) },
-    {
-      re: /\[color=([^\]]+)\]([\s\S]*)\[\/color\]/i,
-      apply: () => {
-        const m = s.match(/\[color=([^\]]+)\]/i);
-        if (m) styles.color = m[1];
-      },
-    },
-    {
-      re: /\[size=(\d+)%\]([\s\S]*)\[\/size\]/i,
-      apply: () => {
-        const m = s.match(/\[size=(\d+)%\]/i);
-        if (m) styles.size = parseInt(m[1], 10);
-      },
-    },
-    {
-      re: /\[font=([^\]]+)\]([\s\S]*)\[\/font\]/i,
-      apply: () => {
-        const m = s.match(/\[font=([^\]]+)\]/i);
-        if (m) styles.font = m[1];
-      },
-    },
-  ];
-
-  rules.forEach((r) => {
-    if (r.re.test(s)) {
-      r.apply();
-      s = s.replace(r.re, '$1$2');
-    }
-  });
-
-  s = s.replace(/\[[^\]]+\]/g, '');
-  return { text: s, styles };
 }
 
 // 注意：旧 exportStoryToNGA 已被 exportSectionToNGA 取代；此处不再导出旧函数。

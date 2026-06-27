@@ -17,8 +17,6 @@ import {
   execItalic,
   execUnderline,
   execStrikeThrough,
-  execUndo,
-  execRedo,
   execRemoveFormat,
   execInsertUnorderedList,
   execInsertOrderedList,
@@ -52,6 +50,7 @@ import {
   removeLinkAtCursor,
 } from './contenteditableUtils';
 import { useEditorStore } from '../../store/editorStore';
+import { useSettingStore } from '../../store/settingStore';
 import { useToastStore } from '../../store/toastStore';
 import { useDiceStore } from '../../store/diceStore';
 import { uploadImagesWithProgress, ensureLocalWarning, type UploadProgressEvent } from '../../utils/uploadImage';
@@ -70,6 +69,14 @@ interface EditorToolbarProps {
   onInsertImage: (src: string, size?: string) => void;
   onInsertDice: () => void;
   onShowToast?: (msg: string) => void;
+  /** 撤销回调（走自定义历史栈，替代 execCommand('undo')） */
+  onUndo?: () => void;
+  /** 重做回调（走自定义历史栈，替代 execCommand('redo')） */
+  onRedo?: () => void;
+  /** 是否可撤销（控制按钮禁用态） */
+  canUndo?: boolean;
+  /** 是否可重做（控制按钮禁用态） */
+  canRedo?: boolean;
 }
 
 const toolbarBtn: React.CSSProperties = {
@@ -155,26 +162,34 @@ function ToolbarBtn({
   active,
   title,
   style,
+  disabled,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   active?: boolean;
   title?: string;
   style?: React.CSSProperties;
+  disabled?: boolean;
 }) {
   const [hover, setHover] = useState(false);
   const base = active
     ? { ...toolbarBtn, ...toolbarBtnActive }
-    : { ...toolbarBtn, ...(hover ? toolbarBtnHover : {}) };
+    : { ...toolbarBtn, ...(hover && !disabled ? toolbarBtnHover : {}) };
   return (
     <button
       type="button"
+      className="toolbar-btn active:scale-95"
       onMouseDown={(e) => e.preventDefault()}
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
       title={title}
+      disabled={disabled}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      style={{ ...base, ...style }}
+      style={{
+        ...base,
+        ...(disabled ? { opacity: 0.45, cursor: 'not-allowed' } : {}),
+        ...style,
+      }}
     >
       {children}
     </button>
@@ -259,11 +274,20 @@ export function EditorToolbar({
   onInsertImage,
   onInsertDice,
   onShowToast,
+  onUndo,
+  onRedo,
+  canUndo = false,
+  canRedo = false,
 }: EditorToolbarProps) {
   const editor = useEditor(editorElRef);
   const [urlInput, setUrlInput] = useState('');
   const [showUrlBox, setShowUrlBox] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 订阅本地上传总开关：关闭时把"本地上传"按钮置灰
+  const localUploadEnabled = useSettingStore((s) => s.localUploadEnabled);
+  const localUploadDisabledReason = '本地上传未启用，请到设置 → 图片存储模式 → 启用本地上传';
+  const isLocalUploadDisabled = !localUploadEnabled;
 
   // 状态
   const [smileyOpen, setSmileyOpen] = useState(false);
@@ -451,6 +475,13 @@ export function EditorToolbar({
     firstName?: string,
     filePath?: string,
   ) => {
+    // 检查本地上传总开关（默认关闭，用户需在设置中显式开启）
+    if (!useSettingStore.getState().localUploadEnabled) {
+      useToastStore
+        .getState()
+        .showToast('本地上传未启用，请到设置 → 图片存储模式 → 启用本地上传', 'error');
+      return;
+    }
     const confirmed = await ensureLocalWarning();
     if (!confirmed) {
       useToastStore.getState().showToast('已取消本地保存', 'info');
@@ -558,6 +589,7 @@ export function EditorToolbar({
 
   return (
     <div
+      className="mobile-toolbar-root"
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -737,7 +769,7 @@ export function EditorToolbar({
                   marginRight: 2,
                 }}
               />
-              颜色
+              <span className="tb-label">颜色</span>
             </ToolbarBtn>
             {colorPickerOpen && (
               <div style={{ ...popoverPanel, top: 30, left: 0, minWidth: 220, flexDirection: 'row', flexWrap: 'wrap', gap: 4, maxHeight: 260, overflowY: 'auto' }}>
@@ -819,14 +851,14 @@ export function EditorToolbar({
             onClick={() => withEditor(execInsertUnorderedList)}
             active={activeUL}
           >
-            • 列表
+            • <span className="tb-label">列表</span>
           </ToolbarBtn>
           <ToolbarBtn
             title="有序列表 [list=1]"
             onClick={() => withEditor(execInsertOrderedList)}
             active={activeOL}
           >
-            1. 列表
+            1. <span className="tb-label">列表</span>
           </ToolbarBtn>
 
           <ToolbarBtn
@@ -862,7 +894,7 @@ export function EditorToolbar({
             onClick={() => setImageSizeOpen((v) => !v)}
             active={imageSizeOpen}
           >
-            🖼 图片
+            🖼 <span className="tb-label">图片</span>
           </ToolbarBtn>
           {imageSizeOpen && (
             <div style={{ ...popoverPanel, top: 30, left: 0, minWidth: 220 }}>
@@ -924,7 +956,13 @@ export function EditorToolbar({
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', marginTop: 8 }}>
-                <ToolbarBtn onClick={handlePickFile}>本地上传</ToolbarBtn>
+                <ToolbarBtn
+                  onClick={handlePickFile}
+                  disabled={isLocalUploadDisabled}
+                  title={isLocalUploadDisabled ? localUploadDisabledReason : '从本机选择图片'}
+                >
+                  本地上传
+                </ToolbarBtn>
                 <ToolbarBtn
                   onClick={() => {
                     setImageSizeOpen(false);
@@ -939,14 +977,14 @@ export function EditorToolbar({
         </div>
 
         <ToolbarBtn title="插入骰子" onClick={onInsertDice}>
-          🎲 骰子
+          🎲 <span className="tb-label">骰子</span>
         </ToolbarBtn>
 
         <ToolbarBtn
           title="从 NGA 文本导入选项（粘贴收集的安价文本，自动生成选项骰子）"
           onClick={() => setShowNGAImport(true)}
         >
-          📥 导入安价
+          📥 <span className="tb-label">导入安价</span>
         </ToolbarBtn>
 
         <GroupDivider />
@@ -958,7 +996,7 @@ export function EditorToolbar({
             onClick={() => setSmileyOpen((v) => !v)}
             active={smileyOpen}
           >
-            😄 表情
+            😄 <span className="tb-label">表情</span>
           </ToolbarBtn>
           {smileyOpen && (
             <div style={{ ...popoverPanel, top: 30, left: 0 }}>
@@ -994,7 +1032,7 @@ export function EditorToolbar({
           title="引用 [quote]（整行 #f2eddf 背景）"
           onClick={() => withEditor(insertQuoteBlock)}
         >
-          ❝ 引用
+          ❝ <span className="tb-label">引用</span>
         </ToolbarBtn>
 
         {/* 折叠 */}
@@ -1004,7 +1042,7 @@ export function EditorToolbar({
             onClick={() => setCollapseOpen((v) => !v)}
             active={collapseOpen}
           >
-            ▾ 折叠
+            ▾ <span className="tb-label">折叠</span>
           </ToolbarBtn>
           {collapseOpen && (
             <div style={{ ...popoverPanel, top: 30, left: 0 }}>
@@ -1036,7 +1074,7 @@ export function EditorToolbar({
             onClick={() => setTableOpen((v) => !v)}
             active={tableOpen}
           >
-            ▦ 表格
+            ▦ <span className="tb-label">表格</span>
           </ToolbarBtn>
           {tableOpen && (
             <div style={{ ...popoverPanel, top: 30, left: 0, minWidth: 220 }}>
@@ -1084,7 +1122,7 @@ export function EditorToolbar({
           title="代码块 [code]…[/code]（#f1f1f1）"
           onClick={() => withEditor((ed) => insertCodeBlock(ed, ''))}
         >
-          ⟨/⟩ 代码
+          ⟨/⟩ <span className="tb-label">代码</span>
         </ToolbarBtn>
 
         {/* 链接 */}
@@ -1094,7 +1132,7 @@ export function EditorToolbar({
             onClick={() => setLinkOpen((v) => !v)}
             active={linkOpen}
           >
-            🌐 链接
+            🌐 <span className="tb-label">链接</span>
           </ToolbarBtn>
           {linkOpen && (
             <div style={{ ...popoverPanel, top: 30, left: 0 }}>
@@ -1128,7 +1166,7 @@ export function EditorToolbar({
           title="取消链接"
           onClick={() => withEditor(removeLinkAtCursor)}
         >
-          ⛔ 取消链接
+          ⛔ <span className="tb-label">取消链接</span>
         </ToolbarBtn>
 
         <GroupDivider />
@@ -1136,15 +1174,17 @@ export function EditorToolbar({
         <div style={groupContainer}>
           <ToolbarBtn
             title="撤销 (Ctrl+Z)"
-            onClick={() => withEditor(execUndo)}
+            disabled={!canUndo}
+            onClick={() => onUndo?.()}
           >
-            ↶ 撤销
+            ↶ <span className="tb-label">撤销</span>
           </ToolbarBtn>
           <ToolbarBtn
             title="重做 (Ctrl+Y)"
-            onClick={() => withEditor(execRedo)}
+            disabled={!canRedo}
+            onClick={() => onRedo?.()}
           >
-            ↷ 重做
+            ↷ <span className="tb-label">重做</span>
           </ToolbarBtn>
         </div>
 
@@ -1155,13 +1195,13 @@ export function EditorToolbar({
             title="分割线 [h][/h]"
             onClick={() => withEditor(insertHorizontalRuleNGA)}
           >
-            — 分割线
+            — <span className="tb-label">分割线</span>
           </ToolbarBtn>
           <ToolbarBtn
             title="清除格式"
             onClick={() => withEditor(execRemoveFormat)}
           >
-            ⌫ 清格式
+            ⌫ <span className="tb-label">清格式</span>
           </ToolbarBtn>
         </div>
 
