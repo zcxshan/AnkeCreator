@@ -1,0 +1,158 @@
+# 依赖包 — 完全忽略
+node_modules/
+jspm_packages/
+
+# 构建产物 — 每次构建重新生成，完全忽略
+dist/
+dist-electron/
+release/
+out/
+
+# build 目录 — 仅保留图标与许可文件（electron-builder + Windows 打包需要），其他全部忽略
+build/*
+!build/icon.png
+!build/icon.ico
+!build/installerIcon.ico
+!build/uninstallerIcon.ico
+!build/LICENSE.txt
+!build/installer.nsh
+
+# 编译缓存 — 完全忽略
+*.tsbuildinfo
+.vite/
+.cache/
+.parcel-cache/
+.eslintcache
+.prettiercache
+
+# 数据库 — 仅保留 schema.sql（表结构定义），所有数据文件忽略
+database/*.db
+database/*.sqlite
+database/*.sqlite3
+database/data/
+database/*.dump
+!database/schema.sql
+
+# SQLite 运行时临时文件（WAL / SHM）
+database/*.db-wal
+database/*.db-shm
+database/*.sqlite-wal
+database/*.sqlite-shm
+database/*.sqlite3-wal
+database/*.sqlite3-shm
+
+# 临时测试资源 — 完全忽略（白名单必要的构建脚本）
+smile.png
+scripts/*
+!scripts/generate-icon.js
+!scripts/clear-icon-cache.js
+!scripts/generate-keystore.js
+
+# IDE / AI 助手配置 — 完全忽略
+.trae/
+.codebuddy/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# AI 代理文件
+agent.md
+Agent.md
+!AGENT.md
+*~
+
+# 环境变量与密钥 — 完全忽略（绝对不能提交！）
+.env
+.env.local
+.env.*.local
+
+# 测试与覆盖率 — 完全忽略
+coverage/
+.nyc_output/
+*.lcov
+
+# 日志文件 — 完全忽略
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.log
+
+# 临时笔记 — 完全忽略
+temp.md
+up.txt
+i*.txt
+*.md.tmp
+
+# Electron 打包产物（兜底规则）
+electron/dist/
+*.exe
+*.dmg
+*.AppImage
+*.deb
+*.rpm
+electron-builder*.yml
+electron-builder*.yaml
+
+# 包管理器锁文件策略
+# 注意：package-lock.json 应提交以保证团队依赖一致性
+# 以下仅忽略其损坏/备份版本
+package-lock.json.bak
+npm-shrinkwrap.json
+
+# 用户数据目录（应用运行时可能生成）
+userData/
+user-data/
+app-data/
+localData/
+data/
+
+# macOS 系统生成文件
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+
+# Windows 系统生成文件
+Thumbs.db
+desktop.ini
+ehthumbs.db
+ehthumbs_vista.db
+
+# 通用备份文件
+*.bak
+*.backup
+*.old
+*.orig
+
+# Capacitor 移动端打包产物 - 每次构建重新生成，完全忽略
+# 关键配置白名单追踪，build 产物忽略（与 android/.gitignore 配合使用）
+android/.gradle/
+android/build/
+android/app/build/
+android/app/release/
+android/local.properties
+android/capacitor-cordova-android-plugins/
+android/.idea/
+android/captures/
+android/app/.cxx/
+# 密钥文件（绝对不入仓！keystore 在 android/app/anke-release.jks，密码在 android/keystore.properties）
+android/app/*.jks
+android/app/*.keystore
+android/keystore.properties
+android/app/keystore.properties
+# 已构建资源（cap sync 会重新生成）
+android/app/src/main/assets/public
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+android/app/src/main/res/xml/config.xml
+ios/
+.capacitor/
+*.apk
+*.aab
+*.ipa
+
+# npm 临时缓存 - 完全忽略
+.npm-cache/

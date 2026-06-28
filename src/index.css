@@ -1,0 +1,927 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ================================
+   主题：日间 / 夜间（VS Code 风格）
+   通过 [data-theme] 属性切换
+   ================================ */
+
+:root,
+[data-theme='light'] {
+  /* === VS Code Light+ 风格 === */
+  --bg-base: #ffffff;
+  --bg-sidebar: #f3f3f3;
+  --bg-sidebar-header: #ececec;
+  --bg-editor: #ffffff;
+  --bg-toolbar: #f3f3f3;
+  --bg-card: #ffffff;
+  --bg-hover: #e8e8e8;
+  --bg-active: #e8e8e8;
+  --bg-active-border: #007acc;
+  --bg-input: #ffffff;
+  --bg-tooltip: #f3f3f3;
+  --bg-overlay: rgba(15, 23, 42, 0.45);
+
+  --text-primary: #000000;
+  --text-secondary: #555555;
+  --text-muted: #888888;
+  --text-link: #0066bf;
+  --text-on-accent: #ffffff;
+
+  --quote-bg: #f2eddf;
+  --quote-border: #c8b88a;
+  --collapse-head-bg: #ead5bc;
+  --collapse-body-bg: #fff7d9;
+
+  --border-color: #e0e0e0;
+  --border-light: #eeeeee;
+
+  --accent: #007acc;
+  --accent-hover: #005a9e;
+  --accent-bg: #dbeaf9;
+
+  --success: #388a34;
+  --success-bg: #e6f4e4;
+  --warning: #bf8803;
+  --warning-bg: #fff8e8;
+  --error: #f44747;
+  --error-bg: #fde7e9;
+
+  --shadow: rgba(0, 0, 0, 0.08);
+
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: #c5c5c5;
+  --scrollbar-thumb-hover: #a5a5a5;
+
+  --editor-scrollbar-track: #f5f5f5;
+  --editor-scrollbar-thumb: #cccccc;
+  --editor-scrollbar-thumb-hover: #aaaaaa;
+
+  --caret-color: #000000;
+  --selection-bg: #add6ff;
+  --selection-fg: #1e1e1e;
+
+  /* 兼容旧变量名 — 映射到新变量 */
+  --bg-page: var(--bg-base);
+  --prose-heading: #1f1f1f;
+  --prose-subheading: #2b2b2b;
+  --prose-subheading-3: #333333;
+  --prose-placeholder: #aaaaaa;
+  --prose-quote-bg: #f3f3f3;
+  --prose-quote-fg: #555555;
+  --prose-quote-border: #c0c0c0;
+  --prose-hr: #d0d0d0;
+  --prose-link: #0066bf;
+  --prose-link-hover: #005a9e;
+
+  --accent-soft: var(--accent-bg);
+  --accent-contrast: #ffffff;
+  --amber: #bf8803;
+  --amber-soft: var(--warning-bg);
+  --amber-border: #e5c97d;
+  --amber-ink: #7a5100;
+
+  --dice-card-bg: linear-gradient(135deg, #eef2ff 0%, #f5f3ff 100%);
+  --dice-card-border: #c7d2fe;
+  --dice-card-ink: #1e293b;
+  --dice-card-accent: #6366f1;
+  --dice-card-kind-bg: #e0e7ff;
+  --dice-card-kind-fg: #3730a3;
+  --dice-card-roll-bg: #6366f1;
+  --dice-card-roll-hover: #4f46e5;
+  --dice-card-hit-bg: #fef3c7;
+  --dice-card-hit-fg: #78350f;
+  --dice-card-hit-border: #f59e0b;
+
+  --danger: #f44747;
+  --danger-hover: #c72d2d;
+  --danger-soft: var(--error-bg);
+}
+
+[data-theme='dark'] {
+  /* === VS Code Dark+ 风格 === */
+  --bg-base: #1e1e1e;
+  --bg-sidebar: #252526;
+  --bg-sidebar-header: #37373d;
+  --bg-editor: #1e1e1e;
+  --bg-toolbar: #323233;
+  --bg-card: #252526;
+  --bg-hover: #2a2d2e;
+  --bg-active: #094771;
+  --bg-active-border: #007acc;
+  --bg-input: #3c3c3c;
+  --bg-tooltip: #252526;
+  --bg-overlay: rgba(0, 0, 0, 0.7);
+
+  --text-primary: #ffffff;
+  --text-secondary: #bbbbbb;
+  --text-muted: #888888;
+  --text-link: #3794ff;
+  --text-on-accent: #ffffff;
+
+  --quote-bg: #3e4c5b;
+  --quote-border: #2a3645;
+  --collapse-head-bg: #2a3645;
+  --collapse-body-bg: #3e4c5b;
+
+  --border-color: #3c3c3c;
+  --border-light: #2d2d2d;
+
+  --accent: #007acc;
+  --accent-hover: #1290ff;
+  --accent-bg: #094771;
+
+  --success: #4ec9b0;
+  --success-bg: #1b3b2b;
+  --warning: #d7ba7d;
+  --warning-bg: #3a2e00;
+  --error: #f48771;
+  --error-bg: #3a1d1d;
+
+  --shadow: rgba(0, 0, 0, 0.4);
+
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: #424242;
+  --scrollbar-thumb-hover: #505050;
+
+  --editor-scrollbar-track: #1a1a1a;
+  --editor-scrollbar-thumb: #3a3a3a;
+  --editor-scrollbar-thumb-hover: #525252;
+
+  --caret-color: #ffffff;
+  --selection-bg: #264f78;
+  --selection-fg: #ffffff;
+
+  /* 兼容旧变量名 */
+  --bg-page: var(--bg-base);
+  --prose-heading: #e8e8e8;
+  --prose-subheading: #d4d4d4;
+  --prose-subheading-3: #cccccc;
+  --prose-placeholder: #6b6b6b;
+  --prose-quote-bg: #2d2d2d;
+  --prose-quote-fg: #cccccc;
+  --prose-quote-border: #3c3c3c;
+  --prose-hr: #3c3c3c;
+  --prose-link: #3794ff;
+  --prose-link-hover: #60a5fa;
+
+  --accent-soft: var(--accent-bg);
+  --accent-contrast: #ffffff;
+  --amber: #d7ba7d;
+  --amber-soft: var(--warning-bg);
+  --amber-border: #5a4320;
+  --amber-ink: #f5d885;
+
+  --dice-card-bg: linear-gradient(135deg, #1e293b 0%, #312e81 100%);
+  --dice-card-border: #4c1d95;
+  --dice-card-ink: #e2e8f0;
+  --dice-card-accent: #a78bfa;
+  --dice-card-kind-bg: #37373d;
+  --dice-card-kind-fg: #c4b5fd;
+  --dice-card-roll-bg: #6366f1;
+  --dice-card-roll-hover: #818cf8;
+  --dice-card-hit-bg: #422006;
+  --dice-card-hit-fg: #fcd34d;
+  --dice-card-hit-border: #f59e0b;
+
+  --danger: #f48771;
+  --danger-hover: #e05a40;
+  --danger-soft: var(--error-bg);
+}
+
+/* ================================
+   全局
+   ================================ */
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--bg-base);
+  color: var(--text-primary);
+}
+
+body {
+  font-family: 'Microsoft YaHei', '微软雅黑', -apple-system, BlinkMacSystemFont,
+    'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* contenteditable 输入光标可见性 */
+[contenteditable='true'] {
+  caret-color: var(--caret-color);
+}
+
+/* 选中文本高亮 */
+::selection {
+  background: var(--selection-bg);
+  color: var(--selection-fg);
+}
+
+/* ================================
+   富文本编辑区
+   ================================ */
+
+.anke-editor-content {
+  color: var(--text-primary);
+  background: var(--bg-editor);
+  /* 让浏览器知道垂直 pan 直接路由到外层 scroll 容器（而不是给 JS 处理）
+   * 配合 JS 手势判定（touchstart 不 preventDefault，touchmove 累计位移超阈值再接管）
+   * 实现：tap（点一下）→ 光标 + 键盘；pan（滑动）→ 滚动外层 div
+   */
+  touch-action: pan-y;
+  -webkit-touch-callout: none;
+}
+
+/* 编辑器滚动容器样式（普通 div，Android WebView 触摸滚动正常） */
+.anke-editor-scroll {
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 列表样式（contenteditable 编辑器） */
+.anke-editor-content ul {
+  list-style-type: disc;
+  padding-left: 24px;
+  margin: 6px 0;
+}
+.anke-editor-content ol {
+  list-style-type: decimal;
+  padding-left: 24px;
+  margin: 6px 0;
+}
+.anke-editor-content li {
+  line-height: 1.8;
+  color: var(--text-primary);
+}
+
+.anke-editor-content .ProseMirror {
+  min-height: 600px;
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--text-primary);
+  outline: none;
+  word-break: break-word;
+  white-space: normal;
+}
+
+.anke-editor-content .ProseMirror p {
+  margin: 0 0 12px 0;
+  text-indent: 0;
+}
+
+.anke-editor-content .ProseMirror p.is-editor-empty::before,
+.anke-editor-content .ProseMirror h1.is-editor-empty::before,
+.anke-editor-content .ProseMirror h2.is-editor-empty::before,
+.anke-editor-content .ProseMirror h3.is-editor-empty::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--prose-placeholder);
+  pointer-events: none;
+  height: 0;
+}
+
+.anke-editor-content .ProseMirror h1 {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.4;
+  margin: 20px 0 14px 0;
+  color: var(--prose-heading);
+  border-bottom: 2px solid var(--border-color);
+  padding-bottom: 8px;
+}
+
+.anke-editor-content .ProseMirror h2 {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.5;
+  margin: 18px 0 12px 0;
+  color: var(--prose-subheading);
+}
+
+.anke-editor-content .ProseMirror h3 {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.6;
+  margin: 16px 0 10px 0;
+  color: var(--prose-subheading-3);
+}
+
+.anke-editor-content .ProseMirror ul,
+.anke-editor-content .ProseMirror ol {
+  padding-left: 28px;
+  margin: 8px 0 12px 0;
+}
+
+.anke-editor-content .ProseMirror ul {
+  list-style-type: disc;
+}
+
+.anke-editor-content .ProseMirror ol {
+  list-style-type: decimal;
+}
+
+.anke-editor-content .ProseMirror li {
+  margin: 4px 0;
+  line-height: 1.8;
+  color: var(--text-primary);
+}
+
+.anke-editor-content .ProseMirror li p {
+  margin: 0;
+}
+
+.anke-editor-content .ProseMirror blockquote {
+  border-left: 4px solid var(--prose-quote-border);
+  padding: 8px 16px;
+  margin: 12px 0;
+  background: var(--prose-quote-bg);
+  color: var(--prose-quote-fg);
+  font-style: normal;
+  border-radius: 0 4px 4px 0;
+}
+
+.anke-editor-content .ProseMirror blockquote p {
+  margin: 0 0 6px 0;
+}
+
+.anke-editor-content .ProseMirror blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+.anke-editor-content .ProseMirror hr {
+  border: none;
+  border-top: 1px dashed var(--prose-hr);
+  margin: 18px 0;
+}
+
+.anke-editor-content .ProseMirror a {
+  color: var(--prose-link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.anke-editor-content .ProseMirror a:hover {
+  color: var(--prose-link-hover);
+}
+
+.anke-editor-content .ProseMirror [data-text-align='left'] {
+  text-align: left;
+}
+
+.anke-editor-content .ProseMirror [data-text-align='center'] {
+  text-align: center;
+}
+
+.anke-editor-content .ProseMirror [data-text-align='right'] {
+  text-align: right;
+}
+
+.anke-editor-content .ProseMirror [data-text-align='justify'] {
+  text-align: justify;
+}
+
+/* 图片和骰子节点容器 */
+.anke-editor-content .ProseMirror .image-block,
+.anke-editor-content .ProseMirror .dice-card {
+  margin: 14px 0;
+}
+
+/* 编辑区内滚动条美化（CSS 变量驱动） */
+.anke-editor-content::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.anke-editor-content::-webkit-scrollbar-track {
+  background: var(--editor-scrollbar-track);
+}
+
+.anke-editor-content::-webkit-scrollbar-thumb {
+  background: var(--editor-scrollbar-thumb);
+  border-radius: 5px;
+}
+
+.anke-editor-content::-webkit-scrollbar-thumb:hover {
+  background: var(--editor-scrollbar-thumb-hover);
+}
+
+/* 外层全局滚动条（CSS 变量驱动） */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+textarea {
+  outline: none;
+  resize: none;
+}
+
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* ================================
+   通用组件样式（覆盖 tailwind）
+   ================================ */
+
+.anke-surface-page {
+  background: var(--bg-base);
+  color: var(--text-primary);
+}
+
+.anke-surface-sidebar {
+  background: var(--bg-sidebar);
+  color: var(--text-primary);
+  border-color: var(--border-color);
+}
+
+.anke-surface-card {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.anke-surface-editor {
+  background: var(--bg-editor);
+  color: var(--text-primary);
+}
+
+.anke-surface-toolbar {
+  background: var(--bg-toolbar);
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.anke-text-primary {
+  color: var(--text-primary);
+}
+
+.anke-text-secondary {
+  color: var(--text-secondary);
+}
+
+.anke-text-muted {
+  color: var(--text-muted);
+}
+
+.anke-border {
+  border-color: var(--border-color);
+}
+
+.anke-btn-accent {
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border: 1px solid var(--accent);
+}
+
+.anke-btn-accent:hover {
+  background: var(--accent-hover);
+}
+
+/* 对话框/遮罩 */
+.anke-overlay {
+  background: var(--bg-overlay);
+}
+
+/* 通用表单控件（输入框、按钮等）暗色友好 */
+.anke-input {
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.anke-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.anke-btn {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.anke-btn:hover {
+  background: var(--bg-hover);
+}
+
+/* ================================
+   骰子掷骰动画（一次性，投后按钮消失）
+   - ankeDiceShake：卡片摇一摇（点击掷骰瞬间）
+   - ankeDiceBtnPress：按钮按压缩放
+   - ankeDiceSpin：🎲 emoji 旋转 3 圈 + 缩放（投掷物理感）
+   - ankeDiceRollFade：滚动展示区淡入
+   - ankeDiceHitReveal：命中选项行闪光揭晓
+   ================================ */
+@keyframes ankeDiceShake {
+  0%, 100% { transform: rotate(0deg); }
+  20%      { transform: rotate(-2deg); }
+  40%      { transform: rotate(2deg); }
+  60%      { transform: rotate(-1.5deg); }
+  80%      { transform: rotate(1deg); }
+}
+
+@keyframes ankeDiceBtnPress {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(0.92); }
+  100% { transform: scale(1); }
+}
+
+@keyframes ankeDiceSpin {
+  0%   { transform: rotate(0deg)    scale(1); }
+  50%  { transform: rotate(540deg)  scale(1.3); }
+  100% { transform: rotate(1080deg) scale(1); }
+}
+
+@keyframes ankeDiceRollFade {
+  0%   { opacity: 0; transform: translateY(-2px); }
+  20%  { opacity: 1; transform: translateY(0); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes ankeDiceHitReveal {
+  0%   { box-shadow: inset 0 0 0 0 rgba(245, 158, 11, 0); transform: scale(1); }
+  30%  { box-shadow: inset 0 0 0 2px rgba(245, 158, 11, 1); transform: scale(1.02); }
+  100% { box-shadow: inset 0 0 0 2px rgba(245, 158, 11, 0.4); transform: scale(1); }
+}
+
+[data-type="dice-card"].anke-dice-shaking {
+  animation: ankeDiceShake 350ms ease-in-out;
+  transform-origin: center;
+  display: inline-block;
+}
+
+[data-type="dice-card"] button[data-role="roll"].anke-dice-btn-press {
+  animation: ankeDiceBtnPress 180ms ease-out;
+}
+
+[data-type="dice-card"] [data-slot="roll-emoji"].anke-dice-spin {
+  animation: ankeDiceSpin 800ms ease-in-out;
+  display: inline-block;
+  transform-origin: center;
+}
+
+[data-type="dice-card"] [data-slot="roll-display"].anke-dice-rolling {
+  animation: ankeDiceRollFade 200ms ease-out;
+}
+
+[data-type="dice-card"] [data-option-id].anke-dice-hit {
+  animation: ankeDiceHitReveal 600ms ease-out;
+}
+
+/* ================================
+   移动端响应式（Capacitor / 窄屏浏览器）
+   - 禁用双击缩放
+   - 优化触摸滚动
+   - 触摸目标最小尺寸
+   ================================ */
+@media (max-width: 768px) {
+  html,
+  body {
+    touch-action: manipulation;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* 工具栏等密集按钮区域给 32px，避免过于拥挤 */
+  button,
+  [role="button"] {
+    min-height: 32px;
+  }
+}
+
+/* 全局触摸优化（仅在 Capacitor 原生 App 生效，不影响桌面端 WebView） */
+html.capacitor-platform-android,
+html.capacitor-platform-ios {
+  body {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    user-select: none;
+  }
+  /* 编辑器内容区允许选择（覆盖上面的 user-select: none） */
+  .anke-editor-content,
+  .anke-editor-content * {
+    user-select: text;
+    -webkit-user-select: text;
+  }
+}
+
+/* ================================
+   移动端增强样式
+   - 触摸目标 44px（Material Design 最小推荐尺寸）
+   - scrollbar-hide 工具类
+   - 富文本移动端优化
+   ================================ */
+@media (max-width: 768px) {
+  /* 仅对显式标记的元素应用 44px 触摸目标 */
+  .mobile-touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* 工具栏按钮触摸优化 */
+  .toolbar-btn {
+    min-height: 44px;
+    min-width: 44px;
+    transition: transform 0.1s ease;
+  }
+  .toolbar-btn:active {
+    transform: scale(0.95);
+  }
+
+  /* 隐藏滚动条（横向滚动列表用） */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* 富文本编辑器移动端优化 */
+  .anke-editor-content[contenteditable="true"] {
+    font-size: 16px;
+    line-height: 2.0;
+    padding: 16px !important;
+  }
+  .anke-editor-content p {
+    margin: 0.8em 0;
+  }
+
+  /* 输入框 16px 字号（避免 iOS Safari 自动放大） */
+  input[type="text"],
+  input[type="search"],
+  input[type="email"],
+  input[type="url"],
+  textarea,
+  select {
+    font-size: 16px;
+  }
+
+  /* 触屏 active 反馈：替代桌面端 hover 效果（JS 事件 hover 在触屏上失效） */
+  button:active,
+  [role="button"]:active,
+  .cursor-pointer:active {
+    opacity: 0.7;
+    transform: scale(0.98);
+  }
+}
+
+/* ================================
+   Capacitor 状态栏安全区
+   - 顶部 status bar 高度 + 8px 内边距
+   - 底部 nav bar 安全区
+   ================================ */
+html.capacitor-platform-android,
+html.capacitor-platform-ios {
+  padding-top: env(safe-area-inset-top, 0);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+/* 移动端抽屉动画（仅移动端） */
+@keyframes mobile-drawer-slide-in-left {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+@keyframes mobile-drawer-slide-in-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+@keyframes mobile-drawer-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (max-width: 768px) {
+  .mobile-drawer-panel-left {
+    animation: mobile-drawer-slide-in-left 250ms ease-out;
+    will-change: transform;
+  }
+  .mobile-drawer-panel-right {
+    animation: mobile-drawer-slide-in-right 250ms ease-out;
+    will-change: transform;
+  }
+  .mobile-drawer-backdrop {
+    animation: mobile-drawer-fade-in 250ms ease-out;
+  }
+}
+
+/* ================================
+   键盘弹出时（仅 Capacitor 移动端）
+   - 隐藏底部导航栏（编辑区不被挤窄）
+   ================================ */
+html.capacitor-platform-android body.keyboard-open .mobile-bottom-nav,
+html.capacitor-platform-ios body.keyboard-open .mobile-bottom-nav {
+  display: none !important;
+}
+
+/* ================================
+   引用块 & 折叠块配色（CSS 变量化，亮/暗模式自适应）
+   - 引用块背景：--quote-bg（亮：米色 / 暗：深蓝灰 #3e4c5b）
+   - 引用块左边框：--quote-border
+   - 折叠块头：--collapse-head-bg
+   - 折叠块体：--collapse-body-bg
+   - 暗模式文字色继承自 --text-primary（白色），背景深色，对比度足够
+   - 注意选择器只用 .anke-editor-content（项目用的是 contenteditable，不用 ProseMirror）
+   ================================ */
+
+/* 引用块：覆盖 contenteditableUtils 里设置的硬编码内联 style 的回退样式 */
+.anke-editor-content blockquote[data-type="quote-block"] {
+  border-left: 3px solid var(--quote-border);
+  border-radius: 4px;
+  padding: 8px 12px;
+  margin: 6px 0;
+}
+
+/* 折叠块：覆盖内联 style 的回退样式 */
+.anke-editor-content div[data-type="collapse-block"] {
+  border-left: 3px solid var(--quote-border);
+  border-radius: 4px;
+  padding: 0;
+  margin: 6px 0;
+}
+.anke-editor-content div[data-type="collapse-block"] .collapse-head {
+  background: var(--collapse-head-bg);
+  padding: 6px 10px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 4px 4px 0 0;
+}
+.anke-editor-content div[data-type="collapse-block"] .collapse-body {
+  background: var(--collapse-body-bg);
+  padding: 8px 12px;
+  border-radius: 0 0 4px 4px;
+}
+
+/* 暗模式：文字色强制白色（保证白字在深色背景上清晰） */
+[data-theme='dark'] .anke-editor-content blockquote[data-type="quote-block"],
+[data-theme='dark'] .anke-editor-content div[data-type="collapse-block"] {
+  color: #ffffff;
+}
+
+/* ================================
+   骰子卡片 / 图片块：块级显示 + 上下间距
+   Fix #2：块级显示让用户可以点击卡片后空行放下光标；
+   作为旧版 inline-block 元素的回退样式
+   ================================ */
+[data-type="dice-card"],
+[data-type="image-block"] {
+  display: block;
+  margin: 12px 0;
+}
+
+/* ================================
+   ReaderPage 阅读模式样式
+   Fix #3：阅读模式注入的 HTML 无 React 事件绑定，
+   collapse-body 自带 inline display:none 无 CSS 覆盖导致展不开。
+   这里通过 .reader-content 作用域补充样式 + JS 委托点击处理。
+   ================================ */
+.reader-content [data-type="collapse-block"] {
+  border: 1px solid var(--border-color, #ddd);
+  border-radius: 4px;
+  margin: 12px 0;
+  overflow: hidden;
+}
+
+.reader-content .collapse-head {
+  background: var(--collapse-head-bg, #f5f5f5);
+  padding: 8px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  user-select: none;
+}
+
+.reader-content .collapse-toggle {
+  font-weight: bold;
+  font-size: 16px;
+  width: 20px;
+  text-align: center;
+}
+
+.reader-content .collapse-title {
+  flex: 1;
+  font-weight: 600;
+}
+
+.reader-content .collapse-body {
+  padding: 12px;
+  line-height: 1.7;
+}
+
+/* 阅读模式隐藏 dice-card 的掷骰按钮（只读） */
+.reader-content [data-type="dice-card"] button[data-role="roll"] {
+  display: none;
+}
+
+/* image-block 在阅读模式下可点击 */
+.reader-content [data-type="image-block"] img {
+  cursor: zoom-in;
+  max-width: 100%;
+}
+
+/* ================================
+   安卓版 EditorToolbar 折叠布局
+   - 桌面端（>768px）：所有按钮组横排显示，不应用本规则
+   - 安卓（≤768px）：按钮组垂直堆叠，按钮 40x40，段落间分隔
+   ================================ */
+@media (max-width: 768px) {
+  /* 工具栏整体：单行横向滚动，不换行 */
+  .mobile-toolbar-root {
+    padding: 4px 6px !important;
+    gap: 2px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    border-bottom: 1px solid var(--border-color);
+  }
+  .mobile-toolbar-root::-webkit-scrollbar {
+    display: none;
+  }
+  /* 工具栏内每一行（按钮组）—— 不再换行，单行排列 */
+  .mobile-toolbar-root > div {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 2px;
+    padding: 0;
+  }
+  /* 组间分隔：移除顶部细线，改用左侧分隔线 + 间距 */
+  .mobile-toolbar-root > div + div {
+    border-top: none;
+    margin-top: 0;
+    padding-top: 0;
+    margin-left: 4px;
+    padding-left: 4px;
+    border-left: 1px solid var(--border-color);
+  }
+  /* 所有按钮：紧凑 32×32 + 圆角 + 按压反馈 */
+  .mobile-toolbar-root button {
+    min-width: 32px !important;
+    min-height: 32px !important;
+    width: 32px;
+    height: 32px;
+    padding: 4px !important;
+    font-size: 13px !important;
+    flex-shrink: 0;
+    border-radius: 6px;
+  }
+  .mobile-toolbar-root button:active {
+    background: var(--accent-soft);
+  }
+  /* select（下拉） */
+  .mobile-toolbar-root select {
+    min-height: 32px !important;
+    height: 32px;
+    font-size: 12px !important;
+    padding: 2px 4px !important;
+    border-radius: 6px;
+  }
+  /* 段间分隔线 <div className="w-px h-5 bg-border-color"> */
+  .mobile-toolbar-root > div > div[class*="w-px"] {
+    height: 18px !important;
+    margin: 0 2px;
+    background: var(--border-color);
+  }
+  /* 安卓版：工具栏按钮只留图标，隐藏中文文字描述 */
+  .mobile-toolbar-root .tb-label {
+    display: none;
+  }
+}
+
+/* ================================
+   安卓版单列网格辅助
+   - mobile-grid-1 在 ≤768px 时强制 1 列（覆盖父级 grid-cols-N）
+   ================================ */
+@media (max-width: 768px) {
+  .mobile-grid-1 {
+    grid-template-columns: 1fr !important;
+  }
+  .mobile-grid-2 {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
