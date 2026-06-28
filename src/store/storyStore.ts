@@ -50,12 +50,16 @@ interface StoryState {
   setActiveStory: (id: string | null) => Promise<void>;
 
   createVolume: (storyId: string, title: string) => Promise<string>;
+  /** 在指定锚点卷的前/后插入新卷（anchorId=null 表示插入到最前/最后） */
+  createVolumeAt: (storyId: string, title: string, anchorId: string | null, position: 'before' | 'after') => Promise<string>;
   renameVolume: (volumeId: string, title: string) => Promise<void>;
   deleteVolume: (volumeId: string) => Promise<void>;
   toggleVolume: (volumeId: string) => void;
   reorderVolumes: (orderedIds: string[]) => Promise<void>;
 
   createChapter: (storyId: string, title: string, volumeId?: string | null) => Promise<string>;
+  /** 在指定锚点章的前/后插入新章（anchorId=null 表示插入到最前/最后） */
+  createChapterAt: (storyId: string, title: string, volumeId: string | null, anchorId: string | null, position: 'before' | 'after') => Promise<string>;
   renameChapter: (chapterId: string, title: string) => Promise<void>;
   deleteChapter: (chapterId: string) => Promise<void>;
   toggleChapter: (chapterId: string) => void;
@@ -64,6 +68,8 @@ interface StoryState {
   moveChapters: (storyId: string, targetVolumeId: string | null, orderedIds: string[]) => Promise<void>;
 
   createSection: (chapterId: string, title: string) => Promise<string>;
+  /** 在指定锚点节的前/后插入新节（anchorId=null 表示插入到最前/最后） */
+  createSectionAt: (chapterId: string, title: string, anchorId: string | null, position: 'before' | 'after') => Promise<string>;
   renameSection: (sectionId: string, title: string) => Promise<void>;
   deleteSection: (sectionId: string) => Promise<void>;
   setActiveSection: (id: string) => void;
@@ -307,6 +313,35 @@ export const useStoryStore = create<StoryState>((set, get) => ({
     return v.id;
   },
 
+  // 在指定锚点卷的前/后插入新卷（anchorId=null 表示插入到最前/最后）
+  createVolumeAt: async (storyId, title, anchorId, position) => {
+    const v = await db.createVolume({ story_id: storyId, title });
+    // 重新拉取该 story 全部 volumes，按 DB 返回顺序排序
+    const refreshed = (await db.listVolumes(storyId)).sort(
+      (a, b) => a.order_index - b.order_index,
+    );
+    // 移除新卷，按 anchorId 位置插入
+    const others = refreshed.filter((x) => x.id !== v.id);
+    let insertIdx: number;
+    if (anchorId === null) {
+      insertIdx = position === 'before' ? 0 : others.length;
+    } else {
+      const anchorIdx = others.findIndex((x) => x.id === anchorId);
+      insertIdx = anchorIdx === -1 ? others.length : position === 'before' ? anchorIdx : anchorIdx + 1;
+    }
+    others.splice(insertIdx, 0, refreshed.find((x) => x.id === v.id)!);
+    const newOrderedIds = others.map((x) => x.id);
+    // 持久化新顺序
+    await db.reorderVolumes(storyId, newOrderedIds);
+    const orderMap: Record<string, number> = {};
+    newOrderedIds.forEach((id, i) => (orderMap[id] = i));
+    set((state) => ({
+      volumes: others.map((x) => ({ ...x, order_index: orderMap[x.id] })),
+      expandedVolumeIds: { ...state.expandedVolumeIds, [v.id]: true },
+    }));
+    return v.id;
+  },
+
   renameVolume: async (volumeId, title) => {
     const trimmed = title.trim();
     if (!trimmed) return;
@@ -322,16 +357,14 @@ export const useStoryStore = create<StoryState>((set, get) => ({
     const storyId = get().activeStoryId;
     if (!storyId) return;
     await db.reorderVolumes(storyId, orderedIds);
-    set((state) => {
-      const orderMap: Record<string, number> = {};
-      orderedIds.forEach((id, i) => (orderMap[id] = i));
-      return {
-        volumes: state.volumes
-          .slice()
-          .sort((a, b) => (orderMap[a.id] ?? 0) - (orderMap[b.id] ?? 0))
-          .map((v, i) => ({ ...v, order_index: i })),
-      };
-    });
+    const orderMap: Record<string, number> = {};
+    orderedIds.forEach((id, i) => (orderMap[id] = i));
+    // 局部更新：仅更新命中的 volumes，不全量 sort
+    set((state) => ({
+      volumes: state.volumes.map((v) =>
+        orderMap[v.id] !== undefined ? { ...v, order_index: orderMap[v.id] } : v,
+      ),
+    }));
   },
 
   deleteVolume: async (volumeId) => {
@@ -390,6 +423,47 @@ export const useStoryStore = create<StoryState>((set, get) => ({
     return ch.id;
   },
 
+  // 在指定锚点章的前/后插入新章（anchorId=null 表示插入到该卷最前/最后）
+  createChapterAt: async (storyId, title, volumeId, anchorId, position) => {
+    const ch = await db.createChapter({
+      story_id: storyId,
+      title,
+      volume_id: volumeId ?? null,
+    });
+    // 重新拉取该 story 全部 chapters，按 DB 返回顺序排序
+    const refreshed = (await db.listChapters(storyId)).sort(
+      (a, b) => a.order_index - b.order_index,
+    );
+    // 仅在 anchor 所在卷范围内插入；如果 volumeId 为 null 则在未归卷范围内插入
+    const newChInList = refreshed.find((x) => x.id === ch.id)!;
+    const siblings = refreshed.filter(
+      (x) => (x.volume_id ?? null) === (volumeId ?? null) && x.id !== ch.id,
+    );
+    let insertIdx: number;
+    if (anchorId === null) {
+      insertIdx = position === 'before' ? 0 : siblings.length;
+    } else {
+      const anchorIdx = siblings.findIndex((x) => x.id === anchorId);
+      insertIdx = anchorIdx === -1 ? siblings.length : position === 'before' ? anchorIdx : anchorIdx + 1;
+    }
+    siblings.splice(insertIdx, 0, newChInList);
+    const newOrderedIds = siblings.map((x) => x.id);
+    // 持久化新顺序（仅更新该卷范围内）
+    await db.reorderChapters(storyId, newOrderedIds);
+    const orderMap: Record<string, number> = {};
+    newOrderedIds.forEach((id, i) => (orderMap[id] = i));
+    set((state) => ({
+      chapters: state.chapters.map((c) =>
+        orderMap[c.id] !== undefined
+          ? { ...c, order_index: orderMap[c.id], volume_id: volumeId ?? null }
+          : c,
+      ),
+      activeChapterId: ch.id,
+      expandedChapterIds: { ...state.expandedChapterIds, [ch.id]: true },
+    }));
+    return ch.id;
+  },
+
   renameChapter: async (chapterId, title) => {
     const trimmed = title.trim();
     if (!trimmed) return;
@@ -405,38 +479,29 @@ export const useStoryStore = create<StoryState>((set, get) => ({
     const storyId = get().activeStoryId;
     if (!storyId) return;
     await db.reorderChapters(storyId, orderedIds);
-    set((state) => {
-      const orderMap: Record<string, number> = {};
-      orderedIds.forEach((id, i) => (orderMap[id] = i));
-      return {
-        chapters: state.chapters
-          .slice()
-          .sort((a, b) => (orderMap[a.id] ?? 0) - (orderMap[b.id] ?? 0))
-          .map((c, i) => ({ ...c, order_index: i })),
-      };
-    });
+    const orderMap: Record<string, number> = {};
+    orderedIds.forEach((id, i) => (orderMap[id] = i));
+    // 局部更新：仅更新命中的 chapters，不全量 sort
+    set((state) => ({
+      chapters: state.chapters.map((c) =>
+        orderMap[c.id] !== undefined ? { ...c, order_index: orderMap[c.id] } : c,
+      ),
+    }));
   },
 
   // 跨卷拖动：同时更新 volume_id 和 order_index
   moveChapters: async (storyId, targetVolumeId, orderedIds) => {
     await db.moveChapters(storyId, targetVolumeId, orderedIds);
-    set((state) => {
-      const orderMap: Record<string, number> = {};
-      orderedIds.forEach((id, i) => (orderMap[id] = i));
-      const updated = state.chapters.map((c) =>
+    const orderMap: Record<string, number> = {};
+    orderedIds.forEach((id, i) => (orderMap[id] = i));
+    // 局部更新：仅替换命中的 chapters，不全量 sort（渲染层 useMemo 会按 order_index 排序）
+    set((state) => ({
+      chapters: state.chapters.map((c) =>
         orderMap[c.id] !== undefined
           ? { ...c, volume_id: targetVolumeId, order_index: orderMap[c.id] }
           : c,
-      );
-      // 保持全局排序：未归卷(null) 在末尾
-      updated.sort((a, b) => {
-        if (a.volume_id === b.volume_id) return a.order_index - b.order_index;
-        if (a.volume_id === null) return 1;
-        if (b.volume_id === null) return -1;
-        return 0;
-      });
-      return { chapters: updated };
-    });
+      ),
+    }));
   },
 
   deleteChapter: async (chapterId) => {
@@ -487,6 +552,39 @@ export const useStoryStore = create<StoryState>((set, get) => ({
     return sec.id;
   },
 
+  // 在指定锚点节的前/后插入新节（anchorId=null 表示插入到该章最前/最后）
+  createSectionAt: async (chapterId, title, anchorId, position) => {
+    const sec = await db.createSection({ chapter_id: chapterId, title });
+    // 重新拉取该 chapter 全部 sections，按 DB 返回顺序排序
+    const refreshed = (await db.listSectionMetadata(chapterId)).sort(
+      (a, b) => a.order_index - b.order_index,
+    );
+    const newSecInList = refreshed.find((x) => x.id === sec.id)!;
+    const others = refreshed.filter((x) => x.id !== sec.id);
+    let insertIdx: number;
+    if (anchorId === null) {
+      insertIdx = position === 'before' ? 0 : others.length;
+    } else {
+      const anchorIdx = others.findIndex((x) => x.id === anchorId);
+      insertIdx = anchorIdx === -1 ? others.length : position === 'before' ? anchorIdx : anchorIdx + 1;
+    }
+    others.splice(insertIdx, 0, newSecInList);
+    const newOrderedIds = others.map((x) => x.id);
+    // 持久化新顺序
+    await db.reorderSections(chapterId, newOrderedIds);
+    const orderMap: Record<string, number> = {};
+    newOrderedIds.forEach((id, i) => (orderMap[id] = i));
+    set((state) => ({
+      sections: [
+        ...state.sections.filter((s) => s.chapter_id !== chapterId),
+        ...others.map((x) => ({ ...x, order_index: orderMap[x.id] })),
+      ],
+      activeChapterId: chapterId,
+      activeSectionId: sec.id,
+    }));
+    return sec.id;
+  },
+
   renameSection: async (sectionId, title) => {
     const trimmed = title.trim();
     if (!trimmed) return;
@@ -500,48 +598,31 @@ export const useStoryStore = create<StoryState>((set, get) => ({
 
   reorderSections: async (chapterId, orderedIds) => {
     await db.reorderSections(chapterId, orderedIds);
-    set((state) => {
-      const orderMap: Record<string, number> = {};
-      orderedIds.forEach((id, i) => (orderMap[id] = i));
-      return {
-        sections: state.sections
-          .slice()
-          .sort((a, b) => {
-            const ai = orderMap[a.id];
-            const bi = orderMap[b.id];
-            if (ai !== undefined && bi !== undefined) return ai - bi;
-            if (ai !== undefined) return -1;
-            if (bi !== undefined) return 1;
-            return a.order_index - b.order_index;
-          })
-          .map((s) => ({
-            ...s,
-            order_index: orderMap[s.id] ?? s.order_index,
-          })),
-      };
-    });
+    const orderMap: Record<string, number> = {};
+    orderedIds.forEach((id, i) => (orderMap[id] = i));
+    // 局部更新：仅替换受影响 chapter 内的 sections，不全量 sort
+    set((state) => ({
+      sections: state.sections.map((s) =>
+        s.chapter_id === chapterId && orderMap[s.id] !== undefined
+          ? { ...s, order_index: orderMap[s.id] }
+          : s,
+      ),
+    }));
   },
 
   // 跨章拖动：同时更新 chapter_id 和 order_index
   moveSections: async (targetChapterId, orderedIds) => {
     await db.moveSections(targetChapterId, orderedIds);
-    set((state) => {
-      const orderMap: Record<string, number> = {};
-      orderedIds.forEach((id, i) => (orderMap[id] = i));
-      return {
-        sections: state.sections
-          .slice()
-          .map((s) =>
-            orderMap[s.id] !== undefined
-              ? { ...s, chapter_id: targetChapterId, order_index: orderMap[s.id] }
-              : s,
-          )
-          .sort((a, b) => {
-            if (a.chapter_id === b.chapter_id) return a.order_index - b.order_index;
-            return 0;
-          }),
-      };
-    });
+    const orderMap: Record<string, number> = {};
+    orderedIds.forEach((id, i) => (orderMap[id] = i));
+    // 局部更新：仅替换命中的 sections，不全量 sort
+    set((state) => ({
+      sections: state.sections.map((s) =>
+        orderMap[s.id] !== undefined
+          ? { ...s, chapter_id: targetChapterId, order_index: orderMap[s.id] }
+          : s,
+      ),
+    }));
   },
 
   deleteSection: async (sectionId) => {

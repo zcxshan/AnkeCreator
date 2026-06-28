@@ -23,10 +23,10 @@ import {
 } from '../../utils/anjiaHistory';
 import {
   collectAnkeToWorkJson,
-  DEFAULT_FORMAT_SETTINGS,
   type SectionMode,
-  type FormatSettings,
+  type ManualFormatConfig,
 } from '../../utils/ankeCollect';
+import { ManualFormatEditor } from '../anke/ManualFormatEditor';
 import { AnkeProgressBar } from './AnkeProgressBar';
 import { webSaveStoryAsFile } from '../../utils/storyFileIO';
 import { isCapacitor } from '../../utils/platform';
@@ -1252,12 +1252,12 @@ export function AnkeTab() {
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [paused, setPaused] = useState(false);
   /**
-   * JSON 格式详细设置（卷名/章名/节名/节内容范围标记模板）。
-   * 默认值在 handleStart 合并时填入 DEFAULT_FORMAT_SETTINGS。
-   * 用户在折叠面板里改时实时更新。
+   * 交互式高级格式设置：用户手动指定卷/章/节结构 + 楼号范围。
+   * 启用后爬取数据按此结构切分；未启用则走 floorsPerSection 自动切分。
    */
-  const [formatSettings, setFormatSettings] = useState<FormatSettings>({
-    ...DEFAULT_FORMAT_SETTINGS,
+  const [manualFormat, setManualFormat] = useState<ManualFormatConfig>({
+    enabled: false,
+    volumes: [],
   });
   // 抓取异常决策（连续失败时弹窗）
   const [ankeDecision, setAnkeDecision] = useState<{
@@ -1396,7 +1396,7 @@ export function AnkeTab() {
         floorsPerSection: fps,
         cookies: ngaCookies || undefined,
         authorid: parsedAuthorid,
-        formatSettings, // 透传用户自定义格式模板
+        manualFormat, // 透传交互式卷/章/节结构（启用后按楼号范围切分）
       });
       if (!result.ok) {
         showToast(`收集失败：${result.error}`, 'error');
@@ -1498,7 +1498,7 @@ export function AnkeTab() {
         floorsPerSection: fps,
         cookies: ngaCookies || undefined,
         authorid: parsedAuthorid,
-        formatSettings,
+        manualFormat,
         retryPages: ankeFailedPages,
         existingItems: ankeCollectedItems as any,
       });
@@ -1522,6 +1522,7 @@ export function AnkeTab() {
         );
       } else {
         showToast(`全部 ${result.stats!.totalFloors} 楼已补齐`, 'success');
+        setAnkeWarnings([]); // 清空之前的警告
       }
       setProgressMsg(
         `已收集 ${result.stats!.totalFloors} 楼，分 ${result.stats!.sectionCount} 节`,
@@ -1805,7 +1806,7 @@ export function AnkeTab() {
               />
             </div>
 
-            {/* 高级格式设置（折叠面板） */}
+            {/* 高级格式设置（折叠面板） - 交互式卷/章/节结构 */}
             <details
               style={{
                 border: '1px solid var(--border-color)',
@@ -1828,78 +1829,42 @@ export function AnkeTab() {
                   gap: 6,
                 }}
               >
-                ⚙ 高级格式设置（可选，定义卷/章/节命名与节内容范围标记）
+                ⚙ 高级格式设置（可选，自定义卷/章/节结构 + 楼号范围）
               </summary>
               <div style={{ padding: '8px 0 12px', display: 'grid', gap: 10 }}>
-                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                  占位符：{'{volIndex}'}（卷号）/ {'{chapterIndex}'}（章号）/ {'{startFloor}'}（节起始楼）/ {'{endFloor}'}（节结束楼）
-                </div>
-                <div>
-                  <label style={labelStyle}>卷名格式</label>
-                  <input
-                    value={formatSettings.volumeTitleFormat}
-                    onChange={(e) =>
-                      setFormatSettings((s) => ({ ...s, volumeTitleFormat: e.target.value }))
-                    }
-                    placeholder="第一卷"
-                    disabled={running}
-                    style={{ ...inputStyle, opacity: running ? 0.5 : 1 }}
-                  />
-                </div>
-                <div>
-                  <label style={labelStyle}>章名格式</label>
-                  <input
-                    value={formatSettings.chapterTitleFormat}
-                    onChange={(e) =>
-                      setFormatSettings((s) => ({ ...s, chapterTitleFormat: e.target.value }))
-                    }
-                    placeholder="第一章"
-                    disabled={running}
-                    style={{ ...inputStyle, opacity: running ? 0.5 : 1 }}
-                  />
-                </div>
-                <div>
-                  <label style={labelStyle}>节名格式</label>
-                  <input
-                    value={formatSettings.sectionTitleFormat}
-                    onChange={(e) =>
-                      setFormatSettings((s) => ({ ...s, sectionTitleFormat: e.target.value }))
-                    }
-                    placeholder="第 {startFloor}-{endFloor} 楼"
-                    disabled={running}
-                    style={{ ...inputStyle, opacity: running ? 0.5 : 1 }}
-                  />
-                </div>
-                <div>
-                  <label style={labelStyle}>节内容范围标记（留空 = 不加）</label>
-                  <input
-                    value={formatSettings.sectionContentRangeFormat}
-                    onChange={(e) =>
-                      setFormatSettings((s) => ({
-                        ...s,
-                        sectionContentRangeFormat: e.target.value,
-                      }))
-                    }
-                    placeholder="这节内容是{startFloor}楼到{endFloor}楼的内容"
-                    disabled={running}
-                    style={{ ...inputStyle, opacity: running ? 0.5 : 1 }}
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setFormatSettings({ ...DEFAULT_FORMAT_SETTINGS })}
-                  disabled={running}
-                  className="text-xs px-3 py-1.5 rounded-md self-start"
+                <label
                   style={{
-                    background: 'var(--bg-hover)',
-                    color: 'var(--text-secondary)',
-                    border: '1px solid var(--border-color)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
                     cursor: running ? 'not-allowed' : 'pointer',
                     opacity: running ? 0.5 : 1,
+                    userSelect: 'none',
                   }}
                 >
-                  🔄 恢复默认
-                </button>
+                  <input
+                    type="checkbox"
+                    checked={manualFormat.enabled}
+                    onChange={(e) =>
+                      setManualFormat({ ...manualFormat, enabled: e.target.checked })
+                    }
+                    disabled={running}
+                    style={{ cursor: running ? 'not-allowed' : 'pointer' }}
+                  />
+                  <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>
+                    启用自定义卷/章/节结构
+                  </span>
+                </label>
+                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                  启用后爬取数据按你指定的卷/章/节 + 楼号范围切分。未启用则按「每 N 楼一节」自动切分。
+                </div>
+                {manualFormat.enabled && (
+                  <ManualFormatEditor
+                    value={manualFormat}
+                    onChange={setManualFormat}
+                    maxFloor={Number(endFloor) || undefined}
+                  />
+                )}
               </div>
             </details>
             {/* 提示 */}

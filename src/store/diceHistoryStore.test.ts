@@ -186,3 +186,80 @@ describe('buildDiceHistoryRecord - 含 storyId', () => {
     expect(rec?.storyId).toBe('story-1');
   });
 });
+
+describe('buildDiceHistoryRecord - 表达式模式', () => {
+  it('表达式模式 diceType 应为表达式原文而非 1d100', () => {
+    const payload = {
+      config: {
+        name: '复合骰',
+        kind: 'numeric',
+        expression: '2*3d100+1d10-5',
+      },
+      lastResult: {
+        total: 303,
+        displayText: '[2*3d100+1d10-5=2*(45+12+89)+7-5=303]',
+        rolls: [45, 12, 89, 7],
+        timestamp: Date.now(),
+      },
+    };
+    const rec = buildDiceHistoryRecord({
+      payload,
+      storyId: 'story-1',
+      sectionId: 'sec-1',
+      sectionTitle: '第一节',
+    });
+    expect(rec).not.toBeNull();
+    expect(rec?.diceType).toBe('2*3d100+1d10-5');
+    expect(rec?.diceType).not.toBe('1d100');
+  });
+
+  it('表达式模式 result 应含完整展开文本', () => {
+    const payload = {
+      config: {
+        name: '复合骰',
+        kind: 'numeric',
+        expression: '2*3d100+1d10-5',
+      },
+      lastResult: {
+        total: 303,
+        displayText: '[2*3d100+1d10-5=2*(45+12+89)+7-5=303]',
+        rolls: [45, 12, 89, 7],
+        timestamp: Date.now(),
+      },
+    };
+    const rec = buildDiceHistoryRecord({
+      payload,
+      storyId: 'story-1',
+      sectionId: 'sec-1',
+      sectionTitle: '第一节',
+    });
+    expect(rec).not.toBeNull();
+    expect(rec?.result).toContain('2*3d100+1d10-5');
+    expect(rec?.resultDetail).toContain('303');
+  });
+
+  it('表达式模式 payloadSnapshot 保留 expression', () => {
+    const payload = {
+      config: {
+        name: '复合骰',
+        kind: 'numeric',
+        expression: '2*3d100+1d10-5',
+      },
+      lastResult: {
+        total: 303,
+        displayText: '[2*3d100+1d10-5=2*(45+12+89)+7-5=303]',
+        rolls: [45, 12, 89, 7],
+        timestamp: Date.now(),
+      },
+    };
+    const rec = buildDiceHistoryRecord({
+      payload,
+      storyId: 'story-1',
+      sectionId: 'sec-1',
+      sectionTitle: '第一节',
+    });
+    expect(rec).not.toBeNull();
+    const snap = JSON.parse(rec!.payloadSnapshot);
+    expect(snap.config.expression).toBe('2*3d100+1d10-5');
+  });
+});

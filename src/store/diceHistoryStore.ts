@@ -85,7 +85,19 @@ export function buildDiceHistoryRecord(params: {
   let result: string;
   let resultDetail: string;
 
-  if (kind === 'numeric') {
+  if (kind === 'numeric' && cfg.expression) {
+    // 表达式模式：diceType 为表达式原文，result/detail 使用 displayText
+    const expr = String(cfg.expression).trim();
+    diceType = expr;
+    const total: number = typeof last.total === 'number' ? last.total : 0;
+    if (typeof last.displayText === 'string' && last.displayText) {
+      result = last.displayText;
+      resultDetail = last.displayText;
+    } else {
+      result = `${expr} = ${total}`;
+      resultDetail = `掷出 ${total}`;
+    }
+  } else if (kind === 'numeric') {
     const count = Math.max(1, Math.min(10, Math.floor(cfg.count ?? 1)));
     const faces = Math.max(1, Math.min(1000, Math.floor(cfg.numericFaces ?? 100)));
     const modifier = Math.floor(cfg.modifier ?? 0);

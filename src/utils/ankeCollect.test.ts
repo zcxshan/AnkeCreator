@@ -621,3 +621,118 @@ describe('collectAnkeToWorkJson - formatSettings（高级格式设置）', () =>
     expect(DEFAULT_FORMAT_SETTINGS.sectionContentRangeFormat).toBe('');
   });
 });
+
+describe('collectAnkeToWorkJson - manualFormat（交互式高级格式）', () => {
+  beforeEach(() => {
+    (global as any).window = {
+      electronAPI: {
+        collectNga: vi.fn().mockResolvedValue({
+          ok: true,
+          items: [
+            { floor: 1, author: 'Alice', content: 'p1', time: 1719201240, pid: '1' },
+            { floor: 2, author: 'Bob', content: 'p2', time: 1719201300, pid: '2' },
+            { floor: 3, author: 'Alice', content: 'p3', time: 1719201360, pid: '3' },
+            { floor: 28, author: 'Alice', content: 'p28', time: 1719201420, pid: '28' },
+            { floor: 29, author: 'Bob', content: 'p29', time: 1719201480, pid: '29' },
+            { floor: 58, author: 'Alice', content: 'p58', time: 1719201540, pid: '58' },
+          ],
+        }),
+      },
+    };
+  });
+  afterEach(() => {
+    delete (global as any).window;
+  });
+
+  it('manualFormat 启用时导出多卷多章多节', async () => {
+    const result = await collectAnkeToWorkJson({
+      url: 'https://nga.178.com/read.php?tid=1234',
+      startFloor: 1,
+      endFloor: 58,
+      workTitle: '交互式测试',
+      manualFormat: {
+        enabled: true,
+        volumes: [
+          {
+            title: '和平解散',
+            chapters: [
+              {
+                title: '第一章',
+                sections: [
+                  { title: '第一集', startFloor: 1, endFloor: 28 },
+                  { title: '第二集', startFloor: 29, endFloor: 58 },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    });
+    expect(result.ok).toBe(true);
+    const data = (result.jsonData as any).data;
+    // 多卷
+    expect(data.volumes).toHaveLength(1);
+    expect(data.volumes[0].title).toBe('和平解散');
+    // 多章
+    expect(data.chapters).toHaveLength(1);
+    expect(data.chapters[0].title).toBe('第一章');
+    expect(data.chapters[0].volume_id).toBe(data.volumes[0].id);
+    // 多节
+    expect(data.chapters[0].sections).toHaveLength(2);
+    expect(data.chapters[0].sections[0].title).toBe('第一集');
+    expect(data.chapters[0].sections[1].title).toBe('第二集');
+  });
+
+  it('manualFormat 节内容按楼号范围过滤', async () => {
+    const result = await collectAnkeToWorkJson({
+      url: 'https://nga.178.com/read.php?tid=1234',
+      startFloor: 1,
+      endFloor: 58,
+      workTitle: '楼号过滤测试',
+      manualFormat: {
+        enabled: true,
+        volumes: [
+          {
+            title: '卷一',
+            chapters: [
+              {
+                title: '章一',
+                sections: [
+                  { title: '节一', startFloor: 1, endFloor: 3 },
+                  { title: '节二', startFloor: 28, endFloor: 29 },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    });
+    expect(result.ok).toBe(true);
+    const data = (result.jsonData as any).data;
+    // 节一应含 1,2,3 楼
+    expect(data.chapters[0].sections[0].content).toContain('1 楼');
+    expect(data.chapters[0].sections[0].content).toContain('3 楼');
+    expect(data.chapters[0].sections[0].content).not.toContain('28 楼');
+    // 节二应含 28,29 楼
+    expect(data.chapters[0].sections[1].content).toContain('28 楼');
+    expect(data.chapters[0].sections[1].content).toContain('29 楼');
+    expect(data.chapters[0].sections[1].content).not.toContain('1 楼');
+  });
+
+  it('manualFormat 未启用时走原有 floorsPerSection 切分', async () => {
+    const result = await collectAnkeToWorkJson({
+      url: 'https://nga.178.com/read.php?tid=1234',
+      startFloor: 1,
+      endFloor: 3,
+      workTitle: '未启用测试',
+      sectionMode: 'every-n',
+      floorsPerSection: 2,
+      manualFormat: { enabled: false, volumes: [] },
+    });
+    expect(result.ok).toBe(true);
+    const data = (result.jsonData as any).data;
+    // 走原有逻辑：单卷单章
+    expect(data.volumes).toHaveLength(1);
+    expect(data.chapters).toHaveLength(1);
+  });
+});

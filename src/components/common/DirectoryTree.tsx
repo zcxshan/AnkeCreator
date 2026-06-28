@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import type { Chapter, Section, SectionMeta, Volume } from '../../types';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useToastStore } from '../../store/toastStore';
@@ -12,6 +12,12 @@ interface DirectoryTreeProps {
   sectionStats: Record<string, { words: number; dice: number }>;
   expandedVolumeIds: Record<string, boolean>;
   expandedChapterIds: Record<string, boolean>;
+  /** 在指定锚点节的前/后插入新节（anchorId=null 表示最前/最后） */
+  onCreateSectionAt?: (chapterId: string, anchorId: string | null, position: 'before' | 'after') => void;
+  /** 在指定锚点章的前/后插入新章（anchorId=null 表示该卷最前/最后） */
+  onCreateChapterAt?: (volumeId: string | null, anchorId: string | null, position: 'before' | 'after') => void;
+  /** 在指定锚点卷的前/后插入新卷（anchorId=null 表示最前/最后） */
+  onCreateVolumeAt?: (anchorId: string | null, position: 'before' | 'after') => void;
   onSelectChapter: (id: string | null) => void;
   onSelectSection: (id: string) => void;
   onCreateVolume: () => void;
@@ -34,7 +40,7 @@ interface DirectoryTreeProps {
   onSyncToOutline?: () => void;
 }
 
-export function DirectoryTree(props: DirectoryTreeProps) {
+function DirectoryTreeInner(props: DirectoryTreeProps) {
   const {
     volumes,
     chapters,
@@ -63,6 +69,9 @@ export function DirectoryTree(props: DirectoryTreeProps) {
     onMoveChapters,
     onMoveSections,
     onSyncToOutline,
+    onCreateSectionAt,
+    onCreateChapterAt,
+    onCreateVolumeAt,
   } = props;
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -78,6 +87,9 @@ export function DirectoryTree(props: DirectoryTreeProps) {
     type: 'volume' | 'chapter' | 'section';
     id: string;
     title: string;
+    /** section 节点：所属 chapter_id；chapter 节点：所属 volume_id（null=未归卷） */
+    chapterId?: string;
+    volumeId?: string | null;
   } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{
     type: 'volume' | 'chapter' | 'section';
@@ -108,8 +120,8 @@ export function DirectoryTree(props: DirectoryTreeProps) {
     return () => document.removeEventListener('mousedown', onDoc, true);
   }, [contextMenu]);
 
-  // 章按卷分组
-  const { sortedVolumes, chaptersByVolume, orphanChapters } = useMemo(() => {
+  // 章按卷分组 + 节按章分组（预计算，避免 O(V×C×S) 重复 filter+sort）
+  const { sortedVolumes, chaptersByVolume, orphanChapters, sectionsByChapter } = useMemo(() => {
     const sv = [...volumes].sort((a, b) => a.order_index - b.order_index);
     const byVol: Record<string, Chapter[]> = {};
     sv.forEach((v) => (byVol[v.id] = []));
@@ -123,8 +135,24 @@ export function DirectoryTree(props: DirectoryTreeProps) {
           orphans.push(c);
         }
       });
-    return { sortedVolumes: sv, chaptersByVolume: byVol, orphanChapters: orphans };
-  }, [volumes, chapters]);
+    // 节按 chapter_id 分组并按 order_index 排序
+    const byCh: Record<string, SectionMeta[]> = {};
+    for (const ch of [...orphans, ...sv.flatMap((v) => byVol[v.id])]) {
+      byCh[ch.id] = [];
+    }
+    [...sections]
+      .sort((a, b) => a.order_index - b.order_index)
+      .forEach((s) => {
+        if (!byCh[s.chapter_id]) byCh[s.chapter_id] = [];
+        byCh[s.chapter_id].push(s);
+      });
+    return {
+      sortedVolumes: sv,
+      chaptersByVolume: byVol,
+      orphanChapters: orphans,
+      sectionsByChapter: byCh,
+    };
+  }, [volumes, chapters, sections]);
 
   const commitRename = () => {
     if (!editingId) return;
@@ -192,7 +220,14 @@ export function DirectoryTree(props: DirectoryTreeProps) {
         onDragEnd={() => setDragSectionId(null)}
         onContextMenu={(e) => {
           e.preventDefault();
-          setContextMenu({ x: e.clientX, y: e.clientY, type: 'section', id: sec.id, title: sec.title });
+          setContextMenu({
+            x: e.clientX,
+            y: e.clientY,
+            type: 'section',
+            id: sec.id,
+            title: sec.title,
+            chapterId: sec.chapter_id,
+          });
         }}
         className={[
           'group flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer text-xs transition-all relative',
@@ -237,9 +272,7 @@ export function DirectoryTree(props: DirectoryTreeProps) {
   };
 
   const renderChapterGroup = (ch: Chapter, dragScope: Chapter[]) => {
-    const chapterSecs = sections
-      .filter((s) => s.chapter_id === ch.id)
-      .sort((a, b) => a.order_index - b.order_index);
+    const chapterSecs = sectionsByChapter[ch.id] || [];
     const isExpanded = expandedChapterIds[ch.id];
     const chapterWordCount = chapterSecs.reduce((sum, s) => sum + (sectionStats[s.id]?.words || 0), 0);
     const isChapterActive = activeChapterId === ch.id;
@@ -294,7 +327,14 @@ export function DirectoryTree(props: DirectoryTreeProps) {
           onDragEnd={() => setDragChapterId(null)}
           onContextMenu={(e) => {
             e.preventDefault();
-            setContextMenu({ x: e.clientX, y: e.clientY, type: 'chapter', id: ch.id, title: ch.title });
+            setContextMenu({
+              x: e.clientX,
+              y: e.clientY,
+              type: 'chapter',
+              id: ch.id,
+              title: ch.title,
+              volumeId: ch.volume_id ?? null,
+            });
           }}
           className={[
             'group flex items-center gap-1 px-2 py-1.5 rounded-lg cursor-pointer text-xs transition-all',
@@ -446,9 +486,10 @@ export function DirectoryTree(props: DirectoryTreeProps) {
             const vWordCount = vChapters.reduce(
               (sum, c) =>
                 sum +
-                sections
-                  .filter((s) => s.chapter_id === c.id)
-                  .reduce((s, sec) => s + (sectionStats[sec.id]?.words || 0), 0),
+                (sectionsByChapter[c.id] || []).reduce(
+                  (s, sec) => s + (sectionStats[sec.id]?.words || 0),
+                  0,
+                ),
               0,
             );
             return (
@@ -617,25 +658,89 @@ export function DirectoryTree(props: DirectoryTreeProps) {
             }}
           />
           {contextMenu.type === 'volume' && (
-            <ContextMenuItem
-              icon="+"
-              label="新增章"
-              onClick={() => {
-                onCreateChapter(contextMenu.id);
-                setContextMenu(null);
-              }}
-            />
+            <>
+              <ContextMenuItem
+                icon="+"
+                label="新增章"
+                onClick={() => {
+                  onCreateChapter(contextMenu.id);
+                  setContextMenu(null);
+                }}
+              />
+              {onCreateVolumeAt && (
+                <>
+                  <ContextMenuItem
+                    icon="↑"
+                    label="在此卷前添加卷"
+                    onClick={() => {
+                      onCreateVolumeAt(contextMenu.id, 'before');
+                      setContextMenu(null);
+                    }}
+                  />
+                  <ContextMenuItem
+                    icon="↓"
+                    label="在此卷后添加卷"
+                    onClick={() => {
+                      onCreateVolumeAt(contextMenu.id, 'after');
+                      setContextMenu(null);
+                    }}
+                  />
+                </>
+              )}
+            </>
           )}
           {contextMenu.type === 'chapter' && (
-            <ContextMenuItem
-              icon="+"
-              label="新增节"
-              onClick={() => {
-                onSelectChapter(contextMenu.id);
-                onCreateSection(contextMenu.id);
-                setContextMenu(null);
-              }}
-            />
+            <>
+              <ContextMenuItem
+                icon="+"
+                label="新增节"
+                onClick={() => {
+                  onSelectChapter(contextMenu.id);
+                  onCreateSection(contextMenu.id);
+                  setContextMenu(null);
+                }}
+              />
+              {onCreateChapterAt && (
+                <>
+                  <ContextMenuItem
+                    icon="↑"
+                    label="在此章前添加章"
+                    onClick={() => {
+                      onCreateChapterAt(contextMenu.volumeId ?? null, contextMenu.id, 'before');
+                      setContextMenu(null);
+                    }}
+                  />
+                  <ContextMenuItem
+                    icon="↓"
+                    label="在此章后添加章"
+                    onClick={() => {
+                      onCreateChapterAt(contextMenu.volumeId ?? null, contextMenu.id, 'after');
+                      setContextMenu(null);
+                    }}
+                  />
+                </>
+              )}
+            </>
+          )}
+          {contextMenu.type === 'section' && onCreateSectionAt && (
+            <>
+              <ContextMenuItem
+                icon="↑"
+                label="在此节前添加节"
+                onClick={() => {
+                  onCreateSectionAt(contextMenu.chapterId ?? contextMenu.id, contextMenu.id, 'before');
+                  setContextMenu(null);
+                }}
+              />
+              <ContextMenuItem
+                icon="↓"
+                label="在此节后添加节"
+                onClick={() => {
+                  onCreateSectionAt(contextMenu.chapterId ?? contextMenu.id, contextMenu.id, 'after');
+                  setContextMenu(null);
+                }}
+              />
+            </>
           )}
           <div className="my-1 border-t" style={{ borderColor: 'var(--border-color)' }} />
           <ContextMenuItem
@@ -673,6 +778,9 @@ export function DirectoryTree(props: DirectoryTreeProps) {
     </aside>
   );
 }
+
+// React.memo 包裹：EditorPage 输入时 sectionContent 变化不再触发整树重渲染
+export const DirectoryTree = React.memo(DirectoryTreeInner);
 
 function ContextMenuItem({
   icon,

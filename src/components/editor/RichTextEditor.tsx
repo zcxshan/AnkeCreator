@@ -156,7 +156,7 @@ export function RichTextEditor({
     return () => document.removeEventListener('selectionchange', onSelectionChange);
   }, []);
 
-  // content 变化 -> 同步写入 div.innerHTML（切节加载）
+  // content 变化 -> 写入 div.innerHTML（切节加载，用 requestIdleCallback 避免阻塞主线程）
   useEffect(() => {
     const el = divRef.current;
     if (!el) return;
@@ -165,12 +165,25 @@ export function RichTextEditor({
     // 实际写入的 HTML：空内容时插入 <br> 占位，让 contenteditable 能显示光标
     // （contenteditable div 为空时浏览器不显示光标）
     const displayHTML = safeContent === '' ? '<br>' : safeContent;
-    if (el.innerHTML !== displayHTML) {
+    if (el.innerHTML === displayHTML) return;
+
+    const apply = () => {
       el.innerHTML = displayHTML;
       lastContentRef.current = safeContent;
       // 内容从外部加载（切章节/导入等），重置历史栈
       useEditorHistoryStore.getState().reset(safeContent);
+    };
+    // requestIdleCallback 让浏览器在空闲时执行写入，避免大节内容阻塞 UI
+    const ric = (window as any).requestIdleCallback as
+      | ((cb: () => void, opts?: { timeout?: number }) => number)
+      | undefined;
+    if (ric) {
+      const handle = ric(apply, { timeout: 200 });
+      return () => (window as any).cancelIdleCallback?.(handle);
     }
+    // 降级：非 Electron 环境用 setTimeout(0)
+    const t = setTimeout(apply, 0);
+    return () => clearTimeout(t);
   }, [content]);
 
   // editable 变化 -> 同步属性

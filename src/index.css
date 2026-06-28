@@ -244,6 +244,16 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 
+/* 收集安科节内容范围标记样式 */
+.anke-section-range {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  text-align: center;
+  margin: 0 0 8px;
+  padding: 2px 8px;
+  border-bottom: 1px dashed var(--border-color);
+}
+
 /* 列表样式（contenteditable 编辑器） */
 .anke-editor-content ul {
   list-style-type: disc;

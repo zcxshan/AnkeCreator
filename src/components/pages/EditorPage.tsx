@@ -171,8 +171,11 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
     expandedChapterIds,
     outlines,
     createVolume,
+    createVolumeAt,
     createChapter,
+    createChapterAt,
     createSection,
+    createSectionAt,
     renameVolume,
     renameChapter,
     renameSection,
@@ -902,6 +905,22 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                     const chapterSections = sections.filter((s) => s.chapter_id === chapterId);
                     createSection(chapterId, `第${chapterSections.length + 1}节`);
                   }}
+                  onCreateVolumeAt={(anchorId, position) => {
+                    if (activeStoryId) {
+                      const volCount = volumes.length + 1;
+                      createVolumeAt(activeStoryId, `第${volCount}卷`, anchorId, position);
+                    }
+                  }}
+                  onCreateChapterAt={(volumeId, anchorId, position) => {
+                    if (activeStoryId) {
+                      const chapCount = chapters.filter((c) => c.volume_id === volumeId).length + 1;
+                      createChapterAt(activeStoryId, `第${chapCount}章`, volumeId, anchorId, position);
+                    }
+                  }}
+                  onCreateSectionAt={(chapterId, anchorId, position) => {
+                    const chapterSections = sections.filter((s) => s.chapter_id === chapterId);
+                    createSectionAt(chapterId, `第${chapterSections.length + 1}节`, anchorId, position);
+                  }}
                   onRenameVolume={renameVolume}
                   onRenameChapter={renameChapter}
                   onRenameSection={renameSection}
@@ -1188,6 +1207,19 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                         }
                       }, 80);
                     }}
+                    onInsertUnrolledDice={(_, payloadSnapshot) => {
+                      try {
+                        const payload = JSON.parse(payloadSnapshot);
+                        payload.id = `dice-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+                        payload.history = [];
+                        payload.lastResult = null;
+                        payload.restored = false;
+                        richTextEditorCommandsRef.current?.insertDice(payload);
+                        setToast('已插入未掷骰的骰子');
+                      } catch (e) {
+                        setToast('插入失败：骰子数据格式错误');
+                      }
+                    }}
                     selectedImage={selectedImage}
                     onSetImageSize={(size) => richTextEditorCommandsRef.current?.setSelectedImageSize(size)}
                     richTextEditorCommandsRef={richTextEditorCommandsRef}
@@ -1251,6 +1283,21 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                       setToast('恢复失败：骰子数据格式错误');
                     }
                   }, 80);
+                }}
+                onInsertUnrolledDice={(_, payloadSnapshot) => {
+                  try {
+                    const payload = JSON.parse(payloadSnapshot);
+                    payload.id = `dice-${Date.now().toString(36)}-${Math.random()
+                      .toString(36)
+                      .slice(2, 8)}`;
+                    payload.history = [];
+                    payload.lastResult = null;
+                    payload.restored = false;
+                    richTextEditorCommandsRef.current?.insertDice(payload);
+                    setToast('已插入未掷骰的骰子');
+                  } catch (e) {
+                    setToast('插入失败：骰子数据格式错误');
+                  }
                 }}
                 selectedImage={selectedImage}
                 onSetImageSize={(size) => {
@@ -1322,6 +1369,22 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                     onCreateSection={(chapterId) => {
                       const chapterSections = sections.filter((s) => s.chapter_id === chapterId);
                       createSection(chapterId, `第${chapterSections.length + 1}节`);
+                    }}
+                    onCreateVolumeAt={(anchorId, position) => {
+                      if (activeStoryId) {
+                        const volCount = volumes.length + 1;
+                        createVolumeAt(activeStoryId, `第${volCount}卷`, anchorId, position);
+                      }
+                    }}
+                    onCreateChapterAt={(volumeId, anchorId, position) => {
+                      if (activeStoryId) {
+                        const chapCount = chapters.filter((c) => c.volume_id === volumeId).length + 1;
+                        createChapterAt(activeStoryId, `第${chapCount}章`, volumeId, anchorId, position);
+                      }
+                    }}
+                    onCreateSectionAt={(chapterId, anchorId, position) => {
+                      const chapterSections = sections.filter((s) => s.chapter_id === chapterId);
+                      createSectionAt(chapterId, `第${chapterSections.length + 1}节`, anchorId, position);
                     }}
                     onRenameVolume={renameVolume}
                     onRenameChapter={renameChapter}
@@ -1541,6 +1604,7 @@ function RightPanel({
   onRenameSection,
   onJumpToDice,
   onRestoreDice,
+  onInsertUnrolledDice,
   selectedImage,
   onSetImageSize,
   richTextEditorCommandsRef,
@@ -1561,6 +1625,7 @@ function RightPanel({
   onRenameSection: (newTitle: string) => void;
   onJumpToDice: (sectionId: string, payloadSnapshot: string) => void;
   onRestoreDice: (sectionId: string, payloadSnapshot: string) => void;
+  onInsertUnrolledDice: (sectionId: string, payloadSnapshot: string) => void;
   selectedImage: { width: number; height: number; src?: string; dataSize?: string } | null;
   onSetImageSize: (size: string) => void;
   richTextEditorCommandsRef: React.MutableRefObject<RichTextEditorCommands | null>;
@@ -1756,6 +1821,7 @@ function RightPanel({
               storyId={activeStoryId}
               onJumpToDice={onJumpToDice}
               onRestoreDice={onRestoreDice}
+              onInsertUnrolledDice={onInsertUnrolledDice}
             />
           )}
       </div>
@@ -1769,10 +1835,12 @@ function DiceHistoryPanel({
   storyId,
   onJumpToDice,
   onRestoreDice,
+  onInsertUnrolledDice,
 }: {
   storyId?: string | null;
   onJumpToDice: (sectionId: string, payloadSnapshot: string) => void;
   onRestoreDice: (sectionId: string, payloadSnapshot: string) => void;
+  onInsertUnrolledDice: (sectionId: string, payloadSnapshot: string) => void;
 }) {
   const records = useDiceHistoryStore((s) =>
     storyId ? s.getRecordsByStory(storyId) : [],
@@ -1850,6 +1918,14 @@ function DiceHistoryPanel({
                   → {r.sectionTitle || '(未命名节)'}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => onInsertUnrolledDice(r.sectionId, r.payloadSnapshot)}
+                    className="text-[10px] px-2 py-1 rounded-md font-medium border"
+                    style={{ borderColor: 'var(--accent)', color: 'var(--accent)', background: 'transparent' }}
+                    title="在当前光标插入一个相同格式未掷骰的骰子"
+                  >
+                    插入
+                  </button>
                   <button
                     onClick={() => onRestoreDice(r.sectionId, r.payloadSnapshot)}
                     className="text-[10px] px-2 py-1 rounded-md font-medium border"

@@ -14,7 +14,7 @@
 
 import { create } from 'zustand';
 
-const MAX_HISTORY = 50;
+const MAX_HISTORY = 20;
 
 export interface EditorHistoryState {
   /** 当前快照 */

@@ -50,6 +50,28 @@ export const DEFAULT_FORMAT_SETTINGS: FormatSettings = {
   sectionContentRangeFormat: '',
 };
 
+/**
+ * 交互式高级格式设置：用户手动指定卷/章/节结构 + 楼号范围。
+ * 启用后爬取数据按用户指定的楼号范围切分到对应节。
+ */
+export interface ManualSectionConfig {
+  title: string;
+  startFloor: number;
+  endFloor: number;
+}
+export interface ManualChapterConfig {
+  title: string;
+  sections: ManualSectionConfig[];
+}
+export interface ManualVolumeConfig {
+  title: string;
+  chapters: ManualChapterConfig[];
+}
+export interface ManualFormatConfig {
+  enabled: boolean;
+  volumes: ManualVolumeConfig[];
+}
+
 /** 切分后的一个节 */
 export interface Section {
   title: string;
@@ -76,6 +98,11 @@ export interface AnkeCollectOptions {
    * 详见 FormatSettings 注释。
    */
   formatSettings?: FormatSettings;
+  /**
+   * 交互式高级格式设置：用户手动指定卷/章/节结构 + 楼号范围。
+   * 启用后忽略 formatSettings 与 sectionMode/floorsPerSection，按用户指定结构切分。
+   */
+  manualFormat?: ManualFormatConfig;
   /**
    * 重试模式：只抓取 retryPages 里的页码，结果会按 floor 去重合并到 jsonData。
    * 失败页会出现在返回值的 failedPages 中供再次重试。
@@ -212,90 +239,146 @@ export async function collectAnkeToWorkJson(
     return { ok: false, error: '指定范围内无内容' };
   }
 
-  // 7. 按 sectionMode + floorsPerSection 切分
-  const sections = splitPostsIntoSections(
-    posts as RawPost[],
-    opts.sectionMode ?? 'every-n',
-    opts.floorsPerSection ?? 10,
-  );
-
-  // 8. 拼作品 JSON
+  // 7. 拼作品 JSON
   const finalTitle = opts.workTitle?.trim() || `安科-${parsed.tid}`;
-  // 合并 formatSettings（用户自定义覆盖默认值）
-  const fmt: FormatSettings = {
-    ...DEFAULT_FORMAT_SETTINGS,
-    ...(opts.formatSettings || {}),
-  };
-  // 当前只支持单卷单章：{volIndex}=1, {chapterIndex}=1
-  const volIndex = 1;
-  const chapterIndex = 1;
-  const volumeTitle = fmt.volumeTitleFormat
-    .replace(/\{volIndex\}/g, String(volIndex))
-    .replace(/\{chapterIndex\}/g, String(chapterIndex));
-  const chapterTitle = fmt.chapterTitleFormat
-    .replace(/\{volIndex\}/g, String(volIndex))
-    .replace(/\{chapterIndex\}/g, String(chapterIndex));
-  // 默认 volume 占位 id 'vol-default'：导入端 volumeIdMap[vol.id] 会重新映射为真实 DB id，
-  // 所以这里用稳定字符串即可。chapter 通过 volume_id 关联到该 volume，
-  // 避免导入后所有 chapter 落到"未归卷"。
-  const jsonData = {
-    format: 'anke-creator-export',
+  const baseData = {
+    format: 'anke-creator-export' as const,
     version: '1.1',
     exportedAt: new Date().toISOString(),
     appVersion: '0.1.0',
-    data: {
-      title: finalTitle,
-      description: `源：NGA tid=${parsed.tid}，第 ${opts.startFloor}-${opts.endFloor} 楼`,
-      category: '安科',
-      volumes: [
-        {
-          id: 'vol-default',
-          title: volumeTitle,
-          order_index: 0,
-        },
-      ],
-      chapters: [
-        {
-          title: chapterTitle,
-          volume_id: 'vol-default',
-          order_index: 0,
-          sections: sections.map((s) => {
-            const startF = s.posts[0]?.floor ?? 0;
-            const endF = s.posts[s.posts.length - 1]?.floor ?? 0;
-            const sectionTitle = fmt.sectionTitleFormat
-              .replace(/\{startFloor\}/g, String(startF))
-              .replace(/\{endFloor\}/g, String(endF))
-              .replace(/\{volIndex\}/g, String(volIndex))
-              .replace(/\{chapterIndex\}/g, String(chapterIndex));
-            // 节内容范围标记（可选）：插在帖子内容之前，单独一行 + 空行分隔
-            const rangeLine = fmt.sectionContentRangeFormat
-              ? `<p class="anke-section-range">${fmt.sectionContentRangeFormat
-                  .replace(/\{startFloor\}/g, String(startF))
-                  .replace(/\{endFloor\}/g, String(endF))}</p>\n\n`
-              : '';
-            return {
-              title: sectionTitle,
-              order_index: s.order_index,
-              // 保留原帖图片（含 image-block），导入后可视化视图可正常显示
-              content: rangeLine + s.content,
-            };
-          }),
-        },
-      ],
-      characters: [],
-      world_settings: [],
-      outlines: [],
-      character_relations: [],
-      dice_history: [],
-    },
   };
+  const baseMeta = {
+    title: finalTitle,
+    description: `源：NGA tid=${parsed.tid}，第 ${opts.startFloor}-${opts.endFloor} 楼`,
+    category: '安科',
+  };
+
+  let jsonData: unknown;
+  let sectionCount: number;
+
+  if (opts.manualFormat?.enabled && opts.manualFormat.volumes.length > 0) {
+    // 交互式高级格式：按用户指定的卷/章/节 + 楼号范围切分
+    const mf = opts.manualFormat;
+    const volumes: any[] = [];
+    const chapters: any[] = [];
+    let secIdx = 0;
+    for (let vi = 0; vi < mf.volumes.length; vi++) {
+      const vol = mf.volumes[vi];
+      const volId = `vol-${vi}`;
+      volumes.push({ id: volId, title: vol.title, order_index: vi });
+      for (let ci = 0; ci < vol.chapters.length; ci++) {
+        const ch = vol.chapters[ci];
+        const chapterSections = ch.sections.map((sec, si) => {
+          const sectionPosts = (posts as RawPost[]).filter(
+            (p) => p.floor >= sec.startFloor && p.floor <= sec.endFloor,
+          );
+          const inner = buildSectionHtml(sectionPosts);
+          const content = sectionPosts.length > 1
+            ? `<div class="anke-section">${inner}</div>`
+            : inner;
+          return {
+            title: sec.title,
+            order_index: si,
+            content,
+          };
+        });
+        chapters.push({
+          title: ch.title,
+          volume_id: volId,
+          order_index: ci,
+          sections: chapterSections,
+        });
+        secIdx += ch.sections.length;
+      }
+    }
+    sectionCount = secIdx;
+    jsonData = {
+      ...baseData,
+      data: {
+        ...baseMeta,
+        volumes,
+        chapters,
+        characters: [],
+        world_settings: [],
+        outlines: [],
+        character_relations: [],
+        dice_history: [],
+      },
+    };
+  } else {
+    // 原有逻辑：按 sectionMode + floorsPerSection 切分，单卷单章
+    const sections = splitPostsIntoSections(
+      posts as RawPost[],
+      opts.sectionMode ?? 'every-n',
+      opts.floorsPerSection ?? 10,
+    );
+    sectionCount = sections.length;
+    // 合并 formatSettings（用户自定义覆盖默认值）
+    const fmt: FormatSettings = {
+      ...DEFAULT_FORMAT_SETTINGS,
+      ...(opts.formatSettings || {}),
+    };
+    // 当前只支持单卷单章：{volIndex}=1, {chapterIndex}=1
+    const volIndex = 1;
+    const chapterIndex = 1;
+    const volumeTitle = fmt.volumeTitleFormat
+      .replace(/\{volIndex\}/g, String(volIndex))
+      .replace(/\{chapterIndex\}/g, String(chapterIndex));
+    const chapterTitle = fmt.chapterTitleFormat
+      .replace(/\{volIndex\}/g, String(volIndex))
+      .replace(/\{chapterIndex\}/g, String(chapterIndex));
+    jsonData = {
+      ...baseData,
+      data: {
+        ...baseMeta,
+        volumes: [
+          {
+            id: 'vol-default',
+            title: volumeTitle,
+            order_index: 0,
+          },
+        ],
+        chapters: [
+          {
+            title: chapterTitle,
+            volume_id: 'vol-default',
+            order_index: 0,
+            sections: sections.map((s) => {
+              const startF = s.posts[0]?.floor ?? 0;
+              const endF = s.posts[s.posts.length - 1]?.floor ?? 0;
+              const sectionTitle = fmt.sectionTitleFormat
+                .replace(/\{startFloor\}/g, String(startF))
+                .replace(/\{endFloor\}/g, String(endF))
+                .replace(/\{volIndex\}/g, String(volIndex))
+                .replace(/\{chapterIndex\}/g, String(chapterIndex));
+              const rangeLine = fmt.sectionContentRangeFormat
+                ? `<p class="anke-section-range">${fmt.sectionContentRangeFormat
+                    .replace(/\{startFloor\}/g, String(startF))
+                    .replace(/\{endFloor\}/g, String(endF))}</p>\n\n`
+                : '';
+              return {
+                title: sectionTitle,
+                order_index: s.order_index,
+                content: rangeLine + s.content,
+              };
+            }),
+          },
+        ],
+        characters: [],
+        world_settings: [],
+        outlines: [],
+        character_relations: [],
+        dice_history: [],
+      },
+    };
+  }
 
   const safeTitle = finalTitle.replace(/[\/:*?"<>|]/g, '_');
   return {
     ok: true,
     jsonData,
     fileName: safeTitle,
-    stats: { totalFloors: posts.length, sectionCount: sections.length },
+    stats: { totalFloors: posts.length, sectionCount },
     failedPages: collectRes.failedPages,
     actualMaxFloor: collectRes.actualMaxFloor,
     items: posts as RawPost[],
