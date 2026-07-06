@@ -67,6 +67,14 @@ interface EditorState {
   // 活动样式（contenteditable）
   setActiveStyles: (patch: Partial<ActiveEditorStyles>) => void;
   clearActiveStyles: () => void;
+  /**
+   * 锁定 activeStyles：锁定后 handleKeyUp/handleMouseUp 不会覆盖 activeStyles，
+   * 直到下一次 handleBeforeInput 完成插入后解锁。
+   * 用于解决"选颜色B后输入文字仍是颜色A"的问题（keyup 用光标处样式覆盖了用户选择）。
+   */
+  activeStylesLocked: boolean;
+  lockActiveStyles: () => void;
+  unlockActiveStyles: () => void;
 
   // 光标处样式（contenteditable 工具栏展示用）
   setCursorStyles: (patch: Partial<ActiveEditorStyles>) => void;
@@ -124,6 +132,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
   activeStyles: {},
   cursorStyles: {},
+  activeStylesLocked: false,
   saveStatus: 'idle',
   lastSavedAt: null,
 
@@ -189,6 +198,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     })),
 
   clearActiveStyles: () => set({ activeStyles: {} }),
+
+  lockActiveStyles: () => set({ activeStylesLocked: true }),
+  unlockActiveStyles: () => set({ activeStylesLocked: false }),
 
   setCursorStyles: (patch) =>
     set((state) => ({

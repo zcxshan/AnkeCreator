@@ -337,6 +337,8 @@ export function RichTextEditor({
     if (!sel || !sel.isCollapsed) return;
     e.preventDefault();
     if (applyActiveStylesToInsertion(el, active, ev.data)) {
+      // 插入完成后解锁，下一次按键恢复同步
+      useEditorStore.getState().unlockActiveStyles();
       // 触发 input 事件让 onChangeContent 保存
       handleInput();
     }
@@ -345,12 +347,16 @@ export function RichTextEditor({
   const handleKeyUp = () => {
     const el = divRef.current;
     if (!el) return;
+    // 若 activeStyles 被锁定（用户刚通过工具栏选了颜色/字号等），跳过覆盖
+    if (useEditorStore.getState().activeStylesLocked) return;
     const cur = getCurrentStyles(el);
     useEditorStore.setState({ activeStyles: cur });
   };
   const handleMouseUp = () => {
     const el = divRef.current;
     if (!el) return;
+    // 若 activeStyles 被锁定，跳过覆盖
+    if (useEditorStore.getState().activeStylesLocked) return;
     const cur = getCurrentStyles(el);
     useEditorStore.setState({ activeStyles: cur });
   };

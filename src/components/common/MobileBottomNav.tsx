@@ -11,7 +11,7 @@ import { isCapacitor } from '../../utils/platform';
 import { useThemeStore } from '../../store/themeStore';
 import { SettingsDialog } from './SettingsDialog';
 
-type Route = 'home' | 'works' | 'editor' | 'reader' | 'templates' | 'tutorial' | 'anjia' | 'find-anke';
+type Route = 'home' | 'works' | 'editor' | 'reader' | 'templates' | 'tutorial' | 'anjia' | 'find-anke' | 'dice-playground';
 
 interface MobileBottomNavProps {
   route: Route;

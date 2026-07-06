@@ -437,7 +437,7 @@ const newId = () =>
   Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
 /** 生成一个新的骰子配置 id */
-const createDiceId = newId;
+export const createDiceId = newId;
 
 /** 生成一个新的选项 id */
 export const createOptionId = newId;

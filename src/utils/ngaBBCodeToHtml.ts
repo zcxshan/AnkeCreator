@@ -175,8 +175,13 @@ function childrenToHTML(children: Node[], inPre: boolean = false): string {
   return children
     .map((c) => {
       if (c.kind === 'text') {
-        const escaped = escapeHtml(c.text);
-        return inPre ? escaped : escaped.replace(/\n/g, '<br>');
+        let escaped = escapeHtml(c.text);
+        if (inPre) return escaped;
+        // 保留缩进：行首空格 + 连续 2+ 空格转 &nbsp;（避免浏览器压缩）
+        // 先转连续空格，再转行首空格（行首由 \n 或字符串开头界定）
+        escaped = escaped.replace(/ {2,}/g, (m) => '&nbsp;'.repeat(m.length));
+        escaped = escaped.replace(/(^|\n)( +)/g, (_m, p1, p2) => p1 + '&nbsp;'.repeat(p2.length));
+        return escaped.replace(/\n/g, '<br>');
       }
       const childPre = inPre || (c.kind === 'el' && c.tag === 'code');
       const inner = childrenToHTML(c.children, childPre);
@@ -254,7 +259,8 @@ export function bbcodeToHtml(input: string | null | undefined): string {
       if (top.kind === 'el') {
         top.children.push(node);
       }
-      if (!SELF_CLOSING_TAGS.has(tag)) {
+      // 只有 el 节点才入栈（textNode 不入栈，对应的 close 标签会走"未匹配"分支）
+      if (node.kind === 'el' && !SELF_CLOSING_TAGS.has(tag)) {
         stack.push(node);
       }
       continue;
@@ -279,8 +285,12 @@ export function bbcodeToHtml(input: string | null | undefined): string {
         if (stack.length === 0) {
           stack.push(root);
         }
+      } else {
+        // 未匹配：作为文本输出（如未识别标签的闭合标签 [/文本文本]）
+        if (top.kind === 'el') {
+          top.children.push(textNode(`[/${tok.tag}${tok.attrs ? `=${tok.attrs}` : ''}]`));
+        }
       }
-      // 未匹配：忽略
       continue;
     }
   }
@@ -412,8 +422,8 @@ function buildOpenNode(tag: string, attrRaw: string): Node {
     case 'hr':
       return elNode('h', {}, () => `<hr data-h="1">`);
     default:
-      // 未识别：原样输出
-      return elNode(tag, { v: attrRaw }, (inner) => `[${tag}${attrRaw ? `=${attrRaw}` : ''}]${inner}[/${tag}]`);
+      // 未识别标签：作为纯文本输出，不创建 elNode，不进栈，不自动闭合
+      return textNode(`[${tag}${attrRaw ? `=${attrRaw}` : ''}]`);
   }
 }
 

@@ -27,10 +27,64 @@ type TabKey = 'world' | 'character';
 export function TemplatesPage({ onBack, onShowAuthor }: TemplatesPageProps) {
   const loadTemplates = useMetaStore((s) => s.loadTemplates);
   const [tab, setTab] = useState<TabKey>('world');
+  const importFileRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     loadTemplates();
   }, [loadTemplates]);
+
+  // 导出全部模板为 JSON 文件
+  const handleExport = () => {
+    const { worldSettingTemplates, characterTemplates } = useMetaStore.getState();
+    if (worldSettingTemplates.length === 0 && characterTemplates.length === 0) {
+      useToastStore.getState().showToast('暂无模板可导出', 'warning');
+      return;
+    }
+    const data = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      worldSettingTemplates,
+      characterTemplates,
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `anke-templates-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    useToastStore.getState().showToast(
+      `已导出 ${worldSettingTemplates.length} 个世界观模板、${characterTemplates.length} 个人物模板`,
+      'success',
+    );
+  };
+
+  // 触发导入文件选择
+  const handleImportClick = () => {
+    importFileRef.current?.click();
+  };
+
+  // 读取并导入模板 JSON
+  const handleImportFile = async (file: File) => {
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      if (!data || typeof data !== 'object') {
+        useToastStore.getState().showToast('文件格式不正确', 'error');
+        return;
+      }
+      const result = await useMetaStore.getState().importTemplates(data);
+      useToastStore.getState().showToast(
+        `已导入 ${result.worldCount} 个世界观模板、${result.charCount} 个人物模板${result.failed > 0 ? `（失败 ${result.failed} 个）` : ''}`,
+        result.failed > 0 ? 'warning' : 'success',
+      );
+    } catch (err) {
+      useToastStore.getState().showToast(
+        `导入失败：${(err as Error).message || '文件解析错误'}`,
+        'error',
+      );
+    }
+  };
 
   return (
     <div className="h-full w-full flex flex-col overflow-hidden" style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}>
@@ -61,8 +115,41 @@ export function TemplatesPage({ onBack, onShowAuthor }: TemplatesPageProps) {
             </button>
           )}
         </div>
-        <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-          独立于具体作品，可被任意作品引用
+        <div className="flex items-center gap-3">
+          <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+            独立于具体作品，可被任意作品引用
+          </div>
+          <button
+            onClick={handleExport}
+            className="text-xs px-3 py-1.5 rounded-md transition-colors"
+            style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = 'var(--accent)' }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.color = 'var(--text-primary)' }}
+            title="将所有模板导出为 JSON 文件"
+          >
+            📥 导出模板
+          </button>
+          <button
+            onClick={handleImportClick}
+            className="text-xs px-3 py-1.5 rounded-md transition-colors"
+            style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = 'var(--accent)' }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.color = 'var(--text-primary)' }}
+            title="从 JSON 文件导入模板"
+          >
+            📤 导入模板
+          </button>
+          <input
+            ref={importFileRef}
+            type="file"
+            accept=".json,application/json"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleImportFile(file);
+              e.currentTarget.value = '';
+            }}
+          />
         </div>
       </header>
 

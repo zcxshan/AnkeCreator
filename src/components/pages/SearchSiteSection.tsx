@@ -55,7 +55,7 @@ export interface SearchSiteSectionProps<T> {
    * 搜索函数（封装了对应站点的 IPC 调用）
    * 第二个参数为匹配字段：'title' 标题 / 'author' 作者
    */
-  searchFn: (keyword: string, matchField: 'title' | 'author') => Promise<SearchResult>
+  searchFn: (keyword: string, matchField: 'all' | 'title' | 'author') => Promise<SearchResult>
   /** 结果卡片渲染函数 */
   renderCard: (item: T, onOpen: (url: string) => void) => React.ReactNode
   /** 站点特有筛选配置 */
@@ -69,7 +69,7 @@ export interface SearchSiteSectionProps<T> {
   /** 是否显示"标题 / 作者"切换器（gululu / NGA 都支持） */
   matchFieldSwitchable?: boolean
   /** 默认匹配字段 */
-  defaultMatchField?: 'title' | 'author'
+  defaultMatchField?: 'all' | 'title' | 'author'
 }
 
 // 站点结果通用字段（骨碌碌 / NGA 都有这些字段）
@@ -106,8 +106,8 @@ export function SearchSiteSection<T extends SiteResultItem>({
   // ===== 搜索状态（完全独立） =====
   const [keyword, setKeyword] = useState('')
   const [lastKeyword, setLastKeyword] = useState('')
-  const [matchField, setMatchField] = useState<'title' | 'author'>(defaultMatchField)
-  const [lastMatchField, setLastMatchField] = useState<'title' | 'author'>(defaultMatchField)
+  const [matchField, setMatchField] = useState<'all' | 'title' | 'author'>(defaultMatchField)
+  const [lastMatchField, setLastMatchField] = useState<'all' | 'title' | 'author'>(defaultMatchField)
   const [rawResults, setRawResults] = useState<T[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -273,6 +273,29 @@ export function SearchSiteSection<T extends SiteResultItem>({
     setAuthorFilter('')
   }
 
+  // 导出当前（已筛选 + 排序后的）搜索结果为 JSON 文件
+  const handleExport = useCallback(() => {
+    if (displayedList.length === 0) return
+    const data = {
+      site: siteKey,
+      keyword: lastKeyword,
+      matchField,
+      exportedAt: new Date().toISOString(),
+      count: displayedList.length,
+      results: displayedList,
+    }
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${siteKey}-搜索结果-${lastKeyword || '推荐'}-${Date.now()}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    useToastStore.getState().showToast(`已导出 ${displayedList.length} 条结果`, 'success')
+  }, [displayedList, siteKey, lastKeyword, matchField])
+
   return (
     <section
       className={flatLayout ? '' : 'rounded-xl overflow-hidden'}
@@ -297,12 +320,36 @@ export function SearchSiteSection<T extends SiteResultItem>({
           </div>
         </div>
         {rawResults.length > 0 && (
-          <span
-            className="text-[11px] px-1.5 py-0.5 rounded-full font-medium"
-            style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
-          >
-            {rawResults.length}
-          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handleExport}
+              title="导出当前结果为 JSON"
+              className="px-2 py-1 rounded text-[11px] font-medium transition-colors"
+              style={{
+                background: 'var(--bg-hover)',
+                color: 'var(--text-secondary)',
+                border: '1px solid var(--border-color)',
+                cursor: 'pointer',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--bg-card)'
+                e.currentTarget.style.color = 'var(--accent)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'var(--bg-hover)'
+                e.currentTarget.style.color = 'var(--text-secondary)'
+              }}
+            >
+              📥 导出
+            </button>
+            <span
+              className="text-[11px] px-1.5 py-0.5 rounded-full font-medium"
+              style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
+            >
+              {rawResults.length}
+            </span>
+          </div>
         )}
       </div>
 
@@ -323,12 +370,24 @@ export function SearchSiteSection<T extends SiteResultItem>({
             color: 'var(--text-primary)',
           }}
         />
-        {/* 标题 / 作者 切换器 */}
+        {/* 全部 / 标题 / 作者 切换器 */}
         {matchFieldSwitchable && (
           <div
             className="flex shrink-0 rounded-md overflow-hidden"
             style={{ border: '1px solid var(--border-color)' }}
           >
+            <button
+              onClick={() => setMatchField('all')}
+              className="px-2.5 py-2 text-xs font-medium"
+              style={{
+                background: matchField === 'all' ? 'var(--accent)' : 'var(--bg-card)',
+                color: matchField === 'all' ? 'var(--text-on-accent, #fff)' : 'var(--text-secondary)',
+                border: 'none',
+                cursor: 'pointer',
+              }}
+            >
+              全部
+            </button>
             <button
               onClick={() => setMatchField('title')}
               className="px-2.5 py-2 text-xs font-medium"

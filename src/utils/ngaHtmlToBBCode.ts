@@ -111,13 +111,23 @@ function mergeAdjacentSameTag(input: string, tag: string): string {
 // ============================================================
 // 块级处理：按块元素一行一行输出
 // ============================================================
+
+/**
+ * 自定义 trim：只裁掉普通空格（U+0020）、\t、\n、\r，保留 U+00A0（&nbsp;）
+ * 原生 trim() 会裁掉 U+00A0，导致行首 &nbsp; 缩进丢失
+ */
+function trimLineKeepNbsp(s: string): string {
+  return s.replace(/^[\u0020\t\r\n]+/, '').replace(/[\u0020\t\r\n]+$/, '');
+}
+
 function processBlockChildren(container: Node): string[] {
   const lines: string[] = [];
   const hasBlockChild = containsBlockChild(container);
   if (!hasBlockChild) {
     // 纯内联内容（没有 p/div 等块级元素）：整段作为一行
     const line = processInlineChildren(container as HTMLElement);
-    if (line.trim()) lines.push(line.trim());
+    const trimmed = trimLineKeepNbsp(line);
+    if (trimmed) lines.push(trimmed);
     return lines;
   }
 
@@ -129,7 +139,8 @@ function processBlockChildren(container: Node): string[] {
     const tmp = document.createElement('div');
     inlineRunNodes.forEach((n) => tmp.appendChild(n.cloneNode(true)));
     const line = processInlineChildren(tmp);
-    if (line.trim()) lines.push(line.trim());
+    const trimmed = trimLineKeepNbsp(line);
+    if (trimmed) lines.push(trimmed);
     inlineRunNodes.length = 0;
   };
 
@@ -234,13 +245,14 @@ function processBlockElement(el: HTMLElement): string[] {
   }
 
   const inner = processInlineChildren(el);
-  if (!inner.trim()) return [];
+  const trimmedInner = trimLineKeepNbsp(inner);
+  if (!trimmedInner) return [];
 
   const textAlign = el.style.textAlign?.toLowerCase() || '';
   if (textAlign && textAlign !== 'left' && textAlign !== 'justify') {
-    return [`[align=${textAlign}]${inner.trim()}[/align]`];
+    return [`[align=${textAlign}]${trimmedInner}[/align]`];
   }
-  return [inner.trim()];
+  return [trimmedInner];
 }
 
 // ============================================================

@@ -421,6 +421,8 @@ export function EditorToolbar({
     if (!isCollapsedSelection()) return; // 有选区由 execCommand 处理
     const cur = useEditorStore.getState().activeStyles;
     useEditorStore.getState().setActiveStyles({ [key]: !cur[key] } as any);
+    // 锁定 activeStyles，防止 keyup 覆盖用户选择
+    useEditorStore.getState().lockActiveStyles();
   };
 
   const showToast = (msg: string) => {
@@ -622,7 +624,7 @@ export function EditorToolbar({
       {/* 折叠/展开样式工具行 - 始终可见 */}
       <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '0 0 2px' }}>
         <ToolbarBtn
-          title={styleRowCollapsed ? '展开样式工具' : '折叠样式工具'}
+          title={styleRowCollapsed ? '展开所有样式工具' : '折叠所有样式工具'}
           onClick={() => setStyleRowCollapsed((v) => !v)}
           style={{ minWidth: 24, fontSize: 12 }}
         >
@@ -717,6 +719,7 @@ export function EditorToolbar({
                 useEditorStore
                   .getState()
                   .setActiveStyles({ sup: !cur.sup, sub: false });
+                useEditorStore.getState().lockActiveStyles();
               } else {
                 withEditor((ed) => document.execCommand('superscript', false));
                 // 有选区：执行后从当前光标位置同步 sup/sub 状态
@@ -743,6 +746,7 @@ export function EditorToolbar({
                 useEditorStore
                   .getState()
                   .setActiveStyles({ sub: !cur.sub, sup: false });
+                useEditorStore.getState().lockActiveStyles();
               } else {
                 withEditor((ed) => document.execCommand('subscript', false));
                 const el = editorElRef.current;
@@ -795,6 +799,7 @@ export function EditorToolbar({
                       // 2. 无选区：仅同步 activeStyles，下一次输入自动应用
                       withEditor((ed) => applyColor(ed, c.cssColor));
                       useEditorStore.getState().setActiveStyles({ color: c.cssColor });
+                      useEditorStore.getState().lockActiveStyles();
                       setColorPickerOpen(false);
                     }}
                     title={c.label}
@@ -823,6 +828,7 @@ export function EditorToolbar({
               // Word 模式：直接应用字号（不切换），无选区时仅同步 activeStyles
               withEditor((ed) => applyFontSize(ed, cssSize));
               useEditorStore.getState().setActiveStyles({ fontSize: cssSize });
+              useEditorStore.getState().lockActiveStyles();
             }}
             style={selectNga}
             title="字号"
@@ -844,6 +850,7 @@ export function EditorToolbar({
               // Word 模式：直接应用字体（不切换），无选区时仅同步 activeStyles
               withEditor((ed) => applyFontFamily(ed, cssFamily));
               useEditorStore.getState().setActiveStyles({ fontFamily: cssFamily });
+              useEditorStore.getState().lockActiveStyles();
             }}
             style={{ ...selectNga, minWidth: 96 }}
             title="字体"
@@ -900,6 +907,7 @@ export function EditorToolbar({
       )}
 
       {/* 第二行：图片(含尺寸)/骰子/表情/引用/折叠/表格/代码/链接/上下标/导入/分割线/撤销/重做/清格式 */}
+      {!styleRowCollapsed && (
       <div style={rowContainer}>
         {/* 图片 + 尺寸下拉 */}
         <div style={{ position: 'relative' }} ref={imageSizeRef}>
@@ -1251,6 +1259,7 @@ export function EditorToolbar({
           </div>
         )}
       </div>
+      )}
 
       {/* 上传进度弹窗 */}
       <UploadProgressDialog

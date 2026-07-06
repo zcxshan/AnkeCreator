@@ -12,6 +12,7 @@ interface HomePageProps {
   onShowAuthor?: () => void;
   onShowAnjia?: () => void;
   onShowFindAnke?: () => void;
+  onShowDicePlayground?: () => void;
 }
 
 interface StatItem {
@@ -47,7 +48,7 @@ interface RecentStorySummary {
  *   │ 最近编辑的作品（点击进入编辑）         │
  *   └────────────────────────────────────────┘
  */
-export function HomePage({ onOpenStory, onShowWorks, onShowTemplates, onShowTutorial, onShowAuthor, onShowAnjia, onShowFindAnke }: HomePageProps) {
+export function HomePage({ onOpenStory, onShowWorks, onShowTemplates, onShowTutorial, onShowAuthor, onShowAnjia, onShowFindAnke, onShowDicePlayground }: HomePageProps) {
   const { stories, createStory, setActiveStory } = useStoryStore();
 
   const [showNewStoryModal, setShowNewStoryModal] = useState(false);
@@ -161,7 +162,7 @@ export function HomePage({ onOpenStory, onShowWorks, onShowTemplates, onShowTuto
               新建安科
             </button>
             <button
-              onClick={() => setShowOpenModal(true)}
+              onClick={() => { if (onShowWorks) onShowWorks(); else setShowOpenModal(true); }}
               className={isCapacitor
                 ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
                 : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'}
@@ -218,9 +219,22 @@ export function HomePage({ onOpenStory, onShowWorks, onShowTemplates, onShowTuto
                   : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'}
                 style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)' }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
               >
                 <span>🔍</span> 寻找安科
+              </button>
+            )}
+            {onShowDicePlayground && (
+              <button
+                onClick={onShowDicePlayground}
+                className={isCapacitor
+                  ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
+                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'}
+                style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
+              >
+                <span>🎲</span> 玩骰子
               </button>
             )}
           </div>
@@ -262,17 +276,15 @@ export function HomePage({ onOpenStory, onShowWorks, onShowTemplates, onShowTuto
             <h2 className="text-sm font-semibold tracking-wide uppercase" style={{ color: 'var(--text-primary)' }}>
               最近编辑
             </h2>
-            {recentStories.length > 0 && (
-              <button
-                onClick={onShowWorks || (() => setShowOpenModal(true))}
-                className="text-xs transition-colors"
-                style={{ color: 'var(--text-secondary)' }}
-                onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)' }}
-                onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)' }}
-              >
-                查看全部 →
-              </button>
-            )}
+            <button
+              onClick={() => { if (onShowWorks) onShowWorks(); else setShowOpenModal(true); }}
+              className="text-xs transition-colors"
+              style={{ color: 'var(--text-secondary)' }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)' }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)' }}
+            >
+              查看全部 →
+            </button>
           </div>
 
           {recentStories.length === 0 ? (

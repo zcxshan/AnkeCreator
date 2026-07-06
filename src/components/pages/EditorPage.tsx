@@ -6,6 +6,7 @@ import { useDiceStore } from '../../store/diceStore';
 import {
   useDiceHistoryStore,
   buildDiceHistoryRecord,
+  type DiceHistoryRecord,
 } from '../../store/diceHistoryStore';
 import type { Section, WorldSetting, DiceBlockPayloadV2 } from '../../types';
 import { NGA_IMAGE_SIZES, NGA_DEFAULT_IMAGE_SIZE } from '../../types';
@@ -17,6 +18,9 @@ import { DiceConfigDialog } from '../dice/DiceConfigDialog';
 import { WorldSettingPanel } from '../common/WorldSettingPanel';
 import { CharacterPanel } from '../character/CharacterEditor';
 import { RichTextEditor, type RichTextEditorCommands } from '../editor/RichTextEditor';
+import { isDiceCardInEditor } from '../editor/contenteditableUtils';
+import { createDiceId, rollExpression } from '../../utils/diceEngine';
+import { playDiceRollSound } from '../../utils/diceSound';
 import { RelationshipPanel } from '../editor/RelationshipPanel';
 import { OutlineTree } from '../outline/OutlineTree';
 import { OutlineEditor } from '../outline/OutlineEditor';
@@ -41,6 +45,7 @@ import { parseOutlineContent } from '../../types';
 import { isCapacitor } from '../../utils/platform';
 import { ContextMenu } from '../common/ContextMenu';
 import { SearchPanel } from '../editor/SearchPanel';
+import { GlobalSearchPanel } from '../editor/GlobalSearchPanel';
 
 interface EditorPageProps {
   onBack: () => void;
@@ -1198,6 +1203,8 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                       window.setTimeout(() => {
                         try {
                           const payload = JSON.parse(payloadSnapshot);
+                          // 给恢复的骰子换新 id（顶层 + config.id），与原骰子完全独立
+                          payload.config = { ...payload.config, id: createDiceId() };
                           payload.id = `dice-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
                           payload.restored = true;
                           richTextEditorCommandsRef.current?.insertDice(payload);
@@ -1210,6 +1217,8 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                     onInsertUnrolledDice={(_, payloadSnapshot) => {
                       try {
                         const payload = JSON.parse(payloadSnapshot);
+                        // 生成全新 config.id，让插入的骰子与原骰子完全独立
+                        payload.config = { ...payload.config, id: createDiceId() };
                         payload.id = `dice-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
                         payload.history = [];
                         payload.lastResult = null;
@@ -1219,6 +1228,12 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                       } catch (e) {
                         setToast('插入失败：骰子数据格式错误');
                       }
+                    }}
+                    onCheckDiceExists={(sectionId, payloadSnapshot) => {
+                      if (sectionId !== activeSectionId) return false;
+                      const el = visualEditorRef.current;
+                      if (!el) return false;
+                      return isDiceCardInEditor(el, payloadSnapshot);
                     }}
                     selectedImage={selectedImage}
                     onSetImageSize={(size) => richTextEditorCommandsRef.current?.setSelectedImageSize(size)}
@@ -1271,7 +1286,9 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                   window.setTimeout(() => {
                     try {
                       const payload = JSON.parse(payloadSnapshot);
-                      // 给恢复的骰子换个新 id，避免和原 id 冲突
+                      // 给恢复的骰子换新 id（顶层 + config.id），与原骰子完全独立
+                      // 注意：isDiceCardInEditor 比对的是 config.id，必须更新此字段
+                      payload.config = { ...payload.config, id: createDiceId() };
                       payload.id = `dice-${Date.now().toString(36)}-${Math.random()
                         .toString(36)
                         .slice(2, 8)}`;
@@ -1287,6 +1304,8 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                 onInsertUnrolledDice={(_, payloadSnapshot) => {
                   try {
                     const payload = JSON.parse(payloadSnapshot);
+                    // 生成全新 config.id，让插入的骰子与原骰子完全独立
+                    payload.config = { ...payload.config, id: createDiceId() };
                     payload.id = `dice-${Date.now().toString(36)}-${Math.random()
                       .toString(36)
                       .slice(2, 8)}`;
@@ -1298,6 +1317,12 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                   } catch (e) {
                     setToast('插入失败：骰子数据格式错误');
                   }
+                }}
+                onCheckDiceExists={(sectionId, payloadSnapshot) => {
+                  if (sectionId !== activeSectionId) return false;
+                  const el = visualEditorRef.current;
+                  if (!el) return false;
+                  return isDiceCardInEditor(el, payloadSnapshot);
                 }}
                 selectedImage={selectedImage}
                 onSetImageSize={(size) => {
@@ -1605,6 +1630,7 @@ function RightPanel({
   onJumpToDice,
   onRestoreDice,
   onInsertUnrolledDice,
+  onCheckDiceExists,
   selectedImage,
   onSetImageSize,
   richTextEditorCommandsRef,
@@ -1626,6 +1652,7 @@ function RightPanel({
   onJumpToDice: (sectionId: string, payloadSnapshot: string) => void;
   onRestoreDice: (sectionId: string, payloadSnapshot: string) => void;
   onInsertUnrolledDice: (sectionId: string, payloadSnapshot: string) => void;
+  onCheckDiceExists: (sectionId: string, payloadSnapshot: string) => boolean;
   selectedImage: { width: number; height: number; src?: string; dataSize?: string } | null;
   onSetImageSize: (size: string) => void;
   richTextEditorCommandsRef: React.MutableRefObject<RichTextEditorCommands | null>;
@@ -1643,6 +1670,20 @@ function RightPanel({
   const [imageSizeNga, setImageSizeNga] = useState<string>('original');
   const [imageUrl, setImageUrl] = useState<string>('');
   const activeStoryId = useStoryStore((s) => s.activeStoryId);
+  // 搜索模式：'current' = 当前节内搜索（SearchPanel）；'global' = 全作品搜索（GlobalSearchPanel）
+  const [searchMode, setSearchMode] = useState<'current' | 'global'>('current');
+  // 全作品搜索跳转：切换到对应作品 + 节，并切回当前节搜索便于继续编辑
+  const setActiveStory = useStoryStore((s) => s.setActiveStory);
+  const setActiveSection = useStoryStore((s) => s.setActiveSection);
+  const handleGlobalSearchNavigate = useCallback(
+    (storyId: string, sectionId: string) => {
+      void setActiveStory(storyId);
+      setActiveSection(sectionId);
+      setActiveTab('properties');
+      setSearchMode('current');
+    },
+    [setActiveStory, setActiveSection, setActiveTab],
+  );
 
   // 当选中图片变化时，同步输入框的值
   useEffect(() => {
@@ -1698,6 +1739,8 @@ function RightPanel({
       <div className="flex-1 overflow-y-auto">
         {activeTab === 'properties' && (
           <div className="p-4 space-y-4">
+            {/* 快速骰子面板：表达式投掷 + 复制骰点文本，无历史记录 */}
+            <QuickDicePanel />
             {section ? (
               <>
                 <div>
@@ -1794,15 +1837,50 @@ function RightPanel({
               className="pt-4 border-t"
               style={{ borderColor: 'var(--border-color)' }}
             >
-              <SearchPanel
-                editorMode={editorMode}
-                bbcodeTextareaRef={bbcodeTextareaRef}
-                visualEditorRef={visualEditorRef}
-                bbcodeValue={bbcodeValue}
-                visualValue={visualValue}
-                onBBCodeChange={onBBCodeChange}
-                onVisualChange={onVisualChange}
-              />
+              {/* 搜索模式切换 Tab */}
+              <div
+                className="flex gap-1 mb-2"
+                style={{ borderBottom: '1px solid var(--border-color)' }}
+              >
+                {(['current', 'global'] as const).map((mode) => {
+                  const active = searchMode === mode;
+                  return (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setSearchMode(mode)}
+                      style={{
+                        padding: '4px 10px',
+                        fontSize: 12,
+                        fontWeight: active ? 600 : 400,
+                        background: active ? 'var(--bg-hover)' : 'transparent',
+                        color: active ? 'var(--accent)' : 'var(--text-secondary)',
+                        border: 'none',
+                        borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {mode === 'current' ? '当前节' : '🌐 全作品'}
+                    </button>
+                  );
+                })}
+              </div>
+              {searchMode === 'current' ? (
+                <SearchPanel
+                  editorMode={editorMode}
+                  bbcodeTextareaRef={bbcodeTextareaRef}
+                  visualEditorRef={visualEditorRef}
+                  bbcodeValue={bbcodeValue}
+                  visualValue={visualValue}
+                  onBBCodeChange={onBBCodeChange}
+                  onVisualChange={onVisualChange}
+                />
+              ) : (
+                <GlobalSearchPanel
+                  onNavigate={handleGlobalSearchNavigate}
+                  currentStoryId={activeStoryId}
+                />
+              )}
             </div>
           </div>
         )}
@@ -1822,6 +1900,7 @@ function RightPanel({
               onJumpToDice={onJumpToDice}
               onRestoreDice={onRestoreDice}
               onInsertUnrolledDice={onInsertUnrolledDice}
+              onCheckDiceExists={onCheckDiceExists}
             />
           )}
       </div>
@@ -1829,44 +1908,443 @@ function RightPanel({
   );
 }
 
+// ========== 快速骰子面板（properties tab 顶部） ==========
+
+type QuickResult = { total: number; detail: string; allRolls: number[] };
+
+const QUICK_DICE_PRESETS = ['1d100', '1d20', '2d6', '1d6+3'];
+
+function QuickDicePanel() {
+  const [expr, setExpr] = useState('1d100');
+  const [result, setResult] = useState<QuickResult | null>(null);
+  const [isRolling, setIsRolling] = useState(false);
+  const [displayTotal, setDisplayTotal] = useState<number | null>(null);
+  const [lastExpr, setLastExpr] = useState('');
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const doRoll = (expression: string) => {
+    const trimmed = expression.trim();
+    if (!trimmed) {
+      useToastStore.getState().showToast('请输入骰子表达式', 'warning');
+      return;
+    }
+    if (isRolling) return;
+
+    let r: QuickResult;
+    try {
+      const res = rollExpression(trimmed);
+      r = { total: res.total, detail: res.detail, allRolls: res.allRolls };
+    } catch (err) {
+      useToastStore.getState().showToast(
+        `表达式错误：${(err as Error).message || '无法解析'}`,
+        'error',
+      );
+      return;
+    }
+
+    // 音效（仅在设置开启时）
+    if (useSettingStore.getState().soundEnabled) {
+      playDiceRollSound();
+    }
+
+    setLastExpr(trimmed);
+    setIsRolling(true);
+
+    // 渐进减速数字滚动（800ms）
+    const tickDelays = [50, 50, 50, 50, 50, 50, 75, 75, 75, 75, 100, 100];
+    const maxValue = 100;
+    let tickIdx = 0;
+    const tickFn = () => {
+      const v = Math.floor(Math.random() * maxValue) + 1;
+      setDisplayTotal(v);
+      if (tickIdx < tickDelays.length) {
+        window.setTimeout(tickFn, tickDelays[tickIdx]);
+        tickIdx++;
+      } else {
+        setDisplayTotal(r.total);
+        setResult(r);
+        setIsRolling(false);
+      }
+    };
+    tickFn();
+  };
+
+  const handleCopy = () => {
+    if (!result) return;
+    const text = `[${lastExpr || expr.trim()}=${result.total}]`;
+    const ok = () => useToastStore.getState().showToast('已复制：' + text, 'success');
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(ok, () => fallbackCopy(text, ok));
+    } else {
+      fallbackCopy(text, ok);
+    }
+  };
+
+  const fallbackCopy = (text: string, ok: () => void) => {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      ok();
+    } catch {
+      useToastStore.getState().showToast('复制失败', 'error');
+    }
+  };
+
+  return (
+    <div
+      className="rounded-lg border p-3"
+      style={{ borderColor: 'var(--border-color)', background: 'var(--bg-base)' }}
+    >
+      <div className="text-xs font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+        🎲 快速骰子
+      </div>
+      <div className="flex gap-2 mb-2">
+        <input
+          ref={inputRef}
+          type="text"
+          value={expr}
+          onChange={(e) => setExpr(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              doRoll(expr);
+            }
+          }}
+          disabled={isRolling}
+          placeholder="1d100、2d6+3..."
+          className="flex-1 min-w-0 px-2 py-1 text-xs rounded-md outline-none disabled:opacity-50"
+          style={{
+            border: '1px solid var(--border-color)',
+            background: 'var(--bg-input)',
+            color: 'var(--text-primary)',
+          }}
+        />
+        <button
+          onClick={() => doRoll(expr)}
+          disabled={isRolling}
+          className={`px-3 py-1 text-xs rounded-md font-medium disabled:opacity-60 disabled:cursor-not-allowed ${isRolling ? 'anke-dice-playground-press' : ''}`}
+          style={{
+            background: 'var(--accent)',
+            color: 'var(--text-on-accent)',
+            border: '1px solid var(--accent)',
+          }}
+        >
+          投
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-1 mb-2">
+        {QUICK_DICE_PRESETS.map((p) => (
+          <button
+            key={p}
+            onClick={() => {
+              setExpr(p);
+              doRoll(p);
+            }}
+            disabled={isRolling}
+            className="text-[10px] px-1.5 py-0.5 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{
+              background: 'var(--bg-hover)',
+              color: 'var(--text-secondary)',
+              border: '1px solid var(--border-color)',
+            }}
+          >
+            {p}
+          </button>
+        ))}
+      </div>
+      {(result || isRolling) && (
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-baseline gap-1 min-w-0">
+            <span
+              className={isRolling ? 'anke-dice-playground-spin' : ''}
+              style={{ fontSize: 14, display: 'inline-block' }}
+            >
+              🎲
+            </span>
+            <span
+              className="text-[10px] font-mono truncate"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              {isRolling ? expr.trim() : lastExpr}
+            </span>
+            <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+              =
+            </span>
+            <span
+              className="text-lg font-bold tabular-nums"
+              style={{ color: 'var(--accent)' }}
+            >
+              {isRolling ? displayTotal : result?.total}
+            </span>
+          </div>
+          {!isRolling && result && (
+            <button
+              onClick={handleCopy}
+              className="text-[10px] px-2 py-1 rounded border shrink-0"
+              style={{
+                borderColor: 'var(--accent)',
+                color: 'var(--accent)',
+                background: 'transparent',
+                cursor: 'pointer',
+              }}
+              title="复制骰点文本"
+            >
+              📋 复制
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ========== 骰点历史记录面板 ==========
+
+type DiceGroupMode = 'flat' | 'time' | 'story';
+
+interface DiceGroup {
+  key: string;
+  title: string;
+  records: DiceHistoryRecord[];
+}
 
 function DiceHistoryPanel({
   storyId,
   onJumpToDice,
   onRestoreDice,
   onInsertUnrolledDice,
+  onCheckDiceExists,
 }: {
   storyId?: string | null;
   onJumpToDice: (sectionId: string, payloadSnapshot: string) => void;
   onRestoreDice: (sectionId: string, payloadSnapshot: string) => void;
   onInsertUnrolledDice: (sectionId: string, payloadSnapshot: string) => void;
+  onCheckDiceExists: (sectionId: string, payloadSnapshot: string) => boolean;
 }) {
-  const records = useDiceHistoryStore((s) =>
-    storyId ? s.getRecordsByStory(storyId) : [],
-  );
+  const allRecords = useDiceHistoryStore((s) => s.records);
   const clearAll = useDiceHistoryStore((s) => s.clearAll);
+  const removeRecord = useDiceHistoryStore((s) => s.removeRecord);
+  const stories = useStoryStore((s) => s.stories);
   const [pendingClearDice, setPendingClearDice] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [groupMode, setGroupMode] = useState<DiceGroupMode>('flat');
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
+  // storyId → title 映射（用于「作品」分组标题）
+  const storyNameMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const s of stories) m.set(s.id, s.title);
+    return m;
+  }, [stories]);
+
+  // 范围 + 搜索过滤 + 分组
+  const groups = useMemo<DiceGroup[]>(() => {
+    // 1. 范围过滤：「作品」模式取全部；其他模式仅当前作品
+    let list = allRecords;
+    if (groupMode !== 'story') {
+      list = storyId ? list.filter((r) => r.storyId === storyId) : [];
+    }
+    // 2. 搜索过滤（大小写不敏感）
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      list = list.filter((r) =>
+        [r.diceName, r.diceType, r.result, r.resultDetail, r.sectionTitle]
+          .join(' ')
+          .toLowerCase()
+          .includes(q),
+      );
+    }
+    // 3. 分组
+    if (groupMode === 'flat') {
+      return [{ key: 'all', title: '全部记录', records: list }];
+    }
+    if (groupMode === 'time') {
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      const yesterdayStart = todayStart - 86400000;
+      const weekStart = todayStart - 6 * 86400000;
+      const buckets: Record<string, { title: string; records: DiceHistoryRecord[] }> = {
+        today: { title: '今天', records: [] },
+        yesterday: { title: '昨天', records: [] },
+        week: { title: '本周', records: [] },
+        earlier: { title: '更早', records: [] },
+      };
+      for (const r of list) {
+        if (r.timestamp >= todayStart) buckets.today.records.push(r);
+        else if (r.timestamp >= yesterdayStart) buckets.yesterday.records.push(r);
+        else if (r.timestamp >= weekStart) buckets.week.records.push(r);
+        else buckets.earlier.records.push(r);
+      }
+      return (['today', 'yesterday', 'week', 'earlier'] as const)
+        .filter((k) => buckets[k].records.length > 0)
+        .map((k) => ({ key: k, title: buckets[k].title, records: buckets[k].records }));
+    }
+    // story 分组
+    const byStory = new Map<string, DiceHistoryRecord[]>();
+    for (const r of list) {
+      const key = r.storyId || '__unknown__';
+      const arr = byStory.get(key) || [];
+      arr.push(r);
+      byStory.set(key, arr);
+    }
+    return Array.from(byStory.entries()).map(([sid, recs]) => ({
+      key: sid,
+      title: sid === '__unknown__' ? '未知作品' : (storyNameMap.get(sid) || '未知作品'),
+      records: recs,
+    }));
+  }, [allRecords, storyId, groupMode, searchQuery, storyNameMap]);
+
+  const toggleCollapse = (key: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const totalCount = groups.reduce((sum, g) => sum + g.records.length, 0);
 
   const formatTime = (ts: number): string => {
     try {
       const d = new Date(ts);
       const pad = (n: number) => String(n).padStart(2, '0');
-      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(
-        d.getHours(),
-      )}:${pad(d.getMinutes())}`;
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
     } catch {
       return String(ts);
     }
   };
 
+  const renderRecord = (r: DiceHistoryRecord) => (
+    <div
+      key={r.id}
+      className="relative p-3 rounded-lg border transition-colors"
+      style={{ borderColor: 'var(--border-color)', background: 'var(--bg-base)' }}
+    >
+      {/* 单条删除 */}
+      <button
+        onClick={() => {
+          removeRecord(r.id);
+          useToastStore.getState().showToast('已删除该条记录', 'success');
+        }}
+        className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center rounded text-[12px] leading-none"
+        style={{ color: 'var(--text-muted)', background: 'transparent' }}
+        title="删除该条记录"
+        onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--danger, #d33)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
+      >
+        ×
+      </button>
+      <div className="text-[10px] mb-1" style={{ color: 'var(--text-secondary)' }}>
+        {formatTime(r.timestamp)}
+      </div>
+      <div className="flex items-center gap-2 mb-1">
+        <div className="text-xs font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+          {r.diceName}
+        </div>
+        <div
+          className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0"
+          style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
+        >
+          {r.diceType}
+        </div>
+      </div>
+      <div className="text-xs font-mono mb-1" style={{ color: 'var(--accent)' }}>
+        结果: {r.result}
+      </div>
+      {r.resultDetail && r.resultDetail !== r.result && (
+        <div className="text-[11px] mb-2 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+          {r.resultDetail}
+        </div>
+      )}
+      <div className="flex items-center justify-between pt-2 mt-1" style={{ borderTop: '1px solid var(--border-color)' }}>
+        <div className="text-[10px] truncate flex-1 pr-2" style={{ color: 'var(--text-secondary)' }}>
+          → {r.sectionTitle || '(未命名节)'}
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={() => onInsertUnrolledDice(r.sectionId, r.payloadSnapshot)}
+            className="text-[10px] px-2 py-1 rounded-md font-medium border"
+            style={{ borderColor: 'var(--accent)', color: 'var(--accent)', background: 'transparent' }}
+            title="在当前光标插入一个相同格式未掷骰的骰子"
+          >
+            插入
+          </button>
+          <button
+            onClick={() => onRestoreDice(r.sectionId, r.payloadSnapshot)}
+            disabled={onCheckDiceExists(r.sectionId, r.payloadSnapshot)}
+            className="text-[10px] px-2 py-1 rounded-md font-medium border disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{ borderColor: 'var(--accent)', color: 'var(--accent)', background: 'transparent' }}
+            title={onCheckDiceExists(r.sectionId, r.payloadSnapshot) ? '该骰子仍在编辑区，无需恢复' : '在编辑区重新插入一个相同的骰子'}
+          >
+            恢复
+          </button>
+          <button
+            onClick={() => onJumpToDice(r.sectionId, r.payloadSnapshot)}
+            className="text-[10px] px-2 py-1 rounded-md font-medium"
+            style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
+          >
+            跳转
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  const groupBtn = (mode: DiceGroupMode, label: string) => {
+    const active = groupMode === mode;
+    return (
+      <button
+        onClick={() => setGroupMode(mode)}
+        className="px-2 py-1 text-[10px] font-medium"
+        style={{
+          background: active ? 'var(--accent)' : 'var(--bg-card)',
+          color: active ? 'var(--text-on-accent, #fff)' : 'var(--text-secondary)',
+          border: 'none',
+          cursor: 'pointer',
+        }}
+      >
+        {label}
+      </button>
+    );
+  };
+
   return (
     <div className="p-3 flex flex-col h-full">
-      <div className="flex items-center justify-between mb-2">
-        <div className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>
-          骰点历史 <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>共 {records.length} 条</span>
+      {/* 顶部工具栏：搜索框 + 分组切换 */}
+      <div className="flex items-center gap-2 mb-2 shrink-0">
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="搜索骰子名/类型/结果/节..."
+          className="flex-1 min-w-0 px-2 py-1 text-xs rounded-md outline-none"
+          style={{
+            border: '1px solid var(--border-color)',
+            background: 'var(--bg-input)',
+            color: 'var(--text-primary)',
+          }}
+        />
+        <div
+          className="flex shrink-0 rounded-md overflow-hidden"
+          style={{ border: '1px solid var(--border-color)' }}
+        >
+          {groupBtn('story', '作品')}
+          {groupBtn('time', '时间')}
+          {groupBtn('flat', '平铺')}
         </div>
-        {records.length > 0 && (
+      </div>
+      <div className="flex items-center justify-between mb-2 shrink-0">
+        <div className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>
+          骰点历史 <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>共 {totalCount} 条</span>
+        </div>
+        {totalCount > 0 && (
           <button
             onClick={() => setPendingClearDice(true)}
             className="text-[10px] px-2 py-1 rounded-md border transition-colors"
@@ -1879,72 +2357,36 @@ function DiceHistoryPanel({
         )}
       </div>
 
-      {records.length === 0 ? (
+      {totalCount === 0 ? (
         <div className="flex-1 flex items-center justify-center text-xs py-16" style={{ color: 'var(--text-secondary)' }}>
-          还没有骰点记录，去正文编辑器掷一次骰子试试。
+          {searchQuery ? '没有匹配的记录' : '还没有骰点记录，去正文编辑器掷一次骰子试试。'}
         </div>
       ) : (
-        <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-          {records.map((r) => (
-            <div
-              key={r.id}
-              className="p-3 rounded-lg border transition-colors"
-              style={{ borderColor: 'var(--border-color)', background: 'var(--bg-base)' }}
-            >
-              <div className="text-[10px] mb-1" style={{ color: 'var(--text-secondary)' }}>
-                {formatTime(r.timestamp)}
-              </div>
-              <div className="flex items-center gap-2 mb-1">
-                <div className="text-xs font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
-                  {r.diceName}
-                </div>
-                <div
-                  className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0"
-                  style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
-                >
-                  {r.diceType}
-                </div>
-              </div>
-              <div className="text-xs font-mono mb-1" style={{ color: 'var(--accent)' }}>
-                结果: {r.result}
-              </div>
-              {r.resultDetail && r.resultDetail !== r.result && (
-                <div className="text-[11px] mb-2 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-                  {r.resultDetail}
-                </div>
-              )}
-              <div className="flex items-center justify-between pt-2 mt-1" style={{ borderTop: '1px solid var(--border-color)' }}>
-                <div className="text-[10px] truncate flex-1 pr-2" style={{ color: 'var(--text-secondary)' }}>
-                  → {r.sectionTitle || '(未命名节)'}
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    onClick={() => onInsertUnrolledDice(r.sectionId, r.payloadSnapshot)}
-                    className="text-[10px] px-2 py-1 rounded-md font-medium border"
-                    style={{ borderColor: 'var(--accent)', color: 'var(--accent)', background: 'transparent' }}
-                    title="在当前光标插入一个相同格式未掷骰的骰子"
+        <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+          {groups.map((g) => {
+            const collapsed = collapsedGroups.has(g.key);
+            const showHeader = groupMode !== 'flat';
+            return (
+              <div key={g.key}>
+                {showHeader && (
+                  <div
+                    onClick={() => toggleCollapse(g.key)}
+                    className="flex items-center gap-1 px-1 py-1 cursor-pointer text-[11px] font-semibold select-none"
+                    style={{ color: 'var(--text-primary)' }}
                   >
-                    插入
-                  </button>
-                  <button
-                    onClick={() => onRestoreDice(r.sectionId, r.payloadSnapshot)}
-                    className="text-[10px] px-2 py-1 rounded-md font-medium border"
-                    style={{ borderColor: 'var(--accent)', color: 'var(--accent)', background: 'transparent' }}
-                    title="在编辑区重新插入一个相同的骰子"
-                  >
-                    恢复
-                  </button>
-                  <button
-                    onClick={() => onJumpToDice(r.sectionId, r.payloadSnapshot)}
-                    className="text-[10px] px-2 py-1 rounded-md font-medium"
-                    style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
-                  >
-                    跳转
-                  </button>
-                </div>
+                    <span style={{ display: 'inline-block', width: 12 }}>{collapsed ? '▶' : '▼'}</span>
+                    <span>{g.title}</span>
+                    <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>({g.records.length})</span>
+                  </div>
+                )}
+                {!collapsed && (
+                  <div className="space-y-2 mt-1">
+                    {g.records.map(renderRecord)}
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -3524,7 +3966,26 @@ function BBCodeEditor({
   // 拦截 Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z，走自定义历史栈
   // 不拦截 Ctrl+V / Ctrl+X / Ctrl+A（保留粘贴/剪切/全选等默认行为）
   // Ctrl+F 打开节内搜索
+  // Tab 键：插入 4 个空格（NGA BBCode 不识别 \t）
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Tab 键：插入 4 个普通空格，避免焦点切换
+    if (e.key === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      e.preventDefault();
+      const ta = textareaRef.current;
+      if (!ta) return;
+      const start = ta.selectionStart;
+      const end = ta.selectionEnd;
+      const insert = '    ';
+      const newValue = value.slice(0, start) + insert + value.slice(end);
+      onChange(newValue);
+      // 恢复光标位置（在 React 更新后）
+      requestAnimationFrame(() => {
+        if (textareaRef.current) {
+          textareaRef.current.selectionStart = textareaRef.current.selectionEnd = start + insert.length;
+        }
+      });
+      return;
+    }
     const ctrl = e.ctrlKey || e.metaKey;
     if (!ctrl) return;
     const key = e.key.toLowerCase();

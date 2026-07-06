@@ -265,7 +265,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   searchAnke: {
     gululu: (
       keyword: string,
-      matchField?: 'title' | 'author',
+      matchField?: 'all' | 'title' | 'author',
     ): Promise<{ ok: boolean; data?: any[]; error?: string }> =>
       ipcRenderer.invoke('search:gululu', { keyword, matchField: matchField || 'title' }),
     ngaAnke: (

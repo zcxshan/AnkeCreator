@@ -40,7 +40,7 @@ export function FindAnkePage({ onBack }: FindAnkePageProps) {
 
   // 骨碌碌搜索函数：封装 IPC 调用
   const gululuSearchFn = useCallback(
-    (keyword: string, matchField: 'title' | 'author') =>
+    (keyword: string, matchField: 'all' | 'title' | 'author') =>
       (window as any).electronAPI.searchAnke.gululu(keyword, matchField),
     [],
   )
@@ -192,9 +192,10 @@ export function FindAnkePage({ onBack }: FindAnkePageProps) {
                   defaultSort: 'default',
                 }}
                 onOpenUrl={openUrl}
-                autoLoadOnMount={true}
+                autoLoadOnMount={false}
                 flatLayout
                 matchFieldSwitchable={true}
+                defaultMatchField="all"
               />
             </div>
           </div>
@@ -202,6 +203,25 @@ export function FindAnkePage({ onBack }: FindAnkePageProps) {
         {tab === 'nga' && (
           <div className="h-full overflow-y-auto p-4">
             <div className="max-w-4xl mx-auto">
+              {!ngaCookies && (
+                <div
+                  className="mb-3 p-3 rounded-lg flex items-start gap-2 text-xs"
+                  style={{
+                    background: 'rgba(245, 158, 11, 0.1)',
+                    border: '1px solid rgba(245, 158, 11, 0.3)',
+                    color: 'var(--text-primary)',
+                  }}
+                >
+                  <span style={{ fontSize: 14 }}>⚠️</span>
+                  <div className="flex-1">
+                    <div className="font-medium mb-0.5">未配置 NGA Cookie</div>
+                    <div style={{ color: 'var(--text-secondary)' }}>
+                      未登录状态下仅能查看部分公开帖子，部分内容可能缺失或被拦截。
+                      请在 <strong>设置 → NGA 登录态</strong> 中粘贴 Cookie 后重试。
+                    </div>
+                  </div>
+                </div>
+              )}
               <SearchSiteSection<NgaResult>
                 siteKey="nga"
                 icon="🎮"

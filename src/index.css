@@ -603,6 +603,25 @@ textarea {
 }
 
 /* ================================
+   DicePlaygroundPage / QuickDicePanel 通用动画 class
+   - 不依赖 data-type="dice-card" 前缀，可在任意元素上使用
+   - 复用上方定义的 keyframes
+   ================================ */
+.anke-dice-playground-spin {
+  animation: ankeDiceSpin 800ms ease-in-out;
+  display: inline-block;
+  transform-origin: center;
+}
+
+.anke-dice-playground-fade {
+  animation: ankeDiceRollFade 200ms ease-out;
+}
+
+.anke-dice-playground-press {
+  animation: ankeDiceBtnPress 180ms ease-out;
+}
+
+/* ================================
    移动端响应式（Capacitor / 窄屏浏览器）
    - 禁用双击缩放
    - 优化触摸滚动

@@ -142,6 +142,14 @@ interface MetaState {
   deleteCharacterTemplate: (id: string) => Promise<void>;
   batchDeleteCharacterTemplates: (ids: string[]) => Promise<{ deleted: number }>;
   reorderCharacterTemplates: (orderedIds: string[]) => Promise<void>;
+
+  // —— 模板导入导出 ——
+  /** 导入模板数据（从 JSON 文件批量创建） */
+  importTemplates: (data: {
+    version?: number;
+    worldSettingTemplates?: Array<Partial<WorldSettingTemplate> & { title: string }>;
+    characterTemplates?: Array<Partial<CharacterTemplate> & { name: string }>;
+  }) => Promise<{ worldCount: number; charCount: number; failed: number }>;
 }
 
 function nowOrder() {
@@ -576,5 +584,51 @@ export const useMetaStore = create<MetaState>((set, get) => ({
             (orderMap[b.id] ?? b.order_index ?? nowOrder()),
         ),
     }));
+  },
+
+  // —— 模板导入 ——
+  importTemplates: async (data) => {
+    let worldCount = 0;
+    let charCount = 0;
+    let failed = 0;
+
+    // 导入世界观模板
+    if (Array.isArray(data.worldSettingTemplates)) {
+      for (const t of data.worldSettingTemplates) {
+        try {
+          await db.createWorldSettingTemplate({
+            title: (t.title || '').trim() || '导入的模板',
+            content: t.content || '',
+          });
+          worldCount++;
+        } catch {
+          failed++;
+        }
+      }
+    }
+
+    // 导入人物模板
+    if (Array.isArray(data.characterTemplates)) {
+      for (const c of data.characterTemplates) {
+        try {
+          await db.createCharacterTemplate({
+            name: (c.name || '').trim() || '导入的人物模板',
+            avatar: c.avatar || '',
+            personality: c.personality || '',
+            attributes: c.attributes,
+            notes: c.notes || '',
+            variants: c.variants,
+          });
+          charCount++;
+        } catch {
+          failed++;
+        }
+      }
+    }
+
+    // 刷新模板列表
+    await get().loadTemplates();
+
+    return { worldCount, charCount, failed };
   },
 }));

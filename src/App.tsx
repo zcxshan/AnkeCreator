@@ -7,6 +7,7 @@ import { TutorialPage } from './components/pages/TutorialPage';
 import { AnjiaPage } from './components/pages/AnjiaPage';
 import { FindAnkePage } from './components/pages/FindAnkePage';
 import { ReaderPage } from './components/pages/ReaderPage';
+import { DicePlaygroundPage } from './components/pages/DicePlaygroundPage';
 import { TitleBar } from './components/common/TitleBar';
 import { AuthorInfo } from './components/common/AuthorInfo';
 import { ToastContainer } from './components/common/Toast';
@@ -20,7 +21,7 @@ import { initDatabase } from './db/index';
 import { isCapacitor, isElectron } from './utils/platform';
 import './index.css';
 
-type Route = 'home' | 'works' | 'editor' | 'reader' | 'templates' | 'tutorial' | 'anjia' | 'find-anke';
+type Route = 'home' | 'works' | 'editor' | 'reader' | 'templates' | 'tutorial' | 'anjia' | 'find-anke' | 'dice-playground';
 
 function App() {
   const { activeSectionId, activeStoryId } = useStoryStore();
@@ -135,9 +136,16 @@ function App() {
           onShowAuthor={() => setShowAuthor(true)}
           onShowAnjia={() => setRoute('anjia')}
           onShowFindAnke={() => setRoute('find-anke')}
+          onShowDicePlayground={() => setRoute('dice-playground')}
         />
         {authorModal}
       </>,
+    );
+  }
+
+  if (route === 'dice-playground') {
+    return renderWithTitleBar(
+      <DicePlaygroundPage onBack={() => setRoute('home')} />,
     );
   }
 

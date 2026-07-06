@@ -300,6 +300,18 @@ export const useStoryStore = create<StoryState>((set, get) => ({
       });
       return;
     }
+    // 先清空旧 story 数据，避免渲染期间显示其他作品内容
+    set({
+      volumes: [],
+      chapters: [],
+      sections: [],
+      outlines: [],
+      activeChapterId: null,
+      activeSectionId: null,
+      activeOutlineId: null,
+      expandedVolumeIds: {},
+      expandedChapterIds: {},
+    });
     set({ activeStoryId: id });
     await loadStoryData(set, id);
   },

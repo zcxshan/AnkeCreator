@@ -212,3 +212,40 @@ describe('bbcodeToHtml - 真实场景', () => {
     expect(() => bbcodeToHtml('[b]普通文本[/b] 加未闭合的 [i]')).not.toThrow();
   });
 });
+
+describe('bbcodeToHtml - 未识别标签不自动闭合', () => {
+  it('[文本文本] 不生成 [/文本文本]', () => {
+    const html = bbcodeToHtml('[文本文本]一些内容');
+    expect(html).toContain('[文本文本]');
+    expect(html).not.toContain('[/文本文本]');
+  });
+
+  it('[文本文本]内容[/文本文本] 保留原始文本不处理为标签', () => {
+    const html = bbcodeToHtml('[文本文本]内容[/文本文本]');
+    expect(html).toContain('[文本文本]');
+    expect(html).toContain('[/文本文本]');
+    expect(html).toContain('内容');
+  });
+
+  it('[d100=xxx] 带属性的未识别标签不自动闭合', () => {
+    const html = bbcodeToHtml('[d100=xxx]内容');
+    expect(html).toContain('[d100=xxx]');
+    expect(html).not.toContain('[/d100]');
+  });
+
+  it('[自定义标签]内容[/自定义标签] 保留原始文本', () => {
+    const html = bbcodeToHtml('[自定义标签]内容[/自定义标签]');
+    expect(html).toContain('[自定义标签]');
+    expect(html).toContain('[/自定义标签]');
+    expect(html).toContain('内容');
+  });
+
+  it('已知标签内嵌套未识别标签正常工作', () => {
+    const html = bbcodeToHtml('[b][文本文本]内容[/文本文本][/b]');
+    expect(html).toContain('<b>');
+    expect(html).toContain('[文本文本]');
+    expect(html).toContain('[/文本文本]');
+    expect(html).toContain('内容');
+    expect(html).toContain('</b>');
+  });
+});

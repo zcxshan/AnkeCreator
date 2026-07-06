@@ -444,8 +444,14 @@ export function applyActiveStylesToInsertion(
 
   range.deleteContents();
   range.insertNode(outer);
-  // 移动光标到 outer 之后
-  range.setStartAfter(outer);
+  // 把光标放到 wrap 内部末尾，让后续输入继续继承样式（Word 行为）
+  // outer 可能是 sup/sub 包裹 wrap，但光标应在 wrap 内部
+  const wrapLast = wrap.lastChild;
+  if (wrapLast) {
+    range.setStartAfter(wrapLast);
+  } else {
+    range.setStartAfter(outer);
+  }
   range.collapse(true);
   sel.removeAllRanges();
   sel.addRange(range);
@@ -587,6 +593,12 @@ export function applyInlineStyle(
   focusEditor(editor);
   const range = getSelectionRangeIn(editor);
   if (!range) return false;
+
+  // 折叠选区（无选区）下不直接应用样式：
+  // 因为 applyInlineStyle 会插入空 span，但浏览器在用户开始输入时会把字符放到 span 外
+  // 改为依赖 onChange 后续的 setActiveStyles + lockActiveStyles + handleBeforeInput 预激活逻辑
+  // 由 applyActiveStylesToInsertion 在输入时包裹带样式的 span
+  if (range.collapsed) return false;
 
   // 先尝试直接 surroundContents：仅在选区是单一节点时成功
   try {
@@ -1992,6 +2004,63 @@ export function scrollToDiceCard(editor: HTMLElement, payloadSnapshot: string): 
     return true;
   }
   return false;
+}
+
+/**
+ * 纯检查函数（无副作用）：判断 payloadSnapshot 对应的骰子是否仍在编辑器中。
+ * 匹配规则与 scrollToDiceCard 一致（id/name +100 分，timestamp +50 分），
+ * 但不滚动/不选中/不闪烁，且不降级到第一个 dice-card。
+ * 返回 true 表示骰子还在编辑区（恢复按钮应 disabled）。
+ */
+export function isDiceCardInEditor(editor: HTMLElement, payloadSnapshot: string): boolean {
+  if (!editor || !payloadSnapshot) return false;
+  let snapshot: any = null;
+  try {
+    snapshot = JSON.parse(payloadSnapshot);
+  } catch {
+    return false;
+  }
+  const snapshotId: string =
+    (snapshot && snapshot.config && (snapshot.config.id || snapshot.config.name)) || '';
+  const snapshotTimestamp: number | null =
+    snapshot && snapshot.lastResult && typeof snapshot.lastResult.timestamp === 'number'
+      ? snapshot.lastResult.timestamp
+      : null;
+
+  const candidates = editor.querySelectorAll<HTMLElement>(DICE_CARD_SELECTOR);
+  if (candidates.length === 0) return false;
+
+  let bestScore = -1;
+  candidates.forEach((el) => {
+    let cur: any = null;
+    try {
+      cur = JSON.parse(el.getAttribute('data-payload') || '{}');
+    } catch {
+      return;
+    }
+    const curId: string =
+      (cur && cur.config && (cur.config.id || cur.config.name)) || '';
+    const curTimestamp: number | null =
+      cur && cur.lastResult && typeof cur.lastResult.timestamp === 'number'
+        ? cur.lastResult.timestamp
+        : null;
+
+    let score = 0;
+    if (snapshotId && curId === snapshotId) score += 100;
+    if (
+      snapshotTimestamp != null &&
+      curTimestamp != null &&
+      Math.abs(curTimestamp - snapshotTimestamp) < 1000
+    ) {
+      score += 50;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+    }
+  });
+
+  // 有实际匹配（score >= 50）才算"还在"
+  return bestScore >= 50;
 }
 
 function findAncestorWithAttr(

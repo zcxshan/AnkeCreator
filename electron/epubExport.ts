@@ -18,6 +18,16 @@ import fs from 'fs'
 import path from 'path'
 import type { StoryWithAll, Volume, ChapterWithSections, Section } from '../src/types/story'
 
+// ---- 目录树类型（卷→章→节层级）----
+interface TocNode {
+  /** 章节 xhtml id（如 chapter-001），仅叶节点有 */
+  id: string
+  /** 显示标题 */
+  title: string
+  /** 子节点（卷→章→节） */
+  children?: TocNode[]
+}
+
 // ---- 进度回调类型 ----
 export type EpubProgressPhase =
   | 'scanning'
@@ -294,7 +304,9 @@ function processSectionHtml(html: string, imageMap: Map<string, string>): string
     (match, prefix, src, suffix) => {
       const newSrc = imageMap.get(src)
       if (newSrc) {
-        return `${prefix}${newSrc}${suffix}`
+        // 远端 URL 含查询参数时，& 必须转义为 &amp;（XML/XHTML 要求）
+        const escapedSrc = newSrc.replace(/&(?!(amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)/g, '&amp;')
+        return `${prefix}${escapedSrc}${suffix}`
       }
       // 未找到映射 → 用占位图
       return `${prefix}../images/placeholder.png${suffix}`
@@ -336,6 +348,20 @@ function processSectionHtml(html: string, imageMap: Map<string, string>): string
     '$1',
   )
 
+  // 转义正文文本节点中的裸 &（不破坏已有 HTML 标签和实体）
+  // 匹配 >文本< 之间的内容，对其中的裸 & 转义为 &amp;
+  result = result.replace(/>([^<]+)</g, (match, text) => {
+    const escaped = text.replace(/&(?!(amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)/g, '&amp;')
+    return `>${escaped}<`
+  })
+  // 处理字符串开头/结尾的裸文本（没有 > < 包裹的部分）
+  result = result.replace(/^([^<]+)/, (match, text) => {
+    return text.replace(/&(?!(amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)/g, '&amp;')
+  })
+  result = result.replace(/([^>])$/, (match, text) => {
+    return text.replace(/&(?!(amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)/g, '&amp;')
+  })
+
   // XHTML 合规化（void 元素自闭合、移除内联事件等）
   result = sanitizeForXhtml(result)
 
@@ -359,16 +385,16 @@ function buildContentOpf(story: StoryWithAll, chapters: { id: string; title: str
   const title = escapeXml(story.title || '未命名作品')
   const description = escapeXml(story.description || '')
 
-  // manifest items
+  // manifest items（属性用单引号，避免正文双引号嵌套问题）
   const manifestItems: string[] = [
-    '<item id="cover" href="text/cover.xhtml" media-type="application/xhtml+xml"/>',
-    '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>',
-    '<item id="css" href="styles/main.css" media-type="text/css"/>',
-    '<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>',
+    "<item id='cover' href='text/cover.xhtml' media-type='application/xhtml+xml'/>",
+    "<item id='nav' href='nav.xhtml' media-type='application/xhtml+xml' properties='nav'/>",
+    "<item id='css' href='styles/main.css' media-type='text/css'/>",
+    "<item id='ncx' href='toc.ncx' media-type='application/x-dtbncx+xml'/>",
   ]
   for (const ch of chapters) {
     manifestItems.push(
-      `<item id="${ch.id}" href="text/${ch.id}.xhtml" media-type="application/xhtml+xml"/>`,
+      `<item id='${ch.id}' href='text/${ch.id}.xhtml' media-type='application/xhtml+xml'/>`,
     )
   }
   for (const imgId of imageIds) {
@@ -376,53 +402,70 @@ function buildContentOpf(story: StoryWithAll, chapters: { id: string; title: str
     const mediaType =
       ext === 'jpg' ? 'image/jpeg' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : ext === 'svg' ? 'image/svg+xml' : 'image/png'
     manifestItems.push(
-      `<item id="${imgId.replace(/\./g, '_')}" href="images/${imgId}" media-type="${mediaType}"/>`,
+      `<item id='${imgId.replace(/\./g, '_')}' href='images/${imgId}' media-type='${mediaType}'/>`,
     )
   }
 
   // spine (阅读顺序)
-  const spineItems: string[] = ['<itemref idref="cover"/>']
+  const spineItems: string[] = ["<itemref idref='cover'/>"]
   for (const ch of chapters) {
-    spineItems.push(`<itemref idref="${ch.id}"/>`)
+    spineItems.push(`<itemref idref='${ch.id}'/>`)
   }
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid">
-  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-    <dc:identifier id="bookid">urn:uuid:${escapeXml(story.id)}</dc:identifier>
+<package xmlns='http://www.idpf.org/2007/opf' version='3.0' unique-identifier='bookid'>
+  <metadata xmlns:dc='http://purl.org/dc/elements/1.1/'>
+    <dc:identifier id='bookid'>urn:uuid:${escapeXml(story.id)}</dc:identifier>
     <dc:title>${title}</dc:title>
     <dc:language>zh-CN</dc:language>
     <dc:description>${description}</dc:description>
     <dc:creator>${escapeXml('安科作者助手')}</dc:creator>
-    <meta property="dcterms:modified">${new Date().toISOString().replace(/\.\d+Z$/, 'Z')}</meta>
+    <meta property='dcterms:modified'>${new Date().toISOString().replace(/\.\d+Z$/, 'Z')}</meta>
   </metadata>
   <manifest>
     ${manifestItems.join('\n    ')}
   </manifest>
-  <spine toc="ncx">
+  <spine toc='ncx'>
     ${spineItems.join('\n    ')}
   </spine>
 </package>`
 }
 
-/** 生成 nav.xhtml（EPUB3 导航） */
-function buildNavXhtml(story: StoryWithAll, chapters: { id: string; title: string }[]): string {
-  const navItems = chapters
-    .map((ch) => `<li><a href="text/${ch.id}.xhtml">${escapeXml(ch.title)}</a></li>`)
-    .join('\n      ')
+/** 递归生成 nav.xhtml 的嵌套 <li> 列表项 */
+function renderNavNode(node: TocNode, indent: string): string {
+  const title = escapeXml(node.title)
+  const hasChildren = node.children && node.children.length > 0
+  if (!hasChildren) {
+    return `${indent}<li><a href='text/${node.id}.xhtml'>${title}</a></li>`
+  }
+  const childItems = node.children!
+    .map((c) => renderNavNode(c, indent + '  '))
+    .join('\n')
+  return `${indent}<li><a href='text/${node.id}.xhtml'>${title}</a>
+${indent}  <ol>
+${childItems}
+${indent}  </ol>
+${indent}</li>`
+}
+
+/** 生成 nav.xhtml（EPUB3 导航，层级化） */
+function buildNavXhtml(story: StoryWithAll, rootNodes: TocNode[]): string {
+  const navItems = rootNodes
+    .map((n) => renderNavNode(n, '      '))
+    .join('\n')
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<html xmlns='http://www.w3.org/1999/xhtml' xmlns:epub='http://www.idpf.org/2007/ops'>
 <head>
-  <meta charset="utf-8"/>
+  <meta charset='utf-8'/>
   <title>目录</title>
-  <link rel="stylesheet" type="text/css" href="styles/main.css"/>
+  <link rel='stylesheet' type='text/css' href='styles/main.css'/>
 </head>
 <body>
-  <nav epub:type="toc">
+  <nav epub:type='toc'>
     <h1>目录</h1>
     <ol>
-      <li><a href="text/cover.xhtml">封面</a></li>
+      <li><a href='text/cover.xhtml'>封面</a></li>
       ${navItems}
     </ol>
   </nav>
@@ -430,25 +473,45 @@ function buildNavXhtml(story: StoryWithAll, chapters: { id: string; title: strin
 </html>`
 }
 
-/** 生成 toc.ncx（EPUB2 兼容目录） */
-function buildTocNcx(story: StoryWithAll, chapters: { id: string; title: string }[]): string {
-  const navPoints = chapters
-    .map((ch, i) => `    <navPoint id="${ch.id}" playOrder="${i + 2}">
-      <navLabel><text>${escapeXml(ch.title)}</text></navLabel>
-      <content src="text/${ch.id}.xhtml"/>
-    </navPoint>`)
+/** 递归生成 toc.ncx 的嵌套 <navPoint> */
+let ncxPlayOrder = 1
+function renderNcxNode(node: TocNode, indent: string): string {
+  ncxPlayOrder++
+  const title = escapeXml(node.title)
+  const hasChildren = node.children && node.children.length > 0
+  if (!hasChildren) {
+    return `${indent}<navPoint id='${node.id}' playOrder='${ncxPlayOrder}'>
+${indent}  <navLabel><text>${title}</text></navLabel>
+${indent}  <content src='text/${node.id}.xhtml'/>
+${indent}</navPoint>`
+  }
+  const childItems = node.children!
+    .map((c) => renderNcxNode(c, indent + '  '))
+    .join('\n')
+  return `${indent}<navPoint id='${node.id}' playOrder='${ncxPlayOrder}'>
+${indent}  <navLabel><text>${title}</text></navLabel>
+${indent}  <content src='text/${node.id}.xhtml'/>
+${childItems}
+${indent}</navPoint>`
+}
+
+/** 生成 toc.ncx（EPUB2 兼容目录，层级化） */
+function buildTocNcx(story: StoryWithAll, rootNodes: TocNode[]): string {
+  ncxPlayOrder = 1 // 重置计数器
+  const navPoints = rootNodes
+    .map((n) => renderNcxNode(n, '    '))
     .join('\n')
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+<ncx xmlns='http://www.daisy.org/z3986/2005/ncx/' version='2005-1'>
   <head>
-    <meta name="dtb:uid" content="urn:uuid:${escapeXml(story.id)}"/>
+    <meta name='dtb:uid' content='urn:uuid:${escapeXml(story.id)}'/>
   </head>
   <docTitle><text>${escapeXml(story.title || '未命名作品')}</text></docTitle>
   <navMap>
-    <navPoint id="cover" playOrder="1">
+    <navPoint id='cover' playOrder='1'>
       <navLabel><text>封面</text></navLabel>
-      <content src="text/cover.xhtml"/>
+      <content src='text/cover.xhtml'/>
     </navPoint>
 ${navPoints}
   </navMap>
@@ -461,16 +524,16 @@ function buildCoverXhtml(story: StoryWithAll): string {
   const description = escapeXml(story.description || '')
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<html xmlns="http://www.w3.org/1999/xhtml">
+<html xmlns='http://www.w3.org/1999/xhtml'>
 <head>
-  <meta charset="utf-8"/>
+  <meta charset='utf-8'/>
   <title>${title}</title>
-  <link rel="stylesheet" type="text/css" href="styles/main.css"/>
+  <link rel='stylesheet' type='text/css' href='styles/main.css'/>
 </head>
-<body class="cover-page">
-  <h1 class="cover-title">${title}</h1>
-  ${description ? `<p class="cover-description">${description}</p>` : ''}
-  <p class="cover-meta">由安科作者助手导出</p>
+<body class='cover-page'>
+  <h1 class='cover-title'>${title}</h1>
+  ${description ? `<p class='cover-description'>${description}</p>` : ''}
+  <p class='cover-meta'>由安科作者助手导出</p>
 </body>
 </html>`
 }
@@ -478,11 +541,11 @@ function buildCoverXhtml(story: StoryWithAll): string {
 /** 生成章节 XHTML */
 function buildChapterXhtml(title: string, content: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
-<html xmlns="http://www.w3.org/1999/xhtml">
+<html xmlns='http://www.w3.org/1999/xhtml'>
 <head>
-  <meta charset="utf-8"/>
+  <meta charset='utf-8'/>
   <title>${escapeXml(title)}</title>
-  <link rel="stylesheet" type="text/css" href="styles/main.css"/>
+  <link rel='stylesheet' type='text/css' href='styles/main.css'/>
 </head>
 <body>
   <h2>${escapeXml(title)}</h2>
@@ -528,9 +591,9 @@ td, th { border: 1px solid #ddd; padding: 0.4em 0.8em; }
 
 /** META-INF/container.xml */
 const CONTAINER_XML = `<?xml version="1.0" encoding="UTF-8"?>
-<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+<container version='1.0' xmlns='urn:oasis:names:tc:opendocument:xmlns:container'>
   <rootfiles>
-    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+    <rootfile full-path='OEBPS/content.opf' media-type='application/oebps-package+xml'/>
   </rootfiles>
 </container>`
 
@@ -729,6 +792,11 @@ export async function generateEpub(
   await control?.checkPoint()
 
   const chapterEntries: { id: string; title: string; content: string }[] = []
+  // 同时构建层级化目录树（卷→章→节）
+  // 用 Map 维护卷→章→节 的层级，保持插入顺序
+  const volumeMap = new Map<string, { title: string; chapters: Map<string, { title: string; sections: { id: string; title: string }[] }> }>()
+  const NO_VOLUME_KEY = '__no_volume__'
+
   for (let i = 0; i < allSections.length; i++) {
     await control?.checkPoint()
     const { section, chapterTitle, volumeTitle } = allSections[i]
@@ -751,6 +819,42 @@ export async function generateEpub(
       title,
       content: processedContent,
     })
+
+    // 构建目录树：卷→章→节
+    const volKey = volumeTitle || NO_VOLUME_KEY
+    const volTitle = volumeTitle || ''
+    if (!volumeMap.has(volKey)) {
+      volumeMap.set(volKey, { title: volTitle, chapters: new Map() })
+    }
+    const vol = volumeMap.get(volKey)!
+    if (!vol.chapters.has(chapterTitle)) {
+      vol.chapters.set(chapterTitle, { title: chapterTitle, sections: [] })
+    }
+    vol.chapters.get(chapterTitle)!.sections.push({ id: chapterId, title: section.title })
+  }
+
+  // 转换为 TocNode[] 树
+  const tocNodes: TocNode[] = []
+  for (const vol of volumeMap.values()) {
+    const chapterNodes: TocNode[] = []
+    for (const ch of vol.chapters.values()) {
+      chapterNodes.push({
+        id: ch.sections[0]?.id || '', // 章节点 id 取第一个节的 id（点击跳转）
+        title: ch.title,
+        children: ch.sections.map((s) => ({ id: s.id, title: s.title })),
+      })
+    }
+    if (vol.title) {
+      // 有卷名：作为卷节点
+      tocNodes.push({
+        id: chapterNodes[0]?.id || '',
+        title: vol.title,
+        children: chapterNodes,
+      })
+    } else {
+      // 无卷名：章节点直接作为根节点
+      tocNodes.push(...chapterNodes)
+    }
   }
 
   // 5. 用 jszip 打包
@@ -765,8 +869,8 @@ export async function generateEpub(
   // OEBPS
   const oebps = zip.folder('OEBPS')!
   oebps.file('content.opf', buildContentOpf(story, chapterEntries, imageBuffers.map((b) => b.filename)))
-  oebps.file('nav.xhtml', buildNavXhtml(story, chapterEntries))
-  oebps.file('toc.ncx', buildTocNcx(story, chapterEntries))
+  oebps.file('nav.xhtml', buildNavXhtml(story, tocNodes))
+  oebps.file('toc.ncx', buildTocNcx(story, tocNodes))
   oebps.file('styles/main.css', EPUB_CSS)
   oebps.file('text/cover.xhtml', buildCoverXhtml(story))
   for (const ch of chapterEntries) {
