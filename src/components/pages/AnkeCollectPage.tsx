@@ -95,7 +95,7 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
     const startF = parseInt(startFloor, 10);
     const endF = parseInt(endFloor, 10);
     const fps = Math.max(1, parseInt(floorsPerSection, 10) || 10);
-    if (isNaN(startF) || isNaN(endF) || startF < 1 || endF < startF) {
+    if (isNaN(startF) || isNaN(endF) || startF < 0 || endF < startF) {
       showToast('楼层范围不合法', 'error');
       return;
     }
@@ -505,10 +505,12 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
               {/* 楼层范围 + 切分模式 */}
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <div style={{ flex: '1 1 120px' }}>
-                  <label style={labelStyle}>起始楼层</label>
+                  <label style={labelStyle}>
+                    起始楼层 <span style={{ color: 'var(--text-secondary)', fontSize: 11 }}>（NGA 含 0 楼）</span>
+                  </label>
                   <input
                     type="number"
-                    min={1}
+                    min={0}
                     value={startFloor}
                     onChange={(e) => setStartFloor(e.target.value)}
                     disabled={running}
@@ -521,7 +523,7 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
                   <label style={labelStyle}>终止楼层</label>
                   <input
                     type="number"
-                    min={1}
+                    min={0}
                     value={endFloor}
                     onChange={(e) => {
                       setEndFloor(e.target.value);

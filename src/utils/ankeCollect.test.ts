@@ -736,3 +736,89 @@ describe('collectAnkeToWorkJson - manualFormat（交互式高级格式）', () =
     expect(data.chapters).toHaveLength(1);
   });
 });
+
+describe('collectAnkeToWorkJson - NGA 第 0 楼支持', () => {
+  // NGA 安科主题帖存在第 0 楼（房主发帖），起始楼层应允许为 0。
+  // 骨碌碌节号从 1 开始，不在此处覆盖（见 gululuCollect.test.ts）。
+  function setupWindowMock(items: any[]) {
+    (global as any).window = {
+      electronAPI: {
+        collectNga: vi.fn().mockResolvedValue({ ok: true, items }),
+      },
+    };
+  }
+  afterEach(() => {
+    delete (global as any).window;
+  });
+
+  it('startFloor=0 不再报「楼层范围不合法」', async () => {
+    setupWindowMock([
+      { floor: 0, author: '楼主', content: '房主发帖', time: 1719201240, pid: '0' },
+      { floor: 1, author: 'Alice', content: 'p1', time: 1719201300, pid: '1' },
+    ]);
+    const result = await collectAnkeToWorkJson({
+      url: 'https://nga.178.com/read.php?tid=1234',
+      startFloor: 0,
+      endFloor: 1,
+      workTitle: '含0楼测试',
+    });
+    expect(result.ok).toBe(true);
+    // 主进程收到的 payload 包含 startFloor=0
+    const callPayload = ((global as any).window.electronAPI.collectNga as any).mock.calls[0][0];
+    expect(callPayload.startFloor).toBe(0);
+    expect(callPayload.endFloor).toBe(1);
+  });
+
+  it('startFloor=0 时第 0 楼内容进入导出 JSON', async () => {
+    setupWindowMock([
+      { floor: 0, author: '楼主', content: '房主发帖内容', time: 1719201240, pid: '0' },
+      { floor: 1, author: 'Alice', content: 'p1', time: 1719201300, pid: '1' },
+      { floor: 2, author: 'Bob', content: 'p2', time: 1719201360, pid: '2' },
+    ]);
+    const result = await collectAnkeToWorkJson({
+      url: 'https://nga.178.com/read.php?tid=1234',
+      startFloor: 0,
+      endFloor: 2,
+      workTitle: '0楼到2楼',
+      sectionMode: 'one-per-floor',
+    });
+    expect(result.ok).toBe(true);
+    const data = (result.jsonData as any).data;
+    const sections = data.chapters[0].sections;
+    // 三楼一节：0,1,2
+    expect(sections).toHaveLength(3);
+    // 第 0 楼被保留
+    expect(sections[0].content).toContain('—— 0 楼');
+    expect(sections[0].content).toContain('房主发帖内容');
+    expect(sections[0].content).toContain('@楼主');
+    // 第 1 楼、第 2 楼也保留
+    expect(sections[1].content).toContain('—— 1 楼');
+    expect(sections[2].content).toContain('—— 2 楼');
+  });
+
+  it('startFloor=0 仍拒绝 endFloor < startFloor', async () => {
+    setupWindowMock([
+      { floor: 0, author: '楼主', content: 'p0', time: 0, pid: '0' },
+    ]);
+    const result = await collectAnkeToWorkJson({
+      url: 'https://nga.178.com/read.php?tid=1234',
+      startFloor: 0,
+      endFloor: -1,
+      workTitle: '非法范围',
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe('楼层范围不合法');
+  });
+
+  it('startFloor=-1 仍被拒绝（不允许负数）', async () => {
+    setupWindowMock([]);
+    const result = await collectAnkeToWorkJson({
+      url: 'https://nga.178.com/read.php?tid=1234',
+      startFloor: -1,
+      endFloor: 5,
+      workTitle: '负数拒绝',
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe('楼层范围不合法');
+  });
+});

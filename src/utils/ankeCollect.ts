@@ -241,10 +241,12 @@ export async function collectAnkeToWorkJson(
   }
 
   // 2. 楼层范围校验
+  //    NGA 安科主题帖存在第 0 楼（房主发帖），因此 startFloor 允许为 0；
+  //    骨碌碌节号从 1 开始，在 gululuCollect.ts 单独校验 startFloor < 1。
   if (
     !Number.isFinite(opts.startFloor) ||
     !Number.isFinite(opts.endFloor) ||
-    opts.startFloor < 1 ||
+    opts.startFloor < 0 ||
     opts.endFloor < opts.startFloor
   ) {
     return { ok: false, error: '楼层范围不合法' };
