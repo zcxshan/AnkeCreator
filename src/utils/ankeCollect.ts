@@ -162,6 +162,74 @@ export function insertPlaceholderPosts(
   return merged;
 }
 
+/**
+ * 根据用户自定义的卷/章/节结构 + 楼号范围构建作品 JSON。
+ * 高内聚低耦合：UI 在 AnkeCollectPage，逻辑在此，NGA / 骨碌碌共用。
+ * 唯一差异点是 buildSectionHtml：NGA 用 buildSectionHtml，骨碌碌用 buildGululuSectionHtml。
+ */
+export interface BuildManualFormatJsonOpts {
+  manualFormat: ManualFormatConfig;
+  posts: RawPost[];
+  buildSectionHtml: (posts: RawPost[]) => string;
+  baseData: Record<string, unknown>;
+  baseMeta: Record<string, unknown>;
+}
+
+export interface BuildManualFormatJsonResult {
+  jsonData: unknown;
+  sectionCount: number;
+}
+
+export function buildManualFormatJson(
+  opts: BuildManualFormatJsonOpts,
+): BuildManualFormatJsonResult {
+  const mf = opts.manualFormat;
+  const volumes: any[] = [];
+  const chapters: any[] = [];
+  let secIdx = 0;
+  for (let vi = 0; vi < mf.volumes.length; vi++) {
+    const vol = mf.volumes[vi];
+    const volId = `vol-${vi}`;
+    volumes.push({ id: volId, title: vol.title, order_index: vi });
+    for (let ci = 0; ci < vol.chapters.length; ci++) {
+      const ch = vol.chapters[ci];
+      const chapterSections = ch.sections.map((sec, si) => {
+        const sectionPosts = opts.posts.filter(
+          (p) => p.floor >= sec.startFloor && p.floor <= sec.endFloor,
+        );
+        const inner = opts.buildSectionHtml(sectionPosts);
+        const content = sectionPosts.length > 1
+          ? `<div class="anke-section">${inner}</div>`
+          : inner;
+        return { title: sec.title, order_index: si, content };
+      });
+      chapters.push({
+        title: ch.title,
+        volume_id: volId,
+        order_index: ci,
+        sections: chapterSections,
+      });
+      secIdx += ch.sections.length;
+    }
+  }
+  return {
+    sectionCount: secIdx,
+    jsonData: {
+      ...opts.baseData,
+      data: {
+        ...opts.baseMeta,
+        volumes,
+        chapters,
+        characters: [],
+        world_settings: [],
+        outlines: [],
+        character_relations: [],
+        dice_history: [],
+      },
+    },
+  };
+}
+
 /** 主入口：爬取 → 转换 → 切分 → 拼作品 JSON */
 export async function collectAnkeToWorkJson(
   opts: AnkeCollectOptions,
@@ -257,54 +325,16 @@ export async function collectAnkeToWorkJson(
   let sectionCount: number;
 
   if (opts.manualFormat?.enabled && opts.manualFormat.volumes.length > 0) {
-    // 交互式高级格式：按用户指定的卷/章/节 + 楼号范围切分
-    const mf = opts.manualFormat;
-    const volumes: any[] = [];
-    const chapters: any[] = [];
-    let secIdx = 0;
-    for (let vi = 0; vi < mf.volumes.length; vi++) {
-      const vol = mf.volumes[vi];
-      const volId = `vol-${vi}`;
-      volumes.push({ id: volId, title: vol.title, order_index: vi });
-      for (let ci = 0; ci < vol.chapters.length; ci++) {
-        const ch = vol.chapters[ci];
-        const chapterSections = ch.sections.map((sec, si) => {
-          const sectionPosts = (posts as RawPost[]).filter(
-            (p) => p.floor >= sec.startFloor && p.floor <= sec.endFloor,
-          );
-          const inner = buildSectionHtml(sectionPosts);
-          const content = sectionPosts.length > 1
-            ? `<div class="anke-section">${inner}</div>`
-            : inner;
-          return {
-            title: sec.title,
-            order_index: si,
-            content,
-          };
-        });
-        chapters.push({
-          title: ch.title,
-          volume_id: volId,
-          order_index: ci,
-          sections: chapterSections,
-        });
-        secIdx += ch.sections.length;
-      }
-    }
-    sectionCount = secIdx;
-    jsonData = {
-      ...baseData,
-      data: {
-        ...baseMeta,
-        volumes,
-        chapters,
-        characters: [],
-        world_settings: [],
-        outlines: [],
-        character_relations: [],
-        dice_history: [],
-      },
-    };
+    // 交互式高级格式：按用户指定的卷/章/节 + 楼号范围切分（共享逻辑，NGA/骨碌碌共用）
+    const result = buildManualFormatJson({
+      manualFormat: opts.manualFormat,
+      posts: posts as RawPost[],
+      buildSectionHtml: (secPosts) => buildSectionHtml(secPosts),
+      baseData,
+      baseMeta,
+    });
+    jsonData = result.jsonData;
+    sectionCount = result.sectionCount;
   } else {
     // 原有逻辑：按 sectionMode + floorsPerSection 切分，单卷单章
     const sections = splitPostsIntoSections(

@@ -19,6 +19,7 @@ import {
   type ManualFormatConfig,
   DEFAULT_FORMAT_SETTINGS,
   type Section,
+  buildManualFormatJson,
 } from './ankeCollect'
 
 // ============================================================
@@ -234,41 +235,16 @@ export async function collectGululuToWorkJson(
   let sectionCount: number
 
   if (opts.manualFormat?.enabled && opts.manualFormat.volumes.length > 0) {
-    // 交互式高级格式
-    const mf = opts.manualFormat
-    const volumes: any[] = []
-    const chapters: any[] = []
-    let secIdx = 0
-    for (let vi = 0; vi < mf.volumes.length; vi++) {
-      const vol = mf.volumes[vi]
-      const volId = `vol-${vi}`
-      volumes.push({ id: volId, title: vol.title, order_index: vi })
-      for (let ci = 0; ci < vol.chapters.length; ci++) {
-        const ch = vol.chapters[ci]
-        const chapterSections = ch.sections.map((sec: any, si: number) => {
-          const sectionPosts = posts.filter(
-            (p) => p.floor >= sec.startFloor && p.floor <= sec.endFloor,
-          )
-          const inner = buildGululuSectionHtml(sectionPosts)
-          const content = sectionPosts.length > 1
-            ? `<div class="anke-section">${inner}</div>`
-            : inner
-          return { title: sec.title, order_index: si, content }
-        })
-        chapters.push({
-          title: ch.title,
-          volume_id: volId,
-          order_index: ci,
-          sections: chapterSections,
-        })
-        secIdx += ch.sections.length
-      }
-    }
-    sectionCount = secIdx
-    jsonData = {
-      ...baseData,
-      data: { ...baseMeta, volumes, chapters, characters: [], world_settings: [], outlines: [], character_relations: [], dice_history: [] },
-    }
+    // 交互式高级格式：按用户指定的卷/章/节 + 楼号范围切分（共享逻辑，NGA/骨碌碌共用）
+    const result = buildManualFormatJson({
+      manualFormat: opts.manualFormat,
+      posts: posts as unknown as RawPost[],
+      buildSectionHtml: (secPosts) => buildGululuSectionHtml(secPosts as unknown as GululuRawPost[]),
+      baseData,
+      baseMeta,
+    })
+    sectionCount = result.sectionCount
+    jsonData = result.jsonData
   } else {
     // 默认切分
     const sections = splitGululuPostsIntoSections(

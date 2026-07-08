@@ -14,7 +14,7 @@ import {
   type SectionMode,
   type ManualFormatConfig,
 } from '../../utils/ankeCollect';
-import { ManualFormatEditor } from '../anke/ManualFormatEditor';
+import { AdvancedFormatSection } from '../anke/AdvancedFormatSection';
 import { AnkeProgressBar } from './AnkeProgressBar';
 import { GululuCollectPanel } from './GululuCollectPage';
 import { webSaveStoryAsFile } from '../../utils/storyFileIO';
@@ -592,66 +592,12 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
               </div>
 
               {/* 高级格式设置（折叠面板） */}
-              <details
-                style={{
-                  border: '1px solid var(--border-color)',
-                  borderRadius: 8,
-                  padding: '4px 12px',
-                  background: 'var(--bg-card-secondary, transparent)',
-                }}
-              >
-                <summary
-                  style={{
-                    cursor: 'pointer',
-                    fontSize: 13,
-                    fontWeight: 500,
-                    color: 'var(--text-secondary)',
-                    padding: '8px 0',
-                    userSelect: 'none',
-                    listStyle: 'none',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                  }}
-                >
-                  ⚙ 高级格式设置（可选，自定义卷/章/节结构 + 楼号范围）
-                </summary>
-                <div style={{ padding: '8px 0 12px', display: 'grid', gap: 10 }}>
-                  <label
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      cursor: running ? 'not-allowed' : 'pointer',
-                      opacity: running ? 0.5 : 1,
-                      userSelect: 'none',
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={manualFormat.enabled}
-                      onChange={(e) =>
-                        setManualFormat({ ...manualFormat, enabled: e.target.checked })
-                      }
-                      disabled={running}
-                      style={{ cursor: running ? 'not-allowed' : 'pointer' }}
-                    />
-                    <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>
-                      启用自定义卷/章/节结构
-                    </span>
-                  </label>
-                  <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                    启用后爬取数据按你指定的卷/章/节 + 楼号范围切分。未启用则按「每 N 楼一节」自动切分。
-                  </div>
-                  {manualFormat.enabled && (
-                    <ManualFormatEditor
-                      value={manualFormat}
-                      onChange={setManualFormat}
-                      maxFloor={Number(endFloor) || undefined}
-                    />
-                  )}
-                </div>
-              </details>
+              <AdvancedFormatSection
+                value={manualFormat}
+                onChange={setManualFormat}
+                maxFloor={Number(endFloor) || undefined}
+                disabled={running}
+              />
 
               {/* 提示 */}
               <div

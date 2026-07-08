@@ -32,6 +32,10 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
   const [floorsPerSection, setFloorsPerSection] = useState('10');
   const [sectionMode, setSectionMode] = useState<SectionMode>('every-n');
   const [workTitle, setWorkTitle] = useState('');
+  const [manualFormat, setManualFormat] = useState<ManualFormatConfig>({
+    enabled: false,
+    volumes: [],
+  });
 
   // 抓取状态
   const [running, setRunning] = useState(false);
@@ -459,6 +463,14 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
                   </div>
                 )}
               </div>
+
+              {/* 高级格式设置（折叠面板，与 NGA Tab 共享 AdvancedFormatSection） */}
+              <AdvancedFormatSection
+                value={manualFormat}
+                onChange={setManualFormat}
+                maxFloor={Number(endFloor) || undefined}
+                disabled={running}
+              />
 
               {/* 作品标题 */}
               <div>
