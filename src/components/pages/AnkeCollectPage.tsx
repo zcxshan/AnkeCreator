@@ -28,9 +28,6 @@ interface AnkeCollectPageProps {
 
 type CollectTab = 'nga' | 'gululu';
 
-const MAX_FLOOR_RANGE = 1000; // 一次最多 1000 楼（与 AnjiaCollectPage 一致）
-const WARN_FLOOR_RANGE = 200; // 超过 200 楼给提示
-
 export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
   // Tab 状态：默认 NGA，骨碌碌作为子 Tab
   const [tab, setTab] = useState<CollectTab>('nga');
@@ -101,13 +98,6 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
     if (isNaN(startF) || isNaN(endF) || startF < 1 || endF < startF) {
       showToast('楼层范围不合法', 'error');
       return;
-    }
-    if (endF - startF + 1 > MAX_FLOOR_RANGE) {
-      showToast(`范围过大（最多 ${MAX_FLOOR_RANGE} 楼），请缩小范围以避免触发 NGA 限流`, 'error');
-      return;
-    }
-    if (endF - startF + 1 > WARN_FLOOR_RANGE) {
-      showToast(`范围 ${endF - startF + 1} 楼，抓取可能需要较长时间`, 'info');
     }
 
     setRunning(true);

@@ -22,9 +22,6 @@ interface GululuCollectPanelProps {
   onClose?: () => void;
 }
 
-const MAX_FLOOR_RANGE = 1000;
-const WARN_FLOOR_RANGE = 200;
-
 export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
   // 表单状态
   const [url, setUrl] = useState('');
@@ -121,13 +118,6 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
     if (isNaN(startF) || isNaN(endF) || startF < 1 || endF < startF) {
       showToast('楼层范围不合法', 'error');
       return;
-    }
-    if (endF - startF + 1 > MAX_FLOOR_RANGE) {
-      showToast(`范围过大（最多 ${MAX_FLOOR_RANGE} 节），请缩小范围`, 'error');
-      return;
-    }
-    if (endF - startF + 1 > WARN_FLOOR_RANGE) {
-      showToast(`范围 ${endF - startF + 1} 节，抓取可能需要较长时间`, 'info');
     }
 
     setRunning(true);
