@@ -15,3 +15,5 @@ export * from './outline';
 export * from './editor';
 export * from './dice';
 export * from './anjia';
+export * from './image-library';
+export * from './creation-log';

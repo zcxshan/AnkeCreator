@@ -791,6 +791,7 @@ async function createChapter(data: Record<string, unknown>): Promise<Chapter> {
     updated_at: now,
   };
   await putOne('chapters', row as unknown as Record<string, unknown>);
+  await touchStory(data.story_id as string);
   return row;
 }
 
@@ -799,6 +800,7 @@ async function updateChapter(id: string, patch: Record<string, unknown>): Promis
   if (!cur) return undefined;
   const next = { ...cur, ...patch, updated_at: nowISO() };
   await putOne('chapters', next as unknown as Record<string, unknown>);
+  await touchStory(cur.story_id);
   return getOne<Chapter>('chapters', id);
 }
 
@@ -894,6 +896,7 @@ async function createSection(data: Record<string, unknown>): Promise<Section> {
     updated_at: now,
   };
   await putOne('sections', row as unknown as Record<string, unknown>);
+  await touchStoryByChapterId(data.chapter_id as string);
   return row;
 }
 
@@ -902,6 +905,7 @@ async function updateSection(id: string, patch: Record<string, unknown>): Promis
   if (!cur) return undefined;
   const next = { ...cur, ...patch, updated_at: nowISO() };
   await putOne('sections', next as unknown as Record<string, unknown>);
+  await touchStoryByChapterId(cur.chapter_id);
   return getOne<Section>('sections', id);
 }
 
@@ -945,12 +949,32 @@ async function getSectionContent(sectionId: string): Promise<string | null> {
   return row ? row.content || null : null;
 }
 
+/** 通过 chapter_id 反查 story 并更新 story.updated_at（修复最近编辑排序） */
+async function touchStoryByChapterId(chapterId: string): Promise<void> {
+  const chapter = await getOne<Chapter>('chapters', chapterId);
+  if (!chapter) return;
+  const story = await getStory(chapter.story_id);
+  if (story) {
+    await putOne('stories', { ...story, updated_at: nowISO() } as unknown as Record<string, unknown>);
+  }
+}
+
+/** 直接通过 storyId 更新 story.updated_at */
+async function touchStory(storyId: string): Promise<void> {
+  const story = await getStory(storyId);
+  if (story) {
+    await putOne('stories', { ...story, updated_at: nowISO() } as unknown as Record<string, unknown>);
+  }
+}
+
 async function setSectionContent(sectionId: string, content: string | null): Promise<boolean> {
   const cur = await getOne<Section>('sections', sectionId);
   if (!cur) return false;
   const wc = countWordsInHtml(content);
   const next = { ...cur, content: content ?? undefined, word_count: wc, updated_at: nowISO() };
   await putOne('sections', next as unknown as Record<string, unknown>);
+  // 同步更新 story.updated_at（修复最近编辑排序）
+  await touchStoryByChapterId(cur.chapter_id);
   return true;
 }
 

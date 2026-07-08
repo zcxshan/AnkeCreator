@@ -156,7 +156,7 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
       }}
     >
       <div
-        className="w-[560px] max-h-[86vh] flex flex-col rounded-2xl shadow-2xl overflow-hidden"
+        className="w-[560px] max-w-[92vw] max-h-[86vh] flex flex-col rounded-2xl shadow-2xl overflow-hidden"
         style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}

@@ -1,6 +1,6 @@
 // ============================================================
 // 移动端底部导航栏（仅 Android / iOS Capacitor 平台显示）
-// - 4 Tab：首页 / 作品 / 模板 / 更多
+// - 4 Tab：首页 / 作品 / 资源 / 更多
 // - "更多" 弹 BottomSheet 收纳次要功能（找安价/收集安价/教程/关于作者/设置/主题）
 // - 桌面端（isElectron / isWeb）整个组件不渲染
 // - 编辑入口已分离到 WorksListPage：用户先点"作品" tab → 点开作品 → 进入编辑区
@@ -11,7 +11,7 @@ import { isCapacitor } from '../../utils/platform';
 import { useThemeStore } from '../../store/themeStore';
 import { SettingsDialog } from './SettingsDialog';
 
-type Route = 'home' | 'works' | 'editor' | 'reader' | 'templates' | 'tutorial' | 'anjia' | 'find-anke' | 'dice-playground';
+type Route = 'home' | 'works' | 'editor' | 'reader' | 'resource-library' | 'tutorial' | 'anjia-collect' | 'anke-collect' | 'find-anke' | 'dice-playground';
 
 interface MobileBottomNavProps {
   route: Route;
@@ -29,15 +29,16 @@ interface TabItem {
 const TABS: TabItem[] = [
   { key: 'home', label: '首页', icon: '🏠' },
   { key: 'works', label: '作品', icon: '📚' },
-  { key: 'templates', label: '模板', icon: '📦' },
+  { key: 'resource-library', label: '资源', icon: '🗂️' },
   { key: 'more', label: '更多', icon: '⋯' },
 ];
 
-type MoreItemKey = 'anjia' | 'find-anke' | 'tutorial' | 'author' | 'settings';
+type MoreItemKey = 'anjia-collect' | 'anke-collect' | 'find-anke' | 'tutorial' | 'author' | 'settings';
 type ThemeChoice = 'light' | 'dark' | 'system';
 
 const MORE_ITEMS: Array<{ key: MoreItemKey; label: string; icon: string }> = [
-  { key: 'anjia', label: '收集安价/安科', icon: '📮' },
+  { key: 'anjia-collect', label: '收集安价', icon: '📜' },
+  { key: 'anke-collect', label: '收集安科', icon: '📖' },
   { key: 'find-anke', label: '寻找安科', icon: '🔍' },
   { key: 'tutorial', label: '使用教程', icon: '📖' },
   { key: 'author', label: '关于作者', icon: '👤' },
@@ -85,10 +86,9 @@ export function MobileBottomNav({ route, onChangeRoute, onShowAuthor, hasActiveS
     return () => mql.removeEventListener?.('change', handler);
   }, [themeChoice, setMode]);
 
-  // 安卓版过滤掉"收集安价/安科"和"寻找安科"（依赖 Electron IPC，桌面端专属）
-  // 注意：仅过滤 MORE_ITEMS 中的桌面端专属项，其余（教程/关于作者/设置）保留
+  // 安卓版过滤掉"收集安价/收集安科/寻找安科"（依赖 Electron IPC，桌面端专属）
   const visibleMoreItems = useMemo(
-    () => MORE_ITEMS.filter((it) => it.key !== 'anjia' && it.key !== 'find-anke'),
+    () => MORE_ITEMS.filter((it) => it.key !== 'anjia-collect' && it.key !== 'anke-collect' && it.key !== 'find-anke'),
     [],
   );
 
@@ -144,7 +144,7 @@ export function MobileBottomNav({ route, onChangeRoute, onShowAuthor, hasActiveS
 
   const isActive = (key: Route | 'more') => {
     if (key === 'more') {
-      return moreOpen || route === 'tutorial' || route === 'anjia' || route === 'find-anke';
+      return moreOpen || route === 'tutorial' || route === 'anjia-collect' || route === 'anke-collect' || route === 'find-anke';
     }
     return route === key;
   };

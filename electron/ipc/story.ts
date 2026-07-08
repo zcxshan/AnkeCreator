@@ -129,13 +129,38 @@ export function registerStoryIpc(getWindow: () => BrowserWindow | null): void {
     db.getStoryIdsInFavorite(favoriteId),
   )
 
+  // ---- 图片库（image library）----
+  ipcMain.handle('db:list-image-library-folders', (_e, parentId?: string | null) =>
+    db.listImageLibraryFolders(parentId),
+  )
+  ipcMain.handle(
+    'db:create-image-library-folder',
+    (_e, data: { name: string; parentId: string | null }) => db.createImageLibraryFolder(data),
+  )
+  ipcMain.handle('db:rename-image-library-folder', (_e, id: string, name: string) =>
+    db.renameImageLibraryFolder(id, name),
+  )
+  ipcMain.handle('db:delete-image-library-folder', (_e, id: string) =>
+    db.deleteImageLibraryFolder(id),
+  )
+  ipcMain.handle('db:list-image-library-items', (_e, folderId?: string | null) =>
+    db.listImageLibraryItems(folderId),
+  )
+  ipcMain.handle('db:add-image-library-item', (_e, data: any) => db.addImageLibraryItem(data))
+  ipcMain.handle('db:delete-image-library-item', (_e, id: string) =>
+    db.deleteImageLibraryItem(id),
+  )
+  ipcMain.handle('db:move-image-library-item', (_e, id: string, folderId: string | null) =>
+    db.moveImageLibraryItem(id, folderId),
+  )
+
   // ---- 导出为 EPUB 电子书（含离线图片 + 进度推送 + 暂停/取消）----
   ipcMain.handle(
     'story:export-epub',
     async (
       event,
       payload: { storyId: string; suggestedName?: string; options?: EpubExportOptions },
-    ): Promise<{ ok: boolean; canceled?: boolean; filePath?: string; error?: string; userCanceled?: boolean }> => {
+    ): Promise<{ ok: boolean; canceled?: boolean; filePath?: string; error?: string; userCanceled?: boolean; failedImageCount?: number }> => {
       try {
         const focused =
           BrowserWindow.getFocusedWindow() || getWindow() || BrowserWindow.getAllWindows()[0]
@@ -169,13 +194,16 @@ export function registerStoryIpc(getWindow: () => BrowserWindow | null): void {
         }
 
         let epubBuffer: Buffer
+        let failedImageCount = 0
         try {
-          epubBuffer = await generateEpub(
+          const genResult = await generateEpub(
             story,
             onProgress,
             payload.options || { embedImages: true },
             control,
           )
+          epubBuffer = genResult.buffer
+          failedImageCount = genResult.failedSrcs.length
         } catch (genErr) {
           if ((genErr as Error).message === 'EXPORT_CANCELED') {
             activeExportControl = null
@@ -189,7 +217,7 @@ export function registerStoryIpc(getWindow: () => BrowserWindow | null): void {
 
         // 5. 写盘
         fs.writeFileSync(result.filePath, epubBuffer)
-        return { ok: true, filePath: result.filePath }
+        return { ok: true, filePath: result.filePath, failedImageCount }
       } catch (e) {
         activeExportControl = null
         console.error('EPUB 导出失败:', e)

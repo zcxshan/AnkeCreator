@@ -84,7 +84,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
-    type: 'volume' | 'chapter' | 'section';
+    type: 'volume' | 'chapter' | 'section' | 'blank';
     id: string;
     title: string;
     /** section 节点：所属 chapter_id；chapter 节点：所属 volume_id（null=未归卷） */
@@ -471,11 +471,38 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto py-1.5">
+      <div className="shrink-0 px-2 pt-2">
+        <button
+          onClick={onCreateVolume}
+          className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg transition-colors"
+          style={{ color: 'var(--accent)', border: '1px solid var(--accent-soft)' }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-soft)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = ''; }}
+        >
+          <span>＋</span>
+          <span>新建卷</span>
+        </button>
+      </div>
+
+      <div
+        className="flex-1 overflow-y-auto py-1.5"
+        onContextMenu={(e) => {
+          // 行级 onContextMenu 已调用 preventDefault，此处据此跳过
+          if (e.defaultPrevented) return;
+          e.preventDefault();
+          setContextMenu({
+            x: e.clientX,
+            y: e.clientY,
+            type: 'blank',
+            id: '',
+            title: '',
+          });
+        }}
+      >
         {!hasAnyContent && (
           <div className="px-4 py-8 text-center text-xs" style={{ color: 'var(--text-secondary)' }}>
             还没有内容
-            <div className="mt-2">点击下方「+ 新建卷」开始</div>
+            <div className="mt-2">点击上方「+ 新建卷」开始</div>
           </div>
         )}
 
@@ -627,19 +654,6 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
         </div>
       </div>
 
-      <div className="shrink-0 p-2 border-t space-y-1" style={{ borderColor: 'var(--border-color)' }}>
-        <button
-          onClick={onCreateVolume}
-          className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg transition-colors"
-          style={{ color: 'var(--accent)', border: '1px solid var(--accent-soft)' }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-soft)'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = ''; }}
-        >
-          <span>＋</span>
-          <span>新建卷</span>
-        </button>
-      </div>
-
       {contextMenu && (
         <div
           className="anke-ctxmenu-root fixed z-50 rounded-xl shadow-xl border py-1.5 min-w-[140px]"
@@ -647,16 +661,27 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
         >
-          <ContextMenuItem
-            icon="✎"
-            label="重命名"
-            onClick={() => {
-              setEditingId(contextMenu.id);
-              setEditingType(contextMenu.type);
-              setEditingValue(contextMenu.title);
-              setContextMenu(null);
-            }}
-          />
+          {contextMenu.type === 'blank' ? (
+            <ContextMenuItem
+              icon="+"
+              label="添加卷"
+              onClick={() => {
+                onCreateVolume();
+                setContextMenu(null);
+              }}
+            />
+          ) : (
+            <ContextMenuItem
+              icon="✎"
+              label="重命名"
+              onClick={() => {
+                setEditingId(contextMenu.id);
+                setEditingType(contextMenu.type);
+                setEditingValue(contextMenu.title);
+                setContextMenu(null);
+              }}
+            />
+          )}
           {contextMenu.type === 'volume' && (
             <>
               <ContextMenuItem
@@ -742,16 +767,20 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
               />
             </>
           )}
-          <div className="my-1 border-t" style={{ borderColor: 'var(--border-color)' }} />
-          <ContextMenuItem
-            icon="🗑"
-            label="删除"
-            danger
-            onClick={() => {
-              setPendingDelete({ type: contextMenu.type, id: contextMenu.id, title: contextMenu.title });
-              setContextMenu(null);
-            }}
-          />
+          {contextMenu.type !== 'blank' && (
+            <>
+              <div className="my-1 border-t" style={{ borderColor: 'var(--border-color)' }} />
+              <ContextMenuItem
+                icon="🗑"
+                label="删除"
+                danger
+                onClick={() => {
+                  setPendingDelete({ type: contextMenu.type, id: contextMenu.id, title: contextMenu.title });
+                  setContextMenu(null);
+                }}
+              />
+            </>
+          )}
         </div>
       )}
 

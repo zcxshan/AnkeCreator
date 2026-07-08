@@ -59,7 +59,7 @@ export function EpubExportOptionsDialog({
       }}
     >
       <div
-        className="relative w-[480px] rounded-2xl overflow-hidden"
+        className="relative w-[480px] max-w-[92vw] rounded-2xl overflow-hidden"
         style={{
           background: 'var(--bg-card)',
           border: '1px solid var(--border-color)',

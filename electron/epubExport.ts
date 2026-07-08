@@ -151,6 +151,8 @@ function extractLocalPath(src: string): string {
 
 /**
  * 下载/读取单个图片
+ * - 远端 URL：最多重试 3 次（指数退避 1s/2s/3s），4xx 不重试
+ * - data:/local:/file:：直接读取，不重试
  * @returns { buffer: Buffer; mediaType: string } 或 null（失败）
  */
 async function fetchImage(src: string): Promise<{ buffer: Buffer; mediaType: string } | null> {
@@ -176,20 +178,35 @@ async function fetchImage(src: string): Promise<{ buffer: Buffer; mediaType: str
       return null
     }
 
-    // 远端 URL
+    // 远端 URL（带重试）
     if (/^https?:\/\//i.test(src)) {
-      const resp = await fetch(src, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        },
-        redirect: 'follow',
-      })
-      if (!resp.ok) return null
-      const arrayBuffer = await resp.arrayBuffer()
-      const buffer = Buffer.from(arrayBuffer)
-      const ct = resp.headers.get('content-type') || ''
-      const mediaType = ct.startsWith('image/') ? ct.split(';')[0] : getMediaType(src)
-      return { buffer, mediaType }
+      const maxRetries = 3
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+          const resp = await fetch(src, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            },
+            redirect: 'follow',
+          })
+          if (resp.ok) {
+            const arrayBuffer = await resp.arrayBuffer()
+            const buffer = Buffer.from(arrayBuffer)
+            const ct = resp.headers.get('content-type') || ''
+            const mediaType = ct.startsWith('image/') ? ct.split(';')[0] : getMediaType(src)
+            return { buffer, mediaType }
+          }
+          // 4xx 客户端错误不重试（404/403 重试无意义）
+          if (resp.status >= 400 && resp.status < 500) return null
+          // 5xx 服务端错误继续重试
+        } catch {
+          // 网络错误继续重试
+        }
+        if (attempt < maxRetries - 1) {
+          await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)))
+        }
+      }
+      return null
     }
 
     return null
@@ -216,11 +233,11 @@ function collectImageSrcs(
 ): {
   normToRaw: Map<string, string> // 规范 URL → 第一个原始 URL（用于下载/读取）
   normToAllRaws: Map<string, string[]> // 规范 URL → 所有原始 URL（用于 HTML 重写）
-  rawSrcs: string[] // data: / local: 协议单独存放
+  rawSrcs: string[] // data: / local: / file: 协议（已去重）
 } {
   const normToRaw = new Map<string, string>()
   const normToAllRaws = new Map<string, string[]>()
-  const rawSrcs: string[] = []
+  const rawSrcsSet = new Set<string>() // 用 Set 去重（相同 base64/路径只下载一次）
   const imgRe = /<img\b[^>]*\bsrc=["']([^"']+)["']/gi
   for (const sec of sections) {
     if (!sec.content) continue
@@ -228,9 +245,9 @@ function collectImageSrcs(
     while ((m = imgRe.exec(sec.content)) !== null) {
       const raw = m[1].trim()
       if (!raw) continue
-      // data: / local: / file: 协议单独收集（不需要去重，每个都是独立的）
+      // data: / local: / file: 协议单独收集（用 Set 去重）
       if (/^(data|local|file):/i.test(raw)) {
-        rawSrcs.push(raw)
+        rawSrcsSet.add(raw)
         continue
       }
       // http(s) 走规范化去重
@@ -246,7 +263,7 @@ function collectImageSrcs(
       }
     }
   }
-  return { normToRaw, normToAllRaws, rawSrcs }
+  return { normToRaw, normToAllRaws, rawSrcs: Array.from(rawSrcsSet) }
 }
 
 /**
@@ -637,14 +654,14 @@ function buildImageProgressMessage(stats: ImageStats, current: number): string {
  * @param onProgress 进度回调
  * @param options 导出选项（embedImages: false = 不下载远程图，HTML 保留远程 URL）
  * @param control 可选的暂停/取消控制器
- * @returns EPUB 文件的 Buffer
+ * @returns { buffer: EPUB Buffer; failedSrcs: 下载失败的 src 列表 }
  */
 export async function generateEpub(
   story: StoryWithAll,
   onProgress: OnProgress,
   options: EpubExportOptions = DEFAULT_OPTIONS,
   control?: EpubExportControl,
-): Promise<Buffer> {
+): Promise<{ buffer: Buffer; failedSrcs: string[] }> {
   // 1. 收集所有节（按卷→章→节顺序）
   const allSections: { section: Section; chapterTitle: string; volumeTitle: string }[] = []
   const volumes: Volume[] = (story.volumes || []).sort((a, b) => a.order_index - b.order_index)
@@ -693,6 +710,7 @@ export async function generateEpub(
   // 3. 处理图片
   const imageMap = new Map<string, string>() // 原始 src → epub内文件名 或 远程URL（不内嵌时）
   const imageBuffers: { filename: string; buffer: Buffer; mediaType: string }[] = []
+  const failedSrcsList: string[] = [] // 下载失败的 src 列表（供调用方提示重试）
   let processedIndex = 0
 
   // 3a. 处理远端 / 本地图（规范化去重后的）
@@ -731,6 +749,7 @@ export async function generateEpub(
         imageBuffers.push({ filename, buffer: result.buffer, mediaType: result.mediaType })
       } else {
         stats.failed++
+        failedSrcsList.push(rawSrc)
         // 失败 → 用占位图（不中断）
         target = '../images/placeholder.png'
       }
@@ -774,6 +793,7 @@ export async function generateEpub(
       imageBuffers.push({ filename, buffer: result.buffer, mediaType: result.mediaType })
     } else {
       stats.failed++
+      failedSrcsList.push(rawSrc)
       imageMap.set(rawSrc, '../images/placeholder.png')
     }
   }
@@ -895,5 +915,5 @@ export async function generateEpub(
     imageProgress: { current: totalImages, total: totalImages, failed: stats.failed },
   })
 
-  return epubBuffer
+  return { buffer: epubBuffer, failedSrcs: failedSrcsList }
 }

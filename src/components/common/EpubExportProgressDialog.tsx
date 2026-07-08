@@ -22,6 +22,7 @@ interface EpubProgressPayload {
 interface EpubExportProgressDialogProps {
   open: boolean
   onClose: () => void
+  onRetry?: () => void
 }
 
 const PHASE_LABEL: Record<EpubPhase, string> = {
@@ -44,7 +45,7 @@ const PHASE_ICON: Record<EpubPhase, string> = {
   canceled: '🚫',
 }
 
-export function EpubExportProgressDialog({ open, onClose }: EpubExportProgressDialogProps) {
+export function EpubExportProgressDialog({ open, onClose, onRetry }: EpubExportProgressDialogProps) {
   const [progress, setProgress] = useState<EpubProgressPayload | null>(null)
   const [paused, setPaused] = useState(false)
 
@@ -362,20 +363,40 @@ export function EpubExportProgressDialog({ open, onClose }: EpubExportProgressDi
                 )}
               </>
             ) : (
-              <button
-                onClick={onClose}
-                className="px-6 py-2 text-sm font-medium rounded-lg transition-colors"
-                style={{
-                  background: isDone ? 'var(--accent)' : 'var(--bg-hover)',
-                  color: isDone ? 'var(--text-on-accent)' : 'var(--text-primary)',
-                  border: 'none',
-                  cursor: 'pointer',
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.85' }}
-                onMouseLeave={(e) => { e.currentTarget.style.opacity = '1' }}
-              >
-                {isDone ? '完成' : '关闭'}
-              </button>
+              <>
+                {/* 完成状态 + 有失败图片时显示重试按钮 */}
+                {isDone && progress?.imageProgress && progress.imageProgress.failed > 0 && onRetry && (
+                  <button
+                    onClick={onRetry}
+                    className="px-5 py-2 text-sm font-medium rounded-lg transition-colors"
+                    style={{
+                      background: 'rgba(245,158,11,0.12)',
+                      color: '#d97706',
+                      border: '1px solid rgba(245,158,11,0.3)',
+                      cursor: 'pointer',
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(245,158,11,0.2)' }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(245,158,11,0.12)' }}
+                    title={`重新导出以重试 ${progress.imageProgress.failed} 张失败图片`}
+                  >
+                    🔄 重试失败图片
+                  </button>
+                )}
+                <button
+                  onClick={onClose}
+                  className="px-6 py-2 text-sm font-medium rounded-lg transition-colors"
+                  style={{
+                    background: isDone ? 'var(--accent)' : 'var(--bg-hover)',
+                    color: isDone ? 'var(--text-on-accent)' : 'var(--text-primary)',
+                    border: 'none',
+                    cursor: 'pointer',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.85' }}
+                  onMouseLeave={(e) => { e.currentTarget.style.opacity = '1' }}
+                >
+                  {isDone ? '完成' : '关闭'}
+                </button>
+              </>
             )}
           </div>
         </div>

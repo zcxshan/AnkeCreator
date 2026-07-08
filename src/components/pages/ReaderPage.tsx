@@ -251,7 +251,14 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
   }
 
   return (
-    <div style={{ display: 'flex', height: '100%', background: colors.bg, color: colors.text }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: colors.bg, color: colors.text }}>
+      {/* 全宽顶栏 */}
+      <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', background: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+        <button onClick={onBack} title="返回" style={toolbarBtnStyle(colors)}>← 返回</button>
+        <span style={{ fontWeight: 600 }}>{story.title}</span>
+      </div>
+      {/* 左右分栏 */}
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
       {isCapacitor && leftDrawerOpen && (
         <div
           className="mobile-drawer-backdrop"
@@ -380,8 +387,6 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
           flexWrap: isCapacitor ? 'nowrap' : 'wrap',
           position: 'relative',
         }}>
-          <button onClick={onBack} title="返回" style={toolbarBtnStyle(colors)}>← 返回</button>
-
           <button onClick={() => setLeftDrawerOpen(!leftDrawerOpen)} title="目录" style={toolbarBtnStyle(colors)}>☰</button>
 
           <button
@@ -652,6 +657,7 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
             下一节 ▶
           </button>
         </div>
+      </div>
       </div>
     </div>
   );

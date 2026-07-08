@@ -150,10 +150,14 @@ export function registerNgaIpc(): void {
           totalPages = sorted.length
           maxPage = endPage
         } else if (isAuthoridMode) {
-          startPage = 1
+          // 优化：用全楼楼层页码作为探测起点，避免从第1页逐页爬
+          // 不变量：作者第K条回复楼号 >= K → 楼号F在 authorid 第 ceil(F/20) 页或更早
+          // 所以从 computedRange.startPage 开始向前探测不会漏掉目标楼层；
+          // 若探测页最小楼号已超过 endFloor，说明作者很稀疏，回退到第1页兜底
+          startPage = computedRange.startPage
           endPage = -1
           totalPages = -1
-          maxPage = Infinity
+          maxPage = computedRange.endPage + 5 // 绝对上界（+5 页缓冲防漏）
         } else {
           startPage = computedRange.startPage
           endPage = computedRange.endPage
@@ -206,6 +210,8 @@ export function registerNgaIpc(): void {
         let fetchedCount = 0
         // 按 floor 去重：防止 NGA 越界返回末页内容导致重复 push
         const seenFloors = new Set<number>()
+        // authorid 探测回退标志：首次抓取后若楼号超出范围则回退到第1页（仅一次）
+        let authoridProbeDone = false
 
         for (let page = startPage; page <= maxPage; page++) {
           // 重试模式：跳过不在 retryPageSet 中的页码
@@ -423,6 +429,26 @@ export function registerNgaIpc(): void {
           // authorid 模式：已爬过目标楼层范围，提前停止（不再爬后续超出 endFloor 的页）
           if (isAuthoridMode && !state.cancelled && postsOnPage.length > 0 && allPosts.length > 0) {
             const minFloorInPage = Math.min(...postsOnPage.map((p) => p.floor))
+            // 探测回退：若起点页最小楼号已超过 endFloor，说明作者稀疏（目标在更早页）
+            // 回退到第1页从头爬（此时已爬页数据保留，去重会处理）
+            if (!authoridProbeDone) {
+              authoridProbeDone = true
+              if (minFloorInPage > payload.endFloor && page === computedRange.startPage) {
+                console.log(
+                  `[nga:collect] authorid探测：第 ${page} 页最小楼号 ${minFloorInPage} > endFloor ${payload.endFloor}，作者较稀疏，回退到第1页`,
+                )
+                send({
+                  current: 0,
+                  total: totalProgress,
+                  phase: 'fetching',
+                  message: `作者回复较稀疏，从第1页开始逐页抓取...`,
+                  itemsFound: allPosts.length,
+                })
+                // 回退到第1页继续爬（已爬数据保留，去重会处理）
+                page = 0 // for 循环会 page++ 变成 1
+                continue
+              }
+            }
             if (minFloorInPage > payload.endFloor) {
               console.log(
                 `[nga:collect] authorid模式：第 ${page} 页最小楼层 ${minFloorInPage} 已超过 endFloor ${payload.endFloor}，停止抓取`,

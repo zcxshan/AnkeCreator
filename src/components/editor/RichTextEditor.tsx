@@ -15,11 +15,13 @@ import {
   attachCollapseBlockHandlers,
   getCurrentStyles,
   applyActiveStylesToInsertion,
+  applyActiveStylesToRange,
   setLastEditorRange,
 } from './contenteditableUtils';
 import { useEditorStore } from '../../store/editorStore';
 import { useEditorHistoryStore } from '../../store/editorHistoryStore';
 import { useToastStore } from '../../store/toastStore';
+import { countWordsFromHtml } from '../pages/HomePage';
 import type { DiceBlockPayloadV2 } from '../../types';
 
 interface RichTextEditorProps {
@@ -147,6 +149,20 @@ export function RichTextEditor({
         if (!same) {
           useEditorStore.setState({ cursorStyles: cur });
         }
+        // 选区字数统计：非折叠选区时计算字数
+        if (!r.collapsed && el.contains(r.endContainer)) {
+          try {
+            const fragment = r.cloneContents();
+            const tmp = document.createElement('div');
+            tmp.appendChild(fragment);
+            const stats = countWordsFromHtml(tmp.innerHTML);
+            useEditorStore.setState({ selectionStats: stats });
+          } catch {
+            useEditorStore.setState({ selectionStats: null });
+          }
+        } else {
+          useEditorStore.setState({ selectionStats: null });
+        }
       } else {
         // 光标在 editor 之外（弹窗 / 工具栏）→ 保留旧模块级 range（不更新到 null）
         // 因为接下来可能要在弹窗里编辑然后插入到 editor 的原光标位置
@@ -266,6 +282,53 @@ export function RichTextEditor({
     (window as any).__editorHistoryTimer = historyTimerRef.current;
   };
 
+  // 用 ref 保存最新的 handleInput，供原生 beforeinput listener 使用
+  // （handleInput 闭包捕获了 onChangeContent，避免 stale closure + 避免每次渲染重绑 listener）
+  const handleInputRef = useRef(handleInput);
+  handleInputRef.current = handleInput;
+
+  // 原生 beforeinput 事件：把活动样式应用到即将插入的字符上
+  // 用 addEventListener 监听原生 InputEvent（React 合成 onBeforeInput 的 inputType 永远 undefined）
+  // 支持：insertText / insertReplacementText（英文/数字/符号输入）
+  // 不处理：insertCompositionText（IME 输入由 handleCompositionEnd 补偿，避免双重处理）
+  // 不处理：insertFromPaste（粘贴保持原内容，不被 activeStyles 覆盖）
+  useEffect(() => {
+    const el = divRef.current;
+    if (!el) return;
+    const onBeforeInputNative = (e: InputEvent) => {
+      const SUPPORTED_TYPES = new Set(['insertText', 'insertReplacementText']);
+      if (!SUPPORTED_TYPES.has(e.inputType) || !e.data) return;
+      const store = useEditorStore.getState();
+      const active = store.activeStyles;
+      // 仅在样式锁定状态下才接管输入（用户主动激活样式的意图）（#12）
+      // 未锁定时让浏览器原生处理，避免残留 activeStyles 误触发
+      if (!store.activeStylesLocked) return;
+      const hasStyle =
+        active.color ||
+        active.fontSize ||
+        active.fontFamily ||
+        active.bold ||
+        active.italic ||
+        active.underline ||
+        active.strike ||
+        active.sup ||
+        active.sub;
+      if (!hasStyle) return;
+      // 只在光标折叠且选区内无文本时接管
+      const sel = window.getSelection();
+      if (!sel || !sel.isCollapsed) return;
+      e.preventDefault();
+      if (applyActiveStylesToInsertion(el, active, e.data)) {
+        // 不再 unlock：保持锁定，让后续输入继续延续预选样式（#8）
+        // 锁定状态由 Backspace 删空 / 用户主动改样式 / 切章节 清除
+        // 触发 input 事件让 onChangeContent 保存
+        handleInputRef.current();
+      }
+    };
+    el.addEventListener('beforeinput', onBeforeInputNative as EventListener);
+    return () => el.removeEventListener('beforeinput', onBeforeInputNative as EventListener);
+  }, []);
+
   // 应用历史快照到编辑器（undo/redo 共用）
   // 设置 innerHTML + 重置光标到末尾 + 通知内容变化
   const applyHistory = (restored: string) => {
@@ -307,20 +370,14 @@ export function RichTextEditor({
     if (restored != null) applyHistory(restored);
   };
 
-  // 拦截 input 事件：把活动样式应用到即将插入的字符上
-  // 支持：
-  //   - insertText：普通字符输入 + IME 合成结束后的最终文本
-  //   - insertReplacementText：替换选中文本（如自动更正）
-  // 不处理：
-  //   - insertCompositionText：IME 合成中（让浏览器原生处理，避免干扰中文输入法）
-  //   - insertFromPaste：粘贴保持原内容，不被 activeStyles 覆盖
-  const handleBeforeInput = (e: React.FormEvent<HTMLDivElement>) => {
-    const ev = e.nativeEvent as InputEvent;
-    const SUPPORTED_TYPES = new Set(['insertText', 'insertReplacementText']);
-    if (!SUPPORTED_TYPES.has(ev.inputType) || !ev.data) return;
+  // IME 合成结束补偿：中文输入法提交后，浏览器已插入原始文本（无样式）
+  // 如果 activeStylesLocked 且有激活样式，把刚插入的文本包裹进 <span style="..."> 应用预选样式
+  const handleCompositionEnd = (e: React.CompositionEvent<HTMLDivElement>) => {
     const el = divRef.current;
     if (!el) return;
-    const active = useEditorStore.getState().activeStyles;
+    const store = useEditorStore.getState();
+    const active = store.activeStyles;
+    if (!store.activeStylesLocked) return;
     const hasStyle =
       active.color ||
       active.fontSize ||
@@ -332,14 +389,26 @@ export function RichTextEditor({
       active.sup ||
       active.sub;
     if (!hasStyle) return;
-    // 只在光标折叠且选区内无文本时接管
+
+    const insertedText = (e.nativeEvent as CompositionEvent).data || '';
+    if (!insertedText) return;
+
     const sel = window.getSelection();
-    if (!sel || !sel.isCollapsed) return;
-    e.preventDefault();
-    if (applyActiveStylesToInsertion(el, active, ev.data)) {
-      // 插入完成后解锁，下一次按键恢复同步
-      useEditorStore.getState().unlockActiveStyles();
-      // 触发 input 事件让 onChangeContent 保存
+    if (!sel || !sel.isCollapsed || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    // 光标所在节点应为文本节点（IME 刚插入）
+    const textNode = range.startContainer;
+    if (textNode.nodeType !== Node.TEXT_NODE) return;
+    const textLen = insertedText.length;
+    const startOffset = Math.max(0, range.startOffset - textLen);
+    if (range.startOffset - startOffset !== textLen) return;
+
+    // 创建包裹范围：从光标前 textLen 个字符到光标
+    const wrapRange = document.createRange();
+    wrapRange.setStart(textNode as Text, startOffset);
+    wrapRange.setEnd(textNode as Text, range.startOffset);
+
+    if (applyActiveStylesToRange(wrapRange, active)) {
       handleInput();
     }
   };
@@ -347,18 +416,18 @@ export function RichTextEditor({
   const handleKeyUp = () => {
     const el = divRef.current;
     if (!el) return;
-    // 若 activeStyles 被锁定（用户刚通过工具栏选了颜色/字号等），跳过覆盖
-    if (useEditorStore.getState().activeStylesLocked) return;
+    // 只更新 cursorStyles（光标处实时样式，用于工具栏展示）（#9）
+    // 永不覆盖 activeStyles：activeStyles 是用户主动设置的样式意图，
+    // 只由工具栏 setActiveStyles/clearActiveStyles 改变，确保预选样式持续生效
     const cur = getCurrentStyles(el);
-    useEditorStore.setState({ activeStyles: cur });
+    useEditorStore.setState({ cursorStyles: cur });
   };
   const handleMouseUp = () => {
     const el = divRef.current;
     if (!el) return;
-    // 若 activeStyles 被锁定，跳过覆盖
-    if (useEditorStore.getState().activeStylesLocked) return;
+    // 同 handleKeyUp：只更新 cursorStyles，不覆盖 activeStyles（#9）
     const cur = getCurrentStyles(el);
-    useEditorStore.setState({ activeStyles: cur });
+    useEditorStore.setState({ cursorStyles: cur });
   };
 
   const handleInsertImage = (src: string, size?: string) => {
@@ -390,7 +459,27 @@ export function RichTextEditor({
       if (selection && selection.rangeCount > 0) {
         const range = selection.getRangeAt(0);
         const container = range.commonAncestorContainer;
-        const codeBlock = (container as HTMLElement).closest('.code-block');
+        // commonAncestorContainer 可能是 TextNode（光标在文本中间），TextNode 没有 .closest()
+        const containerEl = container.nodeType === Node.ELEMENT_NODE
+          ? container as HTMLElement
+          : container.parentElement;
+        // 引用块内 Shift+Enter：手动插入 <br>，避免创建新段落脱离引用块
+        const quoteBlock = containerEl?.closest('.quote-block, .quote-line, blockquote');
+        if (quoteBlock) {
+          e.preventDefault();
+          range.deleteContents();
+          const br = document.createElement('br');
+          range.insertNode(br);
+          // 把光标移到 <br> 之后
+          const newRange = document.createRange();
+          newRange.setStartAfter(br);
+          newRange.collapse(true);
+          selection.removeAllRanges();
+          selection.addRange(newRange);
+          handleInput();
+          return;
+        }
+        const codeBlock = containerEl?.closest('.code-block');
         if (codeBlock) {
           e.preventDefault();
           document.execCommand('insertHTML', false, '\n');
@@ -405,10 +494,34 @@ export function RichTextEditor({
       if (selection && selection.rangeCount > 0) {
         const range = selection.getRangeAt(0);
         const container = range.commonAncestorContainer;
-        const codeBlock = (container as HTMLElement).closest('.code-block, pre');
+        // commonAncestorContainer 可能是 TextNode（光标在文本中间），TextNode 没有 .closest()
+        const containerEl = container.nodeType === Node.ELEMENT_NODE
+          ? container as HTMLElement
+          : container.parentElement;
+        const codeBlock = containerEl?.closest('.code-block, pre');
         if (codeBlock) {
           e.preventDefault();
           document.execCommand('insertHTML', false, '<br>');
+          return;
+        }
+        // 引用块内 Enter：手动插入 <br>，避免 execCommand 把 <br> 包装成 <div>/<p> 导致脱离引用块
+        const quoteBlock = containerEl?.closest('.quote-block, .quote-line, blockquote');
+        if (quoteBlock) {
+          e.preventDefault();
+          const sel2 = window.getSelection();
+          if (sel2 && sel2.rangeCount > 0) {
+            const range2 = sel2.getRangeAt(0);
+            range2.deleteContents();
+            const br = document.createElement('br');
+            range2.insertNode(br);
+            // 把光标移到 <br> 之后
+            const newRange = document.createRange();
+            newRange.setStartAfter(br);
+            newRange.collapse(true);
+            sel2.removeAllRanges();
+            sel2.addRange(newRange);
+            handleInput();
+          }
           return;
         }
       }
@@ -467,6 +580,14 @@ export function RichTextEditor({
             // 不 preventDefault，让原生删除执行
             dispatchInput(editorEl);
           }
+        }
+      }
+      // Backspace 删空时清除样式锁定（#8）：选区折叠且编辑器内容为空/仅剩 <br>
+      if (e.key === 'Backspace' && selection && selection.isCollapsed) {
+        const text = el.textContent?.trim() ?? '';
+        const onlyBr = el.querySelectorAll('br').length <= 1 && text === '';
+        if (onlyBr || el.innerHTML === '' || el.innerHTML === '<br>') {
+          useEditorStore.getState().unlockActiveStyles();
         }
       }
     }
@@ -533,20 +654,56 @@ export function RichTextEditor({
   };
 
   // BUG-1 修复：点击编辑器区域自动 focus，防止失焦后无法编辑
+  // #10 修复：光标在引用/代码块内时，点击块外区域要能逃出
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const el = divRef.current;
     if (!el) return;
-    const target = e.target as HTMLElement;
-    
-    // 如果点击的是 contentEditable="false" 的子元素（图片块、骰子卡片等），
-    // 不阻止冒泡，让外层编辑器区域处理焦点保持
-    // 注意：不要调用 e.stopPropagation() 以免父级 focus 逻辑被打断
-    
     // 确保编辑器获得焦点（保底）
     try {
       el.focus();
     } catch {
       /* ignore */
+    }
+
+    // 检查当前光标是否在引用/代码块内，且点击位置在块外 → 手动逃出（#10）
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const curRange = sel.getRangeAt(0);
+    const curInQuote = (curRange.startContainer as HTMLElement).closest?.(
+      '.quote-block, .quote-line, blockquote, .code-block, pre'
+    );
+    if (!curInQuote) return;
+
+    // 用点击坐标计算目标插入点
+    const x = e.clientX;
+    const y = e.clientY;
+    let targetRange: Range | null = null;
+    // Chromium
+    const caretFn = (document as any).caretRangeFromPoint;
+    if (typeof caretFn === 'function') {
+      const r = caretFn.call(document, x, y);
+      if (r && el.contains(r.startContainer)) targetRange = r;
+    }
+    // 标准（Firefox）
+    const posFn = (document as any).caretPositionFromPoint;
+    if (!targetRange && typeof posFn === 'function') {
+      const pos = posFn.call(document, x, y);
+      if (pos && el.contains(pos.offsetNode)) {
+        const r = document.createRange();
+        r.setStart(pos.offsetNode, pos.offset);
+        r.collapse(true);
+        targetRange = r;
+      }
+    }
+    if (targetRange) {
+      // 确认目标点不在引用/代码块内
+      const targetInQuote = (targetRange.startContainer as HTMLElement).closest?.(
+        '.quote-block, .quote-line, blockquote, .code-block, pre'
+      );
+      if (!targetInQuote) {
+        sel.removeAllRanges();
+        sel.addRange(targetRange);
+      }
     }
   };
 
@@ -1024,7 +1181,7 @@ export function RichTextEditor({
           contentEditable={editable}
           suppressContentEditableWarning
           onInput={handleInput}
-          onBeforeInput={handleBeforeInput}
+          onCompositionEnd={handleCompositionEnd}
           onKeyDown={handleKeyDown}
           onKeyUp={handleKeyUp}
           onMouseUp={handleMouseUp}

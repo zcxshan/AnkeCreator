@@ -60,7 +60,7 @@ export function SyncDialog({
       onClick={onClose}
     >
       <div
-        className="flex flex-col w-[540px] max-h-[80vh] rounded-xl shadow-2xl overflow-hidden"
+        className="flex flex-col w-[540px] max-w-[92vw] max-h-[80vh] rounded-xl shadow-2xl overflow-hidden"
         style={{ background: 'var(--bg-base)', border: '1px solid var(--border-color)' }}
         onClick={(e) => e.stopPropagation()}
       >

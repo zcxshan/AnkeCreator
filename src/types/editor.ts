@@ -169,12 +169,12 @@ export const NGA_DEFAULT_FONT = 'simsun';
 
 /** NGA 字号 → 6 档（百分比），默认 100% */
 export const NGA_FONT_SIZES: { label: string; percent: number; cssSize: string }[] = [
-  { label: '100%', percent: 100, cssSize: '12pt' },
-  { label: '110%', percent: 110, cssSize: '13.2pt' },
-  { label: '120%', percent: 120, cssSize: '14.4pt' },
-  { label: '130%', percent: 130, cssSize: '15.6pt' },
-  { label: '140%', percent: 140, cssSize: '16.8pt' },
-  { label: '150%', percent: 150, cssSize: '18pt' },
+  { label: '100%', percent: 100, cssSize: '100%' },
+  { label: '110%', percent: 110, cssSize: '110%' },
+  { label: '120%', percent: 120, cssSize: '120%' },
+  { label: '130%', percent: 130, cssSize: '130%' },
+  { label: '140%', percent: 140, cssSize: '140%' },
+  { label: '150%', percent: 150, cssSize: '150%' },
 ];
 
 /** NGA 默认字号 100% */

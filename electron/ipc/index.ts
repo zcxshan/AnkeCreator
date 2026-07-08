@@ -15,6 +15,7 @@ import { registerStructureIpc } from './structure'
 import { registerSystemIpc } from './system'
 import { registerImageIpc } from '../imageUploader'
 import { registerNgaIpc } from '../ngaCrawler'
+import { registerGululuIpc } from '../gululuCrawler'
 import { registerDataIpc } from '../dataManager'
 import { registerSearchAnkeIpc } from '../searchAnke'
 
@@ -34,6 +35,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   registerSystemIpc(getWindow)
   registerImageIpc(getWindow)
   registerNgaIpc()
+  registerGululuIpc(getWindow)
   registerDataIpc(getWindow)
   registerSearchAnkeIpc()
   // 在系统浏览器打开外链

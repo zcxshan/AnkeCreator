@@ -2,10 +2,13 @@ import { useEffect, useState } from 'react';
 import { HomePage } from './components/pages/HomePage';
 import { WorksListPage } from './components/pages/WorksListPage';
 import { EditorPage } from './components/pages/EditorPage';
-import { TemplatesPage } from './components/pages/TemplatesPage';
+import { ResourceLibraryPage } from './components/pages/ResourceLibraryPage';
 import { TutorialPage } from './components/pages/TutorialPage';
-import { AnjiaPage } from './components/pages/AnjiaPage';
+import { AnjiaCollectPage } from './components/pages/AnjiaCollectPage';
+import { AnkeCollectPage } from './components/pages/AnkeCollectPage';
+import { GululuCollectPage } from './components/pages/GululuCollectPage';
 import { FindAnkePage } from './components/pages/FindAnkePage';
+import { CreationLogPage } from './components/pages/CreationLogPage';
 import { ReaderPage } from './components/pages/ReaderPage';
 import { DicePlaygroundPage } from './components/pages/DicePlaygroundPage';
 import { TitleBar } from './components/common/TitleBar';
@@ -19,9 +22,10 @@ import { useEditorStore } from './store/editorStore';
 import { useMetaStore } from './store/metaStore';
 import { initDatabase } from './db/index';
 import { isCapacitor, isElectron } from './utils/platform';
+import { useSettingStore } from './store/settingStore';
 import './index.css';
 
-type Route = 'home' | 'works' | 'editor' | 'reader' | 'templates' | 'tutorial' | 'anjia' | 'find-anke' | 'dice-playground';
+type Route = 'home' | 'works' | 'editor' | 'reader' | 'resource-library' | 'tutorial' | 'anjia-collect' | 'anke-collect' | 'gululu-collect' | 'find-anke' | 'dice-playground' | 'creation-log';
 
 function App() {
   const { activeSectionId, activeStoryId } = useStoryStore();
@@ -31,6 +35,7 @@ function App() {
   const [showAuthor, setShowAuthor] = useState(false);
 
   const [route, setRoute] = useState<Route>('home');
+  const [creationLogStoryId, setCreationLogStoryId] = useState<string | null>(null);
 
   // 键盘弹出检测（仅 Capacitor 移动端）：用 visualViewport 判断键盘是否打开，
   // 弹出时移除底部导航预留空间并加 body.keyboard-open class（供 CSS 隐藏底部导航）
@@ -67,6 +72,27 @@ function App() {
     init();
   }, []);
 
+  // 启动时扫描可用骰子音效（仅 Electron）
+  useEffect(() => {
+    if (!isElectron) return;
+    const scan = async () => {
+      try {
+        const sounds = await window.electronAPI?.listDiceSounds?.();
+        if (sounds && sounds.length > 0) {
+          useSettingStore.getState().setAvailableDiceSounds(sounds);
+        }
+      } catch {
+        // 扫描失败保持默认
+      }
+    };
+    scan();
+  }, []);
+
+  // 预热骰子音效（提前加载 Audio 对象，减少首次播放延迟）（#4）
+  useEffect(() => {
+    import('./utils/diceSound').then(({ preloadDiceSound }) => preloadDiceSound());
+  }, []);
+
   useEffect(() => {
     if (route === 'editor' && activeSectionId) {
       loadSection(activeSectionId);
@@ -94,9 +120,10 @@ function App() {
   // TitleBar 位于所有页面顶部（仅 Electron 无边框窗口显示；Capacitor / Web 走系统状态栏沉浸式）
   const renderWithTitleBar = (content: React.ReactNode) => (
     <div
-      className="w-screen flex flex-col overflow-hidden"
+      className="flex flex-col overflow-hidden"
       style={{
         height: viewportHeight,
+        width: '100%',
         background: 'var(--bg-page)',
         color: 'var(--text-primary)',
       }}
@@ -106,7 +133,7 @@ function App() {
           避免整个 React 树卸载导致白屏看不到原因 */}
       <ErrorBoundary>
         <div
-          className="flex-1 overflow-hidden"
+          className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto"
           style={isCapacitor && !keyboardOpen ? { paddingBottom: 'calc(56px + env(safe-area-inset-bottom, 0px))' } : undefined}
         >{content}</div>
       </ErrorBoundary>
@@ -131,12 +158,18 @@ function App() {
         <HomePage
           onOpenStory={handleOpenStory}
           onShowWorks={() => setRoute('works')}
-          onShowTemplates={() => setRoute('templates')}
+          onShowResourceLibrary={() => setRoute('resource-library')}
           onShowTutorial={() => setRoute('tutorial')}
           onShowAuthor={() => setShowAuthor(true)}
-          onShowAnjia={() => setRoute('anjia')}
+          onShowAnjiaCollect={() => setRoute('anjia-collect')}
+          onShowAnkeCollect={() => setRoute('anke-collect')}
+          onShowGululuCollect={() => setRoute('gululu-collect')}
           onShowFindAnke={() => setRoute('find-anke')}
           onShowDicePlayground={() => setRoute('dice-playground')}
+          onShowCreationLog={(storyId) => {
+            setCreationLogStoryId(storyId);
+            setRoute('creation-log');
+          }}
         />
         {authorModal}
       </>,
@@ -149,10 +182,13 @@ function App() {
     );
   }
 
-  if (route === 'templates') {
+  if (route === 'resource-library') {
     return renderWithTitleBar(
       <>
-        <TemplatesPage onBack={() => setRoute('home')} onShowAuthor={() => setShowAuthor(true)} />
+        <ResourceLibraryPage
+          onBack={() => setRoute('home')}
+          onShowAuthor={() => setShowAuthor(true)}
+        />
         {authorModal}
       </>,
     );
@@ -184,15 +220,36 @@ function App() {
     );
   }
 
-  if (route === 'anjia') {
+  if (route === 'anjia-collect') {
     return renderWithTitleBar(
-      <AnjiaPage onBack={() => setRoute('home')} />,
+      <AnjiaCollectPage onBack={() => setRoute('home')} />,
+    );
+  }
+
+  if (route === 'anke-collect') {
+    return renderWithTitleBar(
+      <AnkeCollectPage onBack={() => setRoute('home')} />,
+    );
+  }
+
+  if (route === 'gululu-collect') {
+    return renderWithTitleBar(
+      <GululuCollectPage onBack={() => setRoute('home')} />,
     );
   }
 
   if (route === 'find-anke') {
     return renderWithTitleBar(
       <FindAnkePage onBack={() => setRoute('home')} />,
+    );
+  }
+
+  if (route === 'creation-log' && creationLogStoryId) {
+    return renderWithTitleBar(
+      <CreationLogPage
+        storyId={creationLogStoryId}
+        onBack={() => setRoute('home')}
+      />,
     );
   }
 

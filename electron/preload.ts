@@ -217,6 +217,28 @@ const dbAPI = {
   getStoryIdsInFavorite: (favoriteId: string): Promise<string[]> =>
     ipcRenderer.invoke('db:get-story-ids-in-favorite', favoriteId),
 
+  // Image Library
+  listImageLibraryFolders: (parentId?: string | null): Promise<any[]> =>
+    ipcRenderer.invoke('db:list-image-library-folders', parentId),
+  createImageLibraryFolder: (data: { name: string; parentId: string | null }): Promise<any> =>
+    ipcRenderer.invoke('db:create-image-library-folder', data),
+  renameImageLibraryFolder: (id: string, name: string): Promise<any> =>
+    ipcRenderer.invoke('db:rename-image-library-folder', id, name),
+  deleteImageLibraryFolder: (id: string): Promise<boolean> =>
+    ipcRenderer.invoke('db:delete-image-library-folder', id),
+  listImageLibraryItems: (folderId?: string | null): Promise<any[]> =>
+    ipcRenderer.invoke('db:list-image-library-items', folderId),
+  addImageLibraryItem: (data: {
+    folderId: string | null
+    url: string
+    filename: string
+    source: 'local' | 'url'
+  }): Promise<any> => ipcRenderer.invoke('db:add-image-library-item', data),
+  deleteImageLibraryItem: (id: string): Promise<boolean> =>
+    ipcRenderer.invoke('db:delete-image-library-item', id),
+  moveImageLibraryItem: (id: string, folderId: string | null): Promise<boolean> =>
+    ipcRenderer.invoke('db:move-image-library-item', id, folderId),
+
   // 整作品另存为 + 导入（弹系统对话框）
   saveStoryAsFile: (data: any, suggestedName?: string): Promise<{ ok: boolean; canceled?: boolean; filePath?: string; error?: string }> =>
     ipcRenderer.invoke('story:export-to-file', { data, suggestedName }),
@@ -243,6 +265,48 @@ const dataAPI = {
     ipcRenderer.invoke('data:openDataDirectory'),
 }
 
+// ============================================================
+// 骨碌碌安科收集 API
+// 对应 electron/gululuCrawler.ts 中注册的 IPC 通道
+// ============================================================
+const gululuAPI = {
+  collect: (payload: {
+    url: string;
+    startFloor: number;
+    endFloor: number;
+    retryFloorNums?: number[];
+    existingItems?: any[];
+  }): Promise<{
+    ok: boolean;
+    items: { floor: number; author: string; content: string; time?: number; floorId: number }[];
+    totalFloors: number;
+    title?: string;
+    author?: string;
+    error?: string;
+    failedFloorNums?: number[];
+  }> => ipcRenderer.invoke('gululu:collect', payload),
+  cancelCollect: (taskId?: number): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('gululu:collect:cancel', taskId),
+  fetchBookInfo: (url: string): Promise<{
+    ok: boolean;
+    totalFloors?: number;
+    title?: string;
+    author?: string;
+    error?: string;
+  }> => ipcRenderer.invoke('gululu:fetchBookInfo', url),
+  onCollectProgress: (callback: (progress: {
+    taskId: number;
+    current: number;
+    total: number;
+    phase: 'starting' | 'fetching' | 'done' | 'error' | 'cancelled';
+    message: string;
+  }) => void): (() => void) => {
+    const listener = (_e: any, p: any) => callback(p);
+    ipcRenderer.on('gululu:collect:progress', listener);
+    return () => ipcRenderer.removeListener('gululu:collect:progress', listener);
+  },
+}
+
 contextBridge.exposeInMainWorld('windowAPI', windowAPI)
 contextBridge.exposeInMainWorld('electronAPI', {
   // 保留原有的接口
@@ -251,6 +315,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   close: windowAPI.close,
   selectImage: imageAPI.select,
   uploadImage: imageAPI.upload,
+  saveImageLocal: imageAPI.saveLocal,
   platform: process.platform,
   collectNga: ngaAPI.collect,
   cancelNgaCollect: ngaAPI.cancelCollect,
@@ -266,23 +331,29 @@ contextBridge.exposeInMainWorld('electronAPI', {
     gululu: (
       keyword: string,
       matchField?: 'all' | 'title' | 'author',
+      page?: number,
+      limit?: number,
     ): Promise<{ ok: boolean; data?: any[]; error?: string }> =>
-      ipcRenderer.invoke('search:gululu', { keyword, matchField: matchField || 'title' }),
+      ipcRenderer.invoke('search:gululu', { keyword, matchField: matchField || 'title', page, limit }),
     ngaAnke: (
       keyword: string,
       cookies?: string,
       matchField?: 'title' | 'author',
+      startPage?: number,
+      limit?: number,
     ): Promise<{ ok: boolean; data?: any[]; error?: string }> =>
-      ipcRenderer.invoke('search:nga-anke', { keyword, cookies, matchField: matchField || 'title' }),
+      ipcRenderer.invoke('search:nga-anke', { keyword, cookies, matchField: matchField || 'title', startPage, limit }),
   },
   // 在系统浏览器打开外链
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url),
+  // 骰子音效：扫描可用 mp3
+  listDiceSounds: (): Promise<string[]> => ipcRenderer.invoke('system:list-sounds'),
   // 导出为 EPUB 电子书（仅桌面端，含图片离线化 + 进度推送 + 暂停/取消）
   exportEpub: (
     storyId: string,
     suggestedName?: string,
     options?: { embedImages: boolean },
-  ): Promise<{ ok: boolean; canceled?: boolean; userCanceled?: boolean; filePath?: string; error?: string }> =>
+  ): Promise<{ ok: boolean; canceled?: boolean; userCanceled?: boolean; filePath?: string; error?: string; failedImageCount?: number }> =>
     ipcRenderer.invoke('story:export-epub', { storyId, suggestedName, options }),
   pauseEpubExport: (): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('epub:export:pause'),
@@ -295,6 +366,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('epub:export:progress', listener)
     return () => ipcRenderer.removeListener('epub:export:progress', listener)
   },
+  // 骨碌碌安科收集
+  collectGululu: gululuAPI.collect,
+  cancelGululuCollect: gululuAPI.cancelCollect,
+  fetchGululuBookInfo: gululuAPI.fetchBookInfo,
+  onGululuCollectProgress: gululuAPI.onCollectProgress,
 })
 contextBridge.exposeInMainWorld('dbAPI', dbAPI)
 contextBridge.exposeInMainWorld('appAPI', appAPI)
@@ -350,21 +426,54 @@ export type ElectronAPI = {
   searchAnke: {
     gululu: (
       keyword: string,
-      matchField?: 'title' | 'author',
+      matchField?: 'all' | 'title' | 'author',
+      page?: number,
     ) => Promise<{ ok: boolean; data?: GululuResult[]; error?: string }>
     ngaAnke: (
       keyword: string,
       cookies?: string,
       matchField?: 'title' | 'author',
+      startPage?: number,
     ) => Promise<{ ok: boolean; data?: NgaResult[]; error?: string }>
   }
   openExternal: (url: string) => Promise<void>
+  listDiceSounds: () => Promise<string[]>
   exportEpub: (
     storyId: string,
     suggestedName?: string,
     options?: { embedImages: boolean },
-  ) => Promise<{ ok: boolean; canceled?: boolean; filePath?: string; error?: string }>
+  ) => Promise<{ ok: boolean; canceled?: boolean; userCanceled?: boolean; filePath?: string; error?: string; failedImageCount?: number }>
   onEpubExportProgress: (cb: (p: any) => void) => () => void
+  collectGululu: (payload: {
+    url: string;
+    startFloor: number;
+    endFloor: number;
+    retryFloorNums?: number[];
+    existingItems?: any[];
+  }) => Promise<{
+    ok: boolean;
+    items: { floor: number; author: string; content: string; time?: number; floorId: number }[];
+    totalFloors: number;
+    title?: string;
+    author?: string;
+    error?: string;
+    failedFloorNums?: number[];
+  }>
+  cancelGululuCollect: (taskId?: number) => Promise<{ ok: boolean }>
+  fetchGululuBookInfo: (url: string) => Promise<{
+    ok: boolean;
+    totalFloors?: number;
+    title?: string;
+    author?: string;
+    error?: string;
+  }>
+  onGululuCollectProgress: (callback: (progress: {
+    taskId: number;
+    current: number;
+    total: number;
+    phase: 'starting' | 'fetching' | 'done' | 'error' | 'cancelled';
+    message: string;
+  }) => void) => () => void
 }
 
 declare global {

@@ -46,6 +46,7 @@ import { isCapacitor } from '../../utils/platform';
 import { ContextMenu } from '../common/ContextMenu';
 import { SearchPanel } from '../editor/SearchPanel';
 import { GlobalSearchPanel } from '../editor/GlobalSearchPanel';
+import { CompactImageLibraryPanel } from '../editor/CompactImageLibraryPanel';
 
 interface EditorPageProps {
   onBack: () => void;
@@ -218,7 +219,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
   const diceStore = useDiceStore();
   const [view, setView] = useState<EditorView>('directory');
   const [rightPanelTab, setRightPanelTab] = useState<
-    'properties' | 'world' | 'character' | 'dice' | 'relation'
+    'properties' | 'world' | 'character' | 'dice' | 'gallery'
   >('properties');
   // 编辑器视图模式：'visual' = 富文本 contenteditable；'bbcode' = 纯文本 BBCode
   const [editorMode, setEditorMode] = useState<'visual' | 'bbcode'>('visual');
@@ -292,11 +293,34 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
   const richTextEditorCommandsRef = useRef<RichTextEditorCommands | null>(null);
   const [selectedImage, setSelectedImage] = useState<{ width: number; height: number; src?: string; dataSize?: string } | null>(null);
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(256);
-  // 移动端：默认更窄的侧栏
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(384);
+  // 用户手动拖动记忆值（窗口放大后恢复到此值）
+  const userLeftWidthRef = useRef(256);
+  const userRightWidthRef = useRef(384);
+  // 桌面端右栏折叠（窄窗口自动折叠，可手动展开）
+  const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
+  // 移动端 + 窄窗口响应式侧栏宽度：窗口缩小时自动收缩，窗口放大时恢复用户设定值
   useEffect(() => {
     const updateForViewport = () => {
-      if (window.innerWidth < 768 && leftSidebarWidth > 200) {
-        setLeftSidebarWidth(200);
+      const w = window.innerWidth;
+      if (w < 768) {
+        // 移动端：左栏 200（仅缩小，不记为用户值）
+        setLeftSidebarWidth((prev) => (prev > 200 ? 200 : prev));
+      } else if (w < 1024) {
+        // 窄窗口：左 200、右 240，自动折叠右栏释放编辑区空间
+        setLeftSidebarWidth((prev) => (prev > 200 ? 200 : prev));
+        setRightSidebarWidth((prev) => (prev > 240 ? 240 : prev));
+        setRightSidebarCollapsed(true);
+      } else if (w < 1280) {
+        // 中等窗口：左 220、右 300
+        setLeftSidebarWidth((prev) => (prev > 220 ? 220 : prev));
+        setRightSidebarWidth((prev) => (prev > 300 ? 300 : prev));
+        setRightSidebarCollapsed(false);
+      } else {
+        // 宽窗口（>=1280）：恢复用户设定值，展开右栏
+        setLeftSidebarWidth(userLeftWidthRef.current);
+        setRightSidebarWidth(userRightWidthRef.current);
+        setRightSidebarCollapsed(false);
       }
     };
     updateForViewport();
@@ -304,7 +328,6 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
     return () => window.removeEventListener('resize', updateForViewport);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [rightSidebarWidth, setRightSidebarWidth] = useState(384);
 
   // 移动端判断：Capacitor 原生 App 或窗口宽度 < 768px
   const [isMobile, setIsMobile] = useState<boolean>(
@@ -619,7 +642,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
 
   return (
     <div
-      className="h-full flex flex-col overflow-hidden"
+      className="h-full flex flex-col"
       style={{ background: 'var(--bg-page)', color: 'var(--text-primary)' }}
     >
       {/* 顶部导航栏 */}
@@ -822,7 +845,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                 onClick={() => {
                   setView(key);
                 }}
-                className="relative px-2 md:px-3 py-1.5 text-xs font-medium rounded-lg transition-all"
+                className="relative px-2 md:px-3 py-1.5 text-xs font-medium rounded-lg transition-all shrink-0 whitespace-nowrap"
                 style={{
                   color: active ? 'var(--accent)' : 'var(--text-secondary)',
                   background: active ? 'var(--accent-soft)' : 'transparent',
@@ -953,14 +976,18 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
 
               <ResizeHandle
                 side="left"
-                onResize={(delta) => setLeftSidebarWidth((w) => Math.min(400, Math.max(160, w + delta)))}
+                onResize={(delta) => setLeftSidebarWidth((w) => {
+                  const next = Math.min(400, Math.max(160, w + delta));
+                  userLeftWidthRef.current = next;
+                  return next;
+                })}
               />
             </>
           )}
 
-          <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+          <div className="flex-1 min-w-0 flex flex-col overflow-hidden min-h-0">
           <main
-            className="flex-1 flex flex-col overflow-hidden"
+            className="flex-1 min-w-0 flex flex-col overflow-hidden"
             style={{ borderLeft: !isMobile ? '1px solid var(--border-color)' : 'none', borderRight: !isMobile ? '1px solid var(--border-color)' : 'none', minHeight: 0 }}
           >
             {section && activeChapter ? (
@@ -1138,15 +1165,15 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
               className="shrink-0 flex flex-col border-t"
               style={{ borderColor: 'var(--border-color)', background: 'var(--bg-card)' }}
             >
-              {/* 移动端面板头：5 图标 tab（切换内容并自动展开）+ 独立▼/▲折叠按钮 */}
+              {/* 移动端面板头：4 图标 tab（切换内容并自动展开）+ 独立▼/▲折叠按钮 */}
               <div className="shrink-0 flex items-center border-b" style={{ borderColor: 'var(--border-color)' }}>
                 <div className="flex-1 grid grid-cols-5">
                   {([
                     { key: 'properties', label: '⚙️' },
                     { key: 'world', label: '🌏' },
                     { key: 'character', label: '👤' },
-                    { key: 'relation', label: '🔗' },
                     { key: 'dice', label: '🎲' },
+                    { key: 'gallery', label: '🖼️' },
                   ] as const).map((t) => {
                     const active = rightPanelTab === t.key;
                     return (
@@ -1255,17 +1282,22 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
           )}
           </div>
 
-          {!isMobile && (
+          {!isMobile && !rightSidebarCollapsed && (
             <>
               <ResizeHandle
                 side="right"
-                onResize={(delta) => setRightSidebarWidth((w) => Math.min(600, Math.max(200, w + delta)))}
+                onResize={(delta) => setRightSidebarWidth((w) => {
+                  const next = Math.min(600, Math.max(200, w + delta));
+                  userRightWidthRef.current = next;
+                  return next;
+                })}
               />
 
               <RightPanel
                 activeTab={rightPanelTab}
                 setActiveTab={setRightPanelTab}
                 section={section}
+                onCollapse={() => setRightSidebarCollapsed(true)}
                 onRenameSection={(t) => section && renameSection(section.id, t)}
                 onJumpToDice={(sectionId, payloadSnapshot) => {
                   if (sectionId !== activeSectionId) {
@@ -1340,6 +1372,31 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                 onVisualChange={setSectionContent}
               />
             </>
+          )}
+
+          {/* 桌面端右栏折叠状态：显示展开按钮 */}
+          {!isMobile && rightSidebarCollapsed && (
+            <button
+              onClick={() => setRightSidebarCollapsed(false)}
+              title="展开右侧面板"
+              className="shrink-0 flex items-center justify-center w-6 border-l"
+              style={{
+                background: 'var(--bg-card)',
+                borderColor: 'var(--border-color)',
+                color: 'var(--text-secondary)',
+                cursor: 'pointer',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--bg-hover)';
+                e.currentTarget.style.color = 'var(--accent)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'var(--bg-card)';
+                e.currentTarget.style.color = 'var(--text-secondary)';
+              }}
+            >
+              ◀
+            </button>
           )}
 
           {/* ===== 移动端：左抽屉（目录） ===== */}
@@ -1552,11 +1609,8 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
               ←
             </button>
             <div className="flex-1 min-w-0">
-              <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                {activeChapter.title}
-              </div>
               <div className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
-                {section.title}
+                {activeVolume?.title || '未命名卷'} - {activeChapter.title} - {section.title}
               </div>
             </div>
             <button
@@ -1644,9 +1698,10 @@ function RightPanel({
   onBBCodeChange,
   onVisualChange,
   hideHeader,
+  onCollapse,
 }: {
-  activeTab: 'properties' | 'world' | 'character' | 'dice' | 'relation';
-  setActiveTab: (tab: 'properties' | 'world' | 'character' | 'dice' | 'relation') => void;
+  activeTab: 'properties' | 'world' | 'character' | 'dice' | 'gallery';
+  setActiveTab: (tab: 'properties' | 'world' | 'character' | 'dice' | 'gallery') => void;
   section: Section | undefined;
   onRenameSection: (newTitle: string) => void;
   onJumpToDice: (sectionId: string, payloadSnapshot: string) => void;
@@ -1666,6 +1721,7 @@ function RightPanel({
   onBBCodeChange: (v: string) => void;
   onVisualChange: (v: string) => void;
   hideHeader?: boolean;
+  onCollapse?: () => void;
 }) {
   const [imageSizeNga, setImageSizeNga] = useState<string>('original');
   const [imageUrl, setImageUrl] = useState<string>('');
@@ -1693,14 +1749,14 @@ function RightPanel({
     }
   }, [selectedImage?.dataSize, selectedImage?.src]);
   const tabs: {
-    key: 'properties' | 'world' | 'character' | 'dice' | 'relation';
+    key: 'properties' | 'world' | 'character' | 'dice' | 'gallery';
     label: string;
   }[] = [
     { key: 'properties', label: '⚙️属性' },
     { key: 'world', label: '🌏世界观' },
     { key: 'character', label: '👤人物' },
-    { key: 'relation', label: '🔗关系' },
     { key: 'dice', label: '🎲骰点' },
+    { key: 'gallery', label: '🖼️图库' },
   ];
 
   return (
@@ -1721,7 +1777,7 @@ function RightPanel({
             <button
               key={t.key}
               onClick={() => setActiveTab(t.key)}
-              className="flex-1 flex items-center justify-center px-2 py-2 text-xs font-medium transition-colors"
+              className="flex-1 flex items-center justify-center px-2 py-2 text-xs font-medium transition-colors shrink-0 whitespace-nowrap"
               style={{
                 color: active ? 'var(--accent)' : 'var(--text-secondary)',
                 background: active ? 'var(--accent-soft)' : 'var(--bg-card)',
@@ -1732,6 +1788,27 @@ function RightPanel({
             </button>
           );
         })}
+        {onCollapse && (
+          <button
+            onClick={onCollapse}
+            title="折叠右侧面板"
+            className="shrink-0 flex items-center justify-center w-7 text-xs transition-colors"
+            style={{
+              color: 'var(--text-secondary)',
+              background: 'var(--bg-card)',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--bg-hover)';
+              e.currentTarget.style.color = 'var(--accent)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'var(--bg-card)';
+              e.currentTarget.style.color = 'var(--text-secondary)';
+            }}
+          >
+            ▶
+          </button>
+        )}
       </div>
       )}
 
@@ -1891,9 +1968,6 @@ function RightPanel({
             onShowToast={onShowToast}
           />
         )}
-        {activeTab === 'relation' && activeStoryId && (
-          <RelationshipPanel storyId={activeStoryId} />
-        )}
         {activeTab === 'dice' && (
             <DiceHistoryPanel
               storyId={activeStoryId}
@@ -1903,6 +1977,18 @@ function RightPanel({
               onCheckDiceExists={onCheckDiceExists}
             />
           )}
+        {activeTab === 'gallery' && (
+          <CompactImageLibraryPanel
+            onInsertImage={(url) => {
+              if (richTextEditorCommandsRef.current) {
+                richTextEditorCommandsRef.current.insertImage(url, NGA_DEFAULT_IMAGE_SIZE);
+                onShowToast?.('已插入图片');
+              } else {
+                onShowToast?.('没有可用的编辑器');
+              }
+            }}
+          />
+        )}
       </div>
     </aside>
   );
@@ -2133,7 +2219,7 @@ function DiceHistoryPanel({
   const stories = useStoryStore((s) => s.stories);
   const [pendingClearDice, setPendingClearDice] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [groupMode, setGroupMode] = useState<DiceGroupMode>('flat');
+  const [groupMode, setGroupMode] = useState<DiceGroupMode>('time');
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
   // storyId → title 映射（用于「作品」分组标题）
@@ -2685,11 +2771,12 @@ function CompactCharacterPanel({
   richTextEditorCommandsRef: React.MutableRefObject<RichTextEditorCommands | null>;
   onShowToast?: (msg: string) => void;
 }) {
-  const [panelTab, setPanelTab] = useState<'by-character' | 'by-variant'>('by-character');
+  const activeStoryId = useStoryStore((s) => s.activeStoryId);
+  const [panelTab, setPanelTab] = useState<'by-character' | 'by-variant' | 'relation'>('by-character');
 
   return (
     <div className="flex flex-col h-full" style={{ background: 'var(--bg-card)' }}>
-      {/* === 主导航 Tab：按人物 / 按差分 === */}
+      {/* === 主导航 Tab：按人物 / 按差分 / 关系 === */}
       <div
         className="shrink-0 flex border-b"
         style={{ borderColor: 'var(--border-color)', background: 'var(--bg-toolbar)' }}
@@ -2697,12 +2784,13 @@ function CompactCharacterPanel({
         {[
           { key: 'by-character', label: '👤 按人物' },
           { key: 'by-variant', label: '🎴 按差分' },
+          { key: 'relation', label: '🔗 关系' },
         ].map((t) => {
           const active = panelTab === t.key;
           return (
             <button
               key={t.key}
-              onClick={() => setPanelTab(t.key as 'by-character' | 'by-variant')}
+              onClick={() => setPanelTab(t.key as 'by-character' | 'by-variant' | 'relation')}
               className="flex-1 py-2 text-xs font-medium transition-colors"
               style={{
                 color: active ? 'var(--accent)' : 'var(--text-secondary)',
@@ -2728,6 +2816,10 @@ function CompactCharacterPanel({
           richTextEditorCommandsRef={richTextEditorCommandsRef}
           onShowToast={onShowToast}
         />
+      )}
+
+      {panelTab === 'relation' && activeStoryId && (
+        <RelationshipPanel storyId={activeStoryId} />
       )}
     </div>
   );
@@ -3832,12 +3924,10 @@ function EditorBreadcrumb({
         color: 'var(--text-secondary)',
       }}
     >
-      <span style={{ color: 'var(--text-secondary)' }}>第{volumeIdx + 1}卷</span>
       <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
         {volumeTitle || '未命名卷'}
       </span>
       <span style={{ color: 'var(--border-color)' }}>›</span>
-      <span style={{ color: 'var(--text-secondary)' }}>第{chapterIdx + 1}章</span>
       <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
         {chapterTitle || '未命名章'}
       </span>
@@ -3853,6 +3943,7 @@ function BottomStatusBar({
   editorMode,
   onSwitchMode,
 }: BottomStatusBarProps) {
+  const selectionStats = useEditorStore((s) => s.selectionStats);
   const tabStyle = (active: boolean): CSSProperties => ({
     padding: '6px 14px',
     fontSize: 12,
@@ -3911,6 +4002,11 @@ function BottomStatusBar({
 
       {/* 右侧：当前视图模式提示 + 快捷提示 */}
       <div className="flex items-center gap-3" style={{ color: 'var(--text-secondary)' }}>
+        {selectionStats && (
+          <span style={{ color: 'var(--accent)' }}>
+            选中：{selectionStats.words} 字{selectionStats.dice > 0 ? ` · ${selectionStats.dice} 原子块` : ''}
+          </span>
+        )}
         <span className="hidden md:inline">
           {editorMode === 'visual'
             ? '💡 可直接使用工具栏富文本编辑'

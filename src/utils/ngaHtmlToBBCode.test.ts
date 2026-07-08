@@ -414,3 +414,74 @@ describe('Phase D: anke-section 嵌套完整转换', () => {
     expect(result).toContain('外层');
   });
 });
+
+describe('BBCode 优化：嵌套合并/空标签清除/不支持标签转义', () => {
+  it('sup/sub 转换', () => {
+    expect(trim(htmlToNGABBCode('<sup>上标</sup>'))).toBe('[sup]上标[/sup]');
+    expect(trim(htmlToNGABBCode('<sub>下标</sub>'))).toBe('[sub]下标[/sub]');
+  });
+
+  it('[sup][sup]X[/sup][/sup] 冗余嵌套展开', () => {
+    // 通过嵌套 sup 标签构造
+    const html = '<sup><sup>X</sup></sup>';
+    const result = trim(htmlToNGABBCode(html));
+    expect(result).toBe('[sup]X[/sup]');
+  });
+
+  it('[align][align] 冗余嵌套展开', () => {
+    const html = '<div style="text-align:center"><p style="text-align:center">X</p></div>';
+    const result = trim(htmlToNGABBCode(html));
+    // 不应出现 [align=center][align=center]
+    expect(result).not.toContain('[align=center][align=center]');
+    expect(result).toContain('[align=center]');
+    expect(result).toContain('X');
+  });
+
+  it('相邻 [quote]X[/quote][quote]Y[/quote] 合并', () => {
+    const html = '<blockquote data-type="quote-block"><p>X</p></blockquote><blockquote data-type="quote-block"><p>Y</p></blockquote>';
+    const result = trim(htmlToNGABBCode(html));
+    // 两个相邻 quote 应合并为一个（或至少不出现连续 [quote][quote]）
+    expect(result).not.toMatch(/\[quote\]\s*\[quote\]/);
+  });
+
+  it('空 quote 不输出空标签对', () => {
+    const html = '<blockquote data-type="quote-block"></blockquote>';
+    const result = trim(htmlToNGABBCode(html));
+    expect(result).toBe('');
+  });
+
+  it('空 collapse 不输出空标签对', () => {
+    const html = '<div data-type="collapse-block" data-title="空折叠"><div class="collapse-head" contenteditable="false"><span class="collapse-toggle">+</span><span class="collapse-title">空折叠</span></div><div class="collapse-body"></div></div>';
+    const result = trim(htmlToNGABBCode(html));
+    expect(result).toBe('');
+  });
+
+  it('空 list 不输出空标签对', () => {
+    const html = '<ul></ul>';
+    const result = trim(htmlToNGABBCode(html));
+    expect(result).toBe('');
+  });
+
+  it('空 table 不输出空标签对', () => {
+    const html = '<table></table>';
+    const result = trim(htmlToNGABBCode(html));
+    expect(result).toBe('');
+  });
+
+  it('工具栏不支持的 bbcode 标签转义为普通文本', () => {
+    // 构造一个含不支持标签的 HTML（通过 span 伪造成 bbcode 文本）
+    // 直接测试 escapeUnsupportedBbCode 的效果：用 font 标签的 size 输出会被支持，
+    // 这里测试一个极端情况：HTML 中含 [unknown] 文本（通过 textContent）
+    const html = '<div>[unknown]测试[/unknown]</div>';
+    const result = trim(htmlToNGABBCode(html));
+    // [unknown] 标签应被转义为 &#91;unknown&#93; 而非保留为 bbcode
+    expect(result).toContain('&#91;unknown&#93;');
+  });
+
+  it('[b][b]X[/b][/b] 跨换行冗余嵌套展开', () => {
+    // 通过 b 嵌套 b 构造跨行场景
+    const html = '<b><b>X</b></b>';
+    const result = trim(htmlToNGABBCode(html));
+    expect(result).toBe('[b]X[/b]');
+  });
+});

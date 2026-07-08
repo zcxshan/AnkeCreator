@@ -437,8 +437,8 @@ function lookupColor(name: string): string {
 function lookupSize(percent: number): string {
   const s = NGA_FONT_SIZES.find((x) => x.percent === percent);
   if (s) return s.cssSize;
-  // 兜底：自定义百分比 → 按 12pt * percent / 100
-  return `${(12 * percent) / 100}pt`;
+  // 兜底：自定义百分比 → 直接用百分比字符串
+  return `${percent}%`;
 }
 
 function lookupFont(value: string): string {

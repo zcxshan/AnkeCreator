@@ -31,7 +31,9 @@ export function htmlToNGABBCode(html: string | null | undefined): string {
     const out = lines.filter((l) => l !== null && l !== undefined).join('\n').trim();
     if (!out) return '';
     // 合并连续相同的 [color=*]/[size=*]/[font=*] 开闭 tag，去除无效嵌套
-    const result = collapseBbCode(out + '\n');
+    let result = collapseBbCode(out + '\n');
+    // 防御性兜底：工具栏不支持的 bbcode 标签当普通文本处理（转义 [ ] 为字面字符）
+    result = escapeUnsupportedBbCode(result);
     // dev 模式：输出原始 HTML 与转换结果，方便手动验证 NGA 导出正确性
     if (typeof import.meta !== 'undefined' && (import.meta as any).env?.DEV) {
       console.groupCollapsed('[NGA export] dev log');
@@ -86,6 +88,34 @@ function collapseBbCode(input: string): string {
   return lines.join('\n');
 }
 
+/**
+ * 工具栏支持的 BBCode 标签白名单。
+ * 不在白名单内的 [xxx]...[/xxx] 标签会被当成普通文本（[ ] 转义为字面字符）。
+ */
+const SUPPORTED_BBCODE_TAGS = new Set([
+  'b', 'i', 'u', 'del', 's', 'sup', 'sub',
+  'color', 'size', 'font', 'align',
+  'url', 'img', 'quote', 'collapse', 'code',
+  'list', '*', 'table', 'tr', 'td', 'th',
+  'h', 'hr', 'br',
+]);
+
+/**
+ * 防御性兜底：将工具栏不支持的 BBCode 标签转义为普通文本。
+ * 仅处理形如 [tag] 或 [tag=val] 的标签头/尾，不影响正文中的 [xxx] 字面文本（无匹配闭标签的）。
+ * 已知支持的标签会被原样保留。
+ */
+function escapeUnsupportedBbCode(input: string): string {
+  // 匹配 [tag] 或 [tag=val] 或 [/tag] 形式的标签
+  return input.replace(/\[\/?([a-zA-Z]+)(=[^\]]+)?\]/g, (full, tagName) => {
+    if (SUPPORTED_BBCODE_TAGS.has(tagName.toLowerCase())) {
+      return full; // 支持的标签，原样保留
+    }
+    // 不支持的标签，转义为字面文本
+    return full.replace(/\[/g, '&#91;').replace(/\]/g, '&#93;');
+  });
+}
+
 function collapseLine(line: string): string {
   if (!line) return line;
   // 多趟迭代直到稳定（每次至少合并一对）
@@ -94,10 +124,42 @@ function collapseLine(line: string): string {
   let guard = 0;
   while (prev !== cur && guard++ < 50) {
     prev = cur;
+    // 有属性标签合并（color/size/font/align）
     cur = mergeAdjacentSameTag(cur, 'color');
     cur = mergeAdjacentSameTag(cur, 'size');
     cur = mergeAdjacentSameTag(cur, 'font');
+    cur = mergeAdjacentSameTag(cur, 'align');
+    // 无属性标签合并（b/i/u/del/sup/sub/quote）
+    cur = mergeAdjacentSameTagNoAttr(cur, 'b');
+    cur = mergeAdjacentSameTagNoAttr(cur, 'i');
+    cur = mergeAdjacentSameTagNoAttr(cur, 'u');
+    cur = mergeAdjacentSameTagNoAttr(cur, 'del');
+    cur = mergeAdjacentSameTagNoAttr(cur, 'sup');
+    cur = mergeAdjacentSameTagNoAttr(cur, 'sub');
+    cur = mergeAdjacentSameTagNoAttr(cur, 'quote');
+    // 冗余嵌套展开（[b][b]X[/b][/b] → [b]X[/b]）
+    cur = unwrapRedundantNested(cur, 'b');
+    cur = unwrapRedundantNested(cur, 'i');
+    cur = unwrapRedundantNested(cur, 'u');
+    cur = unwrapRedundantNested(cur, 'del');
+    cur = unwrapRedundantNested(cur, 'color');
+    cur = unwrapRedundantNested(cur, 'size');
+    cur = unwrapRedundantNested(cur, 'font');
+    cur = unwrapRedundantNested(cur, 'align');
+    cur = unwrapRedundantNested(cur, 'sup');
+    cur = unwrapRedundantNested(cur, 'sub');
+    cur = unwrapRedundantNested(cur, 'quote');
+    cur = unwrapRedundantNested(cur, 'collapse');
+    cur = unwrapRedundantNested(cur, 'code');
   }
+  // 清除空 tag（[b][/b] / [color=red][/color] / [quote][/quote] 等）
+  // 无属性空标签
+  cur = cur.replace(/\[(b|i|u|del|sup|sub|quote|code)\]\s*\[\/\1\]/g, '');
+  // 有属性空标签（含带换行的空内容）
+  cur = cur.replace(/\[(color|size|font|align|collapse|url)=[^\]]+\]\s*\[\/\1\]/g, '');
+  // 空列表/表格（[h][/h] 是分割线的有效写法，不清除）
+  cur = cur.replace(/\[list(=\d+)?\]\s*\[\/list\1?\]/g, '');
+  cur = cur.replace(/\[table\]\s*\[\/table\]/g, '');
   return cur;
 }
 
@@ -106,6 +168,23 @@ function mergeAdjacentSameTag(input: string, tag: string): string {
   // 注意 body X/Y 内部可能含有其他 tag，需要递归
   const re = new RegExp(`\\[${tag}=([^\\[\\]]+)\\]([\\s\\S]*?)\\[\\/${tag}\\]\\[${tag}=\\1\\]([\\s\\S]*?)\\[\\/${tag}\\]`, 'g');
   return input.replace(re, (_m, val, body1, body2) => `[${tag}=${val}]${body1}${body2}[/${tag}]`);
+}
+
+/** 合并无属性标签的相邻同标签（[b]X[/b][b]Y[/b] → [b]XY[/b]） */
+function mergeAdjacentSameTagNoAttr(input: string, tag: string): string {
+  const re = new RegExp(`\\[${tag}\\]([\\s\\S]*?)\\[\\/${tag}\\]\\[${tag}\\]([\\s\\S]*?)\\[\\/${tag}\\]`, 'g');
+  return input.replace(re, (_m, body1, body2) => `[${tag}]${body1}${body2}[/${tag}]`);
+}
+
+/** 展开冗余嵌套（[b][b]X[/b][/b] → [b]X[/b]），支持有属性和无属性 */
+function unwrapRedundantNested(input: string, tag: string): string {
+  // 无属性：[tag][tag]X[/tag][/tag] → [tag]X[/tag]（允许开标签间有换行/空白）
+  const reNoAttr = new RegExp(`\\[${tag}\\][\\s]*\\[${tag}\\]([\\s\\S]*?)\\[\\/${tag}\\][\\s]*\\[\\/${tag}\\]`, 'g');
+  let result = input.replace(reNoAttr, (_m, body) => `[${tag}]${body}[/${tag}]`);
+  // 有属性：[tag=val][tag=val]X[/tag][/tag] → [tag=val]X[/tag]（允许开标签间有换行/空白）
+  const reAttr = new RegExp(`\\[${tag}=([^\\[\\]]+)\\][\\s]*\\[${tag}=\\1\\]([\\s\\S]*?)\\[\\/${tag}\\][\\s]*\\[\\/${tag}\\]`, 'g');
+  result = result.replace(reAttr, (_m, val, body) => `[${tag}=${val}]${body}[/${tag}]`);
+  return result;
 }
 
 // ============================================================
@@ -250,6 +329,11 @@ function processBlockElement(el: HTMLElement): string[] {
 
   const textAlign = el.style.textAlign?.toLowerCase() || '';
   if (textAlign && textAlign !== 'left' && textAlign !== 'justify') {
+    // 对齐去重：若内层已以相同 [align=xxx] 开头，不再重复包裹（避免 [align][align]）
+    const alignOpen = `[align=${textAlign}]`;
+    if (trimmedInner.startsWith(alignOpen)) {
+      return [trimmedInner];
+    }
     return [`[align=${textAlign}]${trimmedInner}[/align]`];
   }
   return [trimmedInner];
@@ -271,11 +355,23 @@ function processInlineChildren(el: Node): string {
 function processInlineElement(el: HTMLElement): string {
   const tag = el.tagName.toLowerCase();
 
-  // Returns true if el has exactly one child element whose tag is in `sameTags`
+  // Returns true if el has exactly one child element whose tag is in `sameTags`,
+  // OR whose parseSpanStyle output contains the same bbTag (indirect nesting via styled span).
+  // 例：<b><span style="font-weight:bold">X</span></b> → parseSpanStyle 产出含 [b] → 去重
   const hasSingleChildWithTag = (sameTags: string[]): boolean => {
     if (el.childNodes.length !== 1) return false;
     const child = el.childNodes[0];
-    return child.nodeType === 1 && sameTags.includes((child as HTMLElement).tagName.toLowerCase());
+    if (child.nodeType !== 1) return false;
+    const childEl = child as HTMLElement;
+    const childTag = childEl.tagName.toLowerCase();
+    // 直接同名标签：[b][b]X[/b][/b]
+    if (sameTags.includes(childTag)) return true;
+    // 间接：唯一子是 span 且其 style 会产出相同 bbTag
+    if (childTag === 'span') {
+      const childStyle = parseSpanStyle(childEl);
+      if (childStyle.open.includes(`[${sameTags[0]}]`)) return true;
+    }
+    return false;
   };
 
   // 内联标签自身带 style 时，提取样式并去重（避免 [b][b]x[/b][/b]）。
@@ -425,13 +521,18 @@ function processCollapseBlock(el: HTMLElement): string[] {
   const bodyEl = el.querySelector('.collapse-body');
   const bodyContent = bodyEl ? processBlockChildren(bodyEl) : processBlockChildren(el);
   const bodyBBCode = bodyContent.filter((l) => l).join('\n');
+  // 空内容兜底：不输出空 collapse 标签对
+  if (!bodyBBCode.trim()) return [];
   if (title) return [`[collapse=${title}]`, bodyBBCode, '[/collapse]'];
   return ['[collapse]', bodyBBCode, '[/collapse]'];
 }
 
 function processQuoteLine(el: HTMLElement): string[] {
   const inner = processBlockChildren(el);
-  return ['[quote]', inner.filter((l) => l).join('\n'), '[/quote]'];
+  const body = inner.filter((l) => l).join('\n');
+  // 空内容兜底：不输出空 quote 标签对
+  if (!body.trim()) return [];
+  return ['[quote]', body, '[/quote]'];
 }
 
 function processList(el: HTMLElement, openTag: string): string[] {
@@ -464,12 +565,16 @@ function processList(el: HTMLElement, openTag: string): string[] {
       }
     }
   }
+  // 空内容兜底：无 li 项时不输出空 list 标签对
+  if (items.length === 0) return [];
   return [openTag, ...items, '[/list]'];
 }
 
 function processTable(el: HTMLElement): string[] {
-  const lines: string[] = ['[table]'];
   const rows = el.querySelectorAll('tr');
+  // 空内容兜底：无行时不输出空 table 标签对
+  if (rows.length === 0) return [];
+  const lines: string[] = ['[table]'];
   rows.forEach((row) => {
     let line = '[tr]';
     const cells = row.querySelectorAll('td,th');
@@ -506,9 +611,13 @@ function parseSpanStyle(el: HTMLElement): { open: string; close: string } {
     const pct = ptToSizePercent(rawSize);
     if (pct != null) {
       const nearest = nearestFontSize(pct);
-      if (nearest && nearest.percent !== NGA_DEFAULT_FONT_SIZE) {
-        tags.push(`[size=${nearest.percent}%]`);
-        closers.push('[/size]');
+      if (nearest) {
+        // 自定义百分比（与最近档位差距 > 1）原值保留，不强制匹配
+        const sizePercent = Math.abs(nearest.percent - pct) > 1 ? pct : nearest.percent;
+        if (sizePercent !== NGA_DEFAULT_FONT_SIZE) {
+          tags.push(`[size=${sizePercent}%]`);
+          closers.push('[/size]');
+        }
       }
     }
   }

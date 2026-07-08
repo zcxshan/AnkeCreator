@@ -459,6 +459,87 @@ export function applyActiveStylesToInsertion(
 }
 
 // ------------------------------------------------------------
+// IME 补偿：把 activeStyles 应用到一个已有 Range（包裹其中的文本）
+// 用于 onCompositionEnd —— IME 提交后浏览器已插入原始文本（无样式），
+// 用此函数把刚插入的文本包裹进 <span style="..."> 应用预选样式。
+// 返回 true 表示成功应用。
+// ------------------------------------------------------------
+export function applyActiveStylesToRange(
+  range: Range,
+  active: {
+    color?: string;
+    fontSize?: string;
+    fontFamily?: string;
+    bold?: boolean;
+    italic?: boolean;
+    underline?: boolean;
+    strike?: boolean;
+    sup?: boolean;
+    sub?: boolean;
+  },
+): boolean {
+  if (
+    !active.color &&
+    !active.fontSize &&
+    !active.fontFamily &&
+    !active.bold &&
+    !active.italic &&
+    !active.underline &&
+    !active.strike &&
+    !active.sup &&
+    !active.sub
+  ) {
+    return false;
+  }
+  if (range.collapsed) return false;
+
+  const wrap = document.createElement('span');
+  if (active.color) wrap.style.color = active.color;
+  if (active.fontSize) wrap.style.fontSize = active.fontSize;
+  if (active.fontFamily) wrap.style.fontFamily = active.fontFamily;
+  if (active.bold) wrap.style.fontWeight = 'bold';
+  if (active.italic) wrap.style.fontStyle = 'italic';
+  const deco: string[] = [];
+  if (active.underline) deco.push('underline');
+  if (active.strike) deco.push('line-through');
+  if (deco.length) wrap.style.textDecoration = deco.join(' ');
+
+  // sup/sub 互斥：如果两者都打开，sup 优先
+  let outer: HTMLElement = wrap;
+  if (active.sup) {
+    const sup = document.createElement('sup');
+    sup.appendChild(wrap);
+    outer = sup;
+  } else if (active.sub) {
+    const sub = document.createElement('sub');
+    sub.appendChild(wrap);
+    outer = sub;
+  }
+
+  // 用 wrap 包裹 Range 内的内容
+  try {
+    range.surroundContents(outer);
+  } catch {
+    // surroundContents 在 Range 跨越部分元素边界时会抛错
+    // 回退：extractContents + insertNode
+    const frag = range.extractContents();
+    wrap.appendChild(frag);
+    range.insertNode(outer);
+  }
+
+  // 把光标放到 wrap 末尾之后
+  const newRange = document.createRange();
+  newRange.setStartAfter(outer);
+  newRange.collapse(true);
+  const sel = window.getSelection();
+  if (sel) {
+    sel.removeAllRanges();
+    sel.addRange(newRange);
+  }
+  return true;
+}
+
+// ------------------------------------------------------------
 // 获取选区内某个 CSS 属性的有效值（从 anchorNode 向上遍历）
 // ------------------------------------------------------------
 function getComputedInSelection(
@@ -2504,17 +2585,44 @@ export function insertQuoteBlock(editor: HTMLElement): void {
   const blockquoteStyle = `background:var(--quote-bg);color:inherit;padding:8px 12px;border-left:3px solid var(--quote-border, #c8b88a);border-radius:4px;margin:6px 0;`;
 
   if (range.collapsed) {
-    // 2) 折叠光标：插入空 blockquote
-    const html = `<blockquote data-type="quote-block" style="${blockquoteStyle}"><br></blockquote>`;
-    document.execCommand('insertHTML', false, html);
+    // 2) 折叠光标：插入空 blockquote + trailing <br>（让光标能逃出引用块，#10）
+    const blockquote = document.createElement('blockquote');
+    blockquote.setAttribute('data-type', 'quote-block');
+    blockquote.setAttribute('style', blockquoteStyle);
+    blockquote.innerHTML = '<br>';
+    const trailingBr = document.createElement('br');
+    // 用 DocumentFragment 一次性插入，保持 blockquote → br 顺序
+    const frag = document.createDocumentFragment();
+    frag.appendChild(blockquote);
+    frag.appendChild(trailingBr);
+    range.insertNode(frag);
+    // 光标移到 blockquote 之后（trailing br 之前），让用户点击外部时光标能逃出引用块（#10）
+    const newRange = document.createRange();
+    newRange.setStartAfter(blockquote);
+    newRange.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(newRange);
   } else {
-    // 3) 有选区：先 extractContents，再用 insertHTML 替换
-    const frag = range.extractContents();
+    // 3) 有选区：用 cloneContents 保留边界 span 的完整样式（extractContents 会拆 span）（#9）
+    const frag = range.cloneContents();
     const tmp = document.createElement('div');
     tmp.appendChild(frag);
     const inner = tmp.innerHTML || '<br>';
-    const html = `<blockquote data-type="quote-block" style="${blockquoteStyle}">${inner}</blockquote>`;
-    document.execCommand('insertHTML', false, html);
+    const blockquote = document.createElement('blockquote');
+    blockquote.setAttribute('data-type', 'quote-block');
+    blockquote.setAttribute('style', blockquoteStyle);
+    blockquote.innerHTML = inner;
+    range.deleteContents();
+    range.insertNode(blockquote);
+    // 追加 trailing <br>（让光标能逃出引用块，#10）
+    const trailingBr = document.createElement('br');
+    blockquote.parentNode!.insertBefore(trailingBr, blockquote.nextSibling);
+    // 选区移到 blockquote 之后（trailing br 之前）
+    const newRange = document.createRange();
+    newRange.setStartAfter(blockquote);
+    newRange.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(newRange);
   }
 
   dispatchInput(editor);

@@ -73,6 +73,8 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
   const [pendingEpubExport, setPendingEpubExport] = useState<
     { id: string; safeTitle: string } | null
   >(null);
+  // 已确认的 EPUB 导出选项（用于失败后重试）
+  const [confirmedEpubOptions, setConfirmedEpubOptions] = useState<EpubExportOptions | null>(null);
 
   // 收藏夹
   const [favorites, setFavorites] = useState<Favorite[]>([]);
@@ -358,21 +360,39 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
   const handleEpubOptionsConfirm = async (options: EpubExportOptions) => {
     if (!pendingEpubExport) return;
     const { id, safeTitle } = pendingEpubExport;
+    setConfirmedEpubOptions(options);
     setEpubOptionsOpen(false);
     setEpubExportOpen(true);
     const res = await window.electronAPI.exportEpub(id, safeTitle, options);
     if (res.canceled) {
       setEpubExportOpen(false);
       setPendingEpubExport(null);
+      setConfirmedEpubOptions(null);
       return;
     }
     if (!res.ok) {
       showToast(`EPUB 导出失败：${res.error || '未知错误'}`, 'error');
       setEpubExportOpen(false);
       setPendingEpubExport(null);
+      setConfirmedEpubOptions(null);
       return;
     }
     // 成功时不立即关闭弹窗，等收到 done 进度后再由弹窗内部关闭
+    // 若有失败图片，弹窗内会显示重试按钮
+  };
+
+  /** 重试 EPUB 导出（用相同的选项重新导出，让 fetchImage 内置重试处理之前失败的图片） */
+  const handleEpubRetry = async () => {
+    if (!pendingEpubExport || !confirmedEpubOptions) return;
+    const { id, safeTitle } = pendingEpubExport;
+    setEpubExportOpen(true);
+    const res = await window.electronAPI.exportEpub(id, safeTitle, confirmedEpubOptions);
+    if (res.canceled || !res.ok) {
+      setEpubExportOpen(false);
+      setPendingEpubExport(null);
+      setConfirmedEpubOptions(null);
+      return;
+    }
   };
 
   /** 关闭选项框（用户取消） */
@@ -898,7 +918,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
                 </button>
               )}
 
-              <div className="ml-auto flex items-center gap-2">
+              <div className="ml-auto flex items-center gap-2 flex-wrap">
                 <button
                   onClick={() => setActiveFilter('trash')}
                   className="px-3 py-2 text-xs rounded-lg transition-colors inline-flex items-center gap-1.5"
@@ -1429,7 +1449,9 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
         onClose={() => {
           setEpubExportOpen(false)
           setPendingEpubExport(null)
+          setConfirmedEpubOptions(null)
         }}
+        onRetry={handleEpubRetry}
       />
 
       {/* 收藏夹：新建 / 重命名 / 删除（仅空） */}

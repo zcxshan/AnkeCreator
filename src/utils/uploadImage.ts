@@ -136,43 +136,62 @@ export async function uploadImagesWithProgress(
 }
 
 /**
- * 本地保存：Electron 模式下直接用图片的绝对路径作为 URL（不复制文件）
- * - Electron：主进程写文件 + local:// 协议
+ * 本地保存：Electron 模式下通过 IPC 写入 userData/images/ 并返回 local:// 协议 URL
+ * - Electron：主进程写文件 + local:// 协议（避免依赖新 Chromium 已移除的 File.path）
  * - Capacitor：@capacitor/filesystem 写入设备 Documents
  * - 浏览器：返回错误
  *
- * URL 存储 = 用户原图路径（如 C:\Users\foo\image.png 或 Capacitor file:// 路径）
+ * URL 存储 = local:// 协议 URL（Electron）或 Capacitor file:// 路径
  * NGA 导出时由 ngaHtmlToBBCode.isUnreachableImage 识别为"不可达"，替换为占位符
  */
 async function saveImageLocal(
   file: File | Blob,
   filePath?: string,
 ): Promise<UploadedImage> {
-  // 1. Electron 环境
+  // 1. Electron 环境：通过 IPC 写盘 + 返回 local:// URL
+  if (typeof window !== 'undefined' && window.electronAPI?.saveImageLocal) {
+    try {
+      const buffer = await fileToBase64(file);
+      const filename = file instanceof File && file.name ? file.name : `image_${Date.now()}.png`;
+      const mimeType = file instanceof File && file.type ? file.type : 'image/png';
+      const res = await window.electronAPI.saveImageLocal({ buffer, filename, mimeType });
+      return {
+        ok: res.ok,
+        url: res.url,
+        error: res.error,
+        host: 'local',
+        fileName: file instanceof File ? file.name : filename,
+      };
+    } catch (e) {
+      return {
+        ok: false,
+        error: (e as Error)?.message || '本地保存失败',
+        host: 'local',
+      };
+    }
+  }
+  // 兼容：旧版 Electron 无 saveImageLocal IPC 时退回绝对路径（依赖 File.path，新 Chromium 已移除）
   if (typeof window !== 'undefined' && window.electronAPI) {
-    // 优先用 IPC 传过来的 filePath（selectImage 选择文件时的真实绝对路径）
     let actualPath = filePath;
     if (!actualPath) {
-      // 兼容：尝试从 File 对象取 path（Electron 老版本 File.path）
       try {
         actualPath = (file as any).path;
       } catch {
         actualPath = undefined;
       }
     }
-    if (!actualPath) {
+    if (actualPath) {
       return {
-        ok: false,
-        error: '本地保存无法获取文件路径，请重新选择文件',
+        ok: true,
+        url: actualPath,
         host: 'local',
+        fileName: file instanceof File ? file.name : '',
       };
     }
-    // 直接用绝对路径作为 URL（不复制文件到 userData/images/）
     return {
-      ok: true,
-      url: actualPath,
+      ok: false,
+      error: '本地保存无法获取文件路径，请更新应用或重新选择文件',
       host: 'local',
-      fileName: file instanceof File ? file.name : '',
     };
   }
 

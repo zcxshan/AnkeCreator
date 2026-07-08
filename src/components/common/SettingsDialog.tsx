@@ -27,6 +27,9 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   const clearNgaCookies = useSettingStore((s) => s.clearNgaCookies);
   const soundEnabled = useSettingStore((s) => s.soundEnabled);
   const setSoundEnabled = useSettingStore((s) => s.setSoundEnabled);
+  const diceSoundName = useSettingStore((s) => s.diceSoundName);
+  const setDiceSoundName = useSettingStore((s) => s.setDiceSoundName);
+  const availableDiceSounds = useSettingStore((s) => s.availableDiceSounds);
   const [cookieDraft, setCookieDraft] = useState('');
   const [openFolderHint, setOpenFolderHint] = useState<string | null>(null);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
@@ -91,9 +94,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
           background: 'var(--bg-card, #fff)',
           borderRadius: 10,
           boxShadow: '0 12px 40px rgba(0,0,0,0.2)',
-          width: '90vw',
-          maxWidth: 520,
-          minWidth: 420,
+          width: 'min(90vw, 520px)',
           maxHeight: '85vh',
           display: 'flex',
           flexDirection: 'column',
@@ -164,47 +165,11 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
               marginBottom: 10,
             }}
           >
-            <span
-              style={{
-                fontSize: 13,
-                fontWeight: 500,
-                color: 'var(--text-primary, #111)',
-              }}
-            >
-              📁 启用本地上传
-            </span>
-            <button
-              role="switch"
-              aria-checked={localUploadEnabled}
-              onClick={() => setLocalUploadEnabled(!localUploadEnabled)}
-              style={{
-                width: 36,
-                height: 20,
-                borderRadius: 10,
-                background: localUploadEnabled ? 'var(--accent, #2563eb)' : 'var(--border-color, #e5e7eb)',
-                border: 'none',
-                cursor: 'pointer',
-                position: 'relative',
-                transition: 'background 0.2s',
-                flexShrink: 0,
-              }}
-              title="关闭时所有本地上传入口不可用（编辑器图片、人物模板差分、角色差分）"
-            >
-              <span
-                style={{
-                  display: 'block',
-                  width: 16,
-                  height: 16,
-                  borderRadius: 8,
-                  background: '#fff',
-                  position: 'absolute',
-                  top: 2,
-                  left: localUploadEnabled ? 18 : 2,
-                  transition: 'left 0.2s',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                }}
-              />
-            </button>
+            <ToggleSwitch
+              label="📁 启用本地上传"
+              checked={localUploadEnabled}
+              onChange={setLocalUploadEnabled}
+            />
             <span
               style={{
                 fontSize: 11,
@@ -281,7 +246,8 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 gap: 8,
               }}
             >
-              <button
+              <SettingsBtn
+                variant="ghost"
                 onClick={() => {
                   try {
                     localStorage.removeItem('anke-creator-image-warning-dismissed');
@@ -290,16 +256,10 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                     useToastStore.getState().showToast('重置失败', 'error');
                   }
                 }}
-                className="text-[10px] px-2 py-1 rounded transition-colors"
-                style={{
-                  background: 'var(--bg-card)',
-                  color: 'var(--accent)',
-                  border: '1px solid var(--accent)',
-                }}
                 title="清除 anke-creator-image-warning-dismissed 标记，下次本地上传重新弹警告"
               >
                 🔄 重置图片警告
-              </button>
+              </SettingsBtn>
               <span className="text-[10px]" style={{ color: 'var(--text-muted, #999)' }}>
                 如果之前勾过「不再提示」，点此恢复
               </span>
@@ -319,47 +279,11 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
               marginBottom: 10,
             }}
           >
-            <span
-              style={{
-                fontSize: 13,
-                fontWeight: 500,
-                color: 'var(--text-primary, #111)',
-              }}
-            >
-              🔊 启用掷骰音效
-            </span>
-            <button
-              role="switch"
-              aria-checked={soundEnabled}
-              onClick={() => setSoundEnabled(!soundEnabled)}
-              style={{
-                width: 36,
-                height: 20,
-                borderRadius: 10,
-                background: soundEnabled ? 'var(--accent, #2563eb)' : 'var(--border-color, #e5e7eb)',
-                border: 'none',
-                cursor: 'pointer',
-                position: 'relative',
-                transition: 'background 0.2s',
-                flexShrink: 0,
-              }}
-              title="关闭后掷骰不再发出声音"
-            >
-              <span
-                style={{
-                  display: 'block',
-                  width: 16,
-                  height: 16,
-                  borderRadius: 8,
-                  background: '#fff',
-                  position: 'absolute',
-                  top: 2,
-                  left: soundEnabled ? 18 : 2,
-                  transition: 'left 0.2s',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                }}
-              />
-            </button>
+            <ToggleSwitch
+              label="🔊 启用掷骰音效"
+              checked={soundEnabled}
+              onChange={setSoundEnabled}
+            />
             <span
               style={{
                 fontSize: 11,
@@ -378,6 +302,56 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
               关闭后掷骰不再发出声音
             </span>
           </div>
+
+          {/* 音效选择器 */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              flexWrap: 'wrap',
+              padding: '4px 6px 6px',
+            }}
+          >
+            <span
+              style={{
+                fontSize: 13,
+                fontWeight: 500,
+                color: 'var(--text-primary, #111)',
+              }}
+            >
+              🎵 音效选择
+            </span>
+            <select
+              value={diceSoundName}
+              onChange={(e) => setDiceSoundName(e.target.value)}
+              disabled={!soundEnabled}
+              style={{
+                fontSize: 12,
+                padding: '4px 8px',
+                borderRadius: 6,
+                border: '1px solid var(--border-color, #e5e7eb)',
+                background: 'var(--bg-input, #fff)',
+                color: 'var(--text-primary, #111)',
+                cursor: soundEnabled ? 'pointer' : 'not-allowed',
+                opacity: soundEnabled ? 1 : 0.5,
+              }}
+            >
+              {availableDiceSounds.map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </select>
+          </div>
+          <div
+            style={{
+              fontSize: 10,
+              color: 'var(--text-muted, #999)',
+              padding: '0 6px 10px',
+              lineHeight: 1.6,
+            }}
+          >
+            音效文件位于项目 public/sounds/ 目录，放入 mp3 后重启应用生效。
+          </div>
         </Section>
 
         {/* 分组：本地图片目录 */}
@@ -390,21 +364,9 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
               flexWrap: 'wrap',
             }}
           >
-            <button
-              onClick={handleOpenFolder}
-              style={{
-                padding: '7px 14px',
-                fontSize: 12,
-                fontWeight: 500,
-                border: '1px solid var(--border-color, #e5e7eb)',
-                borderRadius: 6,
-                background: 'var(--bg-hover, rgba(0,0,0,0.04))',
-                color: 'var(--text-primary, #111)',
-                cursor: 'pointer',
-              }}
-            >
+            <SettingsBtn variant="ghost" onClick={handleOpenFolder}>
               打开本地图片目录
-            </button>
+            </SettingsBtn>
             <span
               style={{
                 fontSize: 11,
@@ -450,7 +412,8 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
               flexWrap: 'wrap',
             }}
           >
-            <button
+            <SettingsBtn
+              variant="danger"
               onClick={async () => {
                 if (typeof window === 'undefined' || !window.electronAPI?.clearAllData) {
                   setOpenFolderHint('当前环境不支持此功能（仅 Electron 桌面端可用）。Android 卸载时系统会自动清空数据。')
@@ -466,20 +429,11 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                   useToastStore.getState().showToast(`清空失败：${res.error || '未知错误'}`, 'error')
                 }
               }}
-              style={{
-                padding: '5px 12px',
-                fontSize: 11,
-                fontWeight: 500,
-                border: '1px solid var(--danger, #dc2626)55',
-                borderRadius: 5,
-                background: 'rgba(220,38,38,0.08)',
-                color: 'var(--danger, #dc2626)',
-                cursor: 'pointer',
-              }}
             >
               🗑️ 清空所有本地数据
-            </button>
-            <button
+            </SettingsBtn>
+            <SettingsBtn
+              variant="ghost"
               onClick={() => {
                 if (window.electronAPI?.openUninstallGuide) {
                   window.electronAPI.openUninstallGuide()
@@ -487,19 +441,9 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                   setOpenFolderHint('当前环境不支持此功能')
                 }
               }}
-              style={{
-                padding: '5px 12px',
-                fontSize: 11,
-                fontWeight: 500,
-                border: '1px solid var(--border-color)',
-                borderRadius: 5,
-                background: 'var(--bg-hover, rgba(0,0,0,0.04))',
-                color: 'var(--text-primary)',
-                cursor: 'pointer',
-              }}
             >
               了解卸载行为
-            </button>
+            </SettingsBtn>
           </div>
         </Section>
 
@@ -550,43 +494,33 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 marginTop: 8,
               }}
             >
-              <button
-                onClick={() => setNgaCookies(cookieDraft)}
-                disabled={cookieDraft === ngaCookies}
+              <SettingsBtn
+                variant="primary"
+                onClick={() => {
+                  if (cookieDraft === ngaCookies) return;
+                  setNgaCookies(cookieDraft);
+                }}
                 style={{
-                  padding: '5px 12px',
-                  fontSize: 11,
-                  fontWeight: 500,
-                  border: '1px solid var(--accent, #2563eb)55',
-                  borderRadius: 5,
-                  background: 'rgba(37,99,235,0.08)',
-                  color: 'var(--accent, #2563eb)',
                   cursor: cookieDraft === ngaCookies ? 'not-allowed' : 'pointer',
                   opacity: cookieDraft === ngaCookies ? 0.5 : 1,
                 }}
               >
                 保存 Cookie
-              </button>
-              <button
+              </SettingsBtn>
+              <SettingsBtn
+                variant="ghost"
                 onClick={() => {
+                  if (!ngaCookies) return;
                   clearNgaCookies();
                   setCookieDraft('');
                 }}
-                disabled={!ngaCookies}
                 style={{
-                  padding: '5px 12px',
-                  fontSize: 11,
-                  fontWeight: 500,
-                  border: '1px solid var(--border-color)',
-                  borderRadius: 5,
-                  background: 'var(--bg-hover, rgba(0,0,0,0.04))',
-                  color: 'var(--text-primary)',
                   cursor: !ngaCookies ? 'not-allowed' : 'pointer',
                   opacity: !ngaCookies ? 0.5 : 1,
                 }}
               >
                 清除
-              </button>
+              </SettingsBtn>
               {ngaCookies && (
                 <span
                   style={{
@@ -612,21 +546,9 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
             borderTop: '1px solid var(--border-color)',
           }}
         >
-          <button
-            onClick={onClose}
-            style={{
-              padding: '7px 18px',
-              fontSize: 12,
-              fontWeight: 600,
-              border: '1px solid var(--accent, #2563eb)33',
-              borderRadius: 6,
-              background: 'rgba(37,99,235,0.08)',
-              color: 'var(--accent, #2563eb)',
-              cursor: 'pointer',
-            }}
-          >
+          <SettingsBtn variant="primary" onClick={onClose}>
             完成
-          </button>
+          </SettingsBtn>
         </div>
       </div>
       <style>
@@ -648,13 +570,14 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div style={{ marginTop: 14 }}>
+    <div style={{ marginTop: 18 }}>
       <div
         style={{
           fontSize: 12,
           fontWeight: 600,
           color: 'var(--text-secondary, #666)',
           marginBottom: 8,
+          letterSpacing: '0.02em',
         }}
       >
         {title}
@@ -663,8 +586,10 @@ function Section({ title, children }: { title: string; children: React.ReactNode
         style={{
           background: 'var(--bg-base, #fafafa)',
           border: '1px solid var(--border-color, #e5e7eb)',
+          borderLeft: '3px solid var(--accent, #2563eb)',
           borderRadius: 6,
-          padding: 10,
+          padding: 14,
+          transition: 'border-color 0.15s',
         }}
       >
         {children}
@@ -692,11 +617,13 @@ function RadioRow({
         display: 'flex',
         alignItems: 'flex-start',
         gap: 8,
-        padding: '8px 6px',
+        padding: '10px 10px 10px 8px',
         borderRadius: 4,
         cursor: disabled ? 'not-allowed' : 'pointer',
-        background: checked ? 'rgba(37,99,235,0.06)' : 'transparent',
+        background: checked ? 'var(--accent-bg, rgba(37,99,235,0.08))' : 'transparent',
+        borderLeft: checked ? '3px solid var(--accent, #2563eb)' : '3px solid transparent',
         opacity: disabled ? 0.4 : 1,
+        transition: 'background 0.15s, border-color 0.15s',
       }}
       onMouseEnter={(e) => {
         if (disabled) return;
@@ -705,7 +632,7 @@ function RadioRow({
       onMouseLeave={(e) => {
         if (disabled) return;
         e.currentTarget.style.background = checked
-          ? 'rgba(37,99,235,0.06)'
+          ? 'var(--accent-bg, rgba(37,99,235,0.08))'
           : 'transparent';
       }}
     >
@@ -736,6 +663,60 @@ function RadioRow({
         >
           {description}
         </div>
+      </div>
+    </label>
+  );
+}
+
+function SettingsBtn({ variant = 'ghost', onClick, children, title, style }: {
+  variant?: 'primary' | 'danger' | 'ghost';
+  onClick?: () => void;
+  children: React.ReactNode;
+  title?: string;
+  style?: React.CSSProperties;
+}) {
+  const baseStyle: React.CSSProperties = {
+    padding: '6px 12px',
+    fontSize: 12,
+    borderRadius: 6,
+    cursor: 'pointer',
+    transition: 'background 0.15s, border-color 0.15s, color 0.15s',
+    border: '1px solid var(--border-color, #e5e7eb)',
+    ...style,
+  };
+  const variantStyle = variant === 'primary'
+    ? { background: 'rgba(37,99,235,0.08)', borderColor: 'rgba(37,99,235,0.4)', color: 'var(--accent, #2563eb)' }
+    : variant === 'danger'
+    ? { background: 'rgba(220,38,38,0.08)', borderColor: 'rgba(220,38,38,0.4)', color: 'var(--danger, #dc2626)' }
+    : { background: 'var(--bg-hover, transparent)', color: 'var(--text-primary, #111)' };
+  return (
+    <button onClick={onClick} title={title} style={{ ...baseStyle, ...variantStyle }}>
+      {children}
+    </button>
+  );
+}
+
+function ToggleSwitch({ checked, onChange, label }: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+}) {
+  return (
+    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+      <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>{label}</span>
+      <div
+        onClick={() => onChange(!checked)}
+        style={{
+          width: 36, height: 20, borderRadius: 10,
+          background: checked ? 'var(--accent, #2563eb)' : 'var(--bg-hover, #e5e7eb)',
+          position: 'relative', transition: 'background 0.2s',
+        }}
+      >
+        <div style={{
+          position: 'absolute', top: 2, left: checked ? 18 : 2,
+          width: 16, height: 16, borderRadius: '50%', background: '#fff',
+          transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+        }} />
       </div>
     </label>
   );

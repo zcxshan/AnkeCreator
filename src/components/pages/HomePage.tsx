@@ -7,12 +7,15 @@ import { isCapacitor } from '../../utils/platform';
 interface HomePageProps {
   onOpenStory: (storyId: string) => void;
   onShowWorks?: () => void;
-  onShowTemplates?: () => void;
+  onShowResourceLibrary?: () => void;
   onShowTutorial?: () => void;
   onShowAuthor?: () => void;
-  onShowAnjia?: () => void;
+  onShowAnjiaCollect?: () => void;
+  onShowAnkeCollect?: () => void;
+  onShowGululuCollect?: () => void;
   onShowFindAnke?: () => void;
   onShowDicePlayground?: () => void;
+  onShowCreationLog?: (storyId: string) => void;
 }
 
 interface StatItem {
@@ -48,13 +51,15 @@ interface RecentStorySummary {
  *   │ 最近编辑的作品（点击进入编辑）         │
  *   └────────────────────────────────────────┘
  */
-export function HomePage({ onOpenStory, onShowWorks, onShowTemplates, onShowTutorial, onShowAuthor, onShowAnjia, onShowFindAnke, onShowDicePlayground }: HomePageProps) {
+export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onShowTutorial, onShowAuthor, onShowAnjiaCollect, onShowAnkeCollect, onShowGululuCollect, onShowFindAnke, onShowDicePlayground, onShowCreationLog }: HomePageProps) {
   const { stories, createStory, setActiveStory } = useStoryStore();
 
   const [showNewStoryModal, setShowNewStoryModal] = useState(false);
-  const [showOpenModal, setShowOpenModal] = useState(false);
   const [newStoryTitle, setNewStoryTitle] = useState('');
   const [newStoryDescription, setNewStoryDescription] = useState('');
+  // 创作日志作品选择弹窗
+  const [showStoryPicker, setShowStoryPicker] = useState(false);
+  const [pickerStories, setPickerStories] = useState<{ id: string; title: string; updated_at: string }[]>([]);
   // 最近编辑作品列表（供首页「最近编辑」区块渲染）
   const [recentStories, setRecentStories] = useState<RecentStorySummary[]>([]);
 
@@ -78,7 +83,9 @@ export function HomePage({ onOpenStory, onShowWorks, onShowTemplates, onShowTuto
         totalWords += s.wordCount || 0;
       }
 
-      const totalDice = diceRecords.length;
+      // 只统计当前仍存在的作品的骰点记录（#1：删除作品后骰子历史可能残留）
+      const validStoryIds = new Set(storiesWithStats.map((s) => s.id));
+      const totalDice = diceRecords.filter((r) => validStoryIds.has(r.storyId)).length;
 
       if (!cancelled) {
         setStats([
@@ -161,20 +168,9 @@ export function HomePage({ onOpenStory, onShowWorks, onShowTemplates, onShowTuto
               <span className={isCapacitor ? 'text-sm leading-none' : 'text-lg leading-none'}>+</span>
               新建安科
             </button>
-            <button
-              onClick={() => { if (onShowWorks) onShowWorks(); else setShowOpenModal(true); }}
-              className={isCapacitor
-                ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
-                : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'}
-              style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)' }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)' }}
-            >
-              打开已有
-            </button>
-            {onShowTemplates && (
+            {onShowResourceLibrary && (
               <button
-                onClick={onShowTemplates}
+                onClick={onShowResourceLibrary}
                 className={isCapacitor
                   ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
                   : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'}
@@ -182,7 +178,7 @@ export function HomePage({ onOpenStory, onShowWorks, onShowTemplates, onShowTuto
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
               >
-                <span>📦</span> 模板库
+                <span>🗂️</span> 资源库
               </button>
             )}
             {onShowTutorial && (
@@ -198,17 +194,43 @@ export function HomePage({ onOpenStory, onShowWorks, onShowTemplates, onShowTuto
                 <span>📚</span> 使用教程
               </button>
             )}
-            {onShowAnjia && !isCapacitor && (
+            {onShowAnjiaCollect && !isCapacitor && (
               <button
-                onClick={onShowAnjia}
+                onClick={onShowAnjiaCollect}
                 className={isCapacitor
                   ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
                   : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'}
                 style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)' }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
               >
-                <span>📜</span> 收集安价/安科
+                <span>📜</span> 收集安价
+              </button>
+            )}
+            {onShowAnkeCollect && !isCapacitor && (
+              <button
+                onClick={onShowAnkeCollect}
+                className={isCapacitor
+                  ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
+                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'}
+                style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
+              >
+                <span>📖</span> 收集安科
+              </button>
+            )}
+            {onShowGululuCollect && !isCapacitor && (
+              <button
+                onClick={onShowGululuCollect}
+                className={isCapacitor
+                  ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
+                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'}
+                style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
+              >
+                <span>📕</span> 收集骨碌碌
               </button>
             )}
             {onShowFindAnke && !isCapacitor && (
@@ -235,6 +257,28 @@ export function HomePage({ onOpenStory, onShowWorks, onShowTemplates, onShowTuto
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
               >
                 <span>🎲</span> 玩骰子
+              </button>
+            )}
+            {onShowCreationLog && (
+              <button
+                onClick={async () => {
+                  try {
+                    const list = await db.listStories();
+                    setPickerStories(list.map((s: any) => ({ id: s.id, title: s.title, updated_at: s.updated_at })));
+                    setShowStoryPicker(true);
+                  } catch {
+                    setPickerStories([]);
+                    setShowStoryPicker(true);
+                  }
+                }}
+                className={isCapacitor
+                  ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
+                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'}
+                style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
+              >
+                <span>📝</span> 创作日志
               </button>
             )}
           </div>
@@ -277,7 +321,7 @@ export function HomePage({ onOpenStory, onShowWorks, onShowTemplates, onShowTuto
               最近编辑
             </h2>
             <button
-              onClick={() => { if (onShowWorks) onShowWorks(); else setShowOpenModal(true); }}
+              onClick={() => onShowWorks?.()}
               className="text-xs transition-colors"
               style={{ color: 'var(--text-secondary)' }}
               onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)' }}
@@ -415,42 +459,46 @@ export function HomePage({ onOpenStory, onShowWorks, onShowTemplates, onShowTuto
         </Modal>
       )}
 
-      {/* 打开已有作品弹窗 */}
-      {showOpenModal && (
-        <Modal onClose={() => setShowOpenModal(false)} title="选择作品">
-          {stories.length === 0 ? (
-            <div className="text-center py-6 text-sm" style={{ color: 'var(--text-secondary)' }}>
-              还没有作品，点击「新建安科」创建第一个吧
+      {/* 创作日志作品选择弹窗 */}
+      {showStoryPicker && (
+        <Modal onClose={() => setShowStoryPicker(false)} title="选择作品查看创作日志">
+          {pickerStories.length === 0 ? (
+            <div className="text-center py-8 text-sm" style={{ color: 'var(--text-secondary)' }}>
+              暂无作品，请先创建一个安科作品
             </div>
           ) : (
-            <div className="max-h-80 overflow-y-auto space-y-2">
-              {[...stories]
-                .sort(
-                  (a, b) =>
-                    new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
-                )
-                .map((story) => (
-                  <button
-                    key={story.id}
-                    onClick={() => {
-                      setShowOpenModal(false);
-                      setActiveStory(story.id);
-                      onOpenStory(story.id);
-                    }}
-                    className="w-full text-left px-4 py-3 rounded-lg transition-all"
-                    style={{ border: '1px solid var(--border-color)', background: 'var(--bg-card)' }}
-                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.background = 'var(--accent-bg)' }}
-                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.background = 'var(--bg-card)' }}
-                  >
-                    <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{story.title}</div>
-                    <div className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-                      {formatDate(story.updated_at)}
-                      {story.description ? ` · ${story.description}` : ''}
-                    </div>
-                  </button>
-                ))}
+            <div className="max-h-80 overflow-y-auto space-y-1">
+              {pickerStories.map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => {
+                    setShowStoryPicker(false);
+                    onShowCreationLog?.(s.id);
+                  }}
+                  className="w-full text-left px-3 py-2 rounded-lg text-sm transition-colors"
+                  style={{ color: 'var(--text-primary)' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                >
+                  <div className="font-medium truncate">{s.title}</div>
+                  <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    更新于 {new Date(s.updated_at).toLocaleString()}
+                  </div>
+                </button>
+              ))}
             </div>
           )}
+          <div className="flex justify-end pt-2">
+            <button
+              onClick={() => setShowStoryPicker(false)}
+              className="px-4 py-2 text-sm rounded-lg transition-colors"
+              style={{ color: 'var(--text-primary)' }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+            >
+              取消
+            </button>
+          </div>
         </Modal>
       )}
     </div>

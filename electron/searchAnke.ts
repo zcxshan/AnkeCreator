@@ -190,6 +190,8 @@ function extractTagsAndStatus(title: string): {
 async function searchGululu(
   keyword: string,
   matchField: 'all' | 'title' | 'author' = 'title',
+  page: number = 1,
+  limit?: number,
 ): Promise<GululuResult[]> {
   const GULULU_HEADERS: Record<string, string> = {
     'User-Agent':
@@ -385,11 +387,12 @@ async function searchGululu(
     }
   }
 
-  async function searchGululuByTitle(keyword: string): Promise<GululuResult[]> {
+  async function searchGululuByTitle(keyword: string, page: number = 1): Promise<GululuResult[]> {
     const key = keyword?.trim() || ''
-    const url = key
-      ? `https://backend.gululu.world/search/generalPageV2?type=OPUS&key=${encodeURIComponent(key)}&page=1`
-      : `https://backend.gululu.world/search/generalPageV2?type=OPUS&page=1`
+    if (!key) {
+      throw new Error('请输入搜索关键词')
+    }
+    const url = `https://backend.gululu.world/search/generalPageV2?type=OPUS&key=${encodeURIComponent(key)}&page=${page}`
     const resp = await fetchWithTimeout(url, { method: 'GET', headers: GULULU_HEADERS })
     console.log('[searchGululu] HTTP status:', resp.status)
     if (!resp.ok) throw new Error(`骨碌碌请求失败: HTTP ${resp.status}`)
@@ -412,7 +415,7 @@ async function searchGululu(
     if (results.length === 0 && key) {
       throw new Error(`骨碌碌未找到标题包含"${key}"的作品`)
     }
-    return results.slice(0, 100)
+    return results
   }
 
   async function searchGululuByAuthor(keyword: string): Promise<GululuResult[]> {
@@ -449,7 +452,7 @@ async function searchGululu(
     if (results.length === 0) {
       throw new Error(`骨碌碌未找到作者名包含"${keyword}"的作者/作品`)
     }
-    return results.slice(0, 100)
+    return results
   }
 
   // ─── 现有行为：按作者搜索 ───
@@ -459,14 +462,15 @@ async function searchGululu(
 
   // ─── 现有行为：按标题搜索 ───
   if (matchField === 'title') {
-    return searchGululuByTitle(keyword)
+    return searchGululuByTitle(keyword, page)
   }
 
   // ─── 全部搜索：先尝试 ALL 混合接口，无结果时 fallback 到 OPUS + 作者 ───
   const key = keyword?.trim() || ''
-  const url = key
-    ? `https://backend.gululu.world/search/generalPageV2?type=ALL&key=${encodeURIComponent(key)}&page=1`
-    : `https://backend.gululu.world/search/generalPageV2?type=OPUS&page=1`
+  if (!key) {
+    throw new Error('请输入搜索关键词')
+  }
+  const url = `https://backend.gululu.world/search/generalPageV2?type=ALL&key=${encodeURIComponent(key)}&page=${page}`
   const resp = await fetchWithTimeout(url, { method: 'GET', headers: GULULU_HEADERS })
   console.log('[searchGululu] HTTP status:', resp.status)
   if (!resp.ok) throw new Error(`骨碌碌请求失败: HTTP ${resp.status}`)
@@ -504,7 +508,7 @@ async function searchGululu(
     let titleResults: GululuResult[] = []
     let authorResults2: GululuResult[] = []
     try {
-      titleResults = await searchGululuByTitle(keyword)
+      titleResults = await searchGululuByTitle(keyword, page)
     } catch (e) {
       console.error('[searchGululu] fallback OPUS error:', e)
     }
@@ -521,7 +525,7 @@ async function searchGululu(
     for (const r of authorResults) add(r)
     for (const r of titleResults) add(r)
     for (const r of authorResults2) add(r)
-    const results = Array.from(merged.values()).slice(0, 100)
+    const results = Array.from(merged.values())
     console.log('[searchGululu] fallback merged total:', results.length)
     if (results.length === 0) {
       throw new Error(`骨碌碌未找到包含"${key}"的结果`)
@@ -529,7 +533,7 @@ async function searchGululu(
     return results
   }
 
-  return [...bookResults, ...authorResults].slice(0, 100)
+  return [...bookResults, ...authorResults]
 }
 
 /**
@@ -547,10 +551,13 @@ async function searchNgaAnke(
   keyword: string,
   matchField: 'title' | 'author' = 'title',
   cookies?: string,
+  startPage: number = 1,
+  limit?: number,
 ): Promise<NgaResult[]> {
   // ngabbs.com 反爬相对宽松，优先尝试；bbs.nga.cn 反爬最严放最后
   const domains = ['https://ngabbs.com', 'https://nga.178.com', 'https://bbs.nga.cn']
-  const maxPages = 3
+  // limit 控制：每页约 20 条，+1 页容错；无 limit 时默认 3 页
+  const maxPages = limit ? Math.min(Math.ceil(limit / 20) + 1, 20) : 3
   const results: NgaResult[] = []
   const seenTids = new Set<string>()
   // 累积所有页的 HTML，用于 fallback 解析
@@ -876,7 +883,7 @@ async function searchNgaAnke(
   async function runWithFid(fid: string): Promise<{ ok: boolean; denied: boolean }> {
     for (const baseUrl of domains) {
       let denied = false
-      for (let page = 1; page <= maxPages; page++) {
+      for (let page = startPage; page < startPage + maxPages; page++) {
         let html: string
         let fetchResult: { html: string; status: number; ok: boolean } | undefined
         try {
@@ -938,9 +945,9 @@ async function searchNgaAnke(
 
         // 翻页判断：若本页未解析到新 tid 且不是第一页，停止翻页
         const seenBefore = seenTids.size
-        if (page === 1 && pageResults.length === 0 && html.length > 1000) {
+        if (page === startPage && pageResults.length === 0 && html.length > 1000) {
           // 第一页就无结果，可能是 HTML 结构变化，本页尝试 fallback
-          console.log('[searchNgaAnke] main parse 0 results on page 1, trying fallback...')
+          console.log('[searchNgaAnke] main parse 0 results on page', startPage, ', trying fallback...')
           const fbResults = parseHtmlFallback(html, baseUrl)
           if (fbResults.length > 0) {
             results.push(...fbResults)
@@ -950,9 +957,12 @@ async function searchNgaAnke(
         }
 
         const seenAfter = seenTids.size
-        if (seenAfter === seenBefore && page > 1) break
+        if (seenAfter === seenBefore && page > startPage) break
 
-        if (page < maxPages) {
+        // limit 控制：结果数已达上限，停止翻页
+        if (limit && results.length >= limit) break
+
+        if (page < startPage + maxPages - 1) {
           await new Promise((r) => setTimeout(r, 1500))
         }
       }
@@ -1044,7 +1054,11 @@ async function searchNgaAnke(
     )
   }
   console.log('[searchNgaAnke] results parsed:', results.length, 'usedBaseUrl:', usedBaseUrl)
-  return results.slice(0, 100)
+  // limit 截断：结果数超过上限时截断
+  if (limit && results.length > limit) {
+    return results.slice(0, limit)
+  }
+  return results
 }
 
 export function registerSearchAnkeIpc(): void {
@@ -1052,19 +1066,45 @@ export function registerSearchAnkeIpc(): void {
     'search:gululu',
     async (
       _event,
-      payload: string | { keyword: string; matchField?: 'all' | 'title' | 'author' },
+      payload: string | { keyword: string; matchField?: 'all' | 'title' | 'author'; page?: number; limit?: number },
     ) => {
       try {
-        // 兼容旧调用（直接传 keyword 字符串）和新调用（传对象 {keyword, matchField}）
+        // 兼容旧调用（直接传 keyword 字符串）和新调用（传对象 {keyword, matchField, page, limit}）
         let keyword = ''
         let matchField: 'all' | 'title' | 'author' = 'title'
+        let page = 1
+        let limit: number | undefined
         if (typeof payload === 'string') {
           keyword = payload
         } else if (payload && typeof payload === 'object') {
           keyword = payload.keyword || ''
           matchField = payload.matchField || 'title'
+          page = payload.page || 1
+          limit = payload.limit
         }
-        return { ok: true, data: await searchGululu(keyword || '', matchField) }
+        // limit 控制：循环抓多页直到凑够 limit 条或无更多结果
+        if (limit && limit > 0 && matchField !== 'author') {
+          const allResults: GululuResult[] = []
+          const seen = new Set<string>()
+          let curPage = page
+          const maxLoops = Math.min(Math.ceil(limit / 5) + 2, 20) // 安全上限：每页至少5条，最多翻20页
+          for (let i = 0; i < maxLoops; i++) {
+            const pageResults = await searchGululu(keyword || '', matchField, curPage)
+            let newCount = 0
+            for (const r of pageResults) {
+              if (!seen.has(r.url)) {
+                seen.add(r.url)
+                allResults.push(r)
+                newCount++
+              }
+            }
+            if (newCount === 0) break // 无更多结果
+            if (allResults.length >= limit) break // 达到上限
+            curPage++
+          }
+          return { ok: true, data: allResults.slice(0, limit) }
+        }
+        return { ok: true, data: await searchGululu(keyword || '', matchField, page) }
       } catch (e) {
         return { ok: false, error: (e as Error).message || '骨碌碌搜索失败' }
       }
@@ -1075,21 +1115,25 @@ export function registerSearchAnkeIpc(): void {
     'search:nga-anke',
     async (
       _event,
-      payload: string | { keyword: string; cookies?: string; matchField?: 'title' | 'author' },
+      payload: string | { keyword: string; cookies?: string; matchField?: 'title' | 'author'; startPage?: number; limit?: number },
     ) => {
       try {
-        // 兼容旧调用（直接传 keyword 字符串）和新调用（传对象 {keyword, cookies, matchField}）
+        // 兼容旧调用（直接传 keyword 字符串）和新调用（传对象 {keyword, cookies, matchField, startPage, limit}）
         let keyword = ''
         let cookies: string | undefined
         let matchField: 'title' | 'author' = 'title'
+        let startPage = 1
+        let limit: number | undefined
         if (typeof payload === 'string') {
           keyword = payload
         } else if (payload && typeof payload === 'object') {
           keyword = payload.keyword || ''
           cookies = payload.cookies
           matchField = payload.matchField || 'title'
+          startPage = payload.startPage || 1
+          limit = payload.limit
         }
-        return { ok: true, data: await searchNgaAnke(keyword || '', matchField, cookies) }
+        return { ok: true, data: await searchNgaAnke(keyword || '', matchField, cookies, startPage, limit) }
       } catch (e) {
         return { ok: false, error: (e as Error).message || 'NGA搜索失败' }
       }

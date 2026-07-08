@@ -40,18 +40,20 @@ export function FindAnkePage({ onBack }: FindAnkePageProps) {
 
   // 骨碌碌搜索函数：封装 IPC 调用
   const gululuSearchFn = useCallback(
-    (keyword: string, matchField: 'all' | 'title' | 'author') =>
-      (window as any).electronAPI.searchAnke.gululu(keyword, matchField),
+    (keyword: string, matchField: 'all' | 'title' | 'author', page?: number, limit?: number) =>
+      (window as any).electronAPI.searchAnke.gululu(keyword, matchField, page, limit),
     [],
   )
 
   // NGA 搜索函数：封装 IPC 调用 + Cookie
   const ngaSearchFn = useCallback(
-    (keyword: string, matchField: 'title' | 'author') =>
+    (keyword: string, matchField: 'title' | 'author', page?: number, limit?: number) =>
       (window as any).electronAPI.searchAnke.ngaAnke(
         keyword,
         ngaCookies || undefined,
         matchField,
+        page,
+        limit,
       ),
     [ngaCookies],
   )
@@ -176,7 +178,7 @@ export function FindAnkePage({ onBack }: FindAnkePageProps) {
                 icon="🌐"
                 title="骨碌碌安科搜索"
                 subtitle="gululu.world · 安科轻小说站"
-                placeholder="搜索骨碌碌安科（留空看全部，试试「mygo」「安价」）"
+                placeholder="搜索骨碌碌安科（试试「mygo」「安价」）"
                 searchFn={gululuSearchFn}
                 renderCard={(item, onOpen) => <GululuCard item={item} onOpen={onOpen} />}
                 filterConfig={{
@@ -196,6 +198,7 @@ export function FindAnkePage({ onBack }: FindAnkePageProps) {
                 flatLayout
                 matchFieldSwitchable={true}
                 defaultMatchField="all"
+                defaultSearchCount={20}
               />
             </div>
           </div>
@@ -231,7 +234,7 @@ export function FindAnkePage({ onBack }: FindAnkePageProps) {
                     ? 'ngabbs.com/fid=784 · 已配置 Cookie'
                     : 'ngabbs.com/fid=784 · 二次元跑团'
                 }
-                placeholder="搜索 NGA 安科（留空看全部，试试「mygo」「跑团」）"
+                placeholder="搜索 NGA 安科（试试「mygo」「跑团」）"
                 searchFn={ngaSearchFn}
                 renderCard={(item, onOpen) => <NgaCard item={item} onOpen={onOpen} />}
                 filterConfig={{
@@ -249,6 +252,7 @@ export function FindAnkePage({ onBack }: FindAnkePageProps) {
                 autoLoadOnMount={false}
                 flatLayout
                 matchFieldSwitchable={true}
+                defaultSearchCount={60}
               />
             </div>
           </div>

@@ -120,6 +120,9 @@ if (runDiag()) {
   // 必须在 app ready 之前调用 registerSchemesAsPrivileged
   registerSchemesAsPrivileged()
 
+  // 允许自动播放音频（掷骰音效需要，#4）：无需用户手势即可播放
+  app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
+
   app.whenReady().then(() => {
     console.log('[main] Electron ready, version:', process.versions.electron)
     console.log('[main] isPackaged:', app.isPackaged, 'execPath:', process.execPath)

@@ -284,6 +284,9 @@ export const useStoryStore = create<StoryState>((set, get) => ({
 
   permanentlyDeleteStory: async (id) => {
     await db.permanentlyDeleteStory(id);
+    // 级联清理骰子历史（#1）：diceHistory 存在 zustand localStorage，db 层不覆盖
+    const { clearByStory } = await import('./diceHistoryStore');
+    clearByStory(id);
     set((state) => ({
       trashedStories: state.trashedStories.filter((s) => s.id !== id),
     }));

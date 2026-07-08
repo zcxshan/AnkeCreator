@@ -138,7 +138,7 @@ export interface AnkeCollectResult {
  * 用于抓取失败/被吞楼后提示用户手动补充。
  * authorid 模式下不应调用（楼层间隔是其他作者回复，属于正常间隙）。
  */
-function insertPlaceholderPosts(
+export function insertPlaceholderPosts(
   posts: RawPost[],
   startFloor: number,
   endFloor: number,

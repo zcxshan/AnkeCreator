@@ -12,22 +12,31 @@ import { UploadProgressDialog } from '../common/UploadProgressDialog';
 import { useToastStore } from '../../store/toastStore';
 import { useSettingStore } from '../../store/settingStore';
 import { uploadImagesWithProgress, ensureLocalWarning, type UploadProgressEvent } from '../../utils/uploadImage';
+import { addImageLibraryItem, ensureCharacterFolder } from '../../db/imageLibrary';
 
-interface TemplatesPageProps {
-  onBack: () => void;
+interface TemplatesPanelProps {
   onShowAuthor?: () => void;
+  initialTab?: TabKey;
+  /** 子 Tab 切换回调（让外层记住用户选择，切走再切回不重置）（#3） */
+  onTabChange?: (tab: TabKey) => void;
 }
 
 type TabKey = 'world' | 'character';
 
 /**
- * 模板页面：两个 Tab（世界观 / 人物），CRUD + 复制为草稿。
- * 在首页入口进入、独立于具体作品。
+ * 模板面板：两个 Tab（世界观 / 人物），CRUD + 复制为草稿。
+ * 嵌入 ResourceLibraryPage 使用；initialTab 控制初始展示的子 Tab。
  */
-export function TemplatesPage({ onBack, onShowAuthor }: TemplatesPageProps) {
+export function TemplatesPanel({ onShowAuthor, initialTab = 'world', onTabChange }: TemplatesPanelProps) {
   const loadTemplates = useMetaStore((s) => s.loadTemplates);
-  const [tab, setTab] = useState<TabKey>('world');
+  const [tab, setTab] = useState<TabKey>(initialTab);
   const importFileRef = useRef<HTMLInputElement | null>(null);
+
+  // 切换子 Tab 时同步通知外层（#3）
+  const handleTabChange = (next: TabKey) => {
+    setTab(next);
+    onTabChange?.(next);
+  };
 
   useEffect(() => {
     loadTemplates();
@@ -89,20 +98,10 @@ export function TemplatesPage({ onBack, onShowAuthor }: TemplatesPageProps) {
   return (
     <div className="h-full w-full flex flex-col overflow-hidden" style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}>
       <header
-        className="flex items-center justify-between px-6 py-4"
+        className="flex items-center justify-between px-6 py-3"
         style={{ borderBottom: '1px solid var(--border-color)' }}
       >
         <div className="flex items-center gap-3">
-          <button
-            onClick={onBack}
-            className="text-sm transition-colors"
-            style={{ color: 'var(--text-secondary)' }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)' }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)' }}
-          >
-            ← 返回首页
-          </button>
-          <h1 className="text-lg font-semibold">模板库</h1>
           {onShowAuthor && (
             <button
               onClick={onShowAuthor}
@@ -157,8 +156,8 @@ export function TemplatesPage({ onBack, onShowAuthor }: TemplatesPageProps) {
         className="flex items-center gap-1 px-6 py-2"
         style={{ borderBottom: '1px solid var(--border-color)' }}
       >
-        <TabBtn label="🌐 世界观模板" active={tab === 'world'} onClick={() => setTab('world')} />
-        <TabBtn label="🧑 人物模板" active={tab === 'character'} onClick={() => setTab('character')} />
+        <TabBtn label="🌐 世界观模板" active={tab === 'world'} onClick={() => handleTabChange('world')} />
+        <TabBtn label="🧑 人物模板" active={tab === 'character'} onClick={() => handleTabChange('character')} />
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-5">
@@ -944,7 +943,15 @@ function CharacterTemplateEditor({
     });
     if (res.ok && res.url) {
       setNewVariantUrl(res.url);
+      // 默认差分名 = 图片文件名（去后缀）（#12，与 CharacterEditor 行为一致）
+      const defaultName = file.name.replace(/\.[^.]+$/, '');
+      if (defaultName) setNewVariantName(defaultName);
       useToastStore.getState().showToast('差分图片就绪', 'success');
+      // 入库到图片库人物文件夹（失败不影响编辑器正常使用）
+      try {
+        const folderId = await ensureCharacterFolder();
+        await addImageLibraryItem({ folderId, url: res.url, filename: file.name, source: 'local' });
+      } catch {}
     } else {
       useToastStore
         .getState()
@@ -997,6 +1004,11 @@ function CharacterTemplateEditor({
         const dotIdx = fname.lastIndexOf('.');
         const name = dotIdx > 0 ? fname.slice(0, dotIdx) : fname;
         successes.push({ name, url: r.url });
+        // 入库到图片库人物文件夹（失败不影响编辑器正常使用）
+        const url = r.url;
+        ensureCharacterFolder()
+          .then((folderId) => addImageLibraryItem({ folderId, url, filename: fname, source: 'local' }))
+          .catch(() => {});
       } else {
         failures.push({
           name: fname,
@@ -1036,13 +1048,22 @@ function CharacterTemplateEditor({
     setVariants(list);
   };
 
-  const handleAvatarFromFile = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      setAvatar(dataUrl);
-    };
-    reader.readAsDataURL(file);
+  const handleAvatarFromFile = async (file: File) => {
+    try {
+      const results = await uploadImagesWithProgress([file], () => {});
+      if (results[0]?.ok && results[0].url) {
+        setAvatar(results[0].url);
+        // 入库到图片库人物文件夹（失败不影响编辑器正常使用）
+        try {
+          const folderId = await ensureCharacterFolder();
+          await addImageLibraryItem({ folderId, url: results[0].url, filename: file.name, source: 'local' });
+        } catch {}
+      } else {
+        useToastStore.getState().showToast(results[0]?.error || '头像上传失败', 'error');
+      }
+    } catch (e) {
+      useToastStore.getState().showToast((e as Error).message || '头像上传失败', 'error');
+    }
   };
 
   const handleAttrChange = (next: Record<string, string | number>) => {

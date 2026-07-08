@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   NGA_FONTS,
-  NGA_FONT_SIZES,
   NGA_COLORS,
   NGA_IMAGE_SIZES,
   NGA_DEFAULT_FONT,
@@ -9,7 +8,6 @@ import {
   NGA_DEFAULT_COLOR,
   NGA_DEFAULT_IMAGE_SIZE,
   ngaColorToCSS,
-  ngaSizeToCSS,
   ngaFontToCSS,
 } from '../../types';
 import {
@@ -60,7 +58,6 @@ import {
   cssColorToNga,
   cssFontToNga,
   ptToSizePercent,
-  nearestFontSize,
 } from '../../utils/ngaHtmlToBBCode';
 
 interface EditorToolbarProps {
@@ -115,6 +112,19 @@ const selectNga: React.CSSProperties = {
   borderRadius: 4,
   cursor: 'pointer',
   lineHeight: 1,
+  transition: 'border-color 0.15s, box-shadow 0.15s',
+};
+
+// 字号区域成组样式（#7）：select + input + % 视觉关联
+const fontSizeGroupStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 3,
+  padding: '2px 6px',
+  borderRadius: 6,
+  background: 'var(--bg-input, var(--bg-card))',
+  border: '1px solid var(--border-color)',
+  transition: 'border-color 0.15s',
 };
 
 const rowContainer: React.CSSProperties = {
@@ -327,63 +337,90 @@ export function EditorToolbar({
   const [showNGAImport, setShowNGAImport] = useState(false);
 
   // 激活状态 —— Word 行为：
-  //   - 优先读 activeStyles（用户主动点击设置的）
-  //   - 兜底读 cursorStyles（光标处/选区起点的实时样式，由 onSelectionChange 同步）
+  //   - activeStylesLocked=true 时：优先读 activeStyles（用户主动点击设置的样式意图，后续输入会延续）
+  //   - activeStylesLocked=false 时：优先读 cursorStyles（光标处/选区起点的实时样式，由 onSelectionChange 同步）
   //   - 最后 fallback 到 NGA 默认
   const activeStylesFromStore = useEditorStore((s) => s.activeStyles);
   const cursorStylesFromStore = useEditorStore((s) => s.cursorStyles);
+  const activeStylesLocked = useEditorStore((s) => s.activeStylesLocked);
 
-  const activeBold =
-    activeStylesFromStore.bold ?? cursorStylesFromStore.bold ?? false;
-  const activeItalic =
-    activeStylesFromStore.italic ?? cursorStylesFromStore.italic ?? false;
-  const activeUnderline =
-    activeStylesFromStore.underline ?? cursorStylesFromStore.underline ?? false;
-  const activeStrike =
-    activeStylesFromStore.strike ?? cursorStylesFromStore.strike ?? false;
-  const activeSup =
-    activeStylesFromStore.sup ?? cursorStylesFromStore.sup ?? false;
-  const activeSub =
-    activeStylesFromStore.sub ?? cursorStylesFromStore.sub ?? false;
+  const activeBold = activeStylesLocked
+    ? (activeStylesFromStore.bold ?? false)
+    : (cursorStylesFromStore.bold ?? activeStylesFromStore.bold ?? false);
+  const activeItalic = activeStylesLocked
+    ? (activeStylesFromStore.italic ?? false)
+    : (cursorStylesFromStore.italic ?? activeStylesFromStore.italic ?? false);
+  const activeUnderline = activeStylesLocked
+    ? (activeStylesFromStore.underline ?? false)
+    : (cursorStylesFromStore.underline ?? activeStylesFromStore.underline ?? false);
+  const activeStrike = activeStylesLocked
+    ? (activeStylesFromStore.strike ?? false)
+    : (cursorStylesFromStore.strike ?? activeStylesFromStore.strike ?? false);
+  const activeSup = activeStylesLocked
+    ? (activeStylesFromStore.sup ?? false)
+    : (cursorStylesFromStore.sup ?? activeStylesFromStore.sup ?? false);
+  const activeSub = activeStylesLocked
+    ? (activeStylesFromStore.sub ?? false)
+    : (cursorStylesFromStore.sub ?? activeStylesFromStore.sub ?? false);
 
   // 颜色：activeStyles.color (CSS) → cssColorToNga → NGA name；fallback cursorStyles 反查
+  // 按 activeStylesLocked 切换优先级（locked 时只读 activeStyles，否则光标处实际样式优先）
   const activeColorNgaName = (() => {
-    if (activeStylesFromStore.color) {
-      const n = cssColorToNga(activeStylesFromStore.color);
-      if (n) return n;
+    if (activeStylesLocked) {
+      // locked 时只读 activeStyles，不 fallback 到 cursorStyles
+      if (activeStylesFromStore.color) {
+        const n = cssColorToNga(activeStylesFromStore.color);
+        if (n) return n;
+      }
+      return NGA_DEFAULT_COLOR;
     }
+    // 未锁定时优先 cursorStyles，fallback activeStyles
     if (cursorStylesFromStore.color) {
       const n = cssColorToNga(cursorStylesFromStore.color);
       if (n) return n;
     }
+    if (activeStylesFromStore.color) {
+      const n = cssColorToNga(activeStylesFromStore.color);
+      if (n) return n;
+    }
     return NGA_DEFAULT_COLOR;
   })();
-  // 字号：activeStyles.fontSize (CSS) → ptToSizePercent → nearestFontSize；fallback cursorStyles
+  // 字号：activeStyles.fontSize (CSS) → ptToSizePercent → 实际百分比（不映射到档位，支持 0-1000% 任意整数）
+  // 按 activeStylesLocked 切换优先级（locked 时只读 activeStyles，否则光标处实际样式优先）
   const activeFontSizePct = (() => {
-    if (activeStylesFromStore.fontSize) {
-      const pct = ptToSizePercent(activeStylesFromStore.fontSize);
-      if (pct != null) {
-        const n = nearestFontSize(pct);
-        if (n) return n.percent;
+    if (activeStylesLocked) {
+      if (activeStylesFromStore.fontSize) {
+        const pct = ptToSizePercent(activeStylesFromStore.fontSize);
+        if (pct != null) return pct;
       }
+      return NGA_DEFAULT_FONT_SIZE;
     }
     if (cursorStylesFromStore.fontSize) {
       const pct = ptToSizePercent(cursorStylesFromStore.fontSize);
-      if (pct != null) {
-        const n = nearestFontSize(pct);
-        if (n) return n.percent;
-      }
+      if (pct != null) return pct;
+    }
+    if (activeStylesFromStore.fontSize) {
+      const pct = ptToSizePercent(activeStylesFromStore.fontSize);
+      if (pct != null) return pct;
     }
     return NGA_DEFAULT_FONT_SIZE;
   })();
   // 字体：activeStyles.fontFamily (CSS) → cssFontToNga → NGA value；fallback cursorStyles
+  // 按 activeStylesLocked 切换优先级（locked 时只读 activeStyles，否则光标处实际样式优先）
   const activeFontNga = (() => {
-    if (activeStylesFromStore.fontFamily) {
-      const n = cssFontToNga(activeStylesFromStore.fontFamily);
-      if (n) return n;
+    if (activeStylesLocked) {
+      if (activeStylesFromStore.fontFamily) {
+        const n = cssFontToNga(activeStylesFromStore.fontFamily);
+        if (n) return n;
+      }
+      return NGA_DEFAULT_FONT;
     }
     if (cursorStylesFromStore.fontFamily) {
       const n = cssFontToNga(cursorStylesFromStore.fontFamily);
+      if (n) return n;
+    }
+    if (activeStylesFromStore.fontFamily) {
+      const n = cssFontToNga(activeStylesFromStore.fontFamily);
       if (n) return n;
     }
     return NGA_DEFAULT_FONT;
@@ -621,16 +658,18 @@ export function EditorToolbar({
         }}
       />
 
-      {/* 折叠/展开样式工具行 - 始终可见 */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '0 0 2px' }}>
-        <ToolbarBtn
-          title={styleRowCollapsed ? '展开所有样式工具' : '折叠所有样式工具'}
-          onClick={() => setStyleRowCollapsed((v) => !v)}
-          style={{ minWidth: 24, fontSize: 12 }}
-        >
-          {styleRowCollapsed ? '▸ 样式' : '▾ 样式'}
-        </ToolbarBtn>
-      </div>
+      {/* 折叠状态下：仅显示一个右对齐的展开按钮，不占用完整行高 */}
+      {styleRowCollapsed && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '2px 0' }}>
+          <ToolbarBtn
+            title="展开所有样式工具"
+            onClick={() => setStyleRowCollapsed((v) => !v)}
+            style={{ minWidth: 24, fontSize: 12 }}
+          >
+            ▸ 样式
+          </ToolbarBtn>
+        </div>
+      )}
 
       {/* 第一行：B/I/U/del + 上下标 + 颜色/字号/字体 + 列表/对齐 */}
       {!styleRowCollapsed && (
@@ -648,6 +687,7 @@ export function EditorToolbar({
                 if (el) {
                   useEditorStore.getState().setActiveStyles({ bold: isBoldActive() });
                 }
+                useEditorStore.getState().lockActiveStyles();
               }
             }}
             active={activeBold}
@@ -666,6 +706,7 @@ export function EditorToolbar({
                 if (el) {
                   useEditorStore.getState().setActiveStyles({ italic: isItalicActive() });
                 }
+                useEditorStore.getState().lockActiveStyles();
               }
             }}
             active={activeItalic}
@@ -684,6 +725,7 @@ export function EditorToolbar({
                 if (el) {
                   useEditorStore.getState().setActiveStyles({ underline: isUnderlineActive() });
                 }
+                useEditorStore.getState().lockActiveStyles();
               }
             }}
             active={activeUnderline}
@@ -702,6 +744,7 @@ export function EditorToolbar({
                 if (el) {
                   useEditorStore.getState().setActiveStyles({ strike: isStrikeActive() });
                 }
+                useEditorStore.getState().lockActiveStyles();
               }
             }}
             active={activeStrike}
@@ -730,6 +773,7 @@ export function EditorToolbar({
                     sub: isSubActive(),
                   });
                 }
+                useEditorStore.getState().lockActiveStyles();
               }
             }}
             style={{ fontSize: 11 }}
@@ -756,6 +800,7 @@ export function EditorToolbar({
                     sub: isSubActive(),
                   });
                 }
+                useEditorStore.getState().lockActiveStyles();
               }
             }}
             style={{ fontSize: 11 }}
@@ -818,29 +863,69 @@ export function EditorToolbar({
             )}
           </div>
 
-          {/* 字号：6 档百分比 */}
-          <select
-            value={String(activeFontSizePct)}
-            onChange={(e) => {
-              const v = parseInt(e.target.value, 10);
-              if (isNaN(v)) return;
-              const cssSize = ngaSizeToCSS(v);
-              // Word 模式：直接应用字号（不切换），无选区时仅同步 activeStyles
-              withEditor((ed) => applyFontSize(ed, cssSize));
-              useEditorStore.getState().setActiveStyles({ fontSize: cssSize });
-              useEditorStore.getState().lockActiveStyles();
-            }}
-            style={selectNga}
-            title="字号"
+          {/* 字号：6 档百分比 + 自定义百分比（成组美化 #7） */}
+          <div
+            style={fontSizeGroupStyle}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; }}
           >
-            {NGA_FONT_SIZES.map((s) => (
-              <option key={s.percent} value={String(s.percent)}>
-                {s.label}
-              </option>
-            ))}
-          </select>
+            <span className="tb-label">字号</span>
+
+            {/* 自定义字号百分比 */}
+            <input
+              type="number"
+              min={0}
+              max={1000}
+              step={1}
+              value={activeFontSizePct}
+              onChange={(e) => {
+                const raw = e.target.value;
+                if (raw === '') return;
+                let v = parseInt(raw, 10);
+                if (isNaN(v)) return;
+                // 输入校验：小于0修正为0，大于1000修正为1000
+                if (v < 0) v = 0;
+                if (v > 1000) v = 1000;
+                const cssSize = `${v}%`;
+                // 输入期间仅更新 store 状态（不抢焦点，避免每次按键失焦）
+                useEditorStore.getState().setActiveStyles({ fontSize: cssSize });
+                useEditorStore.getState().lockActiveStyles();
+              }}
+              style={{
+                width: 56,
+                fontSize: 12,
+                padding: '3px 4px',
+                borderRadius: 4,
+                border: '1px solid var(--border-color, #e5e7eb)',
+                background: 'var(--bg-card, #fff)',
+                color: 'var(--text-primary, #111)',
+                transition: 'border-color 0.15s, box-shadow 0.15s',
+              }}
+              onFocus={(e) => {
+                e.currentTarget.style.borderColor = 'var(--accent)';
+                e.currentTarget.style.boxShadow = '0 0 0 2px var(--accent-bg, rgba(37,99,235,0.15))';
+              }}
+              onBlur={(e) => {
+                e.currentTarget.style.borderColor = 'var(--border-color, #e5e7eb)';
+                e.currentTarget.style.boxShadow = 'none';
+                // 失焦时一次性应用到编辑器选区（从 store 读取最新 fontSize）
+                const fontSize = useEditorStore.getState().activeStyles.fontSize;
+                if (fontSize) {
+                  withEditor((ed) => applyFontSize(ed, fontSize));
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.currentTarget.blur();
+                }
+              }}
+              title="自定义字号百分比（0-1000）"
+            />
+            <span style={{ fontSize: 11, color: 'var(--text-muted, #999)', marginRight: 2 }}>%</span>
+          </div>
 
           {/* 字体：16 字体 */}
+          <span className="tb-label">字体</span>
           <select
             value={activeFontNga}
             onChange={(e) => {
@@ -903,6 +988,13 @@ export function EditorToolbar({
             ➡
           </ToolbarBtn>
         </div>
+        <ToolbarBtn
+          title="折叠所有样式工具"
+          onClick={() => setStyleRowCollapsed((v) => !v)}
+          style={{ marginLeft: 'auto', minWidth: 24, fontSize: 12 }}
+        >
+          ▾ 样式
+        </ToolbarBtn>
       </div>
       )}
 

@@ -48,6 +48,10 @@ interface EditorState {
   // 与 activeStyles 区别：cursorStyles 反映"光标处是什么样"，activeStyles 反映"用户激活的状态"
   cursorStyles: ActiveEditorStyles;
 
+  // 选区字数统计（由 RichTextEditor.onSelectionChange 同步）
+  // 非折叠选区时为 { words, dice }，折叠/无选区时为 null
+  selectionStats: { words: number; dice: number } | null;
+
   // 保存状态
   saveStatus: SaveStatus;
   lastSavedAt: string | null;
@@ -132,6 +136,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
   activeStyles: {},
   cursorStyles: {},
+  selectionStats: null,
   activeStylesLocked: false,
   saveStatus: 'idle',
   lastSavedAt: null,
@@ -143,13 +148,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       await db.setSectionContent(cur.sectionId, cur.sectionContent);
     }
     if (!sectionId) {
-      set({ sectionId: null, sectionContent: null, sectionLoading: false });
+      set({ sectionId: null, sectionContent: null, sectionLoading: false, activeStyles: {}, activeStylesLocked: false, selectionStats: null });
       return;
     }
     if (get().sectionId === sectionId) return;
     set({ sectionId: null, sectionContent: null, sectionLoading: true });
     const content = await db.getSectionContent(sectionId);
-    set({ sectionId, sectionContent: content, sectionLoading: false });
+    set({ sectionId, sectionContent: content, sectionLoading: false, activeStyles: {}, activeStylesLocked: false, selectionStats: null });
   },
 
   loadSectionContent: async (sectionId) => {
@@ -197,7 +202,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       activeStyles: { ...state.activeStyles, ...patch },
     })),
 
-  clearActiveStyles: () => set({ activeStyles: {} }),
+  clearActiveStyles: () => set({ activeStyles: {}, activeStylesLocked: false }),
 
   lockActiveStyles: () => set({ activeStylesLocked: true }),
   unlockActiveStyles: () => set({ activeStylesLocked: false }),

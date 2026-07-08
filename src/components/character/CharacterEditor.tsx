@@ -13,6 +13,7 @@ import { UploadProgressDialog } from '../common/UploadProgressDialog';
 import { useToastStore } from '../../store/toastStore';
 import { useSettingStore } from '../../store/settingStore';
 import { uploadImagesWithProgress, ensureLocalWarning, type UploadProgressEvent } from '../../utils/uploadImage';
+import { addImageLibraryItem, ensureCharacterFolder } from '../../db/imageLibrary';
 
 export function CharacterPanel({
   richTextEditorCommandsRef,
@@ -510,6 +511,11 @@ function CharacterEditorModal({
       const defaultName = file.name.replace(/\.[^.]+$/, '');
       if (defaultName) setNewVariantName(defaultName);
       useToastStore.getState().showToast('差分图片就绪', 'success');
+      // 入库到图片库人物文件夹（失败不影响编辑器正常使用）
+      try {
+        const folderId = await ensureCharacterFolder();
+        await addImageLibraryItem({ folderId, url: res.url, filename: file.name, source: 'local' });
+      } catch {}
     } else {
       useToastStore
         .getState()
@@ -520,8 +526,8 @@ function CharacterEditorModal({
   const handleBatchUpload = async (files: FileList) => {
     const fileArray = Array.from(files).slice(0, 50);
     if (fileArray.length === 0) return;
-    // 本地上传总开关（默认关闭，用户需在编辑器/角色/模板页任一处开启）
-    if (!useSettingStore.getState().localUploadEnabled) {
+    // 本地模式才检查本地上传总开关（远端模式直接放行）
+    if (useSettingStore.getState().imageStoreMode === 'local' && !useSettingStore.getState().localUploadEnabled) {
       useToastStore
         .getState()
         .showToast('本地上传未启用，请到设置 → 图片存储模式 → 启用本地上传', 'error');
@@ -549,9 +555,15 @@ function CharacterEditorModal({
     let failCount = 0;
     results.forEach((r, i) => {
       if (r.ok && r.url) {
+        const url = r.url;
         const name = fileArray[i]?.name?.replace(/\.[^.]+$/, '') || `差分 ${i + 1}`;
-        items.push({ name, url: r.url });
+        items.push({ name, url });
         successCount++;
+        // 入库到图片库人物文件夹（失败不影响编辑器正常使用）
+        const fname = fileArray[i]?.name || `image_${i}`;
+        ensureCharacterFolder()
+          .then((folderId) => addImageLibraryItem({ folderId, url, filename: fname, source: 'local' }))
+          .catch(() => {});
       } else {
         failCount++;
       }
@@ -694,8 +706,8 @@ function CharacterEditorModal({
   };
 
   const handleAvatarFromFile = async (file: File) => {
-    // 本地上传总开关（默认关闭，用户需在编辑器/角色/模板页任一处开启）
-    if (!useSettingStore.getState().localUploadEnabled) {
+    // 本地模式才检查本地上传总开关（远端模式直接放行）
+    if (useSettingStore.getState().imageStoreMode === 'local' && !useSettingStore.getState().localUploadEnabled) {
       useToastStore
         .getState()
         .showToast('本地上传未启用，请到设置 → 图片存储模式 → 启用本地上传', 'error');
@@ -721,6 +733,11 @@ function CharacterEditorModal({
     if (res.ok && res.url) {
       setAvatar(res.url);
       useToastStore.getState().showToast('头像已更新', 'success');
+      // 入库到图片库人物文件夹（失败不影响编辑器正常使用）
+      try {
+        const folderId = await ensureCharacterFolder();
+        await addImageLibraryItem({ folderId, url: res.url, filename: file.name, source: 'local' });
+      } catch {}
     } else {
       useToastStore
         .getState()

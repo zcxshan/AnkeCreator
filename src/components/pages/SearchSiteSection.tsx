@@ -15,6 +15,7 @@
 
 import { useState, useCallback, useMemo, useEffect } from 'react'
 import { useToastStore } from '../../store/toastStore'
+import { matchText, type MatchMode } from '../../utils/textMatch'
 
 interface SortOption {
   value: string
@@ -54,8 +55,10 @@ export interface SearchSiteSectionProps<T> {
   /**
    * 搜索函数（封装了对应站点的 IPC 调用）
    * 第二个参数为匹配字段：'title' 标题 / 'author' 作者
+   * 第三个参数为页码（用于继续搜索/加载更多）
+   * 第四个参数为结果条数上限（可选）
    */
-  searchFn: (keyword: string, matchField: 'all' | 'title' | 'author') => Promise<SearchResult>
+  searchFn: (keyword: string, matchField: 'all' | 'title' | 'author', page?: number, limit?: number) => Promise<SearchResult>
   /** 结果卡片渲染函数 */
   renderCard: (item: T, onOpen: (url: string) => void) => React.ReactNode
   /** 站点特有筛选配置 */
@@ -70,6 +73,8 @@ export interface SearchSiteSectionProps<T> {
   matchFieldSwitchable?: boolean
   /** 默认匹配字段 */
   defaultMatchField?: 'all' | 'title' | 'author'
+  /** 默认搜索结果条数上限（0 或不传表示不限制） */
+  defaultSearchCount?: number
 }
 
 // 站点结果通用字段（骨碌碌 / NGA 都有这些字段）
@@ -102,15 +107,19 @@ export function SearchSiteSection<T extends SiteResultItem>({
   flatLayout = false,
   matchFieldSwitchable = false,
   defaultMatchField = 'title',
+  defaultSearchCount = 0,
 }: SearchSiteSectionProps<T>) {
   // ===== 搜索状态（完全独立） =====
   const [keyword, setKeyword] = useState('')
   const [lastKeyword, setLastKeyword] = useState('')
   const [matchField, setMatchField] = useState<'all' | 'title' | 'author'>(defaultMatchField)
   const [lastMatchField, setLastMatchField] = useState<'all' | 'title' | 'author'>(defaultMatchField)
+  const [matchMode, setMatchMode] = useState<MatchMode>('exact')
   const [rawResults, setRawResults] = useState<T[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [searchCount, setSearchCount] = useState(defaultSearchCount)
 
   // ===== 筛选状态（完全独立） =====
   const [sort, setSort] = useState(filterConfig.defaultSort)
@@ -129,6 +138,11 @@ export function SearchSiteSection<T extends SiteResultItem>({
       setError('当前环境不支持搜索（需要桌面版）')
       return
     }
+    // 空关键词保护：骨碌碌/NGA 空关键词搜索会报错，前端直接拦截
+    if (!keyword.trim()) {
+      setError('请输入搜索关键词')
+      return
+    }
     // 去重：关键字 + 匹配字段都未变 + 已有缓存 → 不重爬，仅 toast 提示
     if (keyword === lastKeyword && matchField === lastMatchField && rawResults.length > 0) {
       useToastStore.getState().showToast('关键字未变，已使用上次搜索结果', 'info')
@@ -136,8 +150,10 @@ export function SearchSiteSection<T extends SiteResultItem>({
     }
     setLoading(true)
     setError(null)
+    setCurrentPage(1)
     try {
-      const res = await searchFn(keyword, matchField)
+      const limit = searchCount > 0 ? searchCount : undefined
+      const res = await searchFn(keyword, matchField, 1, limit)
       if (res.ok) {
         setLastKeyword(keyword)
         setLastMatchField(matchField)
@@ -150,7 +166,7 @@ export function SearchSiteSection<T extends SiteResultItem>({
     } finally {
       setLoading(false)
     }
-  }, [keyword, lastKeyword, matchField, lastMatchField, rawResults.length, searchFn, isElectronAvailable])
+  }, [keyword, lastKeyword, matchField, lastMatchField, rawResults.length, searchFn, isElectronAvailable, searchCount])
 
   // 自动加载推荐列表
   useEffect(() => {
@@ -181,6 +197,16 @@ export function SearchSiteSection<T extends SiteResultItem>({
   // 本地筛选 + 排序（不触发网络请求）
   const displayedList = useMemo(() => {
     let list = rawResults as T[]
+    // 高级文本匹配筛选（fuzzy/regex 模式对标题+作者+标签做本地二次筛选）
+    if (matchMode !== 'exact') {
+      const pattern = lastKeyword || keyword
+      if (pattern) {
+        list = list.filter((r) => {
+          const haystack = [r.title, r.author, ...(r.tags || [])].join(' ')
+          return matchText(haystack, pattern, { mode: matchMode })
+        })
+      }
+    }
     // 数值范围筛选
     if (numericMin > 0) {
       const mult = filterConfig.numericRangeMultiplier
@@ -245,7 +271,7 @@ export function SearchSiteSection<T extends SiteResultItem>({
         break
     }
     return list
-  }, [rawResults, sort, numericMin, numericMax, statusFilter, timeRange, authorFilter, selectedTags, filterConfig])
+  }, [rawResults, sort, numericMin, numericMax, statusFilter, timeRange, authorFilter, selectedTags, filterConfig, matchMode, lastKeyword, keyword])
 
   // 收集所有可用标签（去重，按出现频次排序，取前 30）
   const allTags = useMemo(() => {
@@ -295,6 +321,52 @@ export function SearchSiteSection<T extends SiteResultItem>({
     URL.revokeObjectURL(url)
     useToastStore.getState().showToast(`已导出 ${displayedList.length} 条结果`, 'success')
   }, [displayedList, siteKey, lastKeyword, matchField])
+
+  // 继续搜索：加载下一页结果，追加到已有列表（按 URL 去重）
+  const handleLoadMore = useCallback(async () => {
+    if (loading || !hasResults) return
+    // 骨碌碌按作者搜索不支持分页（POST 接口无 page 参数）
+    if (siteKey === 'gululu' && lastMatchField === 'author') {
+      useToastStore.getState().showToast('按作者搜索不支持加载更多', 'info')
+      return
+    }
+    // NGA 每次翻 3 页（与 maxPages=3 一致），骨碌碌每次翻 1 页
+    const nextPage = siteKey === 'nga' ? currentPage + 3 : currentPage + 1
+    setLoading(true)
+    setError(null)
+    try {
+      const limit = searchCount > 0 ? searchCount : undefined
+      const res = await searchFn(lastKeyword, lastMatchField, nextPage, limit)
+      if (res.ok) {
+        const newItems = (res.data as T[]) || []
+        setRawResults((prev) => {
+          const seen = new Set(prev.map((r) => r.url))
+          const merged = [...prev]
+          let newCount = 0
+          for (const item of newItems) {
+            if (!seen.has(item.url)) {
+              merged.push(item)
+              seen.add(item.url)
+              newCount++
+            }
+          }
+          if (newCount === 0) {
+            useToastStore.getState().showToast('没有更多结果了', 'info')
+          } else {
+            useToastStore.getState().showToast(`新增 ${newCount} 条结果`, 'success')
+          }
+          return merged
+        })
+        setCurrentPage(nextPage)
+      } else {
+        setError(res.error || '加载更多失败')
+      }
+    } catch (e) {
+      setError((e as Error).message || '加载更多失败')
+    } finally {
+      setLoading(false)
+    }
+  }, [loading, hasResults, currentPage, lastKeyword, lastMatchField, searchFn, siteKey, searchCount])
 
   return (
     <section
@@ -370,6 +442,52 @@ export function SearchSiteSection<T extends SiteResultItem>({
             color: 'var(--text-primary)',
           }}
         />
+        {/* 匹配模式选择器：精确 / 模糊 / 正则 */}
+        <select
+          value={matchMode}
+          onChange={(e) => setMatchMode(e.target.value as MatchMode)}
+          className="px-2 py-2 rounded-md text-xs outline-none shrink-0 cursor-pointer"
+          style={{
+            border: '1px solid var(--border-color)',
+            background: 'var(--bg-input)',
+            color: 'var(--text-primary)',
+          }}
+          title="匹配模式：精确=子串包含；模糊=多关键词且逻辑；正则=JS正则表达式"
+        >
+          <option value="exact">精确</option>
+          <option value="fuzzy">模糊</option>
+          <option value="regex">正则</option>
+        </select>
+        {/* 数量上限输入：0=不限制，控制单次搜索结果条数 */}
+        <div
+          className="flex items-center gap-1 shrink-0"
+          style={{
+            border: '1px solid var(--border-color)',
+            borderRadius: 6,
+            background: 'var(--bg-input)',
+          }}
+          title="搜索结果条数上限（0=不限制）"
+        >
+          <span
+            className="px-1.5 text-[11px]"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            数量
+          </span>
+          <input
+            type="number"
+            min={0}
+            max={500}
+            value={searchCount || ''}
+            onChange={(e) =>
+              setSearchCount(
+                Math.max(0, Math.min(500, parseInt(e.target.value, 10) || 0)),
+              )
+            }
+            className="w-14 px-1 py-1.5 text-xs outline-none"
+            style={{ background: 'transparent', color: 'var(--text-primary)' }}
+          />
+        </div>
         {/* 全部 / 标题 / 作者 切换器 */}
         {matchFieldSwitchable && (
           <div
@@ -637,6 +755,26 @@ export function SearchSiteSection<T extends SiteResultItem>({
                 {renderCard(r, onOpenUrl)}
               </div>
             ))}
+            {/* 继续搜索按钮：追加下一页结果 */}
+            <div className="flex justify-center mt-4 mb-2">
+              <button
+                type="button"
+                onClick={handleLoadMore}
+                disabled={loading}
+                className="px-6 py-2 rounded-md text-sm font-medium transition-colors"
+                style={{
+                  background: loading ? 'var(--bg-hover)' : 'var(--bg-card)',
+                  color: loading ? 'var(--text-secondary)' : 'var(--accent)',
+                  border: '1px solid var(--border-color)',
+                  cursor: loading ? 'wait' : 'pointer',
+                  opacity: loading ? 0.6 : 1,
+                }}
+              >
+                {loading
+                  ? '加载中…'
+                  : `继续搜索（第 ${currentPage + (siteKey === 'nga' ? 3 : 1)} 页）`}
+              </button>
+            </div>
           </div>
         )}
       </div>

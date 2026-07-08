@@ -48,7 +48,7 @@ describe('ReaderPage', () => {
   it('渲染作品标题和章节列表', async () => {
     render(<ReaderPage onBack={() => {}} />);
     await waitFor(() => {
-      expect(screen.getByText('测试作品')).toBeTruthy();
+      expect(screen.getAllByText('测试作品')[0]).toBeTruthy();
     });
     expect(screen.getByText('第一章')).toBeTruthy();
   });
@@ -72,7 +72,7 @@ describe('ReaderPage', () => {
   it('字号调节按钮：小/中/大', async () => {
     render(<ReaderPage onBack={() => {}} />);
     await waitFor(() => {
-      expect(screen.getByText('测试作品')).toBeTruthy();
+      expect(screen.getAllByText('测试作品')[0]).toBeTruthy();
     });
     expect(screen.getByTitle('小字号') || screen.getByText('小')).toBeTruthy();
     expect(screen.getByTitle('中字号') || screen.getByText('中')).toBeTruthy();
@@ -82,7 +82,7 @@ describe('ReaderPage', () => {
   it('主题切换按钮：亮/暗/护眼', async () => {
     render(<ReaderPage onBack={() => {}} />);
     await waitFor(() => {
-      expect(screen.getByText('测试作品')).toBeTruthy();
+      expect(screen.getAllByText('测试作品')[0]).toBeTruthy();
     });
     // Look for theme buttons
     expect(screen.getByTitle('亮色主题') || screen.getByText('亮')).toBeTruthy();
@@ -93,7 +93,7 @@ describe('ReaderPage', () => {
   it('自动滚动按钮', async () => {
     render(<ReaderPage onBack={() => {}} />);
     await waitFor(() => {
-      expect(screen.getByText('测试作品')).toBeTruthy();
+      expect(screen.getAllByText('测试作品')[0]).toBeTruthy();
     });
     const autoScrollBtn = screen.getByTitle('自动滚动') || screen.getByText('自动滚动');
     expect(autoScrollBtn).toBeTruthy();
@@ -103,7 +103,7 @@ describe('ReaderPage', () => {
     const onBack = vi.fn();
     render(<ReaderPage onBack={onBack} />);
     await waitFor(() => {
-      expect(screen.getByText('测试作品')).toBeTruthy();
+      expect(screen.getAllByText('测试作品')[0]).toBeTruthy();
     });
     const backBtn = screen.getByTitle('返回') || screen.getByText('返回');
     fireEvent.click(backBtn);
@@ -120,7 +120,7 @@ describe('ReaderPage 桌面端目录切换', () => {
     // isCapacitor 已经在文件顶部 mock 为 false（默认桌面端）
     render(<ReaderPage onBack={() => {}} />);
     await waitFor(() => {
-      expect(screen.getByText('测试作品')).toBeTruthy();
+      expect(screen.getAllByText('测试作品')[0]).toBeTruthy();
     });
     // ☰ 按钮应可见（带 title="目录"）
     const btn = screen.getByTitle('目录');
@@ -130,7 +130,7 @@ describe('ReaderPage 桌面端目录切换', () => {
   it('点击 ☰ 按钮折叠/展开目录侧栏（桌面端默认展开后被折叠）', async () => {
     render(<ReaderPage onBack={() => {}} />);
     await waitFor(() => {
-      expect(screen.getByText('测试作品')).toBeTruthy();
+      expect(screen.getAllByText('测试作品')[0]).toBeTruthy();
     });
 
     // 桌面端默认应展开（isCapacitor=false），所以章节标题可见
