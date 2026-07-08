@@ -1,10 +1,12 @@
 // ============================================================
-// AnkeCollectPage：收集安科（独立页面）
+// AnkeCollectPage：收集安科（统一页面，含 NGA + 骨碌碌两个 Tab）
 // 高内聚：本页自包含安科收集的全部 UI + 安科专属状态/handlers
 // 低耦合：共享管道逻辑通过 useNgaCollectCommon hook 接入
-// - 表单：NGA 链接 / 起始楼层 / 末尾楼层 / 切分模式 / 每 N 楼 / 作品标题
-// - 可选 authorid / 高级格式（自定义卷/章/节结构）
-// - 进度 / 取消 / 暂停 / 失败页重试 / 保存为 .anke.json
+// - 顶部 Tab 切换：📖 NGA 安科 / 📕 骨碌碌安科
+// - NGA Tab：NGA 链接 / 起始楼层 / 末尾楼层 / 切分模式 / 每 N 楼 / 作品标题
+// - NGA Tab 可选 authorid / 高级格式（自定义卷/章/节结构）
+// - NGA Tab：进度 / 取消 / 暂停 / 失败页重试 / 保存为 .anke.json
+// - 骨碌碌 Tab：复用 GululuCollectPanel 组件
 // ============================================================
 import { useState } from 'react';
 import {
@@ -14,6 +16,7 @@ import {
 } from '../../utils/ankeCollect';
 import { ManualFormatEditor } from '../anke/ManualFormatEditor';
 import { AnkeProgressBar } from './AnkeProgressBar';
+import { GululuCollectPanel } from './GululuCollectPage';
 import { webSaveStoryAsFile } from '../../utils/storyFileIO';
 import { isCapacitor, isElectron } from '../../utils/platform';
 import { CollectDecisionDialog } from '../common/CollectDecisionDialog';
@@ -23,10 +26,15 @@ interface AnkeCollectPageProps {
   onBack: () => void;
 }
 
+type CollectTab = 'nga' | 'gululu';
+
 const MAX_FLOOR_RANGE = 1000; // 一次最多 1000 楼（与 AnjiaCollectPage 一致）
 const WARN_FLOOR_RANGE = 200; // 超过 200 楼给提示
 
 export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
+  // Tab 状态：默认 NGA，骨碌碌作为子 Tab
+  const [tab, setTab] = useState<CollectTab>('nga');
+
   // 安科专属表单状态
   const [floorsPerSection, setFloorsPerSection] = useState('10');
   const [sectionMode, setSectionMode] = useState<SectionMode>('every-n');
@@ -351,7 +359,7 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
     >
       {/* 顶栏 */}
       <div
-        className="flex items-center gap-3 px-6 py-4 border-b"
+        className="flex items-center gap-3 px-6 py-4 border-b flex-wrap"
         style={{ borderColor: 'var(--border-color)' }}
       >
         <button
@@ -375,9 +383,44 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
         >
           <span>📖</span> 收集安科
         </h1>
+        {/* Tab 切换：NGA / 骨碌碌 */}
+        <div
+          className="inline-flex items-center gap-1 p-1 rounded-xl"
+          style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
+          role="tablist"
+        >
+          <button
+            onClick={() => setTab('nga')}
+            role="tab"
+            aria-selected={tab === 'nga'}
+            className="px-3 py-1.5 rounded-lg text-sm transition-colors"
+            style={{
+              background: tab === 'nga' ? 'var(--accent)' : 'transparent',
+              color: tab === 'nga' ? 'var(--text-on-accent, #fff)' : 'var(--text-primary)',
+              fontWeight: tab === 'nga' ? 600 : 400,
+            }}
+          >
+            📖 NGA 安科
+          </button>
+          <button
+            onClick={() => setTab('gululu')}
+            role="tab"
+            aria-selected={tab === 'gululu'}
+            className="px-3 py-1.5 rounded-lg text-sm transition-colors"
+            style={{
+              background: tab === 'gululu' ? 'var(--accent)' : 'transparent',
+              color: tab === 'gululu' ? 'var(--text-on-accent, #fff)' : 'var(--text-primary)',
+              fontWeight: tab === 'gululu' ? 600 : 400,
+            }}
+          >
+            📕 骨碌碌安科
+          </button>
+        </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3 py-3 md:px-6 md:py-6">
+      {/* Tab 内容区：条件渲染 NGA 或 骨碌碌 */}
+      {tab === 'nga' ? (
+        <div className="flex-1 overflow-y-auto px-3 py-3 md:px-6 md:py-6">
         <div className="max-w-4xl mx-auto space-y-4 md:space-y-5">
           <section
             className="rounded-2xl p-5"
@@ -830,7 +873,10 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
             onSkip={() => handleDecide('skip')}
           />
         </div>
-      </div>
+        </div>
+      ) : (
+        <GululuCollectPanel onClose={() => setTab('nga')} />
+      )}
     </div>
   );
 }

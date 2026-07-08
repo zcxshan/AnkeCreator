@@ -6,7 +6,6 @@ import { ResourceLibraryPage } from './components/pages/ResourceLibraryPage';
 import { TutorialPage } from './components/pages/TutorialPage';
 import { AnjiaCollectPage } from './components/pages/AnjiaCollectPage';
 import { AnkeCollectPage } from './components/pages/AnkeCollectPage';
-import { GululuCollectPage } from './components/pages/GululuCollectPage';
 import { FindAnkePage } from './components/pages/FindAnkePage';
 import { CreationLogPage } from './components/pages/CreationLogPage';
 import { ReaderPage } from './components/pages/ReaderPage';
@@ -163,7 +162,6 @@ function App() {
           onShowAuthor={() => setShowAuthor(true)}
           onShowAnjiaCollect={() => setRoute('anjia-collect')}
           onShowAnkeCollect={() => setRoute('anke-collect')}
-          onShowGululuCollect={() => setRoute('gululu-collect')}
           onShowFindAnke={() => setRoute('find-anke')}
           onShowDicePlayground={() => setRoute('dice-playground')}
           onShowCreationLog={(storyId) => {

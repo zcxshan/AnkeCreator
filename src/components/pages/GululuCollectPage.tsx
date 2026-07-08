@@ -1,8 +1,9 @@
 // ============================================================
-// GululuCollectPage：收集骨碌碌安科（独立页面）
-// 自包含简化版（不用 useNgaCollectCommon，骨碌碌无需 Cookie/authorid/暂停/决策）
+// GululuCollectPanel：收集骨碌碌安科（子面板，被 AnkeCollectPage 引入）
+// 改造自独立页面：移除独立顶栏，改为由父级提供顶栏
 // - 表单：骨碌碌链接 / 起始楼层 / 末尾楼层 / 切分模式 / 每 N 节 / 作品标题
 // - 进度 / 取消 / 失败楼层重试 / 保存为 .anke.json
+// - 可选 onClose：传入时面板顶部右侧显示"✕ 关闭"按钮
 // ============================================================
 import { useEffect, useState } from 'react';
 import {
@@ -15,14 +16,15 @@ import { AnkeProgressBar } from './AnkeProgressBar';
 import { webSaveStoryAsFile } from '../../utils/storyFileIO';
 import { isElectron } from '../../utils/platform';
 
-interface GululuCollectPageProps {
-  onBack: () => void;
+interface GululuCollectPanelProps {
+  /** 可选关闭回调：传入时面板顶部右侧显示"✕ 关闭"按钮（用于在父级中关闭该面板） */
+  onClose?: () => void;
 }
 
 const MAX_FLOOR_RANGE = 1000;
 const WARN_FLOOR_RANGE = 200;
 
-export function GululuCollectPage({ onBack }: GululuCollectPageProps) {
+export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
   // 表单状态
   const [url, setUrl] = useState('');
   const [startFloor, setStartFloor] = useState('1');
@@ -289,32 +291,13 @@ export function GululuCollectPage({ onBack }: GululuCollectPageProps) {
   if (!isElectron) {
     return (
       <div
-        className="h-full w-full flex flex-col overflow-hidden"
+        className="h-full w-full flex flex-col items-center justify-center p-8"
         style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}
       >
-        <div
-          className="flex items-center gap-3 px-6 py-4 border-b"
-          style={{ borderColor: 'var(--border-color)' }}
-        >
-          <button
-            onClick={onBack}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors"
-            style={{ color: 'var(--text-secondary)' }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
-          >
-            ← 返回
-          </button>
-          <h1 className="text-lg font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-            <span>📕</span> 收集骨碌碌安科
-          </h1>
-        </div>
-        <div className="flex-1 flex items-center justify-center p-8">
-          <div className="text-center max-w-sm">
-            <div className="text-4xl mb-3">📱</div>
-            <p className="font-medium" style={{ color: 'var(--text-primary)' }}>移动端暂不支持收集骨碌碌安科</p>
-            <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>请在桌面端（Electron）使用此功能</p>
-          </div>
+        <div className="text-center max-w-sm">
+          <div className="text-4xl mb-3">📱</div>
+          <p className="font-medium" style={{ color: 'var(--text-primary)' }}>移动端暂不支持收集骨碌碌安科</p>
+          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>请在桌面端（Electron）使用此功能</p>
         </div>
       </div>
     );
@@ -325,33 +308,30 @@ export function GululuCollectPage({ onBack }: GululuCollectPageProps) {
       className="h-full w-full flex flex-col"
       style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}
     >
-      {/* 顶栏 */}
-      <div
-        className="flex items-center gap-3 px-6 py-4 border-b"
-        style={{ borderColor: 'var(--border-color)' }}
-      >
-        <button
-          onClick={onBack}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors"
-          style={{ color: 'var(--text-secondary)' }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'var(--bg-hover)';
-            e.currentTarget.style.color = 'var(--text-primary)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'transparent';
-            e.currentTarget.style.color = 'var(--text-secondary)';
-          }}
+      {/* 顶栏（仅在 onClose 存在时显示"✕ 关闭"按钮） */}
+      {onClose && (
+        <div
+          className="flex items-center justify-end px-3 py-2 border-b"
+          style={{ borderColor: 'var(--border-color)' }}
         >
-          ← 返回
-        </button>
-        <h1
-          className="text-lg font-semibold flex items-center gap-2"
-          style={{ color: 'var(--text-primary)' }}
-        >
-          <span>📕</span> 收集骨碌碌安科
-        </h1>
-      </div>
+          <button
+            onClick={onClose}
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs transition-colors"
+            style={{ color: 'var(--text-secondary)' }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--bg-hover)';
+              e.currentTarget.style.color = 'var(--text-primary)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.color = 'var(--text-secondary)';
+            }}
+            title="关闭骨碌碌面板"
+          >
+            ✕ 关闭
+          </button>
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto px-3 py-3 md:px-6 md:py-6">
         <div className="max-w-4xl mx-auto space-y-4 md:space-y-5">

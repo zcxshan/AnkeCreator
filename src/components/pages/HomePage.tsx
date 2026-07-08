@@ -12,7 +12,6 @@ interface HomePageProps {
   onShowAuthor?: () => void;
   onShowAnjiaCollect?: () => void;
   onShowAnkeCollect?: () => void;
-  onShowGululuCollect?: () => void;
   onShowFindAnke?: () => void;
   onShowDicePlayground?: () => void;
   onShowCreationLog?: (storyId: string) => void;
@@ -218,19 +217,6 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
               >
                 <span>📖</span> 收集安科
-              </button>
-            )}
-            {onShowGululuCollect && !isCapacitor && (
-              <button
-                onClick={onShowGululuCollect}
-                className={isCapacitor
-                  ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
-                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'}
-                style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
-              >
-                <span>📕</span> 收集骨碌碌
               </button>
             )}
             {onShowFindAnke && !isCapacitor && (
