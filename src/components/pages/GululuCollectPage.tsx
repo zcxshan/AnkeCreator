@@ -11,7 +11,8 @@ import {
   parseGululuUrl,
   type GululuRawPost,
 } from '../../utils/gululuCollect';
-import type { SectionMode } from '../../utils/ankeCollect';
+import type { ManualFormatConfig, SectionMode } from '../../utils/ankeCollect';
+import { AdvancedFormatSection } from '../anke/AdvancedFormatSection';
 import { AnkeProgressBar } from './AnkeProgressBar';
 import { webSaveStoryAsFile } from '../../utils/storyFileIO';
 import { isElectron } from '../../utils/platform';

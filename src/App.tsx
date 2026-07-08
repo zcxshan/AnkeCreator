@@ -24,7 +24,7 @@ import { isCapacitor, isElectron } from './utils/platform';
 import { useSettingStore } from './store/settingStore';
 import './index.css';
 
-type Route = 'home' | 'works' | 'editor' | 'reader' | 'resource-library' | 'tutorial' | 'anjia-collect' | 'anke-collect' | 'gululu-collect' | 'find-anke' | 'dice-playground' | 'creation-log';
+type Route = 'home' | 'works' | 'editor' | 'reader' | 'resource-library' | 'tutorial' | 'anjia-collect' | 'anke-collect' | 'find-anke' | 'dice-playground' | 'creation-log';
 
 function App() {
   const { activeSectionId, activeStoryId } = useStoryStore();
@@ -227,12 +227,6 @@ function App() {
   if (route === 'anke-collect') {
     return renderWithTitleBar(
       <AnkeCollectPage onBack={() => setRoute('home')} />,
-    );
-  }
-
-  if (route === 'gululu-collect') {
-    return renderWithTitleBar(
-      <GululuCollectPage onBack={() => setRoute('home')} />,
     );
   }
 
