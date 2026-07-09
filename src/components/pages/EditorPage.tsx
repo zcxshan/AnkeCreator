@@ -933,7 +933,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
           {/* ===== 桌面端：3 列布局（目录 + 编辑区 + 右侧栏） ===== */}
           {!isMobile && (
             <>
-              <div className="shrink-0 flex flex-col overflow-hidden" style={{ width: leftSidebarWidth }}>
+              <div className="shrink-0 flex flex-col overflow-hidden overflow-y-auto" style={{ width: leftSidebarWidth }}>
                 <DirectoryTree
                   volumes={volumes}
                   chapters={chapters}
@@ -1806,7 +1806,7 @@ function RightPanel({
 
   return (
     <aside
-      className="shrink-0 flex flex-col overflow-hidden"
+      className="shrink-0 flex flex-col overflow-hidden overflow-y-auto"
       style={{
         width: width ?? '100%',
         background: 'var(--bg-card)',
