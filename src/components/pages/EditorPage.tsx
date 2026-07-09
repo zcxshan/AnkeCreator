@@ -1016,11 +1016,11 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
 
           <div className="flex-1 min-w-0 flex flex-col overflow-hidden min-h-0">
           <main
-            className="flex-1 min-w-0 flex flex-col overflow-hidden"
+            className="flex-1 min-w-0 flex flex-col overflow-y-auto overflow-x-hidden"
             style={{ borderLeft: !isMobile ? '1px solid var(--border-color)' : 'none', borderRight: !isMobile ? '1px solid var(--border-color)' : 'none', minHeight: 0 }}
           >
             {section && activeChapter ? (
-              <>
+              <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
                 {!(isMobile && keyboardOpen) && (
                   <EditorBreadcrumb
                     volumeIdx={volIdx >= 0 ? volIdx : 0}
@@ -1185,7 +1185,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                     </div>
                   </div>
                 )}
-              </>
+              </div>
             ) : (
               <div
                 className="flex-1 flex items-center justify-center text-xs"
@@ -1196,10 +1196,15 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
             )}
 
             {section && !(isMobile && keyboardOpen) && (
-              <BottomStatusBar
-                editorMode={editorMode}
-                onSwitchMode={setEditorMode}
-              />
+              <div
+                className="sticky bottom-0 z-10"
+                style={{ background: 'var(--bg-card)', borderTop: '1px solid var(--border-color)' }}
+              >
+                <BottomStatusBar
+                  editorMode={editorMode}
+                  onSwitchMode={setEditorMode}
+                />
+              </div>
             )}
           </main>
 

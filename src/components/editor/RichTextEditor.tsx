@@ -115,6 +115,8 @@ export function RichTextEditor({
 
   // Ctrl+滚轮缩放编辑区（50%~200%，不持久化）
   const [zoom, setZoom] = useState(1);
+  const [showZoomHint, setShowZoomHint] = useState(false);
+  const zoomHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
     if (!e.ctrlKey && !e.metaKey) return;
     e.preventDefault();
@@ -125,7 +127,23 @@ export function RichTextEditor({
       if (next > 2) return 2;
       return next;
     });
+    // 显示缩放提示，1.5s 后自动消失
+    setShowZoomHint(true);
+    if (zoomHintTimerRef.current) clearTimeout(zoomHintTimerRef.current);
+    zoomHintTimerRef.current = setTimeout(() => setShowZoomHint(false), 1500);
   };
+  const handleResetZoom = () => {
+    setZoom(1);
+    setShowZoomHint(true);
+    if (zoomHintTimerRef.current) clearTimeout(zoomHintTimerRef.current);
+    zoomHintTimerRef.current = setTimeout(() => setShowZoomHint(false), 1500);
+  };
+  // 卸载时清理 timer
+  useEffect(() => {
+    return () => {
+      if (zoomHintTimerRef.current) clearTimeout(zoomHintTimerRef.current);
+    };
+  }, []);
 
   // 持续保存编辑器内的光标位置（工具栏按钮点击后编辑器失焦时恢复用）
   // 同时把光标处的样式同步到 useEditorStore.cursorStyles（供工具栏展示）
@@ -455,7 +473,14 @@ export function RichTextEditor({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     const el = divRef.current;
     if (!el) return;
-    
+
+    // Ctrl/Cmd + 0：还原编辑区缩放到 100%
+    if ((e.ctrlKey || e.metaKey) && e.key === '0') {
+      e.preventDefault();
+      handleResetZoom();
+      return;
+    }
+
     // Tab 键：插入空格
     if (e.key === 'Tab' && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
       e.preventDefault();
@@ -1185,9 +1210,25 @@ export function RichTextEditor({
           overflowY: 'auto',
           overflowX: 'hidden',
           background: 'var(--bg-editor)',
+          position: 'relative',
         }}
         className="anke-editor-scroll"
       >
+        {/* Ctrl+滚轮缩放提示：右上角悬浮，1.5s 后自动消失 */}
+        {showZoomHint && (
+          <div
+            className="absolute top-3 right-3 z-10 px-3 py-1.5 rounded-lg text-sm font-medium pointer-events-none select-none"
+            style={{
+              background: 'var(--bg-card)',
+              color: 'var(--text-primary)',
+              border: '1px solid var(--border-color)',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+            }}
+            aria-live="polite"
+          >
+            {Math.round(zoom * 100)}%
+          </div>
+        )}
         {/* contenteditable：仅承担编辑职责，不承担滚动 */}
         <div
           ref={(el) => {
