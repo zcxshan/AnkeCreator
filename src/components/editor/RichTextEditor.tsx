@@ -1289,23 +1289,40 @@ export function RichTextEditor({
             {
               label: '粘贴',
               onClick: async () => {
+                const el = divRef.current;
+                if (el) el.focus();
                 try {
-                  const text = await navigator.clipboard.readText();
-                  if (!text) {
-                    setCtxMenu(null);
-                    return;
+                  // 优先尝试带 HTML 格式粘贴（粗体、颜色、链接等）
+                  if (navigator.clipboard?.read) {
+                    try {
+                      const items = await navigator.clipboard.read();
+                      for (const item of items) {
+                        if (item.types.includes('text/html')) {
+                          const blob = await item.getType('text/html');
+                          const html = await blob.text();
+                          if (html) {
+                            document.execCommand('insertHTML', false, html);
+                            setCtxMenu(null);
+                            return;
+                          }
+                        }
+                      }
+                    } catch {
+                      // 用户拒绝授权 / 浏览器不支持 → fallback 到纯文本
+                    }
                   }
-                  const el = divRef.current;
-                  if (!el) return;
-                  el.focus();
-                  const ok = document.execCommand('insertText', false, text);
-                  if (!ok) {
-                    // fallback：直接插入到光标
-                    const sel = window.getSelection();
-                    if (sel && sel.rangeCount) {
-                      sel.getRangeAt(0).insertNode(document.createTextNode(text));
-                      sel.collapseToEnd();
-                      handleInput();
+                  // fallback：纯文本
+                  const text = await navigator.clipboard.readText();
+                  if (text) {
+                    const ok = document.execCommand('insertText', false, text);
+                    if (!ok && el) {
+                      // 兜底：直接插入到光标
+                      const sel = window.getSelection();
+                      if (sel && sel.rangeCount) {
+                        sel.getRangeAt(0).insertNode(document.createTextNode(text));
+                        sel.collapseToEnd();
+                        handleInput();
+                      }
                     }
                   }
                 } catch (err) {

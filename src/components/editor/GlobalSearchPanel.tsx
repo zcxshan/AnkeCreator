@@ -160,7 +160,8 @@ export function GlobalSearchPanel({ onNavigate, currentStoryId }: GlobalSearchPa
   };
 
   const handleClickHit = (hit: Hit) => {
-    onNavigate(hit.storyId, hit.sectionId);
+    // 把当前 query 一并传给父组件，跳转后 SearchPanel 能自动填入并定位到第一个匹配
+    onNavigate(hit.storyId, hit.sectionId, query);
   };
 
   // 状态文本

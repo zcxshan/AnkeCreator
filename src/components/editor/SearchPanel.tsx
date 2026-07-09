@@ -17,6 +17,10 @@ interface Props {
   visualValue: string;
   onBBCodeChange: (v: string) => void;
   onVisualChange: (v: string) => void;
+  /** 来自跨节搜索（GlobalSearchPanel）跳转的初始 query；非空时自动 doFind 第一个匹配 */
+  initialQuery?: string;
+  /** initialQuery 被消费后的回调（父组件借此清空 pendingSearchQuery） */
+  onInitialQueryConsumed?: () => void;
 }
 
 export function SearchPanel({
@@ -27,8 +31,10 @@ export function SearchPanel({
   visualValue,
   onBBCodeChange,
   onVisualChange,
+  initialQuery = '',
+  onInitialQueryConsumed,
 }: Props) {
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery);
   const [replaceValue, setReplaceValue] = useState('');
   const [showReplace, setShowReplace] = useState(false);
   const [matches, setMatches] = useState<number[]>([]);
@@ -37,6 +43,27 @@ export function SearchPanel({
   const [visualCount, setVisualCount] = useState(0);
   const [replaceCount, setReplaceCount] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // 跨节搜索跳转的 initialQuery 只能消费一次（避免重复触发自动 doFind）
+  const consumedInitialQueryRef = useRef<string>('');
+
+  // 跨节搜索跳转时，initialQuery 变化 → 同步到 query 并自动 doFind 第一个匹配
+  useEffect(() => {
+    if (initialQuery && consumedInitialQueryRef.current !== initialQuery) {
+      consumedInitialQueryRef.current = initialQuery;
+      setQuery(initialQuery);
+      setReplaceCount(null);
+      // 下一个 tick 再 doFind，确保 React 已把 query 更新到子组件
+      setTimeout(() => {
+        inputRef.current?.focus();
+        doFind(false); // 向下查找第一个
+        onInitialQueryConsumed?.();
+      }, 0);
+    } else if (!initialQuery) {
+      // 清空时重置（允许后续再次消费）
+      consumedInitialQueryRef.current = '';
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialQuery]);
 
   // 切换 editorMode 时重置
   useEffect(() => {
@@ -91,22 +118,21 @@ export function SearchPanel({
     if (!ta) return;
     ta.focus();
     ta.setSelectionRange(pos, pos + query.length);
-    // 调整 scrollTop 让选区可见（单次 focus + scrollTop，不丢失光标）
+    // VSCode 风格：把目标行滚到视口中央（textarea 不支持 scrollIntoView，手动算 scrollTop）
     try {
-      // 计算选区所在行号
       const textBefore = ta.value.substring(0, pos);
       const lineNum = textBefore.split('\n').length - 1;
-      // 用临时测量获取真实行高
       const computed = window.getComputedStyle(ta);
       const lineHeight = parseFloat(computed.lineHeight) || 20;
       const targetLineTop = lineNum * lineHeight;
-      const visibleTop = ta.scrollTop;
-      const visibleBottom = visibleTop + ta.clientHeight;
-      if (targetLineTop < visibleTop) {
-        ta.scrollTop = targetLineTop;
-      } else if (targetLineTop + lineHeight > visibleBottom) {
-        ta.scrollTop = targetLineTop + lineHeight - ta.clientHeight;
-      }
+      // 中央对齐：scrollTop = 目标行 - 视口一半 + 半行
+      const targetScrollTop = Math.max(
+        0,
+        targetLineTop - ta.clientHeight / 2 + lineHeight / 2,
+      );
+      // 兜底：考虑 scrollHeight 上限（避免目标超出滚动范围）
+      const maxScrollTop = Math.max(0, ta.scrollHeight - ta.clientHeight);
+      ta.scrollTop = Math.min(targetScrollTop, maxScrollTop);
     } catch {
       // 静默失败
     }
@@ -183,7 +209,7 @@ export function SearchPanel({
     return positions;
   };
 
-  // 把 Range 设置到匹配项并滚动可见
+  // 把 Range 设置到匹配项并滚动可见（VSCode 风格：滚到视口中央）
   const highlightVisualMatch = (root: HTMLElement, match: { node: Text; nodeOffset: number; end: number; start: number }, qLen: number) => {
     const range = document.createRange();
     range.setStart(match.node, match.nodeOffset);
@@ -193,29 +219,16 @@ export function SearchPanel({
       sel.removeAllRanges();
       sel.addRange(range);
     }
-    // scrollIntoView 让选区可见（每个 block 滚到 viewport 中部）
-    let el: HTMLElement | null = match.node.parentElement;
-    while (el && el !== root) {
-      if (el.scrollHeight > el.clientHeight) {
-        const target = el;
-        // 选区在 block 内的相对位置 → 滚动
-        const rect = range.getBoundingClientRect();
-        const elRect = target.getBoundingClientRect();
-        const offset = rect.top - elRect.top;
-        target.scrollTop = Math.max(0, target.scrollTop + offset - target.clientHeight / 3);
-        break;
-      }
-      el = el.parentElement;
-    }
-    // 兜底：滚到根编辑器
+    // VSCode 风格：用浏览器原生 scrollIntoView 滚到视口中央
+    // 浏览器会自动处理所有祖先滚动容器（包括嵌套的 image-block, dice-card, collapse-block）
     try {
-      const rect = range.getBoundingClientRect();
-      const rootRect = root.getBoundingClientRect();
-      if (rect.top < rootRect.top || rect.bottom > rootRect.bottom) {
-        root.scrollTop = Math.max(0, root.scrollTop + (rect.top - rootRect.top) - 50);
-      }
+      range.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',  // 垂直方向：目标行居中
+        inline: 'nearest', // 水平方向：尽量少动
+      });
     } catch {
-      // 静默
+      // 极少数旧浏览器可能抛错，静默失败
     }
   };
 

@@ -568,6 +568,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
   };
 
   // 当前节导出为图片（使用 html-to-image 的 toPng，2 倍像素比保证清晰度）
+  // 2x 失败时降级到 1x，应对内容过长 / canvas 尺寸超限
   const handleExportSectionAsImage = async () => {
     const el = visualEditorRef.current;
     if (!el) return;
@@ -576,19 +577,32 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
       useToastStore.getState().showToast('当前节没有内容可导出', 'info');
       return;
     }
+    const tryExport = async (pixelRatio: number): Promise<string> => {
+      return await toPng(el, {
+        backgroundColor: getComputedStyle(el).backgroundColor || '#ffffff',
+        pixelRatio,
+      });
+    };
     setExportingImage(true);
     try {
-      const dataUrl = await toPng(el, {
-        backgroundColor: getComputedStyle(el).backgroundColor || '#ffffff',
-        pixelRatio: 2,
-      });
+      let dataUrl: string;
+      try {
+        dataUrl = await tryExport(2);
+      } catch (firstErr) {
+        // 2x 像素比可能因内容过长 / canvas 尺寸超限失败，降级到 1x
+        console.error('[exportImage] 2x pixelRatio 失败，尝试 1x:', firstErr);
+        dataUrl = await tryExport(1);
+      }
       const link = document.createElement('a');
       link.download = `${section?.title || '当前节'}.png`;
       link.href = dataUrl;
       link.click();
       useToastStore.getState().showToast('已导出为图片', 'success');
     } catch (e) {
-      useToastStore.getState().showToast('导出失败：' + (e as Error).message, 'error');
+      console.error('[exportImage] 完整错误对象:', e);
+      // 兼容各种错误形态：DOMException、纯对象、字符串等
+      const msg = (e as Error)?.message || String(e) || '未知错误（可能是内容过长或样式不兼容）';
+      useToastStore.getState().showToast('导出失败：' + msg, 'error');
     } finally {
       setExportingImage(false);
     }
@@ -1781,15 +1795,19 @@ function RightPanel({
   const activeStoryId = useStoryStore((s) => s.activeStoryId);
   // 搜索模式：'current' = 当前节内搜索（SearchPanel）；'global' = 全作品搜索（GlobalSearchPanel）
   const [searchMode, setSearchMode] = useState<'current' | 'global'>('current');
+  // 跨节搜索（GlobalSearchPanel）跳转时携带的 query；SearchPanel 消费后清空
+  const [pendingSearchQuery, setPendingSearchQuery] = useState('');
   // 全作品搜索跳转：切换到对应作品 + 节，并切回当前节搜索便于继续编辑
   const setActiveStory = useStoryStore((s) => s.setActiveStory);
   const setActiveSection = useStoryStore((s) => s.setActiveSection);
   const handleGlobalSearchNavigate = useCallback(
-    (storyId: string, sectionId: string) => {
+    (storyId: string, sectionId: string, searchQuery?: string) => {
       void setActiveStory(storyId);
       setActiveSection(sectionId);
       setActiveTab('properties');
       setSearchMode('current');
+      // 把跨节搜索的 query 传给 SearchPanel，自动填入并 doFind 到第一个匹配
+      setPendingSearchQuery(searchQuery || '');
     },
     [setActiveStory, setActiveSection, setActiveTab],
   );
@@ -2004,6 +2022,8 @@ function RightPanel({
                   visualValue={visualValue}
                   onBBCodeChange={onBBCodeChange}
                   onVisualChange={onVisualChange}
+                  initialQuery={pendingSearchQuery}
+                  onInitialQueryConsumed={() => setPendingSearchQuery('')}
                 />
               ) : (
                 <GlobalSearchPanel
@@ -3375,6 +3395,9 @@ function CharacterEditorInline({
 
   // 属性相关状态
   const [attributes, setAttributes] = useState<Record<string, string | number>>(character.attributes || {});
+  // 编辑中的属性值：key=属性名, value=正在输入的值；blur 后清空
+  // 修复：原先在 .map() 回调里调 useState 违反 Rules of Hooks，会触发 React error #310
+  const [editingAttrs, setEditingAttrs] = useState<Record<string, string>>({});
 
   const updateAttributes = (next: Record<string, string | number>) => {
     setAttributes(next);
@@ -3410,6 +3433,8 @@ function CharacterEditorInline({
     setPersonality(character.personality || '');
     setNotes(character.notes || '');
     setAvatar(character.avatar || '');
+    setAttributes(character.attributes || {});
+    setEditingAttrs({});  // 切换人物时清空编辑状态
   }, [character.id]);
 
   const handleSave = () => {
@@ -3628,7 +3653,7 @@ function CharacterEditorInline({
         ) : (
           <div className="space-y-1">
             {Object.entries(attributes || {}).map(([key, value]) => {
-              const [editingVal, setEditingVal] = useState(String(value));
+              const editingVal = editingAttrs[key] ?? String(value);
               return (
                 <div
                   key={key}
@@ -3640,9 +3665,14 @@ function CharacterEditorInline({
                   </span>
                   <input
                     value={editingVal}
-                    onChange={(e) => setEditingVal(e.target.value)}
+                    onChange={(e) => setEditingAttrs((prev) => ({ ...prev, [key]: e.target.value }))}
                     onBlur={() => {
                       updateAttributes({ ...attributes, [key]: editingVal });
+                      setEditingAttrs((prev) => {
+                        const next = { ...prev };
+                        delete next[key];
+                        return next;
+                      });
                     }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
