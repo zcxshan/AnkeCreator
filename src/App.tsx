@@ -139,7 +139,7 @@ function App() {
           避免整个 React 树卸载导致白屏看不到原因 */}
       <ErrorBoundary>
         <div
-          className="flex-1 flex flex-col overflow-x-hidden"
+          className="flex-1 min-h-0 flex flex-col overflow-x-hidden"
           style={isCapacitor && !keyboardOpen ? { paddingBottom: 'calc(56px + env(safe-area-inset-bottom, 0px))' } : undefined}
         >{content}</div>
       </ErrorBoundary>

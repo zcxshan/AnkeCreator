@@ -42,7 +42,7 @@ import { htmlToNGABBCode } from '../../utils/ngaHtmlToBBCode';
 import { bbcodeToHtml } from '../../utils/ngaBBCodeToHtml';
 import { validateBBCode } from '../../utils/bbcodeValidator';
 import { parseOutlineContent } from '../../types';
-import { isCapacitor } from '../../utils/platform';
+import { isCapacitor, isElectron } from '../../utils/platform';
 import { ContextMenu } from '../common/ContextMenu';
 import { SearchPanel } from '../editor/SearchPanel';
 import { GlobalSearchPanel } from '../editor/GlobalSearchPanel';
@@ -671,8 +671,16 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
 
   return (
     <div
-      className="min-h-full flex flex-col"
-      style={{ background: 'var(--bg-page)', color: 'var(--text-primary)' }}
+      className="flex flex-col"
+      style={{
+        // 桌面端严格视口高：避免编辑内容撑大整个界面
+        // 移动端保留 min-h-full 由 body 统一滚动（前两轮设计）
+        ...(isMobile
+          ? { minHeight: '100%' }
+          : { height: isElectron ? 'calc(100vh - 32px)' : '100vh' }),
+        background: 'var(--bg-page)',
+        color: 'var(--text-primary)',
+      }}
     >
       {/* 顶部导航栏 */}
       {isMobile ? (

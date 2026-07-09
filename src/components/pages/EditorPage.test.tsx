@@ -211,6 +211,9 @@ vi.mock('../../utils/uploadImage', () => ({
 
 vi.mock('../../utils/platform', () => ({
   isCapacitor: false,
+  isElectron: false,
+  isWeb: true,
+  isMobile: false,
 }));
 
 vi.mock('../../utils/structureSync', () => ({
