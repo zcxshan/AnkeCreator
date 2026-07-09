@@ -286,7 +286,7 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
   if (!isElectron) {
     return (
       <div
-        className="h-full w-full flex flex-col items-center justify-center p-8"
+        className="min-h-full w-full flex flex-col items-center justify-center p-8"
         style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}
       >
         <div className="text-center max-w-sm">
@@ -300,7 +300,7 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
 
   return (
     <div
-      className="h-full w-full flex flex-col"
+      className="min-h-full w-full flex flex-col"
       style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}
     >
       {/* 顶栏（仅在 onClose 存在时显示"✕ 关闭"按钮） */}

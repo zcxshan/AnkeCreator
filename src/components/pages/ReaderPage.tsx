@@ -251,7 +251,7 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: colors.bg, color: colors.text }}>
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%', background: colors.bg, color: colors.text }}>
       {/* 全宽顶栏 */}
       <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', background: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
         <button onClick={onBack} title="返回" style={toolbarBtnStyle(colors)}>← 返回</button>

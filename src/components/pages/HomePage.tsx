@@ -136,7 +136,7 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
   };
 
   return (
-    <div className="h-full w-full flex flex-col items-center overflow-y-auto" style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}>
+    <div className="min-h-full w-full flex flex-col items-center" style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}>
       <div className="w-full max-w-4xl px-4 py-6 md:px-8 md:py-12">
         {/* 欢迎区 */}
         <section className="mb-10">

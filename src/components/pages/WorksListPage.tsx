@@ -786,7 +786,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
   };
 
   return (
-    <div className="h-full w-full flex flex-col" style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}>
+    <div className="min-h-full w-full flex flex-col" style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}>
       {/* 顶部栏 */}
       <header
         className="sticky top-0 z-20 backdrop-blur"

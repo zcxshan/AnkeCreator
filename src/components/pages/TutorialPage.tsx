@@ -177,7 +177,7 @@ export function TutorialPage({ onBack, onShowAuthor }: TutorialPageProps) {
 
   return (
     <div
-      className="h-full w-full flex flex-col items-center overflow-y-auto"
+      className="min-h-full w-full flex flex-col items-center"
       style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}
     >
       <div className="w-full max-w-3xl px-6 py-8">

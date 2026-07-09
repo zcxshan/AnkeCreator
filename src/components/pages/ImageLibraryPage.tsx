@@ -178,7 +178,7 @@ export function ImageLibraryPanel() {
 
   return (
     <div
-      className="h-full w-full flex flex-col overflow-hidden"
+      className="min-h-full w-full flex flex-col"
       style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}
     >
       {/* 工具栏（返回按钮+标题由外壳 ResourceLibraryPage 提供） */}

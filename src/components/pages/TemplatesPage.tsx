@@ -96,7 +96,7 @@ export function TemplatesPanel({ onShowAuthor, initialTab = 'world', onTabChange
   };
 
   return (
-    <div className="h-full w-full flex flex-col overflow-hidden" style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}>
+    <div className="min-h-full w-full flex flex-col" style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}>
       <header
         className="flex items-center justify-between px-6 py-3"
         style={{ borderBottom: '1px solid var(--border-color)' }}

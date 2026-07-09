@@ -188,7 +188,7 @@ export function CreationLogPage({ storyId, onBack }: CreationLogPageProps) {
 
   return (
     <div
-      className="h-full w-full flex flex-col"
+      className="min-h-full w-full flex flex-col"
       style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}
     >
       {/* 顶栏 */}

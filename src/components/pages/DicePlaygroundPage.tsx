@@ -119,7 +119,7 @@ export function DicePlaygroundPage({ onBack }: DicePlaygroundPageProps) {
 
   return (
     <div
-      className="flex flex-col h-full"
+      className="flex flex-col min-h-full"
       style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}
     >
       {/* 顶栏 */}
