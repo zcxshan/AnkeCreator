@@ -568,7 +568,19 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
   };
 
   // 当前节导出为图片（使用 html-to-image 的 toPng）
-  // 失败时通过 classifyError 识别错误类型，给出针对性中文提示 + 解决方案
+  // 清晰度策略：
+  //  1) 单图 ≤ MAX_IMAGE_HEIGHT：直接导出，skipAutoScale: true 保证清晰
+  //  2) 单图 > MAX_IMAGE_HEIGHT：按顶级子节点拆分为多张图
+  //  3) 字数 > MAX_IMAGE_CHARS * 3：拒绝导出 + 中文提示最大长度
+  //  4) 导出前临时把 zoom 设为 1（避免用户缩放影响清晰度），finally 恢复
+  //  5) 失败时通过 classifyError 识别错误类型，给出针对性中文提示 + 解决方案
+  // 导出图片最大清晰高度（pixelRatio 2x 下 canvas 上限 16384px，留余量）
+  const MAX_IMAGE_HEIGHT = 8000;
+  // 导出图片最大字数（粗略限制，约 8000-10000 字）
+  const MAX_IMAGE_CHARS = 10000;
+  // 多图下载间隔，避免浏览器拦截（ms）
+  const CHUNK_DOWNLOAD_INTERVAL = 200;
+
   const handleExportSectionAsImage = async () => {
     const el = visualEditorRef.current;
     if (!el) return;
@@ -579,9 +591,16 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
     }
 
     // 错误分类函数（针对 html-to-image 库常见错误）
-    const classifyError = (err: unknown): string => {
+    const classifyError = (
+      err: unknown,
+      ctx?: { totalChars?: number },
+    ): string => {
       const msg = (err as any)?.message || String(err) || '';
       const lower = msg.toLowerCase();
+      // 0. 内容过长（用户主动提示的场景）
+      if (msg.includes('内容过长') || msg.includes('字数超限')) {
+        return `导出失败：内容过长\n\n当前字数：${ctx?.totalChars ?? '?'} 字\n最大支持：${MAX_IMAGE_CHARS} 字\n\n建议：\n1) 把这一节拆分成多个小节\n2) 删除冗余内容\n3) 简化复杂样式（如移除 backdrop-filter）`;
+      }
       // 1. Canvas 尺寸超限
       if (
         (lower.includes('canvas') &&
@@ -633,45 +652,193 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
       }
       // 8. 通用失败：把原始消息带出来
       if (msg) {
-        return `导出失败：${msg}\n\n可能原因：\n1) 内容过长（>10000 字）\n2) 复杂样式（filter / backdrop-filter）\n3) 跨域图片\n\n建议：拆分节、简化样式、移除跨域图片`;
+        return `导出失败：${msg}\n\n可能原因：\n1) 内容过长（>${MAX_IMAGE_CHARS} 字）\n2) 复杂样式（filter / backdrop-filter）\n3) 跨域图片\n\n建议：拆分节、简化样式、移除跨域图片`;
       }
       return '导出失败：未知错误\n\n可能是内容过长、样式不兼容或浏览器内存不足。\n\n建议：\n1) 把这一节拆分成多个小节\n2) 简化样式（去掉 filter、backdrop-filter）\n3) 移除跨域图片';
     };
 
-    const tryExport = async (pixelRatio: number): Promise<string> => {
-      return await toPng(el, {
-        backgroundColor: getComputedStyle(el).backgroundColor || '#ffffff',
-        pixelRatio,
-      });
-    };
+    // 1. 估算内容总高度和字数
+    const totalHeight = el.scrollHeight;
+    const totalText = el.textContent || '';
+    const totalChars = totalText.length;
+
+    // 2. 临时移除 zoom（避免用户缩放影响清晰度），finally 恢复
+    const originalZoom = el.style.zoom;
+    el.style.zoom = '1';
+
     setExportingImage(true);
     try {
-      let dataUrl: string;
-      try {
-        dataUrl = await tryExport(2);
-      } catch (firstErr) {
-        // 2x 像素比可能因内容过长 / canvas 尺寸超限失败，降级到 1x
-        console.error('[exportImage] 2x pixelRatio 失败，尝试 1x:', firstErr);
+      // 3. 决策：单图 / 拆分 / 拒绝
+      if (totalHeight <= MAX_IMAGE_HEIGHT) {
+        // 单图清晰导出（禁用自动缩放）
+        const dataUrl = await toPng(el, {
+          backgroundColor: getComputedStyle(el).backgroundColor || '#ffffff',
+          pixelRatio: 2,
+          skipAutoScale: true,
+        });
+        downloadImage(dataUrl, `${section?.title || '当前节'}.png`);
+        useToastStore.getState().showToast('已导出为图片', 'success');
+        return;
+      }
+
+      // 字数严重超限（即使拆分也太多），直接拒绝并给出最大长度
+      if (totalChars > MAX_IMAGE_CHARS * 3) {
+        useToastStore.getState().showToast(
+          `内容过长（${totalChars} 字）。\n\n最大支持约 ${MAX_IMAGE_CHARS} 字，超出后图片可能不清晰。\n\n建议：\n1) 把这一节拆分成多个小节\n2) 删除冗余内容\n3) 简化复杂样式（如移除 backdrop-filter）`,
+          'error',
+          10000,
+        );
+        return;
+      }
+
+      // 4. 拆分导出（按顶级子节点）
+      const chunks = splitIntoChunks(el, MAX_IMAGE_HEIGHT);
+      if (chunks.length === 0) {
+        useToastStore.getState().showToast('无法拆分内容', 'error');
+        return;
+      }
+
+      // 5. 检测是否存在过大的子节点（超过 MAX_IMAGE_HEIGHT）
+      const oversizedChildren = Array.from(el.children).filter(
+        (c) => c.getBoundingClientRect().height > MAX_IMAGE_HEIGHT,
+      );
+      if (oversizedChildren.length > 0) {
+        useToastStore.getState().showToast(
+          `内容中存在过大的子节点（如大图片、长无断行文本），无法在保证清晰度前提下导出。\n\n最大单图高度：${MAX_IMAGE_HEIGHT}px。请考虑：\n1) 把大图缩小到合理尺寸\n2) 给长无断行文本加上空格或换行`,
+          'error',
+          10000,
+        );
+        return;
+      }
+
+      // 6. 下载多张图
+      const title = section?.title || '当前节';
+      let successCount = 0;
+      let failCount = 0;
+      for (let i = 0; i < chunks.length; i++) {
         try {
-          dataUrl = await tryExport(1);
-        } catch (lowErr) {
-          console.error('[exportImage] 1x pixelRatio 也失败:', lowErr);
-          throw lowErr; // 抛到外层 catch 用 classifyError 处理
+          const dataUrl = await toPng(chunks[i], {
+            backgroundColor:
+              getComputedStyle(chunks[i]).backgroundColor || '#ffffff',
+            pixelRatio: 2,
+            skipAutoScale: true,
+          });
+          downloadImage(dataUrl, `${title}-part${i + 1}.png`);
+          successCount++;
+        } catch (chunkErr) {
+          console.error(`[exportImage] chunk ${i + 1} 失败:`, chunkErr);
+          failCount++;
+        } finally {
+          // 清理 off-screen 容器
+          try {
+            chunks[i].remove();
+          } catch {
+            // 容器可能已被移除
+          }
+        }
+        // 间隔避免浏览器拦截多次下载
+        if (i < chunks.length - 1) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, CHUNK_DOWNLOAD_INTERVAL),
+          );
         }
       }
-      const link = document.createElement('a');
-      link.download = `${section?.title || '当前节'}.png`;
-      link.href = dataUrl;
-      link.click();
-      useToastStore.getState().showToast('已导出为图片', 'success');
+
+      if (successCount > 0 && failCount === 0) {
+        useToastStore.getState().showToast(
+          chunks.length === 1
+            ? '已导出为图片'
+            : `已拆分为 ${chunks.length} 张图片导出完成`,
+          'success',
+        );
+      } else if (successCount > 0) {
+        useToastStore.getState().showToast(
+          `部分导出成功：${successCount} 张成功，${failCount} 张失败`,
+          'info',
+          8000,
+        );
+      } else {
+        useToastStore.getState().showToast(
+          classifyError(new Error('所有分块都导出失败'), { totalChars }),
+          'error',
+          8000,
+        );
+      }
     } catch (e) {
       console.error('[exportImage] 完整错误对象:', e);
-      const friendlyMsg = classifyError(e);
-      useToastStore.getState().showToast(friendlyMsg, 'error', 8000); // 错误提示延长到 8s
+      const friendlyMsg = classifyError(e, { totalChars });
+      useToastStore.getState().showToast(friendlyMsg, 'error', 8000);
     } finally {
+      // 恢复原始 zoom
+      el.style.zoom = originalZoom;
       setExportingImage(false);
     }
   };
+
+  // --- 导出图片辅助函数（handleExportSectionAsImage 内部使用） ---
+
+  // 按顶级子节点拆分内容为多组（不修改原 DOM）
+  function splitIntoChunks(
+    el: HTMLElement,
+    maxHeight: number,
+  ): HTMLElement[] {
+    const children = Array.from(el.children) as HTMLElement[];
+    if (children.length === 0) return [el];
+
+    const chunks: HTMLElement[] = [];
+    let currentContainer: HTMLElement | null = null;
+    let currentHeight = 0;
+
+    for (const child of children) {
+      const childHeight = child.getBoundingClientRect().height;
+      if (currentHeight + childHeight > maxHeight && currentContainer) {
+        // 当前 chunk 满了，关闭它
+        chunks.push(currentContainer);
+        currentContainer = null;
+        currentHeight = 0;
+      }
+      if (!currentContainer) {
+        // 创建新 chunk（off-screen 容器）
+        currentContainer = createOffscreenContainer(el);
+      }
+      // clone 子节点加入 chunk
+      const clone = child.cloneNode(true) as HTMLElement;
+      currentContainer.appendChild(clone);
+      currentHeight += childHeight;
+    }
+    if (currentContainer) chunks.push(currentContainer);
+
+    return chunks;
+  }
+
+  // 创建 off-screen 容器（与原容器样式一致，避免编辑区样式影响）
+  function createOffscreenContainer(template: HTMLElement): HTMLElement {
+    const div = document.createElement('div');
+    const cs = getComputedStyle(template);
+    div.style.cssText = `
+      position: fixed;
+      top: -99999px;
+      left: -99999px;
+      width: ${template.clientWidth}px;
+      background: ${cs.backgroundColor};
+      color: ${cs.color};
+      font-family: ${cs.fontFamily};
+      font-size: ${cs.fontSize};
+      line-height: ${cs.lineHeight};
+      padding: ${cs.padding};
+      box-sizing: border-box;
+    `;
+    document.body.appendChild(div);
+    return div;
+  }
+
+  // 触发浏览器下载图片
+  function downloadImage(dataUrl: string, filename: string) {
+    const link = document.createElement('a');
+    link.download = filename;
+    link.href = dataUrl;
+    link.click();
+  }
 
   // 稳定 onDiceRolled 引用，避免 RichTextEditor 的 useEffect 频繁卸载/重建骰子卡片交互
   const handleDiceRolled = useCallback(

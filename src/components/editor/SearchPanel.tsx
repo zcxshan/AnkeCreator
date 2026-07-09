@@ -41,6 +41,7 @@ export function SearchPanel({
   const [matchIndex, setMatchIndex] = useState(-1);
   const [visualFound, setVisualFound] = useState<boolean | null>(null);
   const [visualCount, setVisualCount] = useState(0);
+  const [visualMatchIndex, setVisualMatchIndex] = useState(-1);
   const [replaceCount, setReplaceCount] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   // 跨节搜索跳转的 initialQuery 只能消费一次（避免重复触发自动 doFind）
@@ -71,6 +72,7 @@ export function SearchPanel({
     setMatchIndex(-1);
     setVisualFound(null);
     setVisualCount(0);
+    setVisualMatchIndex(-1);
     setReplaceCount(null);
   }, [editorMode]);
 
@@ -107,6 +109,7 @@ export function SearchPanel({
     if (editorMode !== 'visual') return;
     setVisualFound(null);
     setVisualCount(0);
+    setVisualMatchIndex(-1);
     setReplaceCount(null);
   }, [query, editorMode]);
 
@@ -254,7 +257,7 @@ export function SearchPanel({
     }
   };
 
-  const doFindVisual = (upward = false) => {
+  const doFindVisual = (direction: 'next' | 'prev' | number) => {
     const q = query.trim();
     if (!q) return;
     const el = visualEditorRef.current;
@@ -266,56 +269,33 @@ export function SearchPanel({
     if (allMatches.length === 0) {
       setVisualFound(false);
       setVisualCount(0);
+      setVisualMatchIndex(-1);
       setReplaceCount(null);
       return;
     }
 
-    // 根据当前光标位置决定目标匹配项
-    const sel = window.getSelection();
-    const currentRange = sel && sel.rangeCount > 0 ? sel.getRangeAt(0) : null;
-    let currentPos = -1;
-    if (currentRange) {
-      // 把当前光标位置转成全文本中的偏移
-      const nodes = collectTextNodes(el);
-      for (const n of nodes) {
-        if (n.node === currentRange.startContainer) {
-          currentPos = n.start + currentRange.startOffset;
-          break;
-        }
-      }
-    }
-
-    // 找下一个/上一个匹配
-    let target: typeof allMatches[number] | null = null;
-    if (currentPos < 0) {
+    // 根据 direction 决定目标匹配项的 idx
+    let targetIdx: number;
+    if (typeof direction === 'number') {
+      // 直接选第 N 个（clamp 到 1..total）
+      targetIdx = Math.max(0, Math.min(direction - 1, allMatches.length - 1));
+    } else if (visualMatchIndex < 0) {
       // 第一次：跳到第一个
-      target = upward ? allMatches[allMatches.length - 1] : allMatches[0];
-    } else if (upward) {
-      // 向上：找 currentPos 之前最近的匹配
-      for (let i = allMatches.length - 1; i >= 0; i--) {
-        if (allMatches[i].start < currentPos) {
-          target = allMatches[i];
-          break;
-        }
-      }
-      if (!target) target = allMatches[allMatches.length - 1]; // 绕回末尾
+      targetIdx = 0;
+    } else if (direction === 'next') {
+      // 向下：循环到下一个
+      targetIdx = (visualMatchIndex + 1) % allMatches.length;
     } else {
-      // 向下：找 currentPos 之后最近的匹配
-      for (const m of allMatches) {
-        if (m.start > currentPos) {
-          target = m;
-          break;
-        }
-      }
-      if (!target) target = allMatches[0]; // 绕回开头
+      // 向上：循环到上一个
+      targetIdx = (visualMatchIndex - 1 + allMatches.length) % allMatches.length;
     }
 
-    if (target) {
-      highlightVisualMatch(el, target, q.length);
-      setVisualFound(true);
-      setVisualCount(allMatches.length);
-      setReplaceCount(null);
-    }
+    const target = allMatches[targetIdx];
+    highlightVisualMatch(el, target, q.length);
+    setVisualFound(true);
+    setVisualCount(allMatches.length);
+    setVisualMatchIndex(targetIdx);
+    setReplaceCount(null);
   };
 
   // --- 统一查找入口 ---
@@ -324,7 +304,7 @@ export function SearchPanel({
       doFindBBCode(next);
     } else {
       // next=false → 向下查找（Enter 默认），next=true → 向上查找
-      doFindVisual(!next);
+      doFindVisual(next ? 'prev' : 'next');
     }
   };
 
@@ -357,7 +337,7 @@ export function SearchPanel({
     if (!q) return;
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
-      doFindVisual(false);
+      doFindVisual('next');
       return;
     }
     const selectedText = sel.toString();
@@ -370,13 +350,13 @@ export function SearchPanel({
         const allMatches = findAllInVisual(el, q);
         setVisualCount(allMatches.length);
         if (allMatches.length > 0) {
-          doFindVisual(false);
+          doFindVisual('next');
         } else {
           setVisualFound(false);
         }
       }
     } else {
-      doFindVisual(false);
+      doFindVisual('next');
     }
   };
 
@@ -450,9 +430,9 @@ export function SearchPanel({
     // visual
     if (replaceCount !== null) return `已替换 ${replaceCount} 处`;
     if (visualFound === null) return '输入关键词后按 Enter 查找';
-    return visualFound
-      ? `已找到匹配${visualCount > 0 ? `（${visualCount}）` : ''}`
-      : '未找到匹配';
+    if (!visualFound) return '未找到匹配';
+    if (visualCount === 0) return '已找到匹配';
+    return `已找到 ${visualCount} 处，当前 ${visualMatchIndex + 1}/${visualCount}`;
   })();
 
   const btnDisabled = !query.trim();
@@ -532,6 +512,55 @@ export function SearchPanel({
         >
           ↑
         </button>
+        {(() => {
+          const total = editorMode === 'bbcode' ? matches.length : visualCount;
+          const current =
+            editorMode === 'bbcode'
+              ? matchIndex < 0
+                ? 0
+                : matchIndex + 1
+              : visualMatchIndex < 0
+                ? 0
+                : visualMatchIndex + 1;
+          const numInputDisabled = btnDisabled || total === 0;
+          return (
+            <input
+              type="number"
+              min={1}
+              max={total}
+              value={total === 0 ? '' : current}
+              disabled={numInputDisabled}
+              onChange={(e) => {
+                const v = parseInt(e.target.value, 10);
+                if (Number.isNaN(v)) return;
+                if (editorMode === 'bbcode') {
+                  if (matches.length === 0) return;
+                  const newIdx = Math.max(0, Math.min(v - 1, matches.length - 1));
+                  setMatchIndex(newIdx);
+                  highlightBBCodeMatch(newIdx);
+                  setReplaceCount(null);
+                } else {
+                  if (visualCount === 0) return;
+                  doFindVisual(v);
+                }
+              }}
+              placeholder="N"
+              style={{
+                width: 56,
+                padding: '4px 4px',
+                background: 'var(--bg-input, var(--bg-card))',
+                border: '1px solid var(--border-color)',
+                borderRadius: 4,
+                color: 'var(--text-primary)',
+                fontSize: 12,
+                textAlign: 'center',
+                outline: 'none',
+                opacity: numInputDisabled ? 0.5 : 1,
+              }}
+              title="直接跳到第几个匹配"
+            />
+          );
+        })()}
         <button
           type="button"
           onClick={() => doFind(false)}
