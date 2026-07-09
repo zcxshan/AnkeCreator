@@ -671,7 +671,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
 
   return (
     <div
-      className="h-full flex flex-col"
+      className="min-h-full flex flex-col"
       style={{ background: 'var(--bg-page)', color: 'var(--text-primary)' }}
     >
       {/* 顶部导航栏 */}
@@ -929,7 +929,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
       {view === 'character' && <CharacterPanel richTextEditorCommandsRef={richTextEditorCommandsRef} />}
 
       {view === 'directory' && !focusMode && (
-        <div className="flex-1 flex overflow-hidden min-h-0 relative">
+        <div className="flex-1 flex overflow-hidden min-h-0 relative md:min-h-[500px]">
           {/* ===== 桌面端：3 列布局（目录 + 编辑区 + 右侧栏） ===== */}
           {!isMobile && (
             <>

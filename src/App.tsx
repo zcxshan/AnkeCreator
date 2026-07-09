@@ -132,7 +132,7 @@ function App() {
           避免整个 React 树卸载导致白屏看不到原因 */}
       <ErrorBoundary>
         <div
-          className={`flex-1 min-h-0 overflow-x-hidden ${route === 'editor' ? 'overflow-hidden' : 'overflow-y-auto'}`}
+          className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto"
           style={isCapacitor && !keyboardOpen ? { paddingBottom: 'calc(56px + env(safe-area-inset-bottom, 0px))' } : undefined}
         >{content}</div>
       </ErrorBoundary>

@@ -293,7 +293,12 @@ export function EditorToolbar({
   const [urlInput, setUrlInput] = useState('');
   const [showUrlBox, setShowUrlBox] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [styleRowCollapsed, setStyleRowCollapsed] = useState(false);
+  const [styleRowCollapsed, setStyleRowCollapsed] = useState(
+    () => {
+      if (typeof window === 'undefined') return false;
+      return window.innerWidth < 768;
+    }
+  );
 
   // 订阅本地上传总开关：关闭时把"本地上传"按钮置灰
   const localUploadEnabled = useSettingStore((s) => s.localUploadEnabled);

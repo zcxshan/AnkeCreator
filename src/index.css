@@ -703,6 +703,8 @@ html.capacitor-platform-ios {
     font-size: 16px;
     line-height: 2.0;
     padding: 16px !important;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
   }
   .anke-editor-content p {
     margin: 0.8em 0;
