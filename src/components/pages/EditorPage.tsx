@@ -1016,7 +1016,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
 
           <div className="flex-1 min-w-0 flex flex-col overflow-hidden min-h-0">
           <main
-            className="flex-1 min-w-0 flex flex-col overflow-y-auto overflow-x-hidden"
+            className="flex-1 min-w-0 flex flex-col overflow-hidden"
             style={{ borderLeft: !isMobile ? '1px solid var(--border-color)' : 'none', borderRight: !isMobile ? '1px solid var(--border-color)' : 'none', minHeight: 0 }}
           >
             {section && activeChapter ? (
@@ -1194,19 +1194,16 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                 请在左侧选择一个节开始编辑
               </div>
             )}
-
-            {section && !(isMobile && keyboardOpen) && (
-              <div
-                className="sticky bottom-0 z-10"
-                style={{ background: 'var(--bg-card)', borderTop: '1px solid var(--border-color)' }}
-              >
-                <BottomStatusBar
-                  editorMode={editorMode}
-                  onSwitchMode={setEditorMode}
-                />
-              </div>
-            )}
           </main>
+
+          {/* 底部状态栏：移出 main，放外层 flex 容器中 shrink-0 贴底 */}
+          {section && !(isMobile && keyboardOpen) && (
+            <BottomStatusBar
+              editorMode={editorMode}
+              onSwitchMode={setEditorMode}
+            />
+          )}
+          </div>
 
           {/* ===== 安卓版：右侧面板默认折叠（只露 tab 头，点击展开，不盖编辑区） ===== */}
           {isMobile && (
@@ -1329,7 +1326,6 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
               )}
             </aside>
           )}
-          </div>
 
           {!isMobile && !rightSidebarCollapsed && (
             <>
