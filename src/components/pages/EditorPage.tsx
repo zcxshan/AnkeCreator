@@ -47,6 +47,7 @@ import { ContextMenu } from '../common/ContextMenu';
 import { SearchPanel } from '../editor/SearchPanel';
 import { GlobalSearchPanel } from '../editor/GlobalSearchPanel';
 import { CompactImageLibraryPanel } from '../editor/CompactImageLibraryPanel';
+import { toPng } from 'html-to-image';
 
 interface EditorPageProps {
   onBack: () => void;
@@ -292,6 +293,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
   const [titleInput, setTitleInput] = useState('');
   const richTextEditorCommandsRef = useRef<RichTextEditorCommands | null>(null);
   const [selectedImage, setSelectedImage] = useState<{ width: number; height: number; src?: string; dataSize?: string } | null>(null);
+  const [exportingImage, setExportingImage] = useState(false);
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(256);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(384);
   // 用户手动拖动记忆值（窗口放大后恢复到此值）
@@ -562,6 +564,33 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
       useToastStore.getState().showToast('已将 BBCode 同步到可视化视图', 'success');
     } catch (e) {
       useToastStore.getState().showToast(`同步失败：${(e as Error).message}`, 'error');
+    }
+  };
+
+  // 当前节导出为图片（使用 html-to-image 的 toPng，2 倍像素比保证清晰度）
+  const handleExportSectionAsImage = async () => {
+    const el = visualEditorRef.current;
+    if (!el) return;
+    const html = el.innerHTML;
+    if (!html.trim() || html === '<br>') {
+      useToastStore.getState().showToast('当前节没有内容可导出', 'info');
+      return;
+    }
+    setExportingImage(true);
+    try {
+      const dataUrl = await toPng(el, {
+        backgroundColor: getComputedStyle(el).backgroundColor || '#ffffff',
+        pixelRatio: 2,
+      });
+      const link = document.createElement('a');
+      link.download = `${section?.title || '当前节'}.png`;
+      link.href = dataUrl;
+      link.click();
+      useToastStore.getState().showToast('已导出为图片', 'success');
+    } catch (e) {
+      useToastStore.getState().showToast('导出失败：' + (e as Error).message, 'error');
+    } finally {
+      setExportingImage(false);
     }
   };
 
@@ -1038,6 +1067,21 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                           title="把当前可视化内容同步到 BBCode 字段（覆盖当前 BBCode）"
                         >
                           🔄 同步到BBCode
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleExportSectionAsImage}
+                          className="px-2 py-1 rounded text-xs"
+                          style={{
+                            background: 'var(--bg-hover)',
+                            color: 'var(--text-primary)',
+                            border: '1px solid var(--border-color)',
+                            cursor: 'pointer',
+                          }}
+                          title="把当前节导出为图片"
+                          disabled={exportingImage}
+                        >
+                          {exportingImage ? '⏳ 导出中...' : '📷 导出图片'}
                         </button>
                       </div>
                     )}

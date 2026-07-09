@@ -113,6 +113,20 @@ export function RichTextEditor({
     hasSelection: boolean;
   } | null>(null);
 
+  // Ctrl+滚轮缩放编辑区（50%~200%，不持久化）
+  const [zoom, setZoom] = useState(1);
+  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    if (!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -0.1 : 0.1; // 向上放大，向下缩小
+    setZoom((prev) => {
+      const next = Math.round((prev + delta) * 10) / 10;
+      if (next < 0.5) return 0.5;
+      if (next > 2) return 2;
+      return next;
+    });
+  };
+
   // 持续保存编辑器内的光标位置（工具栏按钮点击后编辑器失焦时恢复用）
   // 同时把光标处的样式同步到 useEditorStore.cursorStyles（供工具栏展示）
   // 注意：不同步到 activeStyles —— activeStyles 是用户主动激活的状态，保留用户意图
@@ -1164,6 +1178,7 @@ export function RichTextEditor({
         onTouchMove={handleTouchMoveScroll}
         onTouchEnd={handleTouchEndScroll}
         onTouchCancel={handleTouchEndScroll}
+        onWheel={handleWheel}
         style={{
           flex: 1,
           minHeight: 0,
@@ -1201,6 +1216,7 @@ export function RichTextEditor({
             padding: '24px 32px',
             outline: 'none',
             cursor: 'text',
+            zoom: zoom, // Ctrl+滚轮缩放（Chrome/Electron 原生支持）
             ...(style || {}),
           }}
         />
