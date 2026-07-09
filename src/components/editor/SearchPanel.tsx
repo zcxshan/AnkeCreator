@@ -47,18 +47,44 @@ export function SearchPanel({
   // 跨节搜索跳转的 initialQuery 只能消费一次（避免重复触发自动 doFind）
   const consumedInitialQueryRef = useRef<string>('');
 
-  // 跨节搜索跳转时，initialQuery 变化 → 同步到 query 并自动 doFind 第一个匹配
+  // 跨节搜索跳转时，initialQuery 变化 → 同步到 query 并等待编辑器就绪后自动 doFind
+  // 由于 setActiveSection + useSectionEditor + loadSection 都是异步的，
+  // 简单的 setTimeout(0) 触发 doFind 时 RichTextEditor 可能还没 mount / sectionContent 还在加载
+  // 用重试机制（最多 20 次 × 100ms = 2 秒）等到编辑器就绪再 doFind
   useEffect(() => {
     if (initialQuery && consumedInitialQueryRef.current !== initialQuery) {
       consumedInitialQueryRef.current = initialQuery;
       setQuery(initialQuery);
       setReplaceCount(null);
-      // 下一个 tick 再 doFind，确保 React 已把 query 更新到子组件
-      setTimeout(() => {
-        inputRef.current?.focus();
-        doFind(false); // 向下查找第一个
-        onInitialQueryConsumed?.();
-      }, 0);
+      // 重试机制：等到 visualEditorRef.current 非空且 innerHTML 加载完成才 doFind
+      const MAX_ATTEMPTS = 20;
+      const RETRY_DELAY = 100;
+      let attempts = 0;
+      let cancelled = false;
+      const tryDoFind = () => {
+        if (cancelled) return;
+        const el = visualEditorRef.current;
+        // 编辑器已挂载且内容已加载（非空 + 不是占位 <br>）
+        if (el && el.innerHTML && el.innerHTML !== '<br>') {
+          inputRef.current?.focus();
+          doFind(false);
+          onInitialQueryConsumed?.();
+          return;
+        }
+        attempts++;
+        if (attempts < MAX_ATTEMPTS) {
+          setTimeout(tryDoFind, RETRY_DELAY);
+        } else {
+          // 超时：放弃自动搜索，让用户手动按 Enter
+          onInitialQueryConsumed?.();
+        }
+      };
+      // 立即尝试一次（快速路径：编辑器已就绪）
+      setTimeout(tryDoFind, 0);
+      return () => {
+        // 组件卸载或 effect 重新执行时取消重试，防止错误调用
+        cancelled = true;
+      };
     } else if (!initialQuery) {
       // 清空时重置（允许后续再次消费）
       consumedInitialQueryRef.current = '';

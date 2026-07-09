@@ -159,9 +159,13 @@ export function GlobalSearchPanel({ onNavigate, currentStoryId }: GlobalSearchPa
     }
   };
 
-  const handleClickHit = (hit: Hit) => {
-    // 把当前 query 一并传给父组件，跳转后 SearchPanel 能自动填入并定位到第一个匹配
-    onNavigate(hit.storyId, hit.sectionId, query);
+  const handleClickHit = async (hit: Hit) => {
+    // onNavigate 现在是 async（跨作品时 await setActiveStory），用 try/catch 防止错误冒泡
+    try {
+      await onNavigate(hit.storyId, hit.sectionId, query);
+    } catch (e) {
+      console.error('[GlobalSearchPanel] navigate failed:', e);
+    }
   };
 
   // 状态文本

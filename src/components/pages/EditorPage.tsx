@@ -2033,9 +2033,17 @@ function RightPanel({
   const setActiveStory = useStoryStore((s) => s.setActiveStory);
   const setActiveSection = useStoryStore((s) => s.setActiveSection);
   const handleGlobalSearchNavigate = useCallback(
-    (storyId: string, sectionId: string, searchQuery?: string) => {
-      void setActiveStory(storyId);
-      setActiveSection(sectionId);
+    async (storyId: string, sectionId: string, searchQuery?: string) => {
+      const curStoryId = useStoryStore.getState().activeStoryId;
+      // 同作品：直接切节（省一次 setActiveStory 数据清空 + 重新加载 + 闪屏）
+      if (storyId === curStoryId) {
+        setActiveSection(sectionId);
+      } else {
+        // 跨作品：先 await 加载完新 story 数据，再切节
+        // （否则 setActiveSection 找不到 section，activeChapterId 也会被 loadStoryData 用 chapters[0] 覆盖）
+        await setActiveStory(storyId);
+        setActiveSection(sectionId);
+      }
       setActiveTab('properties');
       setSearchMode('current');
       // 把跨节搜索的 query 传给 SearchPanel，自动填入并 doFind 到第一个匹配
