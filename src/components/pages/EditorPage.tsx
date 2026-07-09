@@ -1031,7 +1031,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                   />
                 )}
                 {editorMode === 'visual' ? (
-                  <div className="flex-1 flex flex-col overflow-hidden relative">
+                  <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative">
                     {!(isMobile && keyboardOpen) && (
                       <div
                         className="shrink-0 flex items-center gap-2 px-3 py-1.5 text-xs"
@@ -1104,7 +1104,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                     />
                   </div>
                 ) : (
-                  <div className="flex-1 flex flex-col overflow-hidden relative">
+                  <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative">
                     {!(isMobile && keyboardOpen) && (
                       <div
                         className="shrink-0 flex items-center gap-2 px-3 py-1.5 text-xs"
@@ -4149,7 +4149,7 @@ function BBCodeEditor({
 
   return (
     <div
-      className="flex-1 overflow-hidden p-3"
+      className="flex-1 min-h-0 overflow-hidden p-3"
       style={{ background: 'var(--bg-input)' }}
     >
       <textarea
