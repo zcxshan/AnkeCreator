@@ -567,8 +567,8 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
     }
   };
 
-  // 当前节导出为图片（使用 html-to-image 的 toPng，2 倍像素比保证清晰度）
-  // 2x 失败时降级到 1x，应对内容过长 / canvas 尺寸超限
+  // 当前节导出为图片（使用 html-to-image 的 toPng）
+  // 失败时通过 classifyError 识别错误类型，给出针对性中文提示 + 解决方案
   const handleExportSectionAsImage = async () => {
     const el = visualEditorRef.current;
     if (!el) return;
@@ -577,6 +577,67 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
       useToastStore.getState().showToast('当前节没有内容可导出', 'info');
       return;
     }
+
+    // 错误分类函数（针对 html-to-image 库常见错误）
+    const classifyError = (err: unknown): string => {
+      const msg = (err as any)?.message || String(err) || '';
+      const lower = msg.toLowerCase();
+      // 1. Canvas 尺寸超限
+      if (
+        (lower.includes('canvas') &&
+          (lower.includes('size') || lower.includes('limit') || lower.includes('exceed'))) ||
+        lower.includes('maximum') ||
+        lower.includes('too large')
+      ) {
+        return '导出失败：画布尺寸超限\n\n当前内容过长导致画布超过浏览器上限（通常 16384 像素）。\n\n建议：\n1) 把这一节拆分成多个小节\n2) 减少大尺寸图片（>2000px 宽）\n3) 移除复杂样式（如 backdrop-filter）';
+      }
+      // 2. 跨域 / CORS 图片加载失败
+      if (
+        lower.includes('tainted') ||
+        lower.includes('cross-origin') ||
+        lower.includes('cors')
+      ) {
+        return '导出失败：图片跨域加载失败\n\n编辑器中包含跨域图片，被浏览器安全策略阻止。\n\n请：\n1) 把图片下载到本地后重新插入\n2) 或使用同源图片';
+      }
+      // 3. 不支持的颜色函数（oklch/lab）
+      if (
+        lower.includes('oklch') ||
+        lower.includes('oklab') ||
+        lower.includes('color(')
+      ) {
+        return '导出失败：样式不兼容\n\n检测到不兼容的颜色函数（如 oklch / lab）。\n\n建议：把颜色改为传统 #hex 或 rgb() 格式';
+      }
+      // 4. 节点过多 / 内存不足
+      if (
+        lower.includes('node') ||
+        lower.includes('too many') ||
+        lower.includes('memory')
+      ) {
+        return '导出失败：内容过大\n\nDOM 节点过多或内存不足。\n\n建议：\n1) 把这一节拆分成多个小节\n2) 减少嵌入的骰子卡 / 图片块\n3) 删除过时的隐藏内容';
+      }
+      // 5. 字体加载失败
+      if (lower.includes('font') || lower.includes('typeface')) {
+        return '导出失败：字体加载失败\n\n自定义字体未加载完。\n\n建议：等待字体加载完成后再试';
+      }
+      // 6. CSP / 安全策略
+      if (
+        lower.includes('unsafe') ||
+        lower.includes('security') ||
+        lower.includes('unsafe-eval')
+      ) {
+        return '导出失败：样式触发安全策略\n\n包含 unsafe-eval 或其他被 CSP 拦截的样式。';
+      }
+      // 7. SVG / XML 转换失败
+      if (lower.includes('svg') || lower.includes('xml')) {
+        return '导出失败：SVG 转换失败\n\n包含复杂的 SVG 内容无法转为 PNG。';
+      }
+      // 8. 通用失败：把原始消息带出来
+      if (msg) {
+        return `导出失败：${msg}\n\n可能原因：\n1) 内容过长（>10000 字）\n2) 复杂样式（filter / backdrop-filter）\n3) 跨域图片\n\n建议：拆分节、简化样式、移除跨域图片`;
+      }
+      return '导出失败：未知错误\n\n可能是内容过长、样式不兼容或浏览器内存不足。\n\n建议：\n1) 把这一节拆分成多个小节\n2) 简化样式（去掉 filter、backdrop-filter）\n3) 移除跨域图片';
+    };
+
     const tryExport = async (pixelRatio: number): Promise<string> => {
       return await toPng(el, {
         backgroundColor: getComputedStyle(el).backgroundColor || '#ffffff',
@@ -591,7 +652,12 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
       } catch (firstErr) {
         // 2x 像素比可能因内容过长 / canvas 尺寸超限失败，降级到 1x
         console.error('[exportImage] 2x pixelRatio 失败，尝试 1x:', firstErr);
-        dataUrl = await tryExport(1);
+        try {
+          dataUrl = await tryExport(1);
+        } catch (lowErr) {
+          console.error('[exportImage] 1x pixelRatio 也失败:', lowErr);
+          throw lowErr; // 抛到外层 catch 用 classifyError 处理
+        }
       }
       const link = document.createElement('a');
       link.download = `${section?.title || '当前节'}.png`;
@@ -600,9 +666,8 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
       useToastStore.getState().showToast('已导出为图片', 'success');
     } catch (e) {
       console.error('[exportImage] 完整错误对象:', e);
-      // 兼容各种错误形态：DOMException、纯对象、字符串等
-      const msg = (e as Error)?.message || String(e) || '未知错误（可能是内容过长或样式不兼容）';
-      useToastStore.getState().showToast('导出失败：' + msg, 'error');
+      const friendlyMsg = classifyError(e);
+      useToastStore.getState().showToast(friendlyMsg, 'error', 8000); // 错误提示延长到 8s
     } finally {
       setExportingImage(false);
     }

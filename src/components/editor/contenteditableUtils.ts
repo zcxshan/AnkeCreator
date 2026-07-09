@@ -34,7 +34,6 @@ import { rollDice } from '../../utils/diceEngine';
 import { useSettingStore } from '../../store/settingStore';
 import { useEditorHistoryStore } from '../../store/editorHistoryStore';
 import { playDiceRollSound } from '../../utils/diceSound';
-import type { ActiveEditorStyles } from '../../store/editorStore';
 
 /**
  * 原子块 push helper（Phase E — 子卡点 3.3）：
@@ -3044,45 +3043,5 @@ function findSelectedImageBlock(editor: HTMLElement): HTMLElement | null {
   }
 
   return null;
-}
-
-// ============================================================
-// 格式刷（Word 风格）：把捕获的样式批量应用到当前选区
-// ============================================================
-
-/**
- * 把捕获的 paintedStyles 应用到当前选区。
- * - CSS 样式（color / fontSize / fontFamily）直接覆盖
- * - 标签样式（bold / italic / underline / strike / sup / sub）采用"补全"模式：
- *   如果 painted 标记为 true 而当前未应用，则应用；不主动移除
- *   （避免破坏已有标签结构）
- * - 调用方需保证当前有非折叠选区
- */
-export function applyPaintedStyles(editor: HTMLElement, styles: ActiveEditorStyles): void {
-  // CSS 样式：直接覆盖
-  if (styles.color) {
-    applyColor(editor, styles.color);
-  }
-  if (styles.fontSize) {
-    applyFontSize(editor, styles.fontSize);
-  }
-  if (styles.fontFamily) {
-    applyFontFamily(editor, styles.fontFamily);
-  }
-
-  // 标签样式：补全
-  if (styles.bold && !isBoldActive()) execBold(editor);
-  if (styles.italic && !isItalicActive()) execItalic(editor);
-  if (styles.underline && !isUnderlineActive()) execUnderline(editor);
-  if (styles.strike && !isStrikeActive()) execStrikeThrough(editor);
-  if (styles.sup && !isSupActive()) {
-    try { document.execCommand('superscript', false); } catch {}
-  }
-  if (styles.sub && !isSubActive()) {
-    try { document.execCommand('subscript', false); } catch {}
-  }
-
-  // 触发 input 事件，让 React 状态同步
-  dispatchInput(editor);
 }
 

@@ -16,7 +16,6 @@ import {
   getCurrentStyles,
   applyActiveStylesToInsertion,
   applyActiveStylesToRange,
-  applyPaintedStyles,
   setLastEditorRange,
 } from './contenteditableUtils';
 import { useEditorStore } from '../../store/editorStore';
@@ -203,42 +202,6 @@ export function RichTextEditor({
     };
     document.addEventListener('selectionchange', onSelectionChange);
     return () => document.removeEventListener('selectionchange', onSelectionChange);
-  }, []);
-
-  // 格式刷涂抹：监听编辑器内的 mouseup，用户松开鼠标时涂抹
-  useEffect(() => {
-    const el = divRef.current;
-    if (!el) return;
-    const onMouseUpInEditor = () => {
-      // 用 setTimeout 0 等浏览器把最新 selection 写入
-      setTimeout(() => {
-        const sel = window.getSelection();
-        if (!sel || sel.rangeCount === 0) return;
-        const r = sel.getRangeAt(0);
-        if (r.collapsed) return;
-        if (!el.contains(r.commonAncestorContainer)) return;
-        const store = useEditorStore.getState();
-        if (!store.isFormatPainterActive || !store.paintedStyles) return;
-        applyPaintedStyles(el, store.paintedStyles);
-        // 单次模式：涂一次后自动退出
-        if (!store.isFormatPainterLocked) {
-          store.clearFormatPainter();
-        }
-      }, 0);
-    };
-    el.addEventListener('mouseup', onMouseUpInEditor);
-    return () => el.removeEventListener('mouseup', onMouseUpInEditor);
-  }, []);
-
-  // 格式刷激活时按 Esc 取消
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && useEditorStore.getState().isFormatPainterActive) {
-        useEditorStore.getState().clearFormatPainter();
-      }
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
   }, []);
 
   // content 变化 -> 写入 div.innerHTML（切节加载，用 requestIdleCallback 避免阻塞主线程）

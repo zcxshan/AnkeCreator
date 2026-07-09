@@ -209,7 +209,7 @@ export function SearchPanel({
     return positions;
   };
 
-  // 把 Range 设置到匹配项并滚动可见（VSCode 风格：滚到视口中央）
+  // 把 Range 设置到匹配项并滚动可见（手动计算 scrollTop，避开 CSS zoom + scrollIntoView 兼容问题）
   const highlightVisualMatch = (root: HTMLElement, match: { node: Text; nodeOffset: number; end: number; start: number }, qLen: number) => {
     const range = document.createRange();
     range.setStart(match.node, match.nodeOffset);
@@ -219,16 +219,38 @@ export function SearchPanel({
       sel.removeAllRanges();
       sel.addRange(range);
     }
-    // VSCode 风格：用浏览器原生 scrollIntoView 滚到视口中央
-    // 浏览器会自动处理所有祖先滚动容器（包括嵌套的 image-block, dice-card, collapse-block）
+    // 手动计算 scrollTop 让目标行居中（避开 CSS zoom 与 scrollIntoView 兼容问题）
     try {
-      range.scrollIntoView({
-        behavior: 'smooth',
-        block: 'center',  // 垂直方向：目标行居中
-        inline: 'nearest', // 水平方向：尽量少动
-      });
+      // 找到最近的 overflowY: auto/scroll 祖先（contenteditable 的滚动容器）
+      const findScrollParent = (el: HTMLElement | null): HTMLElement | null => {
+        let p: HTMLElement | null = el?.parentElement ?? null;
+        while (p) {
+          const style = window.getComputedStyle(p);
+          const oy = style.overflowY;
+          if ((oy === 'auto' || oy === 'scroll') && p.scrollHeight > p.clientHeight) {
+            return p;
+          }
+          p = p.parentElement;
+        }
+        return null;
+      };
+      const container = findScrollParent(root);
+      if (container) {
+        // 瞬时滚动确保 selection 与滚动同步（不用 smooth，避免 React 重渲染时序问题）
+        const rect = range.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+        // 目标行相对容器顶部位置（offsetTop = 当前屏幕位置 - 容器屏幕位置 + 当前 scrollTop）
+        const offsetTop = rect.top - containerRect.top + container.scrollTop;
+        // 居中：scrollTop = offsetTop - 容器高度一半 + 行高一半
+        const target = Math.max(0, offsetTop - container.clientHeight / 2 + rect.height / 2);
+        const max = Math.max(0, container.scrollHeight - container.clientHeight);
+        container.scrollTop = Math.min(target, max);
+      } else {
+        // 找不到滚动容器时 fallback 到 scrollIntoView
+        range.scrollIntoView({ block: 'center', inline: 'nearest' });
+      }
     } catch {
-      // 极少数旧浏览器可能抛错，静默失败
+      // 静默
     }
   };
 

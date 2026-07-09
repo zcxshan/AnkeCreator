@@ -349,10 +349,6 @@ export function EditorToolbar({
   const activeStylesFromStore = useEditorStore((s) => s.activeStyles);
   const cursorStylesFromStore = useEditorStore((s) => s.cursorStyles);
   const activeStylesLocked = useEditorStore((s) => s.activeStylesLocked);
-  const isFormatPainterActive = useEditorStore((s) => s.isFormatPainterActive);
-  const isFormatPainterLocked = useEditorStore((s) => s.isFormatPainterLocked);
-  const setPaintedStyles = useEditorStore((s) => s.setPaintedStyles);
-  const clearFormatPainter = useEditorStore((s) => s.clearFormatPainter);
 
   const activeBold = activeStylesLocked
     ? (activeStylesFromStore.bold ?? false)
@@ -1309,36 +1305,6 @@ export function EditorToolbar({
             onClick={() => onRedo?.()}
           >
             ↷ <span className="tb-label">重做</span>
-          </ToolbarBtn>
-          <ToolbarBtn
-            title={isFormatPainterActive ? '格式刷激活中（按 Esc 退出，单击可关闭）' : '格式刷：单击捕获样式后涂抹一次，双击进入多次模式'}
-            onClick={() => {
-              if (isFormatPainterActive) {
-                // 已激活时单击：取消激活
-                clearFormatPainter();
-                return;
-              }
-              // 捕获当前光标/选区起点样式
-              const el = editorElRef.current;
-              if (!el) return;
-              const cur = getCurrentStyles(el);
-              setPaintedStyles(cur);
-            }}
-            onDoubleClick={() => {
-              // 双击：进入多次涂抹模式
-              const el = editorElRef.current;
-              if (!el) return;
-              const cur = getCurrentStyles(el);
-              // 强制设为 locked 模式
-              useEditorStore.setState({
-                paintedStyles: cur,
-                isFormatPainterActive: true,
-                isFormatPainterLocked: true,
-              });
-            }}
-            style={isFormatPainterActive ? { background: 'var(--accent-color, #3b82f6)', color: '#fff' } : undefined}
-          >
-            🖌️ <span className="tb-label">{isFormatPainterActive ? (isFormatPainterLocked ? '刷×多次' : '刷×1') : '格式刷'}</span>
           </ToolbarBtn>
         </div>
 
