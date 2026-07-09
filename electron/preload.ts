@@ -438,6 +438,9 @@ export type ElectronAPI = {
   }
   openExternal: (url: string) => Promise<void>
   listDiceSounds: () => Promise<string[]>
+  uploadDiceSound: (payload: { filename: string; buffer: string; mimeType?: string }) => Promise<{ ok: boolean; name?: string; error?: string }>
+  deleteDiceSound: (filename: string) => Promise<{ ok: boolean; error?: string }>
+  getDiceSoundDataUrl: (filename: string) => Promise<{ ok: boolean; dataUrl?: string; error?: string }>
   exportEpub: (
     storyId: string,
     suggestedName?: string,

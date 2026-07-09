@@ -69,7 +69,7 @@ export function DicePlaygroundPage({ onBack }: DicePlaygroundPageProps) {
 
     // 音效（仅在设置开启时；playDiceRollSound 内部 try/catch，失败安全 no-op）
     if (useSettingStore.getState().soundEnabled) {
-      playDiceRollSound();
+      void playDiceRollSound();
     }
 
     setIsRolling(true);

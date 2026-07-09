@@ -1800,7 +1800,7 @@ export function rollDiceOnCard(editor: HTMLElement, block: HTMLElement): void {
 
   // 播放音效（仅在设置开启时；playDiceRollSound 内部 try/catch，失败安全 no-op）
   if (useSettingStore.getState().soundEnabled) {
-    playDiceRollSound();
+    void playDiceRollSound();
   }
 
   // 摇一摇卡片（350ms 后自动清除 class）

@@ -2075,7 +2075,7 @@ function QuickDicePanel() {
 
     // 音效（仅在设置开启时）
     if (useSettingStore.getState().soundEnabled) {
-      playDiceRollSound();
+      void playDiceRollSound();
     }
 
     setLastExpr(trimmed);

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSettingStore, type ImageStoreMode } from '../../store/settingStore';
 import { useToastStore } from '../../store/toastStore';
+import { isElectron } from '../../utils/platform';
 
 interface SettingsDialogProps {
   open: boolean;
@@ -30,9 +31,95 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   const diceSoundName = useSettingStore((s) => s.diceSoundName);
   const setDiceSoundName = useSettingStore((s) => s.setDiceSoundName);
   const availableDiceSounds = useSettingStore((s) => s.availableDiceSounds);
+  const showToast = useToastStore((s) => s.showToast);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [cookieDraft, setCookieDraft] = useState('');
   const [openFolderHint, setOpenFolderHint] = useState<string | null>(null);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
+
+  // 重新扫描音效列表（上传/删除后调用）
+  const refreshSounds = async () => {
+    if (!isElectron || !window.electronAPI?.listDiceSounds) return;
+    try {
+      const list = await window.electronAPI.listDiceSounds();
+      useSettingStore.getState().setAvailableDiceSounds(list);
+    } catch (e) {
+      console.error('刷新音效列表失败:', e);
+    }
+  };
+
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // 清空 value，允许选同一文件
+    e.target.value = '';
+    if (!file) return;
+    if (!isElectron || !window.electronAPI?.uploadDiceSound) {
+      showToast('上传音效仅在桌面端支持', 'error');
+      return;
+    }
+    if (!/\.mp3$/i.test(file.name)) {
+      showToast('仅支持 .mp3 格式', 'error');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      showToast(`文件过大（限制 5MB，当前 ${(file.size / 1024 / 1024).toFixed(2)}MB）`, 'error');
+      return;
+    }
+    try {
+      // FileReader 读为 base64（去掉 data URL 前缀）
+      const buffer = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          const comma = result.indexOf(',');
+          resolve(comma >= 0 ? result.slice(comma + 1) : result);
+        };
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+      const res = await window.electronAPI.uploadDiceSound({
+        filename: file.name,
+        buffer,
+        mimeType: 'audio/mpeg',
+      });
+      if (res.ok) {
+        showToast(`已上传：${res.name || file.name}`, 'success');
+        await refreshSounds();
+      } else {
+        showToast(`上传失败：${res.error || '未知错误'}`, 'error');
+      }
+    } catch (err) {
+      showToast(`读取文件失败：${(err as Error)?.message || err}`, 'error');
+    }
+  };
+
+  const handleDeleteSound = async (name: string) => {
+    if (!isElectron || !window.electronAPI?.deleteDiceSound) return;
+    if (name.toLowerCase() === 'dice-roll.mp3') {
+      showToast('内置音效不可删除', 'error');
+      return;
+    }
+    if (!window.confirm(`确定删除「${name}」？\n此操作不可恢复。`)) return;
+    try {
+      const res = await window.electronAPI.deleteDiceSound(name);
+      if (res.ok) {
+        showToast(`已删除：${name}`, 'success');
+        // 如果删除的是当前选中的，回退到 dice-roll.mp3
+        if (useSettingStore.getState().diceSoundName === name) {
+          useSettingStore.getState().setDiceSoundName('dice-roll.mp3');
+        }
+        await refreshSounds();
+      } else {
+        showToast(`删除失败：${res.error || '未知错误'}`, 'error');
+      }
+    } catch (err) {
+      showToast(`删除失败：${(err as Error)?.message || err}`, 'error');
+    }
+  };
 
   // 打开弹窗时初始化 cookie 输入框
   useEffect(() => {
@@ -303,7 +390,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
             </span>
           </div>
 
-          {/* 音效选择器 */}
+          {/* 音效选择器 + 上传/删除 */}
           <div
             style={{
               display: 'flex',
@@ -341,7 +428,110 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 <option key={name} value={name}>{name}</option>
               ))}
             </select>
+            <SettingsBtn
+              variant="primary"
+              onClick={handleUploadClick}
+              disabled={!isElectron}
+              title={isElectron ? '选择本地 mp3 文件上传' : '上传音效仅在桌面端支持'}
+            >
+              📤 上传 mp3
+            </SettingsBtn>
+            {diceSoundName.toLowerCase() !== 'dice-roll.mp3' && (
+              <SettingsBtn
+                variant="ghost"
+                onClick={() => handleDeleteSound(diceSoundName)}
+                title="删除当前选中的音效"
+              >
+                🗑 删除当前
+              </SettingsBtn>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".mp3,audio/mpeg"
+              style={{ display: 'none' }}
+              onChange={handleFileSelected}
+            />
           </div>
+          {/* 已加载音效列表（带删除按钮） */}
+          {isElectron && availableDiceSounds.length > 0 && (
+            <div
+              style={{
+                padding: '0 6px 10px',
+                maxHeight: 140,
+                overflowY: 'auto',
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 10,
+                  color: 'var(--text-muted, #999)',
+                  marginBottom: 4,
+                }}
+              >
+                已加载 {availableDiceSounds.length} 个音效（点击切换，右侧🗑删除用户上传的）
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {availableDiceSounds.map((name) => {
+                  const isBuiltin = name.toLowerCase() === 'dice-roll.mp3';
+                  const isSelected = name === diceSoundName;
+                  return (
+                    <div
+                      key={name}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '3px 6px',
+                        borderRadius: 4,
+                        background: isSelected ? 'var(--accent-bg, rgba(37,99,235,0.08))' : 'transparent',
+                        fontSize: 11,
+                      }}
+                    >
+                      <button
+                        onClick={() => setDiceSoundName(name)}
+                        disabled={!soundEnabled}
+                        style={{
+                          flex: 1,
+                          textAlign: 'left',
+                          background: 'transparent',
+                          border: 'none',
+                          cursor: soundEnabled ? 'pointer' : 'not-allowed',
+                          color: isSelected ? 'var(--accent, #2563eb)' : 'var(--text-primary)',
+                          fontWeight: isSelected ? 600 : 400,
+                          padding: 0,
+                          fontSize: 11,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {isSelected ? '▶ ' : '  '}{name}
+                        {isBuiltin && <span style={{ color: 'var(--text-muted)', fontSize: 10, marginLeft: 4 }}>(内置)</span>}
+                      </button>
+                      {!isBuiltin && (
+                        <button
+                          onClick={() => handleDeleteSound(name)}
+                          title={`删除 ${name}`}
+                          style={{
+                            fontSize: 11,
+                            padding: '1px 6px',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: 3,
+                            background: 'transparent',
+                            cursor: 'pointer',
+                            color: 'var(--danger, #dc2626)',
+                          }}
+                        >
+                          🗑
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <div
             style={{
               fontSize: 10,
@@ -350,7 +540,9 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
               lineHeight: 1.6,
             }}
           >
-            音效文件位于项目 public/sounds/ 目录，放入 mp3 后重启应用生效。
+            💡 上传的 mp3 存于本地数据目录 <code style={{ background: 'var(--bg-hover)', padding: '0 4px', borderRadius: 3 }}>sounds/</code> 子目录，重启应用后保留。
+            <br />
+            💡 仅支持 .mp3 格式，文件 ≤ 5MB，内置 dice-roll.mp3 不可覆盖/删除。
           </div>
         </Section>
 
@@ -668,20 +860,22 @@ function RadioRow({
   );
 }
 
-function SettingsBtn({ variant = 'ghost', onClick, children, title, style }: {
+function SettingsBtn({ variant = 'ghost', onClick, children, title, style, disabled }: {
   variant?: 'primary' | 'danger' | 'ghost';
   onClick?: () => void;
   children: React.ReactNode;
   title?: string;
   style?: React.CSSProperties;
+  disabled?: boolean;
 }) {
   const baseStyle: React.CSSProperties = {
     padding: '6px 12px',
     fontSize: 12,
     borderRadius: 6,
-    cursor: 'pointer',
+    cursor: disabled ? 'not-allowed' : 'pointer',
     transition: 'background 0.15s, border-color 0.15s, color 0.15s',
     border: '1px solid var(--border-color, #e5e7eb)',
+    opacity: disabled ? 0.5 : 1,
     ...style,
   };
   const variantStyle = variant === 'primary'
@@ -690,7 +884,12 @@ function SettingsBtn({ variant = 'ghost', onClick, children, title, style }: {
     ? { background: 'rgba(220,38,38,0.08)', borderColor: 'rgba(220,38,38,0.4)', color: 'var(--danger, #dc2626)' }
     : { background: 'var(--bg-hover, transparent)', color: 'var(--text-primary, #111)' };
   return (
-    <button onClick={onClick} title={title} style={{ ...baseStyle, ...variantStyle }}>
+    <button
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      title={title}
+      style={{ ...baseStyle, ...variantStyle }}
+    >
       {children}
     </button>
   );

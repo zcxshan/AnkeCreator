@@ -89,7 +89,9 @@ function App() {
 
   // 预热骰子音效（提前加载 Audio 对象，减少首次播放延迟）（#4）
   useEffect(() => {
-    import('./utils/diceSound').then(({ preloadDiceSound }) => preloadDiceSound());
+    import('./utils/diceSound').then(({ preloadDiceSound }) => {
+      void preloadDiceSound()
+    })
   }, []);
 
   useEffect(() => {
@@ -119,9 +121,8 @@ function App() {
   // TitleBar 位于所有页面顶部（仅 Electron 无边框窗口显示；Capacitor / Web 走系统状态栏沉浸式）
   const renderWithTitleBar = (content: React.ReactNode) => (
     <div
-      className="flex flex-col overflow-hidden"
+      className="flex flex-col min-h-screen"
       style={{
-        height: viewportHeight,
         width: '100%',
         background: 'var(--bg-page)',
         color: 'var(--text-primary)',
@@ -132,7 +133,7 @@ function App() {
           避免整个 React 树卸载导致白屏看不到原因 */}
       <ErrorBoundary>
         <div
-          className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto"
+          className="flex-1 flex flex-col overflow-x-hidden"
           style={isCapacitor && !keyboardOpen ? { paddingBottom: 'calc(56px + env(safe-area-inset-bottom, 0px))' } : undefined}
         >{content}</div>
       </ErrorBoundary>

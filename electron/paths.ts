@@ -110,6 +110,19 @@ export function getSoundsDir(): string {
 }
 
 /**
+ * 用户自定义骰子音效目录（可写）。
+ * - 打包模式：<dataRoot>/sounds/（与 <dataRoot>/data/ 平级，逻辑独立）
+ * - dev 模式：app.getPath('userData')/sounds/
+ *
+ * 用户上传的 mp3 存在这里。优先级：用户上传 > 内置 public/sounds/。
+ */
+export function getUserSoundsDir(): string {
+  const dir = path.join(getDataRoot(), 'sounds')
+  ensureDirWritable(dir)
+  return dir
+}
+
+/**
  * 写入权限预检：确保目录存在且可写
  * 失败时抛带可读提示的 Error（外层 try/catch 可弹错误框）
  */
