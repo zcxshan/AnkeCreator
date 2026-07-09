@@ -315,8 +315,8 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
         style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}
       >
         <div
-          className="flex items-center gap-3 px-6 py-4 border-b"
-          style={{ borderColor: 'var(--border-color)' }}
+          className="flex items-center gap-3 px-6 py-4 border-b sticky top-8 z-40"
+          style={{ borderColor: 'var(--border-color)', background: 'var(--bg-base)' }}
         >
           <button
             onClick={onBack}

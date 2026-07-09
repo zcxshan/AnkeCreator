@@ -677,9 +677,9 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
       {/* 顶部导航栏 */}
       {isMobile ? (
         <>
-          {/* 移动端第一行：极简顶栏 */}
+          {/* 移动端第一行：极简顶栏（sticky 在 TitleBar 下方 32px 处，z-40） */}
           <header
-            className="shrink-0 flex items-center gap-2 px-3 py-1.5"
+            className="shrink-0 flex items-center gap-2 px-3 py-1.5 sticky top-8 z-40"
             style={{ background: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)' }}
           >
             <button
@@ -787,7 +787,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
         </>
       ) : (
       <header
-        className="shrink-0 flex items-center gap-2 md:gap-4 px-3 md:px-4 py-2 md:py-2.5"
+        className="shrink-0 flex items-center gap-2 md:gap-4 px-3 md:px-4 py-2 md:py-2.5 sticky top-8 z-40"
         style={{ background: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)' }}
       >
         <button

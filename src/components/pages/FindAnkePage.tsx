@@ -76,8 +76,8 @@ export function FindAnkePage({ onBack }: FindAnkePageProps) {
         style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
       >
         <div
-          className="flex items-center gap-3 px-4 py-3 shrink-0"
-          style={{ borderBottom: '1px solid var(--border-color)' }}
+          className="flex items-center gap-3 px-4 py-3 shrink-0 sticky top-8 z-40"
+          style={{ borderBottom: '1px solid var(--border-color)', background: 'var(--bg-primary)' }}
         >
           <button
             onClick={onBack}

@@ -181,8 +181,8 @@ export function TutorialPage({ onBack, onShowAuthor }: TutorialPageProps) {
       style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}
     >
       <div className="w-full max-w-3xl px-6 py-8">
-        {/* 顶部导航 */}
-        <div className="flex items-center gap-3 mb-6 sticky top-0 z-20" style={{ background: 'var(--bg-base)' }}>
+        {/* 顶部导航（sticky 在 TitleBar 下方 32px 处，z-40） */}
+        <div className="flex items-center gap-3 mb-6 sticky top-8 z-40" style={{ background: 'var(--bg-base)' }}>
           <button
             onClick={onBack}
             className="inline-flex items-center gap-1 px-4 py-2 rounded-xl text-sm font-medium transition-all"

@@ -128,7 +128,13 @@ function App() {
         color: 'var(--text-primary)',
       }}
     >
-      {isElectron && <TitleBar />}
+      {/* TitleBar 始终固定在窗口顶部（sticky），
+          包裹 div 加 flex-shrink: 0 防止 flex 容器压缩 TitleBar 32px 高度 */}
+      {isElectron && (
+        <div className="sticky top-0 z-50" style={{ flexShrink: 0 }}>
+          <TitleBar />
+        </div>
+      )}
       {/* ErrorBoundary 包裹页面内容，捕获子组件渲染错误并以红色面板展示，
           避免整个 React 树卸载导致白屏看不到原因 */}
       <ErrorBoundary>

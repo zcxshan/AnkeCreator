@@ -787,9 +787,9 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
 
   return (
     <div className="min-h-full w-full flex flex-col" style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}>
-      {/* 顶部栏 */}
+      {/* 顶部栏（sticky 在 TitleBar 下方 32px 处，z-40） */}
       <header
-        className="sticky top-0 z-20 backdrop-blur"
+        className="sticky top-8 z-40 backdrop-blur"
         style={{ background: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)' }}
       >
         <div className="max-w-6xl mx-auto px-6 sm:px-8 py-4 flex items-center gap-4">

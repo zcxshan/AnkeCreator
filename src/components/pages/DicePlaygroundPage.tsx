@@ -122,10 +122,10 @@ export function DicePlaygroundPage({ onBack }: DicePlaygroundPageProps) {
       className="flex flex-col min-h-full"
       style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}
     >
-      {/* 顶栏 */}
+      {/* 顶栏（sticky 在 TitleBar 下方 32px 处，z-40） */}
       <div
-        className="flex items-center gap-3 px-4 py-3 shrink-0"
-        style={{ borderBottom: '1px solid var(--border-color)' }}
+        className="flex items-center gap-3 px-4 py-3 shrink-0 sticky top-8 z-40"
+        style={{ borderBottom: '1px solid var(--border-color)', background: 'var(--bg-base)' }}
       >
         <button
           onClick={onBack}
