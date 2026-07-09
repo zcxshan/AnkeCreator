@@ -83,6 +83,10 @@ interface EditorState {
   // 光标处样式（contenteditable 工具栏展示用）
   setCursorStyles: (patch: Partial<ActiveEditorStyles>) => void;
 
+  // 格式刷
+  setPaintedStyles: (styles: ActiveEditorStyles) => void;
+  clearFormatPainter: () => void;
+
   // 手动保存
   markSaving: () => void;
   markSaved: () => void;

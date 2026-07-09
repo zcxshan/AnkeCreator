@@ -4027,6 +4027,7 @@ function BottomStatusBar({
   onSwitchMode,
 }: BottomStatusBarProps) {
   const selectionStats = useEditorStore((s) => s.selectionStats);
+  const cursorStyles = useEditorStore((s) => s.cursorStyles) ?? {};
   const tabStyle = (active: boolean): CSSProperties => ({
     padding: '6px 14px',
     fontSize: 12,
@@ -4038,6 +4039,39 @@ function BottomStatusBar({
     background: active ? 'var(--accent)' : 'var(--bg-hover)',
     color: active ? 'var(--text-on-accent)' : 'var(--text-secondary)',
   });
+
+  // 解析当前样式为标签文字（Word 风格格式查看器）
+  const styleLabels: string[] = [];
+  if (cursorStyles.bold) styleLabels.push('粗');
+  if (cursorStyles.italic) styleLabels.push('斜');
+  if (cursorStyles.underline) styleLabels.push('下划');
+  if (cursorStyles.strike) styleLabels.push('删');
+  if (cursorStyles.sup) styleLabels.push('上标');
+  if (cursorStyles.sub) styleLabels.push('下标');
+  // 字体名（去掉引号，截短）
+  const fontName = cursorStyles.fontFamily
+    ? cursorStyles.fontFamily.replace(/['"]/g, '').split(',')[0]?.trim() || ''
+    : '';
+  // 字号（去掉 px/pt）
+  const fontSize = cursorStyles.fontSize
+    ? cursorStyles.fontSize.replace(/px|pt|%/g, '').trim()
+    : '';
+  // 颜色（短写：#ff0000 → 红 / 标签）
+  const colorLabel = (() => {
+    const c = cursorStyles.color;
+    if (!c) return '';
+    if (c === '#000000' || c === 'rgb(0, 0, 0)' || c === 'black') return '黑';
+    if (c === '#ff0000' || c === 'red') return '红';
+    if (c === '#0000ff' || c === 'blue') return '蓝';
+    if (c === '#008000' || c === 'green') return '绿';
+    if (c === '#ffff00' || c === 'yellow') return '黄';
+    if (c === '#ffa500' || c === 'orange') return '橙';
+    if (c === '#800080' || c === 'purple') return '紫';
+    if (c === '#ffffff' || c === 'white') return '白';
+    return c;
+  })();
+  const hasAnyStyle = styleLabels.length > 0 || fontName || fontSize || colorLabel;
+  const hasSelection = !!selectionStats;
 
   return (
     <footer
@@ -4088,6 +4122,30 @@ function BottomStatusBar({
         {selectionStats && (
           <span style={{ color: 'var(--accent)' }}>
             选中：{selectionStats.words} 字{selectionStats.dice > 0 ? ` · ${selectionStats.dice} 原子块` : ''}
+          </span>
+        )}
+        {/* 当前样式（Word 风格格式查看器） */}
+        {hasAnyStyle && (
+          <span
+            style={{
+              color: 'var(--text-primary)',
+              background: 'var(--bg-hover)',
+              padding: '2px 8px',
+              borderRadius: 4,
+              maxWidth: 360,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+            title={hasSelection ? '选区起点处的样式' : '光标处样式'}
+          >
+            {hasSelection ? '选区样式' : '光标样式'}：
+            {styleLabels.length > 0 && (
+              <span style={{ color: 'var(--accent)' }}>[{styleLabels.join('/')}]</span>
+            )}
+            {fontName && <span> {fontName}</span>}
+            {fontSize && <span> {fontSize}px</span>}
+            {colorLabel && <span> {colorLabel}</span>}
           </span>
         )}
         <span className="hidden md:inline">
