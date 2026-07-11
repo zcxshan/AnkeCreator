@@ -167,15 +167,22 @@ export const NGA_FONTS: { label: string; value: string; cssFamily: string }[] = 
 /** NGA 默认字体：宋体 */
 export const NGA_DEFAULT_FONT = 'simsun';
 
-/** NGA 字号 → 6 档（百分比），默认 100% */
+/** NGA 字号 → 6 档（百分比），默认 100%
+ *  cssSize 使用 pt 绝对单位（12pt = 100%），避免 CSS % 嵌套相乘 */
 export const NGA_FONT_SIZES: { label: string; percent: number; cssSize: string }[] = [
-  { label: '100%', percent: 100, cssSize: '100%' },
-  { label: '110%', percent: 110, cssSize: '110%' },
-  { label: '120%', percent: 120, cssSize: '120%' },
-  { label: '130%', percent: 130, cssSize: '130%' },
-  { label: '140%', percent: 140, cssSize: '140%' },
-  { label: '150%', percent: 150, cssSize: '150%' },
+  { label: '100%', percent: 100, cssSize: '12pt' },
+  { label: '110%', percent: 110, cssSize: '13.2pt' },
+  { label: '120%', percent: 120, cssSize: '14.4pt' },
+  { label: '130%', percent: 130, cssSize: '15.6pt' },
+  { label: '140%', percent: 140, cssSize: '16.8pt' },
+  { label: '150%', percent: 150, cssSize: '18pt' },
 ];
+
+/** NGA 字号百分比 → CSS font-size 绝对值（pt），避免 % 嵌套相乘 */
+export function percentToCssFontSize(percent: number): string {
+  const pt = (percent / 100) * 12;
+  return Number.isInteger(pt) ? `${pt}pt` : `${pt.toFixed(1)}pt`;
+}
 
 /** NGA 默认字号 100% */
 export const NGA_DEFAULT_FONT_SIZE = 100;

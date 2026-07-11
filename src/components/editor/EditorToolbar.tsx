@@ -9,6 +9,7 @@ import {
   NGA_DEFAULT_IMAGE_SIZE,
   ngaColorToCSS,
   ngaFontToCSS,
+  percentToCssFontSize,
 } from '../../types';
 import {
   execBold,
@@ -631,7 +632,7 @@ export function EditorToolbar({
   // 字号改变：实时应用到选区 + 同步 activeStyles（与 color/fontFamily 一致）
   // skipFocus: 不抢 input 焦点（工具栏 input onChange 调用时使用）
   const handleFontSizeChange = (percent: number, opts: { skipFocus?: boolean } = {}): void => {
-    const cssSize = `${percent}%`;
+    const cssSize = percentToCssFontSize(percent);
     // 直接用 applyInlineStyleNoFocus 包裹选区文本（或同步 activeStyles 用于下一次输入）
     // 不走 withEditor → focus() 链路，避免抢 input 焦点
     applyInlineStylePreservingFocus({ fontSize: cssSize });
@@ -1380,7 +1381,18 @@ export function EditorToolbar({
           </ToolbarBtn>
           <ToolbarBtn
             title="清除格式"
-            onClick={() => withEditor(execRemoveFormat)}
+            onClick={() => {
+              withEditor(execRemoveFormat);
+              // 重置工具栏样式状态（无论有无选区）
+              useEditorStore.getState().clearActiveStyles();
+              useEditorStore.getState().unlockActiveStyles();
+              // 同步 cursorStyles 到清格式后的光标处实际样式
+              const el = editorElRef.current;
+              if (el) {
+                const cur = getCurrentStyles(el);
+                useEditorStore.getState().setCursorStyles(cur);
+              }
+            }}
           >
             ⌫ <span className="tb-label">清格式</span>
           </ToolbarBtn>

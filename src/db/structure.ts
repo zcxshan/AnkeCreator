@@ -334,7 +334,7 @@ export async function createSection(data: NewSection & { content?: string; bbcod
 
 export async function updateSection(
   id: string,
-  patch: Partial<Pick<Section, 'title' | 'order_index' | 'content' | 'bbcode'>>,
+  patch: Partial<Pick<Section, 'title' | 'order_index' | 'content' | 'bbcode' | 'word_count'>>,
 ): Promise<Section | undefined> {
   if (window.dbAPI) {
     return window.dbAPI.updateSection(id, patch as Record<string, unknown>)

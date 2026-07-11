@@ -15,7 +15,6 @@ interface SettingsDialogProps {
  * - 远端：catbox / sm.ms / 0x0.st / telegra.ph 兜底链（需要联网）
  * - 本地：保存到 [安装路径]/data/images/，通过 local:// 协议访问；NGA 导出时占位符
  *   （dev 模式：%APPDATA%\com.shanshian.ankecreator\images\）
- * - 提供"打开本地图片目录"按钮（仅 Electron 环境有效）
  * - NGA 登录态：粘贴 Cookie 后可访问登录受限帖子
  */
 export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
@@ -34,7 +33,6 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   const showToast = useToastStore((s) => s.showToast);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [cookieDraft, setCookieDraft] = useState('');
-  const [openFolderHint, setOpenFolderHint] = useState<string | null>(null);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
 
   // 重新扫描音效列表（上传/删除后调用）
@@ -142,18 +140,6 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   }, [open, onClose]);
 
   if (!open) return null;
-
-  const handleOpenFolder = async () => {
-    if (typeof window === 'undefined' || !window.electronAPI?.openImageFolder) {
-      setOpenFolderHint('当前环境不支持打开本地目录（仅 Electron 应用可用）');
-      return;
-    }
-    setOpenFolderHint(null);
-    const res = await window.electronAPI.openImageFolder();
-    if (!res.ok) {
-      setOpenFolderHint(res.error || '打开失败');
-    }
-  };
 
   const handleModeChange = (next: ImageStoreMode) => {
     setMode(next);
@@ -546,96 +532,21 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
           </div>
         </Section>
 
-        {/* 分组：本地图片目录 */}
-        <Section title="本地图片目录">
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              flexWrap: 'wrap',
-            }}
-          >
-            <SettingsBtn variant="ghost" onClick={handleOpenFolder}>
-              打开本地图片目录
-            </SettingsBtn>
-            <span
-              style={{
-                fontSize: 11,
-                color: 'var(--text-muted, #999)',
-              }}
-            >
-              路径：[安装路径]/data/images/
-            </span>
-          </div>
-          {openFolderHint && (
-            <div
-              style={{
-                fontSize: 11,
-                color: 'var(--danger, #dc2626)',
-                marginTop: 6,
-              }}
-            >
-              {openFolderHint}
-            </div>
-          )}
-        </Section>
-
-        {/* 分组：数据管理（清空所有数据） */}
+        {/* 分组：数据管理（说明文字） */}
         <Section title="数据管理">
           <div
             style={{
-              padding: '4px 6px 8px',
+              padding: '4px 6px',
               fontSize: 11,
               lineHeight: 1.6,
               color: 'var(--text-secondary)',
             }}
           >
-            卸载时会询问是否删除个人数据（默认「是」）。
+            <b>卸载行为：</b>应用卸载时会先询问「是否已导出重要数据」，确认后再询问「是否同时清空个人数据」。
             <br />
-            如需在卸载前主动清空数据，可点下方按钮。此操作不可恢复，请确认已导出重要作品。
-          </div>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '4px 6px 0',
-              flexWrap: 'wrap',
-            }}
-          >
-            <SettingsBtn
-              variant="danger"
-              onClick={async () => {
-                if (typeof window === 'undefined' || !window.electronAPI?.clearAllData) {
-                  setOpenFolderHint('当前环境不支持此功能（仅 Electron 桌面端可用）。Android 卸载时系统会自动清空数据。')
-                  return
-                }
-                // 二次确认
-                const ok = window.confirm('确定要清空所有本地数据吗？\n\n将清理：所有作品、世界观、人物、图片、NGA 登录 Cookie 等\n此操作不可恢复！')
-                if (!ok) return
-                const res = await window.electronAPI.clearAllData()
-                if (res.ok) {
-                  useToastStore.getState().showToast('已清空所有数据，请重启应用', 'success')
-                } else {
-                  useToastStore.getState().showToast(`清空失败：${res.error || '未知错误'}`, 'error')
-                }
-              }}
-            >
-              🗑️ 清空所有本地数据
-            </SettingsBtn>
-            <SettingsBtn
-              variant="ghost"
-              onClick={() => {
-                if (window.electronAPI?.openUninstallGuide) {
-                  window.electronAPI.openUninstallGuide()
-                } else {
-                  setOpenFolderHint('当前环境不支持此功能')
-                }
-              }}
-            >
-              了解卸载行为
-            </SettingsBtn>
+            <b>更新行为：</b>覆盖安装（更新版本）时，所有数据自动保留在原位置，无需重新导出。
+            <br />
+            💡 主动清空所有本地数据的功能（设置按钮）已移除。如需清空，请到安装目录下手动删除 <code style={{ background: 'var(--bg-input)', padding: '0 4px', borderRadius: 3 }}>data/</code> 文件夹。
           </div>
         </Section>
 

@@ -634,13 +634,13 @@ function CharacterEditorModal({
     setPendingDelete(true);
   };
 
-  const handleAttrChange = (next: Record<string, string | number>) => {
+  const handleAttrChange = (next: Record<string, string>) => {
     updateCharacter(character.id, { attributes: next });
   };
 
   /**
    * 批量添加属性：解析"key:value"多行输入，合并到现有 attributes 中。
-   * 已存在的 key 会被覆盖。
+   * 已存在的 key 会被覆盖。值统一存为 string（不再做 number 转换）。
    */
   const handleBatchAddAttributes = (text: string) => {
     const entries = parseBatchEntries(text);
@@ -649,15 +649,10 @@ function CharacterEditorModal({
       setBatchAttrOpen(false);
       return;
     }
-    const merged: Record<string, string | number> = { ...(character.attributes || {}) };
+    const merged: Record<string, string> = { ...(character.attributes as Record<string, string> || {}) };
     let added = 0;
     for (const { key, value } of entries) {
-      const num = Number(value);
-      if (value !== '' && !isNaN(num) && /^-?\d+(\.\d+)?$/.test(value)) {
-        merged[key] = num;
-      } else {
-        merged[key] = value;
-      }
+      merged[key] = value;
       added++;
     }
     updateCharacter(character.id, { attributes: merged });

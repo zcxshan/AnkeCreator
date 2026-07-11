@@ -85,7 +85,31 @@ function collapseBbCode(input: string): string {
   for (let i = 0; i < lines.length; i++) {
     lines[i] = collapseLine(lines[i]);
   }
-  return lines.join('\n');
+  // 整段级别跨行相邻同 tag 合并
+  // 先把所有行拼回再合并
+  let joined = lines.join('\n');
+  // 跨行合并（无属性 + 有属性），多次迭代直到稳定
+  let prev = '';
+  let guard = 0;
+  while (prev !== joined && guard++ < 20) {
+    prev = joined;
+    joined = mergeAdjacentSameTagNoAttrAcrossLines(joined, 'b');
+    joined = mergeAdjacentSameTagNoAttrAcrossLines(joined, 'i');
+    joined = mergeAdjacentSameTagNoAttrAcrossLines(joined, 'u');
+    joined = mergeAdjacentSameTagNoAttrAcrossLines(joined, 'del');
+    joined = mergeAdjacentSameTagNoAttrAcrossLines(joined, 'sup');
+    joined = mergeAdjacentSameTagNoAttrAcrossLines(joined, 'sub');
+    joined = mergeAdjacentSameTagNoAttrAcrossLines(joined, 'quote');
+    joined = mergeAdjacentSameTagAcrossLines(joined, 'color');
+    joined = mergeAdjacentSameTagAcrossLines(joined, 'size');
+    joined = mergeAdjacentSameTagAcrossLines(joined, 'font');
+    joined = mergeAdjacentSameTagAcrossLines(joined, 'align');
+    // 跨行被覆盖的嵌套展开
+    joined = unwrapOverriddenNested(joined, 'color');
+    joined = unwrapOverriddenNested(joined, 'size');
+    joined = unwrapOverriddenNested(joined, 'font');
+  }
+  return joined;
 }
 
 /**
@@ -129,6 +153,11 @@ function collapseLine(line: string): string {
     cur = mergeAdjacentSameTag(cur, 'size');
     cur = mergeAdjacentSameTag(cur, 'font');
     cur = mergeAdjacentSameTag(cur, 'align');
+    // 跨行有属性相邻同 tag 合并（[color=red]X[/color]\n[color=red]Y[/color]）
+    cur = mergeAdjacentSameTagAcrossLines(cur, 'color');
+    cur = mergeAdjacentSameTagAcrossLines(cur, 'size');
+    cur = mergeAdjacentSameTagAcrossLines(cur, 'font');
+    cur = mergeAdjacentSameTagAcrossLines(cur, 'align');
     // 无属性标签合并（b/i/u/del/sup/sub/quote）
     cur = mergeAdjacentSameTagNoAttr(cur, 'b');
     cur = mergeAdjacentSameTagNoAttr(cur, 'i');
@@ -137,6 +166,14 @@ function collapseLine(line: string): string {
     cur = mergeAdjacentSameTagNoAttr(cur, 'sup');
     cur = mergeAdjacentSameTagNoAttr(cur, 'sub');
     cur = mergeAdjacentSameTagNoAttr(cur, 'quote');
+    // 跨行相邻同 tag 合并（[b]X[/b]\n[b]Y[/b] → [b]X\nY[/b]）
+    cur = mergeAdjacentSameTagNoAttrAcrossLines(cur, 'b');
+    cur = mergeAdjacentSameTagNoAttrAcrossLines(cur, 'i');
+    cur = mergeAdjacentSameTagNoAttrAcrossLines(cur, 'u');
+    cur = mergeAdjacentSameTagNoAttrAcrossLines(cur, 'del');
+    cur = mergeAdjacentSameTagNoAttrAcrossLines(cur, 'sup');
+    cur = mergeAdjacentSameTagNoAttrAcrossLines(cur, 'sub');
+    cur = mergeAdjacentSameTagNoAttrAcrossLines(cur, 'quote');
     // 冗余嵌套展开（[b][b]X[/b][/b] → [b]X[/b]）
     cur = unwrapRedundantNested(cur, 'b');
     cur = unwrapRedundantNested(cur, 'i');
@@ -151,6 +188,26 @@ function collapseLine(line: string): string {
     cur = unwrapRedundantNested(cur, 'quote');
     cur = unwrapRedundantNested(cur, 'collapse');
     cur = unwrapRedundantNested(cur, 'code');
+    // 被覆盖的嵌套展开（[size=150%][size=120%]X[/size][/size] → [size=120%]X[/size]）
+    cur = unwrapOverriddenNested(cur, 'color');
+    cur = unwrapOverriddenNested(cur, 'size');
+    cur = unwrapOverriddenNested(cur, 'font');
+    // 深度冗余嵌套展开（[b][i][b]X[/b][/i][/b] → [b][i]X[/i][/b]）
+    cur = unwrapDeepRedundant(cur, 'b');
+    cur = unwrapDeepRedundant(cur, 'i');
+    cur = unwrapDeepRedundant(cur, 'u');
+    cur = unwrapDeepRedundant(cur, 'del');
+    cur = unwrapDeepRedundant(cur, 'color');
+    cur = unwrapDeepRedundant(cur, 'size');
+    cur = unwrapDeepRedundant(cur, 'font');
+    cur = unwrapDeepRedundant(cur, 'align');
+    cur = unwrapDeepRedundant(cur, 'sup');
+    cur = unwrapDeepRedundant(cur, 'sub');
+    cur = unwrapDeepRedundant(cur, 'quote');
+    cur = unwrapDeepRedundant(cur, 'collapse');
+    cur = unwrapDeepRedundant(cur, 'code');
+    // 清理内层空标签（[b][color=red][/color]X[/b] → [b]X[/b]），下一轮会清掉整体空
+    cur = cleanEmptyInnerTags(cur);
   }
   // 清除空 tag（[b][/b] / [color=red][/color] / [quote][/quote] 等）
   // 无属性空标签
@@ -186,6 +243,131 @@ function unwrapRedundantNested(input: string, tag: string): string {
   result = result.replace(reAttr, (_m, val, body) => `[${tag}=${val}]${body}[/${tag}]`);
   return result;
 }
+
+/**
+ * 展开被覆盖的嵌套（[size=150%][size=120%]X[/size][/size] → [size=120%]X[/size]）
+ * 当外层标签体完全被内层同标签（不同属性值）占据时，外层被内层覆盖，移除外层。
+ * 只匹配外层开标签和内层开标签之间仅有空白的情况，确保外层没有其他文本内容。
+ */
+function unwrapOverriddenNested(input: string, tag: string): string {
+  const re = new RegExp(
+    `\\[${tag}=([^\\[\\]]+)\\]\\s*\\[${tag}=([^\\[\\]]+)\\]([\\s\\S]*?)\\[\\/${tag}\\]\\s*\\[\\/${tag}\\]`,
+    'g',
+  );
+  return input.replace(re, (_m, _val1, val2, body) => `[${tag}=${val2}]${body}[/${tag}]`);
+}
+
+/**
+ * 跨行相邻无属性同 tag 合并（[b]X[/b]\n[b]Y[/b] → [b]X\nY[/b]）
+ * 已有的 mergeAdjacentSameTagNoAttr 只处理 ]\[ 直接相邻，这里补充跨空白/换行场景
+ */
+function mergeAdjacentSameTagNoAttrAcrossLines(input: string, tag: string): string {
+  // 捕获中间的所有空白（包含换行）并保留到结果中
+  const re = new RegExp(
+    `\\[${tag}\\]([\\s\\S]*?)\\[\\/${tag}\\](\\s*)\\[${tag}\\]([\\s\\S]*?)\\[\\/${tag}\\]`,
+    'g',
+  );
+  return input.replace(re, (_m, b1, gap, b2) => `[${tag}]${b1}${gap}${b2}[/${tag}]`);
+}
+
+/**
+ * 跨行相邻有属性同 tag 合并（[color=red]X[/color]\n[color=red]Y[/color] → [color=red]X\nY[/color]）
+ */
+function mergeAdjacentSameTagAcrossLines(input: string, tag: string): string {
+  const re = new RegExp(
+    `\\[${tag}=([^\\[\\]]+)\\]([\\s\\S]*?)\\[\\/${tag}\\](\\s*)\\[${tag}=\\1\\]([\\s\\S]*?)\\[\\/${tag}\\]`,
+    'g',
+  );
+  return input.replace(re, (_m, val, b1, gap, b2) => `[${tag}=${val}]${b1}${gap}${b2}[/${tag}]`);
+}
+
+/**
+ * 深度冗余嵌套展开（[b][i][b]X[/b][/i][/b] → [b][i]X[/i][/b]）
+ * 递归处理跨任意中间 tag 的同名嵌套，逐层剥开最内层。
+ */
+function unwrapDeepRedundant(input: string, tag: string): string {
+  let prev = '';
+  let cur = input;
+  let guard = 0;
+  // 预编译内层检测正则
+  const innerOpenNoAttr = new RegExp(`\\[${tag}\\]`);
+  const innerClose = new RegExp(`\\[\\/${tag}\\]`);
+  const innerOpenAttr = new RegExp(`\\[${tag}=`);
+
+  while (prev !== cur && guard++ < 50) {
+    prev = cur;
+
+    // 无属性：[tag]<pre>[tag]inner[/tag]<post>[/tag] → [tag]<pre>inner<post>[/tag]
+    // inner 必须是「最内层」（不含 [tag] 或 [/tag]）
+    const reNoAttr = new RegExp(
+      `\\[${tag}\\]` +
+        `([\\s\\S]*?)` + // pre
+        `\\[${tag}\\]([\\s\\S]*?)\\[\\/${tag}\\]` + // 内层
+        `([\\s\\S]*?)` + // post
+        `\\[\\/${tag}\\]`,
+      'g',
+    );
+    cur = cur.replace(reNoAttr, (m, pre, inner, post) => {
+      if (innerOpenNoAttr.test(inner) || innerClose.test(inner)) return m;
+      return `[${tag}]${pre}${inner}${post}[/${tag}]`;
+    });
+
+    // 有属性：[tag=val]<pre>[tag=val]inner[/tag]<post>[/tag] → [tag=val]<pre>inner<post>[/tag]
+    const reAttr = new RegExp(
+      `\\[${tag}=([^\\[\\]]+)\\]` +
+        `([\\s\\S]*?)` +
+        `\\[${tag}=\\1\\]([\\s\\S]*?)\\[\\/${tag}\\]` +
+        `([\\s\\S]*?)` +
+        `\\[\\/${tag}\\]`,
+      'g',
+    );
+    cur = cur.replace(reAttr, (m, val, pre, inner, post) => {
+      if (innerOpenAttr.test(inner) || innerClose.test(inner)) return m;
+      return `[${tag}=${val}]${pre}${inner}${post}[/${tag}]`;
+    });
+  }
+  return cur;
+}
+
+/**
+ * 清理内层空标签（[b][color=red][/color]X[/b] → [b]X[/b]）。
+ * 多趟迭代直到稳定：外层因此变空时由外层清空 pass 进一步处理。
+ * 注意：不清除外层本身，只清理 body 中的空子标签。
+ */
+function cleanEmptyInnerTags(input: string): string {
+  let prev = '';
+  let cur = input;
+  let guard = 0;
+  while (prev !== cur && guard++ < 20) {
+    prev = cur;
+    // 匹配 [tag attr]body[/tag]，如果 body 全部由空标签 + 空白组成，则把空标签全部移除
+    cur = cur.replace(
+      /\[(b|i|u|del|sup|sub|quote|code|color|size|font|align|collapse|url)\b([^\]]*)\]([\s\S]*?)\[\/\1\]/g,
+      (_m, tag, attr, body) => {
+        // 反复剥离 body 中的空标签
+        let cleaned = body;
+        let prevCleaned = '';
+        let innerGuard = 0;
+        while (prevCleaned !== cleaned && innerGuard++ < 20) {
+          prevCleaned = cleaned;
+          cleaned = cleaned.replace(
+            /\[(b|i|u|del|sup|sub|quote|code|color|size|font|align|collapse|url)\b([^\]]*)\]\s*\[\/\1\]/g,
+            '',
+          );
+        }
+        // 如果清理后 body 完全是空白，则整体空 → 返回空串（让外层空标签清理删除这个外层）
+        if (!cleaned.trim()) return '';
+        // 如果清理后 body 全部是空白，则保留外层但 body 只有空白
+        if (!cleaned.replace(/\s+/g, '').length) {
+          return `[${tag}${attr}][/${tag}]`;
+        }
+        return `[${tag}${attr}]${cleaned}[/${tag}]`;
+      },
+    );
+  }
+  return cur;
+}
+
 
 // ============================================================
 // 块级处理：按块元素一行一行输出

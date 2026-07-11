@@ -32,6 +32,10 @@ export function TemplatesPanel({ onShowAuthor, initialTab = 'world', onTabChange
   const [tab, setTab] = useState<TabKey>(initialTab);
   const importFileRef = useRef<HTMLInputElement | null>(null);
 
+  // 两个 Tab 各自的选中 ID（用于导出模板功能）
+  const [worldSelectedIds, setWorldSelectedIds] = useState<string[]>([]);
+  const [characterSelectedIds, setCharacterSelectedIds] = useState<string[]>([]);
+
   // 切换子 Tab 时同步通知外层（#3）
   const handleTabChange = (next: TabKey) => {
     setTab(next);
@@ -42,18 +46,23 @@ export function TemplatesPanel({ onShowAuthor, initialTab = 'world', onTabChange
     loadTemplates();
   }, [loadTemplates]);
 
-  // 导出全部模板为 JSON 文件
+  // 导出选中的模板为 JSON 文件
   const handleExport = () => {
     const { worldSettingTemplates, characterTemplates } = useMetaStore.getState();
-    if (worldSettingTemplates.length === 0 && characterTemplates.length === 0) {
-      useToastStore.getState().showToast('暂无模板可导出', 'warning');
+    const filteredWorld = worldSettingTemplates.filter((t) => worldSelectedIds.includes(t.id));
+    const filteredChar = characterTemplates.filter((t) => characterSelectedIds.includes(t.id));
+    if (filteredWorld.length === 0 && filteredChar.length === 0) {
+      useToastStore.getState().showToast(
+        '请先勾选需要导出的模板（点击列表前的复选框）',
+        'warning',
+      );
       return;
     }
     const data = {
       version: 1,
       exportedAt: new Date().toISOString(),
-      worldSettingTemplates,
-      characterTemplates,
+      worldSettingTemplates: filteredWorld,
+      characterTemplates: filteredChar,
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -63,7 +72,7 @@ export function TemplatesPanel({ onShowAuthor, initialTab = 'world', onTabChange
     a.click();
     URL.revokeObjectURL(url);
     useToastStore.getState().showToast(
-      `已导出 ${worldSettingTemplates.length} 个世界观模板、${characterTemplates.length} 个人物模板`,
+      `已导出 ${filteredWorld.length} 个世界观模板、${filteredChar.length} 个人物模板`,
       'success',
     );
   };
@@ -124,7 +133,7 @@ export function TemplatesPanel({ onShowAuthor, initialTab = 'world', onTabChange
             style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
             onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = 'var(--accent)' }}
             onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.color = 'var(--text-primary)' }}
-            title="将所有模板导出为 JSON 文件"
+            title="先勾选模板，再点击导出"
           >
             📥 导出模板
           </button>
@@ -161,7 +170,11 @@ export function TemplatesPanel({ onShowAuthor, initialTab = 'world', onTabChange
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-5">
-        {tab === 'world' ? <WorldTemplatesPanel /> : <CharacterTemplatesPanel />}
+        {tab === 'world' ? (
+          <WorldTemplatesPanel onSelectionChange={setWorldSelectedIds} />
+        ) : (
+          <CharacterTemplatesPanel onSelectionChange={setCharacterSelectedIds} />
+        )}
       </div>
     </div>
   );
@@ -188,7 +201,7 @@ function TabBtn({ label, active, onClick }: { label: string; active: boolean; on
 // 世界观模板
 // ============================================================
 
-function WorldTemplatesPanel() {
+function WorldTemplatesPanel({ onSelectionChange }: { onSelectionChange?: (ids: string[]) => void } = {}) {
   const templates = useMetaStore((s) => s.worldSettingTemplates);
   const create = useMetaStore((s) => s.createWorldSettingTemplate);
   const update = useMetaStore((s) => s.updateWorldSettingTemplate);
@@ -202,6 +215,11 @@ function WorldTemplatesPanel() {
   const [pendingBatchDelete, setPendingBatchDelete] = useState<{ ids: string[]; names: string[] } | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+
+  // 选中状态变化时通知父组件（用于导出模板功能）
+  useEffect(() => {
+    onSelectionChange?.(selectedIds);
+  }, [selectedIds, onSelectionChange]);
 
   const allSelectableSelected = templates.length > 0 && templates.every((t) => selectedIds.includes(t.id));
 
@@ -538,7 +556,7 @@ function WorldTemplateEditor({
 // 人物模板
 // ============================================================
 
-function CharacterTemplatesPanel() {
+function CharacterTemplatesPanel({ onSelectionChange }: { onSelectionChange?: (ids: string[]) => void } = {}) {
   const templates = useMetaStore((s) => s.characterTemplates);
   const create = useMetaStore((s) => s.createCharacterTemplate);
   const update = useMetaStore((s) => s.updateCharacterTemplate);
@@ -552,6 +570,11 @@ function CharacterTemplatesPanel() {
   const [pendingBatchDelete, setPendingBatchDelete] = useState<{ ids: string[]; names: string[] } | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+
+  // 选中状态变化时通知父组件（用于导出模板功能）
+  useEffect(() => {
+    onSelectionChange?.(selectedIds);
+  }, [selectedIds, onSelectionChange]);
 
   const allSelectableSelected = templates.length > 0 && templates.every((t) => selectedIds.includes(t.id));
 
@@ -873,8 +896,14 @@ function CharacterTemplateEditor({
    * 实时维护模板的属性（用户在 AttributeTable 里编辑时同步更新，save 时使用）。
    * 不再与外部 attrTypes state 同步，根除属性失焦 bug（参考 2026-06-17 失焦修复）。
    */
-  const [liveAttributes, setLiveAttributes] = useState<Record<string, string | number>>(
-    () => template.attributes || {},
+  const [liveAttributes, setLiveAttributes] = useState<Record<string, string>>(
+    () => {
+      // 兼容历史 number 值：统一转为 string
+      const raw = template.attributes || {};
+      const out: Record<string, string> = {};
+      for (const [k, v] of Object.entries(raw)) out[k] = String(v);
+      return out;
+    },
   );
 
   const [variants, setVariants] = useState<{ id?: string; name: string; url: string }[]>(
@@ -1066,11 +1095,11 @@ function CharacterTemplateEditor({
     }
   };
 
-  const handleAttrChange = (next: Record<string, string | number>) => {
+  const handleAttrChange = (next: Record<string, string>) => {
     setLiveAttributes(next);
   };
 
-  /** 批量添加属性：解析"key:value"多行/逗号分隔输入，合并到 liveAttributes */
+  /** 批量添加属性：解析"key:value"多行/逗号分隔输入，合并到 liveAttributes（统一存为 string） */
   const handleBatchAddAttributes = (text: string) => {
     const entries = parseBatchEntries(text);
     if (entries.length === 0) {
@@ -1078,14 +1107,9 @@ function CharacterTemplateEditor({
       setBatchAttrOpen(false);
       return;
     }
-    const merged: Record<string, string | number> = { ...liveAttributes };
+    const merged: Record<string, string> = { ...liveAttributes };
     for (const { key, value } of entries) {
-      const num = Number(value);
-      if (value !== '' && !isNaN(num) && /^-?\d+(\.\d+)?$/.test(value)) {
-        merged[key] = num;
-      } else {
-        merged[key] = value;
-      }
+      merged[key] = value;  // 统一存为 string（不再做 number 转换）
     }
     setLiveAttributes(merged);
     useToastStore.getState().showToast(`已批量添加 ${entries.length} 条属性`, 'success');
@@ -1582,7 +1606,9 @@ function CharacterTemplateEditor({
       <InputDialog
         open={batchAttrOpen}
         title="批量添加属性"
-        placeholder="每行一条，格式：属性名:属性值&#10;示例：&#10;HP:100&#10;MP:50&#10;好感度:80"
+        placeholder={'每行一条，格式：属性名:属性值\n示例：\nHP:100\nMP:50\n好感度:80'}
+        multiline
+        rows={6}
         onConfirm={handleBatchAddAttributes}
         onCancel={() => setBatchAttrOpen(false)}
       />

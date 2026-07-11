@@ -655,7 +655,22 @@ export function SearchPanel({
           </button>
           <button
             type="button"
-            onClick={doReplaceAll}
+            onClick={() => {
+              if (replaceBtnDisabled) return;
+              const q = query.trim();
+              if (!q) return;
+              // #5：全部替换需二次确认
+              const el = visualEditorRef.current;
+              if (!el) return;
+              const matches = findAllInVisual(el, q);
+              const count = matches.length;
+              if (count === 0) return;
+              const ok = window.confirm(
+                `确定全部替换？\n\n将把当前节内所有 ${count} 处「${q}」替换为「${replaceValue}」\n此操作可在历史记录中撤销（Ctrl+Z）。`,
+              );
+              if (!ok) return;
+              doReplaceAll();
+            }}
             disabled={replaceBtnDisabled}
             style={{
               padding: '4px 8px',

@@ -1,4 +1,4 @@
-// © 点点星辰 | 生成 Android release keystore + keystore.properties
+// © 星星的辰 | 生成 Android release keystore + keystore.properties
 //
 // 用途：
 //   团队成员首次 clone 后，本地生成自己的 release 签名密钥

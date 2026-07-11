@@ -228,7 +228,7 @@ body {
 /* 选中文本高亮 */
 ::selection {
   background: var(--selection-bg);
-  color: var(--selection-fg);
+  color: inherit; /* 继承内联 color，让用户改字色后选区立即可见 */
 }
 
 /* ================================

@@ -1,4 +1,4 @@
-// © 点点星辰 | 清理 Windows 资源管理器图标缓存
+// © 星星的辰 | 清理 Windows 资源管理器图标缓存
 // 解决"替换 build/icon.png 后，Setup.exe / win-unpacked/.exe 仍显示旧图标"的问题
 // 策略：
 //   1. 删 IconCache.db + iconcache_*.db + thumbcache_*.db

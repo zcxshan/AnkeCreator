@@ -459,7 +459,7 @@ export function RichTextEditor({
     wrapRange.setStart(textNode as Text, startOffset);
     wrapRange.setEnd(textNode as Text, range.startOffset);
 
-    if (applyActiveStylesToRange(wrapRange, active)) {
+    if (applyActiveStylesToRange(wrapRange, active, el)) {
       handleInput();
     }
   };

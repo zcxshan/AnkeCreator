@@ -1,19 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 
-export type AttributeType = 'text' | 'number';
-
 export interface AttributeRow {
   id: string;
   name: string;
   value: string;
-  type: AttributeType;
 }
 
 interface AttributeTableProps {
   /** 当前属性（键值对） */
   attributes?: Record<string, string | number>;
-  /** 变更回调 —— 返回新的 attributes */
-  onChange: (next: Record<string, string | number>) => void;
+  /** 变更回调 —— 返回新的 attributes（统一以 string 存储） */
+  onChange: (next: Record<string, string>) => void;
 }
 
 /** 生成稳定的唯一 ID，不依赖属性名，避免输入时 key 变化导致 input 重建失焦 */
@@ -40,30 +37,18 @@ function toRows(attributes: Record<string, string | number>): AttributeRow[] {
       id: stableId(),
       name,
       value: String(rawValue),
-      type: detectType(rawValue),
     });
   }
   return rows;
 }
 
-function detectType(value: string | number): AttributeType {
-  if (typeof value === 'number') return 'number';
-  if (typeof value === 'string' && value !== '' && !isNaN(Number(value))) return 'number';
-  return 'text';
-}
-
 function rowsToState(rows: AttributeRow[]): {
-  attrs: Record<string, string | number>;
+  attrs: Record<string, string>;
 } {
-  const attrs: Record<string, string | number> = {};
+  const attrs: Record<string, string> = {};
   rows.forEach((r) => {
     if (!r.name.trim()) return;
-    if (r.type === 'number' && r.value !== '') {
-      const n = Number(r.value);
-      attrs[r.name] = isNaN(n) ? r.value : n;
-    } else {
-      attrs[r.name] = r.value;
-    }
+    attrs[r.name] = r.value;  // 统一存为 string（不再支持 number 类型）
   });
   return { attrs };
 }
@@ -71,15 +56,14 @@ function rowsToState(rows: AttributeRow[]): {
 /**
  * 动态属性表格
  *
- *   | 属性名   | 值   | 类型 | 操作 |
- *   | 好感度   | 50   | 数字 | 删除 |
- *   | HP       | 100  | 数字 | 删除 |
- *   | [+添加]  |      |      |      |
+ *   | 属性名   | 值       | 操作 |
+ *   | 好感度   | 50       | 删除 |
+ *   | HP       | 100      | 删除 |
+ *   | [+添加]  |          |      |
  *
  * - 支持随时添加/删除行
- * - 每行可切换类型（数字/文本），数字类型值校验为数字
- * - valueTypes 由组件内部从 rows 派生，不再从外部 prop 同步——避免外部不同步导致
- *   useEffect 误触发 setRows 清空正在编辑的行（参考 2026-06-17 失焦 bug 修复）
+ * - 值统一存为 string（不再支持「类型」列的文本/数字切换）
+ * - 历史数据中如果是 number 值，toRows 时通过 String() 转为文本显示
  * - 变更实时通过 onChange 回调通知父组件
  */
 export function AttributeTable({ attributes, onChange }: AttributeTableProps) {
@@ -124,17 +108,16 @@ export function AttributeTable({ attributes, onChange }: AttributeTableProps) {
   };
 
   const addRow = () => {
-    const next = [...rows, { id: `__new_${Date.now()}`, name: '', value: '', type: 'text' as AttributeType }];
+    const next = [...rows, { id: `__new_${Date.now()}`, name: '', value: '' }];
     setRows(next);
   };
 
   return (
     <div className="rounded border border-[var(--border-color)] bg-[var(--bg-card)] overflow-hidden">
-      {/* 表头 */}
-      <div className="grid grid-cols-[1.2fr_1fr_90px_60px] gap-2 px-3 py-2 text-xs text-[var(--text-secondary)] bg-[var(--bg-sidebar)] border-b border-[var(--border-color)] uppercase tracking-wide">
+      {/* 表头（3 列：属性名 | 值 | 操作） */}
+      <div className="grid grid-cols-[1.2fr_1fr_60px] gap-2 px-3 py-2 text-xs text-[var(--text-secondary)] bg-[var(--bg-sidebar)] border-b border-[var(--border-color)] uppercase tracking-wide">
         <div>属性名</div>
         <div>值</div>
-        <div>类型</div>
         <div className="text-center">操作</div>
       </div>
 
@@ -149,7 +132,7 @@ export function AttributeTable({ attributes, onChange }: AttributeTableProps) {
         {rows.map((r) => (
           <div
             key={r.id}
-            className="grid grid-cols-[1.2fr_1fr_90px_60px] gap-2 px-3 py-1.5 items-center text-sm"
+            className="grid grid-cols-[1.2fr_1fr_60px] gap-2 px-3 py-1.5 items-center text-sm"
           >
             <input
               value={r.name}
@@ -159,19 +142,11 @@ export function AttributeTable({ attributes, onChange }: AttributeTableProps) {
             />
             <input
               value={r.value}
-              type={r.type === 'number' ? 'number' : 'text'}
+              type="text"
               onChange={(e) => updateRow(r.id, { value: e.target.value })}
               placeholder="值"
               className="bg-[var(--bg-input)] border border-[var(--border-color)] focus:border-[var(--accent)] rounded px-2 py-1 outline-none text-[var(--text-primary)] text-xs"
             />
-            <select
-              value={r.type}
-              onChange={(e) => updateRow(r.id, { type: e.target.value as AttributeType })}
-              className="bg-[var(--bg-input)] border border-[var(--border-color)] focus:border-[var(--accent)] rounded px-1 py-1 outline-none text-[var(--text-primary)] text-xs"
-            >
-              <option value="text">文本</option>
-              <option value="number">数字</option>
-            </select>
             <div className="text-center">
               <button
                 onClick={() => deleteRow(r.id)}

@@ -34,6 +34,7 @@ import { rollDice } from '../../utils/diceEngine';
 import { useSettingStore } from '../../store/settingStore';
 import { useEditorHistoryStore } from '../../store/editorHistoryStore';
 import { playDiceRollSound } from '../../utils/diceSound';
+import { ptToSizePercent } from '../../utils/ngaHtmlToBBCode';
 
 /**
  * 原子块 push helper（Phase E — 子卡点 3.3）：
@@ -417,12 +418,34 @@ export function applyActiveStylesToInsertion(
   const range = sel.getRangeAt(0);
   if (!editor.contains(range.commonAncestorContainer)) return false;
 
-  // Fix #1：避免字号正反馈
-  // 当光标已经处于一个样式与 active 完全一致的 span 内时，直接插入文本节点，
-  // 不再嵌套新 span。否则连续输入会产生 <span fontSize=150%><span fontSize=150%>...
-  // CSS font-size:% 相对父元素计算，嵌套后实际字号会被反复相乘（>100% 越来越大、<100% 越来越小）。
-  const matchSpan = findStyleMatchSpan(range.startContainer, editor, active);
-  if (matchSpan) {
+  // 智能合并：找到光标所在 SPAN 继承的样式，从 active 中移除已继承的部分
+  // 避免 CSS font-size:% 嵌套相乘（>100% 越大 / <100% 越小）
+  const inherited = getInheritedSpanStyles(range.startContainer, editor);
+
+  const remaining: typeof active = {};
+  if (active.color && active.color !== inherited.color) remaining.color = active.color;
+  if (active.fontSize && !isSameFontSize(active.fontSize, inherited.fontSize)) remaining.fontSize = active.fontSize;
+  if (active.fontFamily && active.fontFamily !== inherited.fontFamily) remaining.fontFamily = active.fontFamily;
+  // bold/italic/underline/strike/sup/sub 总是需要应用（CSS 不从 SPAN 继承）
+  if (active.bold) remaining.bold = active.bold;
+  if (active.italic) remaining.italic = active.italic;
+  if (active.underline) remaining.underline = active.underline;
+  if (active.strike) remaining.strike = active.strike;
+  if (active.sup) remaining.sup = active.sup;
+  if (active.sub) remaining.sub = active.sub;
+
+  // 如果所有样式都已被继承 → 直接插入文本节点，不创建嵌套 span
+  const hasRemaining =
+    remaining.color ||
+    remaining.fontSize ||
+    remaining.fontFamily ||
+    remaining.bold ||
+    remaining.italic ||
+    remaining.underline ||
+    remaining.strike ||
+    remaining.sup ||
+    remaining.sub;
+  if (!hasRemaining) {
     range.deleteContents();
     const textNode = document.createTextNode(text);
     range.insertNode(textNode);
@@ -433,38 +456,75 @@ export function applyActiveStylesToInsertion(
     return true;
   }
 
-  const wrap = document.createElement('span');
-  if (active.color) wrap.style.color = active.color;
-  if (active.fontSize) wrap.style.fontSize = active.fontSize;
-  if (active.fontFamily) wrap.style.fontFamily = active.fontFamily;
-  if (active.bold) wrap.style.fontWeight = 'bold';
-  if (active.italic) wrap.style.fontStyle = 'italic';
-  const deco: string[] = [];
-  if (active.underline) deco.push('underline');
-  if (active.strike) deco.push('line-through');
-  if (deco.length) wrap.style.textDecoration = deco.join(' ');
+  // 只用 remaining 样式创建 wrap span（避免重复 fontSize/color/fontFamily 嵌套）
+  // 检测是否有内联样式属性（color/fontSize/fontFamily/bold/italic/underline/strike）
+  const hasInlineStyle = !!(
+    remaining.color ||
+    remaining.fontSize ||
+    remaining.fontFamily ||
+    remaining.bold ||
+    remaining.italic ||
+    remaining.underline ||
+    remaining.strike
+  );
 
-  wrap.appendChild(document.createTextNode(text));
+  let outer: HTMLElement;
+  if (hasInlineStyle) {
+    // 有内联样式 → 创建 wrap span 并应用样式
+    const wrap = document.createElement('span');
+    if (remaining.color) wrap.style.color = remaining.color;
+    if (remaining.fontSize) wrap.style.fontSize = remaining.fontSize;
+    if (remaining.fontFamily) wrap.style.fontFamily = remaining.fontFamily;
+    if (remaining.bold) wrap.style.fontWeight = 'bold';
+    if (remaining.italic) wrap.style.fontStyle = 'italic';
+    const deco: string[] = [];
+    if (remaining.underline) deco.push('underline');
+    if (remaining.strike) deco.push('line-through');
+    if (deco.length) wrap.style.textDecoration = deco.join(' ');
 
-  // sup/sub 互斥：如果两者都打开，sup 优先
-  let outer: HTMLElement = wrap;
-  if (active.sup) {
-    const sup = document.createElement('sup');
-    sup.appendChild(wrap);
-    outer = sup;
-  } else if (active.sub) {
-    const sub = document.createElement('sub');
-    sub.appendChild(wrap);
-    outer = sub;
+    wrap.appendChild(document.createTextNode(text));
+    outer = wrap;
+
+    // sup/sub 互斥：如果两者都打开，sup 优先
+    if (remaining.sup) {
+      const sup = document.createElement('sup');
+      sup.appendChild(wrap);
+      outer = sup;
+    } else if (remaining.sub) {
+      const sub = document.createElement('sub');
+      sub.appendChild(wrap);
+      outer = sub;
+    }
+  } else {
+    // 只有 sup/sub，无内联样式 → 直接用 sup/sub 包裹文本节点，不创建多余 span
+    if (remaining.sup) {
+      const sup = document.createElement('sup');
+      sup.appendChild(document.createTextNode(text));
+      outer = sup;
+    } else if (remaining.sub) {
+      const sub = document.createElement('sub');
+      sub.appendChild(document.createTextNode(text));
+      outer = sub;
+    } else {
+      // 理论上不会到这里（hasRemaining 为 true），防御性处理
+      range.deleteContents();
+      const tn = document.createTextNode(text);
+      range.insertNode(tn);
+      range.setStartAfter(tn);
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      return true;
+    }
   }
 
   range.deleteContents();
   range.insertNode(outer);
-  // 把光标放到 wrap 内部末尾，让后续输入继续继承样式（Word 行为）
-  // outer 可能是 sup/sub 包裹 wrap，但光标应在 wrap 内部
-  const wrapLast = wrap.lastChild;
-  if (wrapLast) {
-    range.setStartAfter(wrapLast);
+
+  // 把光标放到 outer 内部末尾，让后续输入继续继承样式（Word 行为）
+  const outerLast = outer.lastChild;
+  if (outerLast) {
+    range.setStartAfter(outerLast);
   } else {
     range.setStartAfter(outer);
   }
@@ -601,6 +661,126 @@ function unwrapRedundantSpan(span: HTMLElement): void {
   parent.removeChild(span);
 }
 
+/** Fix #1c 增强：递归解包 root 内部所有带相同样式的 span。
+ *  解决"多 span 选区应用同一字号"产生的内层冗余嵌套（>100% 越大 / <100% 越小）。
+ *  例：选区跨两个 <span fontSize=150%>，applyInlineStyle 后变成
+ *       <span fontSize=150%><span fontSize=150%>a</span><span fontSize=150%>b</span></span>
+ *  调用本函数后：<span fontSize=150%>ab</span>（无嵌套，font-size:% 不会相乘）。
+ *
+ *  注意：只解包完全匹配 styles 的 span，不动无关嵌套（如 bold/italic 等）。 */
+function unwrapRedundantSpansDeep(
+  root: HTMLElement,
+  styles: Record<string, string>,
+): void {
+  // 收集所有要解包的后代 span（后序遍历：先收集子，再决定 root）
+  const toUnwrap: HTMLElement[] = [];
+  const collect = (el: HTMLElement): void => {
+    for (const child of Array.from(el.children)) {
+      if (child.nodeType !== Node.ELEMENT_NODE) continue;
+      const childEl = child as HTMLElement;
+      // 跳过已经收集过的（避免重复）
+      if (toUnwrap.includes(childEl)) continue;
+      collect(childEl);
+      // 收集后判断（确保子 span 已被标记）
+      if (childEl.tagName === 'SPAN' && isStyleMatchProps(childEl, styles)) {
+        toUnwrap.push(childEl);
+      }
+    }
+  };
+  collect(root);
+  // 执行解包
+  for (const span of toUnwrap) {
+    // 解包后可能其父级还在 root 内；解包后的子节点会成为 root 的直接子节点
+    // 重复执行直到没有匹配项（处理嵌套中的同式 span）
+    let safety = 0;
+    while (
+      span.parentNode &&
+      span.parentNode !== root &&
+      (span.parentNode as HTMLElement).tagName === 'SPAN' &&
+      isStyleMatchProps(span.parentNode as HTMLElement, styles)
+    ) {
+      // 父级也匹配 → 解包父级（避免双层冗余）
+      const p = span.parentNode as HTMLElement;
+      unwrapRedundantSpan(p);
+      safety++;
+      if (safety > 100) break; // 防御性
+    }
+    unwrapRedundantSpan(span);
+  }
+}
+
+/**
+ * 比较两个 CSS font-size 值是否表示相同字号。
+ * 兼容 pt/px/% 三种单位（通过 ptToSizePercent 统一转成数字百分比比较），
+ * 用于智能合并中判断 active.fontSize 是否与继承的 fontSize 相同。
+ */
+function isSameFontSize(a?: string, b?: string): boolean {
+  if (!a || !b) return false;
+  const pa = ptToSizePercent(a);
+  const pb = ptToSizePercent(b);
+  if (pa != null && pb != null) return pa === pb;
+  return a === b;
+}
+
+/**
+ * 获取光标所在位置从最近 SPAN 继承的样式（fontSize/color/fontFamily）。
+ * 用于 applyActiveStylesToInsertion / applyActiveStylesToRange 的智能合并：
+ * 如果 active 样式已从父级 span 继承，不再创建嵌套 span。
+ */
+function getInheritedSpanStyles(
+  startNode: Node,
+  editor: HTMLElement,
+): { fontSize?: string; color?: string; fontFamily?: string } {
+  let cur: Node | null = startNode;
+  while (cur && cur !== editor) {
+    if (cur.nodeType === Node.ELEMENT_NODE) {
+      const el = cur as HTMLElement;
+      if (el.tagName === 'SPAN') {
+        return {
+          fontSize: el.style.fontSize || undefined,
+          color: el.style.color || undefined,
+          fontFamily: el.style.fontFamily || undefined,
+        };
+      }
+    }
+    cur = cur.parentNode;
+  }
+  return {};
+}
+
+/**
+ * 递归清理 root 内所有 span 的指定属性。
+ * 用于 applyInlineStyle 包裹选区后：内层 span 的同属性值会覆盖外层（CSS 优先级），
+ * 需要清除内层的冲突属性，让外层样式生效。
+ *
+ * 例如：应用 color=blue 后，内层 <span color=red> 需要去掉 color，
+ * 否则 CSS 中内层 red 覆盖外层 blue。
+ */
+function removeConflictingStylesDeep(
+  root: HTMLElement,
+  styles: Record<string, string>,
+): void {
+  const styleKeys = Object.keys(styles);
+  const spans = Array.from(root.querySelectorAll('span'));
+  for (const span of spans) {
+    let modified = false;
+    for (const k of styleKeys) {
+      if ((span.style as any)[k]) {
+        (span.style as any)[k] = '';
+        modified = true;
+      }
+    }
+    // 如果 span 清除后无任何样式 → 解包（减少 DOM 嵌套）
+    if (modified && span.style.cssText === '') {
+      const parent = span.parentNode;
+      if (parent) {
+        while (span.firstChild) parent.insertBefore(span.firstChild, span);
+        span.remove();
+      }
+    }
+  }
+}
+
 // ------------------------------------------------------------
 // IME 补偿：把 activeStyles 应用到一个已有 Range（包裹其中的文本）
 // 用于 onCompositionEnd —— IME 提交后浏览器已插入原始文本（无样式），
@@ -620,6 +800,7 @@ export function applyActiveStylesToRange(
     sup?: boolean;
     sub?: boolean;
   },
+  editor?: HTMLElement,
 ): boolean {
   if (
     !active.color &&
@@ -636,24 +817,51 @@ export function applyActiveStylesToRange(
   }
   if (range.collapsed) return false;
 
+  // 智能合并：从 active 中移除已从父级继承的样式（避免 fontSize % 嵌套相乘）
+  const inherited = editor
+    ? getInheritedSpanStyles(range.startContainer, editor)
+    : {};
+  const remaining: typeof active = {};
+  if (active.color && active.color !== inherited.color) remaining.color = active.color;
+  if (active.fontSize && !isSameFontSize(active.fontSize, inherited.fontSize)) remaining.fontSize = active.fontSize;
+  if (active.fontFamily && active.fontFamily !== inherited.fontFamily) remaining.fontFamily = active.fontFamily;
+  if (active.bold) remaining.bold = active.bold;
+  if (active.italic) remaining.italic = active.italic;
+  if (active.underline) remaining.underline = active.underline;
+  if (active.strike) remaining.strike = active.strike;
+  if (active.sup) remaining.sup = active.sup;
+  if (active.sub) remaining.sub = active.sub;
+
+  const hasRemaining =
+    remaining.color ||
+    remaining.fontSize ||
+    remaining.fontFamily ||
+    remaining.bold ||
+    remaining.italic ||
+    remaining.underline ||
+    remaining.strike ||
+    remaining.sup ||
+    remaining.sub;
+  if (!hasRemaining) return false; // 所有样式已继承，无需包裹
+
   const wrap = document.createElement('span');
-  if (active.color) wrap.style.color = active.color;
-  if (active.fontSize) wrap.style.fontSize = active.fontSize;
-  if (active.fontFamily) wrap.style.fontFamily = active.fontFamily;
-  if (active.bold) wrap.style.fontWeight = 'bold';
-  if (active.italic) wrap.style.fontStyle = 'italic';
+  if (remaining.color) wrap.style.color = remaining.color;
+  if (remaining.fontSize) wrap.style.fontSize = remaining.fontSize;
+  if (remaining.fontFamily) wrap.style.fontFamily = remaining.fontFamily;
+  if (remaining.bold) wrap.style.fontWeight = 'bold';
+  if (remaining.italic) wrap.style.fontStyle = 'italic';
   const deco: string[] = [];
-  if (active.underline) deco.push('underline');
-  if (active.strike) deco.push('line-through');
+  if (remaining.underline) deco.push('underline');
+  if (remaining.strike) deco.push('line-through');
   if (deco.length) wrap.style.textDecoration = deco.join(' ');
 
   // sup/sub 互斥：如果两者都打开，sup 优先
   let outer: HTMLElement = wrap;
-  if (active.sup) {
+  if (remaining.sup) {
     const sup = document.createElement('sup');
     sup.appendChild(wrap);
     outer = sup;
-  } else if (active.sub) {
+  } else if (remaining.sub) {
     const sub = document.createElement('sub');
     sub.appendChild(wrap);
     outer = sub;
@@ -862,6 +1070,11 @@ export function applyInlineStyle(
     ) {
       unwrapRedundantSpan(span);
     }
+    // Fix #1c 增强：递归解包新 span 内部所有带相同样式的子 span
+    // （多 span 选区应用同一字号时，跨多个老 span 会产生内部嵌套冗余）
+    if (span.parentNode) unwrapRedundantSpansDeep(span, styles);
+    // 清除内层 span 的同属性冲突值（如内层 color=red 不被外层 color=blue 覆盖）
+    if (span.parentNode) removeConflictingStylesDeep(span, styles);
     // 保持选区：选中新 span 的内容
     const newRange = document.createRange();
     newRange.selectNodeContents(span);
@@ -937,6 +1150,15 @@ export function applyInlineStyle(
     ) {
       unwrapRedundantSpan(span);
     }
+  }
+  // Fix #1c 增强：递归解包每个新 span 内部所有带相同样式的子 span
+  // （多 span 选区应用同一字号时，跨多个老 span 会产生内部嵌套冗余）
+  for (const span of wrappedSpans) {
+    if (span.parentNode) unwrapRedundantSpansDeep(span, styles);
+  }
+  // 清除内层 span 的同属性冲突值（如内层 color=red 不被外层 color=blue 覆盖）
+  for (const span of wrappedSpans) {
+    if (span.parentNode) removeConflictingStylesDeep(span, styles);
   }
 
   if (firstRange) {
@@ -2682,17 +2904,8 @@ export function getEffectiveFontFamilyValue(editor: HTMLElement): string | null 
 export function getEffectiveFontSizePercent(editor: HTMLElement): number | null {
   const v = getActiveFontSize(editor);
   if (!v) return null;
-  // 取第一项 '12pt' / '13.2pt'
-  const m = v.match(/^([0-9.]+)\s*(pt|px)?/i);
-  if (!m) return null;
-  const val = parseFloat(m[1]);
-  if (isNaN(val)) return null;
-  const pct = Math.round((val * 100) / 12);
-  // 找最接近的 NGA 档
-  for (const s of NGA_FONT_SIZES) {
-    if (s.percent === pct) return pct;
-  }
-  return pct;
+  // 用 ptToSizePercent 统一处理 pt/px/% 三种单位（原手动计算不兼容 %）
+  return ptToSizePercent(v);
 }
 
 export function getEffectiveColorName(editor: HTMLElement): string | null {

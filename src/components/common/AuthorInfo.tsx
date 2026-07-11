@@ -52,7 +52,7 @@ export function AuthorInfo({ onClose }: AuthorInfoProps) {
             >
               <img
                 src="./avatar.png"
-                alt="点点星辰"
+                alt="星星的辰"
                 className="w-full h-full object-cover"
               />
             </div>
@@ -60,7 +60,7 @@ export function AuthorInfo({ onClose }: AuthorInfoProps) {
             {/* 作者信息 */}
             <div className="text-center space-y-2 w-full">
               <div>
-                <div className="text-base font-semibold">点点星辰</div>
+                <div className="text-base font-semibold">星星的辰</div>
                 <div
                   className="text-xs mt-1"
                   style={{ color: 'var(--text-secondary)' }}

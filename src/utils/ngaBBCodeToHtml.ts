@@ -37,6 +37,7 @@ import {
   NGA_COLLAPSE_BODY_BG,
   NGA_CODE_BG,
   NGA_LINK_COLOR,
+  percentToCssFontSize,
 } from '../types';
 
 /**
@@ -437,8 +438,8 @@ function lookupColor(name: string): string {
 function lookupSize(percent: number): string {
   const s = NGA_FONT_SIZES.find((x) => x.percent === percent);
   if (s) return s.cssSize;
-  // 兜底：自定义百分比 → 直接用百分比字符串
-  return `${percent}%`;
+  // 兜底：自定义百分比 → pt 绝对值（避免 % 嵌套相乘）
+  return percentToCssFontSize(percent);
 }
 
 function lookupFont(value: string): string {

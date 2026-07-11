@@ -1,4 +1,4 @@
-// © 点点星辰 | 开发时间: 2026-06-17 | 唯一标识: AnkeCreator_20260617_XXXX
+// © 星星的辰 | 开发时间: 2026-06-17 | 唯一标识: AnkeCreator_20260617_XXXX
 // 本应用由本人独立开发，保留所有权利 | 非授权禁止商用
 //
 // Electron 主进程入口
@@ -12,7 +12,7 @@ import path from 'path'
 
 // 主进程数据库（JSON 文件存储）
 import * as db from './db-main'
-import { migrateFromUserDataIfNeeded } from './paths'
+import { migrateFromUserDataIfNeeded, migrateFlattenDataIfNeeded } from './paths'
 
 // 全局错误捕获（必须在所有 app.on('xxx') 之前）
 import { registerGlobalErrorHandlers } from './errorReporter'
@@ -134,6 +134,14 @@ if (runDiag()) {
       migrateFromUserDataIfNeeded()
     } catch (e) {
       console.error('[main] 迁移失败（继续启动）:', e)
+    }
+
+    // 步骤 1.5/4: v3.2+ 数据扁平化迁移（#9：旧的 <installDir>/data/data/ → <installDir>/data/）
+    console.log('[main] 步骤 1.5/4: 检查 v3.2 扁平化迁移...')
+    try {
+      migrateFlattenDataIfNeeded()
+    } catch (e) {
+      console.error('[main] 扁平化迁移失败（继续启动）:', e)
     }
 
     // 步骤 2/4: 初始化数据库

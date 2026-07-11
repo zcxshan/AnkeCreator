@@ -1204,8 +1204,12 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
                       setSelectedIds(next);
                       return;
                     }
-                    setActiveStory(id);
-                    onOpenStory(id);
+                    // Fix #2：必须 await setActiveStory 完成数据切换后再跳转
+                    // 否则编辑器挂载时会渲染旧作品的数据（chapters/sections 未清空）
+                    void (async () => {
+                      await setActiveStory(id);
+                      onOpenStory(id);
+                    })();
                   }}
                   onDelete={(id) => {
                     const w = works.find((x) => x.id === id);

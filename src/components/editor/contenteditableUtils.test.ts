@@ -798,3 +798,77 @@ describe('Fix #1c 增强: 多 span 选区递归解包（TDD）', () => {
     expect(editor.textContent).toBe('abc');
   });
 });
+
+describe('Fix #2 V2: 字号 pt 绝对单位（避免 % 嵌套相乘）', () => {
+  let editor: HTMLElement;
+  let textNode: Text;
+  let range: Range;
+
+  beforeEach(() => {
+    editor = document.createElement('div');
+    editor.contentEditable = 'true';
+    document.body.appendChild(editor);
+  });
+
+  afterEach(() => {
+    document.body.removeChild(editor);
+  });
+
+  /** 在 editor 末尾追加一个含指定样式的 span + 文本节点，把光标放到 span 内部末尾 */
+  function setupCursorInsideSpan(fontSize: string) {
+    const span = document.createElement('span');
+    span.style.fontSize = fontSize;
+    span.appendChild(document.createTextNode('Hello'));
+    editor.appendChild(span);
+    textNode = span.firstChild as Text;
+    range = document.createRange();
+    range.setStart(textNode, textNode.textContent!.length);
+    range.collapse(true);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  }
+
+  it('在 18pt 字号 span 内输入，active fontSize=18pt → 不创建嵌套 span', () => {
+    setupCursorInsideSpan('18pt');
+    const active = { fontSize: '18pt' };
+
+    for (const ch of 'abc') {
+      applyActiveStylesToInsertion(editor, active, ch);
+    }
+
+    const spans = editor.querySelectorAll('span');
+    expect(spans.length).toBe(1);
+    expect(spans[0].style.fontSize).toBe('18pt');
+    expect(spans[0].textContent).toBe('Helloabc');
+  });
+
+  it('旧 % 数据兼容：在 150% span 内输入，active fontSize=18pt → isSameFontSize 判定相同 → 不嵌套', () => {
+    setupCursorInsideSpan('150%');
+    const active = { fontSize: '18pt' }; // 18pt = 150%
+
+    for (const ch of 'xy') {
+      applyActiveStylesToInsertion(editor, active, ch);
+    }
+
+    const spans = editor.querySelectorAll('span');
+    expect(spans.length).toBe(1);
+    expect(spans[0].style.fontSize).toBe('150%');
+    expect(spans[0].textContent).toBe('Helloxy');
+  });
+
+  it('不同字号 pt 不相乘：在 18pt span 内输入 14.4pt → 新 span fontSize=14.4pt（非 18×1.2=21.6pt）', () => {
+    setupCursorInsideSpan('18pt');
+    const active = { fontSize: '14.4pt' }; // 14.4pt = 120%
+
+    applyActiveStylesToInsertion(editor, active, 'Z');
+
+    const spans = editor.querySelectorAll('span');
+    // 应有 2 个 span：外层 18pt + 内层 14.4pt
+    expect(spans.length).toBe(2);
+    // 内层新 span 的 fontSize 必须是 14.4pt（绝对值），不是 % 不会相乘
+    const innerSpan = spans[1];
+    expect(innerSpan.style.fontSize).toBe('14.4pt');
+    expect(innerSpan.textContent).toBe('Z');
+  });
+});

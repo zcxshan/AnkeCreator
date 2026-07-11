@@ -35,9 +35,9 @@ export function ResourceLibraryPage({ onBack, onShowAuthor }: ResourceLibraryPag
       className="min-h-full w-full flex flex-col"
       style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}
     >
-      {/* 顶栏（sticky 在 TitleBar 下方 32px 处，z-40） */}
+      {/* 顶栏（非 sticky，随 body 滚动） */}
       <div
-        className="flex items-center gap-3 px-6 py-4 border-b sticky top-8 z-40"
+        className="flex items-center gap-3 px-6 py-4 border-b"
         style={{ borderColor: 'var(--border-color)', background: 'var(--bg-base)' }}
       >
         <button

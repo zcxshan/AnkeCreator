@@ -1,4 +1,4 @@
-// © 点点星辰 | 生成 build/icon.ico 用于 NSIS installer 图标
+// © 星星的辰 | 生成 build/icon.ico 用于 NSIS installer 图标
 // 从 build/icon.png 生成多尺寸 .ico（16/24/32/48/64/128/256 px）
 // 同步覆盖 release/.icon-ico/icon.ico（避免 electron-builder 用旧缓存）
 // 用法：node scripts/generate-icon.js

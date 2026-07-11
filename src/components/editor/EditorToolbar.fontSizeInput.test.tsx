@@ -167,7 +167,7 @@ describe('EditorToolbar 字号 input + range', () => {
     // 失焦后会调 handleFontSizeChange(20) → setActiveStyles 被调用
     expect(setActiveStylesMock).toHaveBeenCalled();
     const lastCall = setActiveStylesMock.mock.calls[setActiveStylesMock.mock.calls.length - 1][0];
-    expect(lastCall.fontSize).toBe('20%');
+    expect(lastCall.fontSize).toBe('2.4pt');
   });
 
   it('字号 input 输入 > 500 后失焦，自动钳位为 500 并应用', () => {
@@ -185,7 +185,7 @@ describe('EditorToolbar 字号 input + range', () => {
     expect(numInput.value).toBe('500');
     expect(setActiveStylesMock).toHaveBeenCalled();
     const lastCall = setActiveStylesMock.mock.calls[setActiveStylesMock.mock.calls.length - 1][0];
-    expect(lastCall.fontSize).toBe('500%');
+    expect(lastCall.fontSize).toBe('60pt');
   });
 
   it('字号 input 按 Enter 触发 blur，blur 处理器正确应用当前值', () => {
@@ -219,7 +219,7 @@ describe('EditorToolbar 字号 input + range', () => {
     // setActiveStyles 被调用
     expect(setActiveStylesMock).toHaveBeenCalled();
     const lastCall = setActiveStylesMock.mock.calls[setActiveStylesMock.mock.calls.length - 1][0];
-    expect(lastCall.fontSize).toBe('250%');
+    expect(lastCall.fontSize).toBe('30pt');
     // 同步到 input 的本地态
     expect(numInput.value).toBe('250');
   });

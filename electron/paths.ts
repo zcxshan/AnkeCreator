@@ -11,17 +11,19 @@
 //     = C:\Users\<user>\AppData\Roaming\com.shanshian.ankecreator\
 //     保持现状，避免污染安装路径
 //
-// 子目录（扁平化结构）：
-//   - <dataRoot>/data/                → 数据根目录
-//   - <dataRoot>/data/stories/        → per-story JSON 文件
-//   - <dataRoot>/data/stories/__trash/ → 软删除的作品
-//   - <dataRoot>/data/templates/      → 跨作品共享模板
-//   - <dataRoot>/images/              → 本地保存的图片（local:// 协议）
+// v3.2+ 扁平化（#9）：所有数据统一在 <安装路径>/data/ 下，不再有 data/data/ 嵌套
+//   - <installDir>/data/                     ← getDataDir()（也是 getDataRoot()）
+//   - <installDir>/data/stories/             ← per-story JSON 文件
+//   - <installDir>/data/stories/__trash/     ← 软删除的作品
+//   - <installDir>/data/templates/           ← 跨作品共享模板
+//   - <installDir>/data/images/              ← 本地保存的图片
+//   - <installDir>/data/sounds/              ← 用户上传的骰子音效
 //
 // 一次性自动迁移（仅打包模式）：
-//   首次启动打包版时，若 %APPDATA%\com.shanshian.ankecreator\
-//   下存在旧数据，自动复制到 <安装路径>/data/。原数据保留作
-//   为备份，用户确认新位置正常后可手动删除。
+//   首次启动打包版时，
+//   1) 若 %APPDATA%\com.shanshian.ankecreator\ 存在旧数据，自动复制到 <安装路径>/data/
+//   2) 若 <安装路径>/data/data/ 存在旧版本（v3.2 之前的嵌套结构），自动移动到 <安装路径>/data/
+//      原位置作为备份保留，用户确认后可手动删除。
 // ============================================================
 
 import { app } from 'electron'
@@ -31,8 +33,8 @@ import * as path from 'path'
 let _dataRoot: string | null = null
 
 /**
- * 数据根目录
- * - 打包模式：<安装路径>/data/
+ * 数据根目录（#9：v3.2+ 扁平化）
+ * - 打包模式：<安装路径>/data/（所有数据统一在此目录下）
  * - dev 模式（未打包）：app.getPath('userData')
  */
 export function getDataRoot(): string {
@@ -47,17 +49,16 @@ export function getDataRoot(): string {
 }
 
 /**
- * 数据目录：<dataRoot>/data/
- * （自动创建目录 + 写入权限预检）
+ * 数据目录（#9：v3.2+ 扁平化）。
+ * 与 getDataRoot() 等价；保留函数名以避免破坏调用方。
+ * 实际指向 <dataRoot>，即 <安装路径>/data/。
  */
 export function getDataDir(): string {
-  const dir = path.join(getDataRoot(), 'data')
-  ensureDirWritable(dir)
-  return dir
+  return getDataRoot()
 }
 
 /**
- * per-story 文件目录：<dataRoot>/data/stories/
+ * per-story 文件目录：<dataDir>/stories/
  */
 export function getStoriesDir(): string {
   const dir = path.join(getDataDir(), 'stories')
@@ -66,7 +67,7 @@ export function getStoriesDir(): string {
 }
 
 /**
- * 软删除作品目录：<dataRoot>/data/stories/__trash/
+ * 软删除作品目录：<dataDir>/stories/__trash/
  */
 export function getTrashDir(): string {
   const dir = path.join(getStoriesDir(), '__trash')
@@ -75,7 +76,7 @@ export function getTrashDir(): string {
 }
 
 /**
- * 模板目录：<dataRoot>/data/templates/
+ * 模板目录：<dataDir>/templates/
  */
 export function getTemplatesDir(): string {
   const dir = path.join(getDataDir(), 'templates')
@@ -84,11 +85,11 @@ export function getTemplatesDir(): string {
 }
 
 /**
- * 本地图片目录：<dataRoot>/images/
+ * 本地图片目录：<dataDir>/images/
  * （自动创建目录 + 写入权限预检）
  */
 export function getImagesDir(): string {
-  const dir = path.join(getDataRoot(), 'images')
+  const dir = path.join(getDataDir(), 'images')
   ensureDirWritable(dir)
   return dir
 }
@@ -111,13 +112,10 @@ export function getSoundsDir(): string {
 
 /**
  * 用户自定义骰子音效目录（可写）。
- * - 打包模式：<dataRoot>/sounds/（与 <dataRoot>/data/ 平级，逻辑独立）
- * - dev 模式：app.getPath('userData')/sounds/
- *
- * 用户上传的 mp3 存在这里。优先级：用户上传 > 内置 public/sounds/。
+ * #9：与 images/ 同样在 data/ 目录下。
  */
 export function getUserSoundsDir(): string {
-  const dir = path.join(getDataRoot(), 'sounds')
+  const dir = path.join(getDataDir(), 'sounds')
   ensureDirWritable(dir)
   return dir
 }
@@ -154,20 +152,12 @@ function ensureDirWritable(dir: string): void {
 
 /**
  * 一次性自动迁移：打包模式下，把 %APPDATA%\com.shanshian.ankecreator\ 下的
- * data + images 复制到 <安装路径>/data\ 下。
+ * data + images + sounds 复制到 <安装路径>/data/ 下。
  *
  * 触发条件（必须同时满足）：
  *   1. app.isPackaged（仅打包模式迁移，dev 模式不迁移）
- *   2. 新位置 <installPath>/data/ 下 data 目录不存在
- *   3. 旧位置 %APPDATA%\com.shanshian.ankecreator\data 存在（新扁平结构）
- *      或 %APPDATA%\com.shanshian.ankecreator\AnkeCreatorData 存在（旧嵌套结构）
- *
- * 行为：
- *   - 用 fs.cpSync（递归）复制整个 data + images 到新位置
- *   - 复制成功后不删旧数据（用户可在确认新位置正常后手动删除）
- *   - 在新位置 <installPath>/data/.migrated-from-appdata 写个标记文件
- *     （删除此文件可重新触发迁移检查）
- *   - 失败时 console.error，不抛错（最坏情况 = 新位置空数据，按新作品处理）
+ *   2. 新位置 <installPath>/data/ 下 stories 目录为空
+ *   3. 旧位置 %APPDATA%\com.shanshian.ankecreator\ 存在数据
  */
 export function migrateFromUserDataIfNeeded(): void {
   console.log('[paths] 检查是否需要迁移...')
@@ -176,10 +166,8 @@ export function migrateFromUserDataIfNeeded(): void {
     return
   }
 
-  const newRoot = getDataRoot()
-  const newDataDir = path.join(newRoot, 'data')
-  const newImagesDir = path.join(newRoot, 'images')
-  const migrationFlag = path.join(newRoot, '.migrated-from-appdata')
+  const newDataDir = getDataDir() // #9 扁平化后就是 <installDir>/data/
+  const migrationFlag = path.join(newDataDir, '.migrated-from-appdata')
 
   // 已迁移过（标记文件存在）→ 跳过
   if (fs.existsSync(migrationFlag)) {
@@ -187,7 +175,7 @@ export function migrateFromUserDataIfNeeded(): void {
     return
   }
 
-  // 新位置已有数据 → 不覆盖（用户可能从别处恢复的）
+  // 新位置已有 per-story 数据 → 不覆盖
   try {
     if (
       fs.existsSync(newDataDir) &&
@@ -202,33 +190,42 @@ export function migrateFromUserDataIfNeeded(): void {
   }
 
   // 计算旧位置：%APPDATA%\<appId>\
-  // app.getPath('appData') = C:\Users\<user>\AppData\Roaming
-  const oldRoot = app.getPath('appData')
-  const oldDataDirNew = path.join(oldRoot, 'com.shanshian.ankecreator', 'data')
-  const oldDataDirLegacy = path.join(oldRoot, 'com.shanshian.ankecreator', 'AnkeCreatorData')
-  const oldImagesDir = path.join(oldRoot, 'com.shanshian.ankecreator', 'images')
+  const oldRoot = path.join(app.getPath('appData'), 'com.shanshian.ankecreator')
+  const oldDataDirNew = path.join(oldRoot, 'data')
+  const oldDataDirLegacy = path.join(oldRoot, 'AnkeCreatorData')
+  const oldImagesDir = path.join(oldRoot, 'images')
+  const oldSoundsDir = path.join(oldRoot, 'sounds')
 
-  // 优先匹配新扁平结构，回退到旧嵌套结构
   const oldDataDir = fs.existsSync(oldDataDirNew) ? oldDataDirNew : (fs.existsSync(oldDataDirLegacy) ? oldDataDirLegacy : null)
 
-  if (!oldDataDir) {
+  if (!oldDataDir && !fs.existsSync(oldImagesDir) && !fs.existsSync(oldSoundsDir)) {
     console.log('[paths] 旧位置无数据，无需迁移')
     return
   }
 
   const startMs = Date.now()
   try {
-    console.log('[paths] 开始复制:', oldDataDir, '→', newDataDir)
+    console.log('[paths] 开始复制 userData → <installDir>/data/')
 
     // 确保新位置父目录存在
-    if (!fs.existsSync(newRoot)) {
-      fs.mkdirSync(newRoot, { recursive: true })
+    if (!fs.existsSync(newDataDir)) {
+      fs.mkdirSync(newDataDir, { recursive: true })
     }
 
-    // 递归复制
-    fs.cpSync(oldDataDir, newDataDir, { recursive: true })
+    // 递归复制 data（可能不存在）
+    if (oldDataDir) {
+      console.log('[paths] 复制:', oldDataDir, '→', newDataDir)
+      fs.cpSync(oldDataDir, newDataDir, { recursive: true })
+    }
     if (fs.existsSync(oldImagesDir)) {
+      const newImagesDir = getImagesDir()
+      console.log('[paths] 复制 images:', oldImagesDir, '→', newImagesDir)
       fs.cpSync(oldImagesDir, newImagesDir, { recursive: true })
+    }
+    if (fs.existsSync(oldSoundsDir)) {
+      const newSoundsDir = getUserSoundsDir()
+      console.log('[paths] 复制 sounds:', oldSoundsDir, '→', newSoundsDir)
+      fs.cpSync(oldSoundsDir, newSoundsDir, { recursive: true })
     }
 
     // 写标记
@@ -238,9 +235,10 @@ export function migrateFromUserDataIfNeeded(): void {
         {
           migratedAt: new Date().toISOString(),
           from: oldRoot,
-          to: newRoot,
+          to: newDataDir,
           oldDataDir,
           oldImagesDir,
+          oldSoundsDir,
           note: '删除此文件可重新触发迁移检查',
         },
         null,
@@ -250,11 +248,80 @@ export function migrateFromUserDataIfNeeded(): void {
     )
 
     const elapsed = Date.now() - startMs
-    console.log(`[paths] 复制完成，耗时 ${elapsed}ms`)
+    console.log(`[paths] userData 迁移完成，耗时 ${elapsed}ms`)
     console.log(`[paths] 迁移标记: ${migrationFlag}`)
     console.log('[paths] 旧数据保留在原位置作为备份，可在确认新位置正常后手动删除')
   } catch (e) {
     console.error('[paths] 复制失败（不写标记，下次启动重试）:', e)
-    // 不抛错：让应用继续启动（新位置为空数据即可）
+  }
+}
+
+/**
+ * v3.2+ 数据扁平化迁移：把旧的 <installDir>/data/data/ 下的内容
+ * 移动到 <installDir>/data/（即新位置），并删除空的 data/data/ 子目录。
+ *
+ * 触发条件（仅打包模式）：
+ *   1. <installDir>/data/data/ 存在
+ *   2. <installDir>/data/.migrated-data-flatten 标记文件不存在
+ *   3. <installDir>/data/stories/ 下没有 per-story JSON（避免覆盖）
+ *
+ * 行为：
+ *   - 把 <installDir>/data/data/* 整体合并到 <installDir>/data/
+ *   - 合并完成后删除空的 data/data/
+ *   - 写标记文件 <installDir>/data/.migrated-data-flatten
+ *   - 失败时 console.error，下次启动重试
+ */
+export function migrateFlattenDataIfNeeded(): void {
+  if (!app.isPackaged) return
+
+  const newDataDir = getDataDir() // <installDir>/data/
+  const oldNestedDir = path.join(newDataDir, 'data')
+  const migrationFlag = path.join(newDataDir, '.migrated-data-flatten')
+
+  if (fs.existsSync(migrationFlag)) return
+  if (!fs.existsSync(oldNestedDir)) return
+
+  // 安全检查：避免覆盖已有数据
+  const storiesDir = path.join(newDataDir, 'stories')
+  try {
+    if (
+      fs.existsSync(storiesDir) &&
+      fs.readdirSync(storiesDir).filter((f) => f.endsWith('.json')).length > 0
+    ) {
+      console.log('[paths] 新位置已有 stories，跳过扁平化迁移')
+      fs.writeFileSync(migrationFlag, JSON.stringify({ skipped: true, at: new Date().toISOString() }), 'utf-8')
+      return
+    }
+  } catch {
+    /* 继续尝试 */
+  }
+
+  console.log('[paths] 扁平化迁移开始:', oldNestedDir, '→', newDataDir)
+  try {
+    // 把 oldNestedDir 下的内容移动到 newDataDir
+    const entries = fs.readdirSync(oldNestedDir, { withFileTypes: true })
+    for (const entry of entries) {
+      const from = path.join(oldNestedDir, entry.name)
+      const to = path.join(newDataDir, entry.name)
+      if (fs.existsSync(to)) {
+        console.log('[paths] 已存在，跳过:', entry.name)
+        continue
+      }
+      fs.cpSync(from, to, { recursive: true })
+    }
+    // 删除空 oldNestedDir
+    try {
+      fs.rmdirSync(oldNestedDir)
+    } catch (e) {
+      console.warn('[paths] 删除旧嵌套目录失败（可能是非空）:', e)
+    }
+    fs.writeFileSync(
+      migrationFlag,
+      JSON.stringify({ at: new Date().toISOString(), from: oldNestedDir, to: newDataDir }, null, 2),
+      'utf-8',
+    )
+    console.log('[paths] 扁平化迁移完成')
+  } catch (e) {
+    console.error('[paths] 扁平化迁移失败（不写标记，下次启动重试）:', e)
   }
 }

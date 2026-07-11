@@ -485,3 +485,102 @@ describe('BBCode 优化：嵌套合并/空标签清除/不支持标签转义', (
     expect(result).toBe('[b]X[/b]');
   });
 });
+
+describe('Fix #3: 跨 tag 冗余嵌套/空 inner/跨行 合并（TDD）', () => {
+  const t = (s: string) => s.replace(/^\s+|\s+$/g, '');
+
+  it('跨 tag 同名嵌套展开：[b][i][b]X[/b][/i][/b] → [b][i]X[/i][/b]', () => {
+    // HTML: <b><i><b>X</b></i></b>
+    // 第 1 轮：raw 输出 [b][i][b]X[/b][/i][/b]
+    // 第 2 轮：unwrapDeepRedundant(b) → [b][i]X[/i][/b]
+    const html = '<b><i><b>X</b></i></b>';
+    const result = t(htmlToNGABBCode(html));
+    expect(result).toBe('[b][i]X[/i][/b]');
+  });
+
+  it('跨 tag 有属性同名嵌套展开：[color=red][b][color=red]X[/color][/b][/color] → [color=red][b]X[/b][/color]', () => {
+    const html = '<span style="color:red"><b><span style="color:red">X</span></b></span>';
+    const result = t(htmlToNGABBCode(html));
+    expect(result).not.toContain('[color=red][color=red]');
+    expect(result).toContain('[color=red]');
+    expect(result).toContain('[b]X[/b]');
+  });
+
+  it('多层跨 tag 同名嵌套：3 层 → 1 层', () => {
+    // [b][i][b][i][b]X[/b][/i][/b][/i][/b] → [b][i]X[/i][/b]
+    const html = '<b><i><b><i><b>X</b></i></b></i></b>';
+    const result = t(htmlToNGABBCode(html));
+    expect(result).toBe('[b][i]X[/i][/b]');
+  });
+
+  it('空 inner 标签清理：[b][color=red][/color]X[/b] → [b]X[/b]', () => {
+    // 内层空 color tag 应被移除
+    const html = '<b><span style="color:red"></span>X</b>';
+    const result = t(htmlToNGABBCode(html));
+    expect(result).toBe('[b]X[/b]');
+    expect(result).not.toContain('[color=red][/color]');
+  });
+
+  it('完全空外层被清除：[b][color=red][/color][/b] → ""', () => {
+    // 内层空清掉后外层变空，再被外层空标签清除
+    const html = '<b><span style="color:red"></span></b>';
+    const result = t(htmlToNGABBCode(html));
+    expect(result).toBe('');
+  });
+
+  it('跨行相邻同 tag 合并：[b]X[/b]\\n[b]Y[/b] → [b]X\\nY[/b]', () => {
+    // 通过两个独立段落构造跨行场景（会被换行分隔）
+    // 块级元素：<p><b>X</b></p><p><b>Y</b></p> 会被 split('\n') 处理
+    // 跨行合并需要在线级处理完之后再做，所以应该在整段级别合并
+    const html = '<b>X</b><br><b>Y</b>';
+    const result = htmlToNGABBCode(html);
+    // 期望：X\nY 在同一个 [b] 内
+    expect(result).toMatch(/\[b\]X\nY\[\/b\]/);
+  });
+
+  it('跨行相邻有属性同 tag 合并：[color=red]X[/color]\\n[color=red]Y[/color] → [color=red]X\\nY[/color]', () => {
+    const html = '<span style="color:red">X</span><br><span style="color:red">Y</span>';
+    const result = htmlToNGABBCode(html);
+    expect(result).toMatch(/\[color=red\]X\nY\[\/color\]/);
+    expect(result).not.toMatch(/\[color=red\]X\[\/color\]\n\[color=red\]Y\[\/color\]/);
+  });
+
+  it('不同属性的相邻 color 不合并', () => {
+    const html = '<span style="color:red">X</span><span style="color:blue">Y</span>';
+    const result = t(htmlToNGABBCode(html));
+    expect(result).toContain('[color=red]X[/color]');
+    expect(result).toContain('[color=blue]Y[/color]');
+  });
+
+  it('空 [b][i][color=red][/color][/i][/b] 全部清理', () => {
+    // 内层 color 空 → 移除后 [b][i][/i][/b] → [i][/i] 移除 → [b][/b] 移除 → ""
+    const html = '<b><i><span style="color:red"></span></i></b>';
+    const result = t(htmlToNGABBCode(html));
+    expect(result).toBe('');
+  });
+});
+
+describe('Fix #2 V2: pt 字号 → BBCode 转换', () => {
+  const trim = (s: string) => s.replace(/^\s+|\s+$/g, '');
+
+  it('pt → BBCode: <span style="font-size:18pt"> → [size=150%]', () => {
+    const html = '<span style="font-size:18pt">文本</span>';
+    const result = trim(htmlToNGABBCode(html));
+    expect(result).toBe('[size=150%]文本[/size]');
+  });
+
+  it('旧 % 兼容 → BBCode: <span style="font-size:150%"> → [size=150%]', () => {
+    const html = '<span style="font-size:150%">文本</span>';
+    const result = trim(htmlToNGABBCode(html));
+    expect(result).toBe('[size=150%]文本[/size]');
+  });
+
+  it('pt 嵌套 → BBCode 无重复: 外层18pt+内层14.4pt → [size=120%]文本[/size]', () => {
+    const html = '<span style="font-size:18pt"><span style="font-size:14.4pt">文本</span></span>';
+    const result = trim(htmlToNGABBCode(html));
+    // 内层 14.4pt=120% 覆盖外层 18pt=150%，最终只应有 [size=120%]
+    expect(result).toBe('[size=120%]文本[/size]');
+    // 不应出现嵌套 [size=150%][size=120%]
+    expect(result).not.toContain('[size=150%]');
+  });
+});

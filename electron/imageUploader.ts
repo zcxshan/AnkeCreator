@@ -109,11 +109,16 @@ export function registerImageIpc(getWindow: () => BrowserWindow | null): void {
   )
 
   // image:openFolder：用系统文件管理器打开本地图片目录
+  // 修复 #4：先确保目录存在（未启用本地上传时目录可能不存在）
   ipcMain.handle(
     'image:openFolder',
     async (): Promise<{ ok: boolean; error?: string }> => {
       try {
-        const res = await shell.openPath(getImagesDir())
+        const dir = getImagesDir()
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true })
+        }
+        const res = await shell.openPath(dir)
         if (res) {
           return { ok: false, error: res }
         }

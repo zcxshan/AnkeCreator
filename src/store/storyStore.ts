@@ -75,6 +75,11 @@ interface StoryState {
   setActiveSection: (id: string) => void;
   reorderSections: (chapterId: string, orderedIds: string[]) => Promise<void>;
   moveSections: (targetChapterId: string, orderedIds: string[]) => Promise<void>;
+  /**
+   * 重新拉取当前作品的所有 sections（用于「重算字数」后刷新目录树）
+   * 不修改 activeChapterId / activeSectionId，仅刷新 sections 数组
+   */
+  refreshSections: () => Promise<void>;
 
   // ---------- Outline 操作 ----------
   loadOutlines: (storyId: string) => Promise<void>;
@@ -658,6 +663,23 @@ export const useStoryStore = create<StoryState>((set, get) => ({
     const state = get();
     const sec = state.sections.find((s) => s.id === id);
     set({ activeSectionId: id, activeChapterId: sec ? sec.chapter_id : state.activeChapterId });
+  },
+
+  refreshSections: async () => {
+    const state = get();
+    const storyId = state.activeStoryId;
+    if (!storyId) return;
+    // 重新拉取所有 chapters → sections，保留 activeChapterId/activeSectionId
+    const chapters = await db.listChapters(storyId);
+    const sectionLists = await Promise.all(chapters.map((ch) => db.listSectionMetadata(ch.id)));
+    const sections = sectionLists.flat().sort((a, b) => {
+      // 先按 chapter.order_index，再按 section.order_index
+      const chA = chapters.find((c) => c.id === a.chapter_id)?.order_index ?? 0;
+      const chB = chapters.find((c) => c.id === b.chapter_id)?.order_index ?? 0;
+      if (chA !== chB) return chA - chB;
+      return a.order_index - b.order_index;
+    });
+    set({ chapters, sections });
   },
 
   // ---------- Outline 操作实现 ----------
