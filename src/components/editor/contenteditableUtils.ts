@@ -2698,6 +2698,99 @@ export function attachCollapseBlockHandlers(
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
+    // Backspace / Delete：处理"光标在空折叠块 body 内"的情况（一次删除整块）
+    if ((e.key === 'Backspace' || e.key === 'Delete') && !e.ctrlKey && !e.metaKey) {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return; // 让默认的"选区删除"逻辑走
+      const range = sel.getRangeAt(0);
+      if (!editor.contains(range.startContainer)) return;
+
+      // 检测光标是否在折叠块 body 内（不是 title）
+      const containerEl = range.startContainer.nodeType === Node.ELEMENT_NODE
+        ? range.startContainer as HTMLElement
+        : (range.startContainer.parentElement as HTMLElement | null);
+      if (!containerEl) return;
+      const inBody = containerEl.closest('.collapse-body');
+      // 必须真的在 body 内（不能是 collapse-title），且 body 在折叠块内
+      if (inBody && !containerEl.closest('.collapse-title')) {
+        const block = findCollapseBlockAncestor(inBody, editor);
+        if (block && isCollapseBlockEmpty(block)) {
+          e.preventDefault();
+          removeCollapseBlock(editor, block);
+          return;
+        }
+      }
+    }
+
+    // Enter：在折叠块 body 内换行（保持块内不脱离）
+    if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return;
+      const range = sel.getRangeAt(0);
+      if (!editor.contains(range.startContainer)) return;
+      const containerEl = range.startContainer.nodeType === Node.ELEMENT_NODE
+        ? range.startContainer as HTMLElement
+        : (range.startContainer.parentElement as HTMLElement | null);
+      if (!containerEl) return;
+      const inBody = containerEl.closest('.collapse-body');
+      if (inBody && !containerEl.closest('.collapse-title')) {
+        e.preventDefault();
+        range.deleteContents();
+        const br = document.createElement('br');
+        range.insertNode(br);
+        const newRange = document.createRange();
+        newRange.setStartAfter(br);
+        newRange.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(newRange);
+        dispatchInput(editor);
+        return;
+      }
+    }
+
+    // Shift+Enter：在折叠块 body 内把光标移到折叠块外（带动整个折叠向下换行）
+    if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.metaKey) {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return;
+      const range = sel.getRangeAt(0);
+      if (!editor.contains(range.startContainer)) return;
+      const containerEl = range.startContainer.nodeType === Node.ELEMENT_NODE
+        ? range.startContainer as HTMLElement
+        : (range.startContainer.parentElement as HTMLElement | null);
+      if (!containerEl) return;
+      const inBody = containerEl.closest('.collapse-body');
+      if (inBody && !containerEl.closest('.collapse-title')) {
+        e.preventDefault();
+        const block = findCollapseBlockAncestor(inBody, editor);
+        if (!block) return;
+        // 找折叠块在 editor 中的下一个兄弟
+        const next = block.nextSibling;
+        if (next) {
+          // 有下一个兄弟 → 光标放到它的开头
+          const newRange = document.createRange();
+          if (next.nodeType === Node.TEXT_NODE) {
+            newRange.setStart(next, 0);
+          } else {
+            newRange.selectNodeContents(next);
+            newRange.collapse(true);
+          }
+          sel.removeAllRanges();
+          sel.addRange(newRange);
+        } else {
+          // 没有下一个兄弟 → 插入一个 br 占位
+          const br = document.createElement('br');
+          block.parentNode?.insertBefore(br, block.nextSibling);
+          const newRange = document.createRange();
+          newRange.setStartAfter(br);
+          newRange.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(newRange);
+        }
+        dispatchInput(editor);
+        return;
+      }
+    }
+
     if (e.key !== 'Delete' && e.key !== 'Backspace') return;
     const selected = getSelectedCollapseBlock(editor);
     if (selected) {

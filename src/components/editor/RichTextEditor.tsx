@@ -521,19 +521,28 @@ export function RichTextEditor({
         const containerEl = container.nodeType === Node.ELEMENT_NODE
           ? container as HTMLElement
           : container.parentElement;
-        // 引用块内 Shift+Enter：手动插入 <br>，避免创建新段落脱离引用块
+        // 引用块内 Shift+Enter：把光标移到 blockquote 之外（不是块内换行）
         const quoteBlock = containerEl?.closest('.quote-block, .quote-line, blockquote');
         if (quoteBlock) {
           e.preventDefault();
-          range.deleteContents();
-          const br = document.createElement('br');
-          range.insertNode(br);
-          // 把光标移到 <br> 之后
-          const newRange = document.createRange();
-          newRange.setStartAfter(br);
-          newRange.collapse(true);
-          selection.removeAllRanges();
-          selection.addRange(newRange);
+          // 找 blockquote 的下一个兄弟（trailing <br>），光标放到它之后
+          const trailing = quoteBlock.nextSibling;
+          if (trailing && trailing.nodeType === Node.ELEMENT_NODE && (trailing as HTMLElement).tagName === 'BR') {
+            const newRange = document.createRange();
+            newRange.setStartAfter(trailing);
+            newRange.collapse(true);
+            selection.removeAllRanges();
+            selection.addRange(newRange);
+          } else {
+            // blockquote 后没有 trailing br → 插入一个 br，光标放到那里
+            const br = document.createElement('br');
+            quoteBlock.parentNode?.insertBefore(br, quoteBlock.nextSibling);
+            const newRange = document.createRange();
+            newRange.setStartAfter(br);
+            newRange.collapse(true);
+            selection.removeAllRanges();
+            selection.addRange(newRange);
+          }
           handleInput();
           return;
         }
@@ -637,6 +646,44 @@ export function RichTextEditor({
             // 让浏览器继续处理剩余文本的删除
             // 不 preventDefault，让原生删除执行
             dispatchInput(editorEl);
+          }
+        }
+      }
+      // 选区折叠时：若光标在空 quote-block 内，一次 Backspace 整块删除
+      if (selection && selection.rangeCount > 0 && selection.isCollapsed) {
+        const editorEl = divRef.current;
+        if (editorEl) {
+          const range = selection.getRangeAt(0);
+          const container = range.startContainer;
+          const containerEl = container.nodeType === Node.ELEMENT_NODE
+            ? container as HTMLElement
+            : container.parentElement;
+          if (containerEl) {
+            const quoteBlock = containerEl.closest('blockquote[data-type="quote-block"]') as HTMLElement | null;
+            if (quoteBlock) {
+              // 判断块是否"空"：只有 <br>，或文本为空
+              const inner = quoteBlock.innerHTML.trim();
+              const text = (quoteBlock.textContent || '').trim();
+              const isEmpty = text === '' && (inner === '' || inner === '<br>');
+              if (isEmpty) {
+                e.preventDefault();
+                // 记录位置 → 删除 blockquote → 在原位置放一个 br 占位
+                const parent = quoteBlock.parentNode;
+                const next = quoteBlock.nextSibling;
+                if (parent) {
+                  const placeholder = document.createElement('br');
+                  parent.insertBefore(placeholder, quoteBlock);
+                  quoteBlock.remove();
+                  // 光标放到 br 之后
+                  const newRange = document.createRange();
+                  newRange.setStartAfter(placeholder);
+                  newRange.collapse(true);
+                  selection.removeAllRanges();
+                  selection.addRange(newRange);
+                  dispatchInput(editorEl);
+                }
+              }
+            }
           }
         }
       }
