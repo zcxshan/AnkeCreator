@@ -417,6 +417,22 @@ export function applyActiveStylesToInsertion(
   const range = sel.getRangeAt(0);
   if (!editor.contains(range.commonAncestorContainer)) return false;
 
+  // Fix #1：避免字号正反馈
+  // 当光标已经处于一个样式与 active 完全一致的 span 内时，直接插入文本节点，
+  // 不再嵌套新 span。否则连续输入会产生 <span fontSize=150%><span fontSize=150%>...
+  // CSS font-size:% 相对父元素计算，嵌套后实际字号会被反复相乘（>100% 越来越大、<100% 越来越小）。
+  const matchSpan = findStyleMatchSpan(range.startContainer, editor, active);
+  if (matchSpan) {
+    range.deleteContents();
+    const textNode = document.createTextNode(text);
+    range.insertNode(textNode);
+    range.setStartAfter(textNode);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    return true;
+  }
+
   const wrap = document.createElement('span');
   if (active.color) wrap.style.color = active.color;
   if (active.fontSize) wrap.style.fontSize = active.fontSize;
@@ -456,6 +472,133 @@ export function applyActiveStylesToInsertion(
   sel.removeAllRanges();
   sel.addRange(range);
   return true;
+}
+
+// ------------------------------------------------------------
+// Fix #1 辅助：判断 node 的祖先链上是否存在与 active 样式完全一致的 span
+// ------------------------------------------------------------
+function isStyleMatch(
+  el: HTMLElement,
+  active: {
+    color?: string;
+    fontSize?: string;
+    fontFamily?: string;
+    bold?: boolean;
+    italic?: boolean;
+    underline?: boolean;
+    strike?: boolean;
+    sup?: boolean;
+    sub?: boolean;
+  },
+): boolean {
+  // sup/sub 节点不影响样式匹配（视觉超上下标），不参与判定
+  if (active.color != null && el.style.color !== active.color) return false;
+  if (active.fontSize != null && el.style.fontSize !== active.fontSize) return false;
+  if (active.fontFamily != null && el.style.fontFamily !== active.fontFamily) return false;
+  if (active.bold && el.style.fontWeight !== 'bold') return false;
+  if (active.italic && el.style.fontStyle !== 'italic') return false;
+  if (active.underline) {
+    if (!el.style.textDecoration.includes('underline')) return false;
+  }
+  if (active.strike) {
+    if (!el.style.textDecoration.includes('line-through')) return false;
+  }
+  return true;
+}
+
+function findStyleMatchSpan(
+  startNode: Node,
+  editor: HTMLElement,
+  active: {
+    color?: string;
+    fontSize?: string;
+    fontFamily?: string;
+    bold?: boolean;
+    italic?: boolean;
+    underline?: boolean;
+    strike?: boolean;
+    sup?: boolean;
+    sub?: boolean;
+  },
+): HTMLElement | null {
+  let cur: Node | null = startNode;
+  while (cur && cur !== editor) {
+    if (cur.nodeType === Node.ELEMENT_NODE) {
+      const el = cur as HTMLElement;
+      if (el.tagName === 'SPAN' && isStyleMatch(el, active)) {
+        return el;
+      }
+    }
+    cur = cur.parentNode;
+  }
+  return null;
+}
+
+// ------------------------------------------------------------
+// Fix #1b：通用 Record<string,string> 版样式匹配
+// 给 applyInlineStyle 用：检查 range 是否已完全在带相同样式的 span 内，
+// 避免重复包裹导致 % 字号相乘反馈。
+// ------------------------------------------------------------
+function isStyleMatchProps(
+  el: HTMLElement,
+  styles: Record<string, string>,
+): boolean {
+  for (const k of Object.keys(styles)) {
+    const want = styles[k];
+    if (want == null || want === '') continue;
+    if (k === 'textDecoration') {
+      // textDecoration 是空格分隔的列表，要求所有 want 项都在 have 中
+      const wantList = want.split(/\s+/).filter(Boolean);
+      const haveList = (el.style.textDecoration || '').split(/\s+/).filter(Boolean);
+      for (const w of wantList) {
+        if (!haveList.includes(w)) return false;
+      }
+    } else {
+      if ((el.style as any)[k] !== want) return false;
+    }
+  }
+  return true;
+}
+
+function findStyleMatchSpanProps(
+  startNode: Node,
+  editor: HTMLElement,
+  styles: Record<string, string>,
+): HTMLElement | null {
+  let cur: Node | null = startNode;
+  while (cur && cur !== editor) {
+    if (cur.nodeType === Node.ELEMENT_NODE) {
+      const el = cur as HTMLElement;
+      if (el.tagName === 'SPAN' && isStyleMatchProps(el, styles)) {
+        return el;
+      }
+    }
+    cur = cur.parentNode;
+  }
+  return null;
+}
+
+/** 判断 range 是否完全在 el 元素内（含 el 自身） */
+function isRangeFullyInside(range: Range, el: HTMLElement): boolean {
+  const anc = range.commonAncestorContainer;
+  if (anc === el) return true;
+  if (anc.nodeType === Node.ELEMENT_NODE) {
+    return el.contains(anc);
+  }
+  // anc 是 textNode，el 必须包含它
+  return el.contains(anc);
+}
+
+/** 把刚插入的 span 解包回父级（用于父级已带相同样式时的清理）。
+ *  把 span 的子节点按顺序移到 span 之前，然后从 DOM 中移除 span。
+ *  如果父级也是 SPAN 且带相同样式，递归解包直到稳定。 */
+function unwrapRedundantSpan(span: HTMLElement): void {
+  const parent = span.parentNode;
+  if (!parent) return;
+  while (span.firstChild) {
+    parent.insertBefore(span.firstChild, span);
+  }
+  parent.removeChild(span);
 }
 
 // ------------------------------------------------------------
@@ -666,12 +809,23 @@ function getSelectionRangeIn(
  *  这里不做展开，直接使用用户实际选中的 range。 */
 
 /** 尝试在 range 周围包裹一个 <span style="...">，
- *  如果 range 跨多个 block，则退化为对每个文本节点逐段包裹。 */
+ *  如果 range 跨多个 block，则退化为对每个文本节点逐段包裹。
+ *
+ *  options.skipFocus: 跳过 focusEditor(editor)，避免工具栏 input 失焦。
+ *    用于"在工具栏 select/number/range 上修改样式"场景，工具栏已通过 savedRangeRef 恢复选区，
+ *    无需再调 focus()。
+ *
+ *  Fix #1b：选区去重
+ *  - 若 range 已完全在带相同样式的 span 内 → 不操作（直接成功）
+ *  - 包裹完成后，若新 span 的父级也是带相同样式的 span → 解包新 span（避免嵌套）
+ *    CSS font-size:% 相对父元素计算，嵌套后实际字号会被反复相乘（>100% 越来越大、<100% 越来越小）。
+ */
 export function applyInlineStyle(
   editor: HTMLElement,
   styles: Record<string, string>,
+  options?: { skipFocus?: boolean },
 ): boolean {
-  focusEditor(editor);
+  if (!options?.skipFocus) focusEditor(editor);
   const range = getSelectionRangeIn(editor);
   if (!range) return false;
 
@@ -681,6 +835,16 @@ export function applyInlineStyle(
   // 由 applyActiveStylesToInsertion 在输入时包裹带样式的 span
   if (range.collapsed) return false;
 
+  // Fix #1b 预检：range 已完全在匹配 span 内 → 不需要再包一层
+  const commonMatchSpan = findStyleMatchSpanProps(
+    range.commonAncestorContainer,
+    editor,
+    styles,
+  );
+  if (commonMatchSpan && isRangeFullyInside(range, commonMatchSpan)) {
+    return true;
+  }
+
   // 先尝试直接 surroundContents：仅在选区是单一节点时成功
   try {
     const span = document.createElement('span');
@@ -689,6 +853,15 @@ export function applyInlineStyle(
     }
     span.appendChild(range.extractContents());
     range.insertNode(span);
+    // Fix #1b：父级已带相同样式时解包新 span（避免嵌套导致 % 相乘）
+    if (
+      span.parentNode &&
+      span.parentNode.nodeType === Node.ELEMENT_NODE &&
+      (span.parentNode as HTMLElement).tagName === 'SPAN' &&
+      isStyleMatchProps(span.parentNode as HTMLElement, styles)
+    ) {
+      unwrapRedundantSpan(span);
+    }
     // 保持选区：选中新 span 的内容
     const newRange = document.createRange();
     newRange.selectNodeContents(span);
@@ -722,6 +895,7 @@ export function applyInlineStyle(
 
   if (textNodes.length === 0) return false;
 
+  const wrappedSpans: HTMLElement[] = [];
   let firstRange: Range | null = null;
   for (const tn of textNodes) {
     try {
@@ -743,12 +917,25 @@ export function applyInlineStyle(
       }
       span.appendChild(r.extractContents());
       r.insertNode(span);
+      wrappedSpans.push(span);
       if (!firstRange) {
         firstRange = document.createRange();
         firstRange.selectNodeContents(span);
       }
     } catch {
       // 忽略单个节点异常
+    }
+  }
+
+  // Fix #1b 后置清理：所有新 span 若父级已带相同样式则解包（避免嵌套）
+  for (const span of wrappedSpans) {
+    if (
+      span.parentNode &&
+      span.parentNode.nodeType === Node.ELEMENT_NODE &&
+      (span.parentNode as HTMLElement).tagName === 'SPAN' &&
+      isStyleMatchProps(span.parentNode as HTMLElement, styles)
+    ) {
+      unwrapRedundantSpan(span);
     }
   }
 
@@ -759,6 +946,15 @@ export function applyInlineStyle(
   }
   dispatchInput(editor);
   return true;
+}
+
+/** 等价于 applyInlineStyle(editor, styles, { skipFocus: true })，
+ *  用于工具栏 select/number/range 修改样式时避免抢焦点。 */
+export function applyInlineStyleNoFocus(
+  editor: HTMLElement,
+  styles: Record<string, string>,
+): boolean {
+  return applyInlineStyle(editor, styles, { skipFocus: true });
 }
 
 /** 清除指定的行内样式：向上查找带 style 的 span 并移除该属性，

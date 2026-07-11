@@ -36,6 +36,7 @@ import {
   applyColor,
   applyFontSize,
   applyFontFamily,
+  applyInlineStyleNoFocus,
   insertCollapseBlock,
   insertQuoteBlock,
   insertTable,
@@ -335,6 +336,11 @@ export function EditorToolbar({
   const [colorPickerOpen, setColorPickerOpen] = useState(false);
   const colorPickerRef = useDismiss(colorPickerOpen, () => setColorPickerOpen(false));
 
+  // 字号 input 本地态：允许用户输入 < 20 或 > 500 临时值，失焦时自动钳位到 [20, 500]
+  // 这样用户可以连续输入多位数字且不丢焦点（每次 onChange 不触发 focusEditor）
+  const [fontSizeInputValue, setFontSizeInputValue] = useState<string>('');
+  const fontSizeInputRef = useRef<HTMLInputElement>(null);
+
   // 上传进度弹窗状态
   const [uploadTasks, setUploadTasks] = useState<UploadProgressEvent[]>([]);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
@@ -411,6 +417,17 @@ export function EditorToolbar({
     }
     return NGA_DEFAULT_FONT_SIZE;
   })();
+  // 字号 input 本地态：仅在 input 未聚焦时同步 store 变化 → 显示（避免打断用户输入）
+  useEffect(() => {
+    if (
+      document.activeElement !== fontSizeInputRef.current &&
+      String(activeFontSizePct) !== fontSizeInputValue
+    ) {
+      setFontSizeInputValue(String(activeFontSizePct));
+    }
+    // 仅依赖 activeFontSizePct 即可；fontSizeInputValue 自身变化不应触发此 effect
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFontSizePct]);
   // 字体：activeStyles.fontFamily (CSS) → cssFontToNga → NGA value；fallback cursorStyles
   // 按 activeStylesLocked 切换优先级（locked 时只读 activeStyles，否则光标处实际样式优先）
   const activeFontNga = (() => {
@@ -436,7 +453,10 @@ export function EditorToolbar({
   const activeUL = editor ? isInsideList(editor, 'UL') : false;
   const activeOL = editor ? isInsideList(editor, 'OL') : false;
 
-  const withEditor = (fn: (e: HTMLElement) => void): void => {
+  const withEditor = (
+    fn: (e: HTMLElement) => void,
+    options: { skipFocus?: boolean } = {},
+  ): void => {
     const el = editorElRef.current;
     if (!el) return;
     // 恢复保存的光标位置（编辑器失焦后光标位置丢失的问题）
@@ -448,7 +468,22 @@ export function EditorToolbar({
         sel.addRange(saved);
       }
     }
+    // 工具栏的 input/select 修改样式时跳过 focus()，避免抢焦点导致用户输入中断
+    if (!options.skipFocus) el.focus();
     fn(el);
+  };
+
+  // 工具栏样式按钮共用：恢复 savedRange + 应用 inline 样式 + 同步 activeStyles
+  // 不抢焦点（让 input/select 不失焦），不依赖 withEditor（避免抢焦点）
+  const applyInlineStylePreservingFocus = (styles: Record<string, string>): void => {
+    const el = editorElRef.current;
+    if (!el) return;
+    const saved = savedRangeRef?.current;
+    if (saved && el.contains(saved.startContainer)) {
+      const sel = window.getSelection();
+      if (sel) { sel.removeAllRanges(); sel.addRange(saved); }
+    }
+    applyInlineStyleNoFocus(el, styles);
   };
 
   // 判断当前编辑器选区是否折叠（无选区或光标处）
@@ -591,6 +626,17 @@ export function EditorToolbar({
     withEditor((ed) => insertImageBlockWithSize(ed, url, imageSize));
     setUrlInput('');
     setShowUrlBox(false);
+  };
+
+  // 字号改变：实时应用到选区 + 同步 activeStyles（与 color/fontFamily 一致）
+  // skipFocus: 不抢 input 焦点（工具栏 input onChange 调用时使用）
+  const handleFontSizeChange = (percent: number, opts: { skipFocus?: boolean } = {}): void => {
+    const cssSize = `${percent}%`;
+    // 直接用 applyInlineStyleNoFocus 包裹选区文本（或同步 activeStyles 用于下一次输入）
+    // 不走 withEditor → focus() 链路，避免抢 input 焦点
+    applyInlineStylePreservingFocus({ fontSize: cssSize });
+    useEditorStore.getState().setActiveStyles({ fontSize: cssSize });
+    useEditorStore.getState().lockActiveStyles();
   };
 
   const handleSmileyConfirm = () => {
@@ -759,27 +805,19 @@ export function EditorToolbar({
             S
           </ToolbarBtn>
           <ToolbarBtn
-            title="上标 [sup]…[/sup]"
-            active={activeSup}
+            title={isCollapsedSelection() ? '请先选中文本' : '上标 [sup]…[/sup]'}
+            active={activeSup && !isCollapsedSelection()}
+            disabled={isCollapsedSelection()}
             onClick={() => {
-              if (isCollapsedSelection()) {
-                // 折叠光标：翻转 activeStyles，下一次输入自动应用；sup/sub 互斥
-                const cur = useEditorStore.getState().activeStyles;
-                useEditorStore
-                  .getState()
-                  .setActiveStyles({ sup: !cur.sup, sub: false });
-                useEditorStore.getState().lockActiveStyles();
-              } else {
-                withEditor((ed) => document.execCommand('superscript', false));
-                // 有选区：执行后从当前光标位置同步 sup/sub 状态
-                const el = editorElRef.current;
-                if (el) {
-                  useEditorStore.getState().setActiveStyles({
-                    sup: isSupActive(),
-                    sub: isSubActive(),
-                  });
-                }
-                useEditorStore.getState().lockActiveStyles();
+              // 一次性：仅在有选区时执行，不锁定 activeStyles（不影响下次输入）
+              withEditor((ed) => document.execCommand('superscript', false));
+              // 同步当前 sup/sub 状态（不锁定）
+              const el = editorElRef.current;
+              if (el) {
+                useEditorStore.getState().setActiveStyles({
+                  sup: isSupActive(),
+                  sub: isSubActive(),
+                });
               }
             }}
             style={{ fontSize: 11 }}
@@ -787,26 +825,18 @@ export function EditorToolbar({
             X²
           </ToolbarBtn>
           <ToolbarBtn
-            title="下标 [sub]…[/sub]"
-            active={activeSub}
+            title={isCollapsedSelection() ? '请先选中文本' : '下标 [sub]…[/sub]'}
+            active={activeSub && !isCollapsedSelection()}
+            disabled={isCollapsedSelection()}
             onClick={() => {
-              if (isCollapsedSelection()) {
-                // 折叠光标：翻转 activeStyles，下一次输入自动应用；sup/sub 互斥
-                const cur = useEditorStore.getState().activeStyles;
-                useEditorStore
-                  .getState()
-                  .setActiveStyles({ sub: !cur.sub, sup: false });
-                useEditorStore.getState().lockActiveStyles();
-              } else {
-                withEditor((ed) => document.execCommand('subscript', false));
-                const el = editorElRef.current;
-                if (el) {
-                  useEditorStore.getState().setActiveStyles({
-                    sup: isSupActive(),
-                    sub: isSubActive(),
-                  });
-                }
-                useEditorStore.getState().lockActiveStyles();
+              // 一次性：仅在有选区时执行，不锁定 activeStyles（不影响下次输入）
+              withEditor((ed) => document.execCommand('subscript', false));
+              const el = editorElRef.current;
+              if (el) {
+                useEditorStore.getState().setActiveStyles({
+                  sup: isSupActive(),
+                  sub: isSubActive(),
+                });
               }
             }}
             style={{ fontSize: 11 }}
@@ -848,7 +878,8 @@ export function EditorToolbar({
                       // Word 模式：
                       // 1. 有选区：直接应用颜色（不切换），与 toggleColor 不同
                       // 2. 无选区：仅同步 activeStyles，下一次输入自动应用
-                      withEditor((ed) => applyColor(ed, c.cssColor));
+                      // skipFocus: 弹窗关闭后让编辑器仍可保留当前选区视觉高亮
+                      applyInlineStylePreservingFocus({ color: c.cssColor });
                       useEditorStore.getState().setActiveStyles({ color: c.cssColor });
                       useEditorStore.getState().lockActiveStyles();
                       setColorPickerOpen(false);
@@ -877,28 +908,27 @@ export function EditorToolbar({
           >
             <span className="tb-label">字号</span>
 
-            {/* 自定义字号百分比 */}
+            {/* 自定义字号百分比（input + range 滑动条 20-500%） */}
             <input
+              ref={fontSizeInputRef}
               type="number"
-              min={0}
-              max={1000}
+              min={20}
+              max={500}
               step={1}
-              value={activeFontSizePct}
+              value={fontSizeInputValue}
               onChange={(e) => {
                 const raw = e.target.value;
+                // 立即更新本地态，允许任意整数（含 < 20 / > 500 / 空 / 非法）
+                setFontSizeInputValue(raw);
                 if (raw === '') return;
-                let v = parseInt(raw, 10);
+                const v = parseInt(raw, 10);
                 if (isNaN(v)) return;
-                // 输入校验：小于0修正为0，大于1000修正为1000
-                if (v < 0) v = 0;
-                if (v > 1000) v = 1000;
-                const cssSize = `${v}%`;
-                // 输入期间仅更新 store 状态（不抢焦点，避免每次按键失焦）
-                useEditorStore.getState().setActiveStyles({ fontSize: cssSize });
-                useEditorStore.getState().lockActiveStyles();
+                // 仅在 20-500 范围内实时应用到选区；越界仅更新显示，失焦时再钳位
+                if (v < 20 || v > 500) return;
+                handleFontSizeChange(v, { skipFocus: true });
               }}
               style={{
-                width: 56,
+                width: 48,
                 fontSize: 12,
                 padding: '3px 4px',
                 borderRadius: 4,
@@ -911,21 +941,51 @@ export function EditorToolbar({
                 e.currentTarget.style.borderColor = 'var(--accent)';
                 e.currentTarget.style.boxShadow = '0 0 0 2px var(--accent-bg, rgba(37,99,235,0.15))';
               }}
-              onBlur={(e) => {
-                e.currentTarget.style.borderColor = 'var(--border-color, #e5e7eb)';
-                e.currentTarget.style.boxShadow = 'none';
-                // 失焦时一次性应用到编辑器选区（从 store 读取最新 fontSize）
-                const fontSize = useEditorStore.getState().activeStyles.fontSize;
-                if (fontSize) {
-                  withEditor((ed) => applyFontSize(ed, fontSize));
+              onBlur={() => {
+                // 失焦时把越界值钳到 20-500，再应用到选区
+                let v = parseInt(fontSizeInputValue, 10);
+                if (isNaN(v)) v = 20;
+                const clamped = Math.max(20, Math.min(500, v));
+                if (String(clamped) !== fontSizeInputValue) {
+                  setFontSizeInputValue(String(clamped));
+                }
+                // 若原值越界（<20 或 >500），需要主动应用一次（onChange 中已跳过）
+                // 若原值在范围内，onChange 已应用过；但这里统一再应用一次以保证状态一致
+                if (clamped !== v || isNaN(parseInt(fontSizeInputValue, 10))) {
+                  handleFontSizeChange(clamped, { skipFocus: true });
+                } else {
+                  // 即使没变也调用一次（确保锁定的 activeStyles 仍反映当前值）
+                  handleFontSizeChange(clamped, { skipFocus: true });
                 }
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
+                  e.preventDefault();
                   e.currentTarget.blur();
                 }
               }}
-              title="自定义字号百分比（0-1000）"
+              title="输入 20-500 的整数；按 Enter 确认；输入中允许任意整数，失焦时自动钳到 20%"
+            />
+            {/* 字号左右滑动条 */}
+            <input
+              type="range"
+              min={20}
+              max={500}
+              step={1}
+              value={activeFontSizePct}
+              onChange={(e) => {
+                const v = parseInt(e.target.value, 10);
+                if (isNaN(v)) return;
+                setFontSizeInputValue(String(v)); // 同步本地态
+                handleFontSizeChange(v, { skipFocus: true });
+              }}
+              style={{
+                width: 80,
+                accentColor: 'var(--accent)',
+                cursor: 'pointer',
+                margin: '0 2px',
+              }}
+              title="拖动调整字号 20%-500%"
             />
             <span style={{ fontSize: 11, color: 'var(--text-muted, #999)', marginRight: 2 }}>%</span>
           </div>
@@ -939,7 +999,8 @@ export function EditorToolbar({
               if (!v) return;
               const cssFamily = ngaFontToCSS(v);
               // Word 模式：直接应用字体（不切换），无选区时仅同步 activeStyles
-              withEditor((ed) => applyFontFamily(ed, cssFamily));
+              // skipFocus: 不抢 select 焦点，让 select 关闭后仍能看到选区变化
+              applyInlineStylePreservingFocus({ fontFamily: cssFamily });
               useEditorStore.getState().setActiveStyles({ fontFamily: cssFamily });
               useEditorStore.getState().lockActiveStyles();
             }}
