@@ -10,6 +10,9 @@ const SECTION_ROW_HEIGHT = 30;
 const VIRTUALIZE_THRESHOLD = 20;
 // 单章节虚拟列表最大高度（从 400 降至 300，避免与状态栏重叠；降低 overscan 总高度）
 const SECTION_LIST_MAX_HEIGHT = 300;
+// 章节内 virtual list 上限提到 800，避免少节章节被限制在 300px 时下方出现空白
+// （侧栏自身已经 overflow-y: auto 滚动）
+const SECTION_LIST_MAX_VIRTUAL_HEIGHT = 800;
 
 interface DirectoryTreeProps {
   volumes: Volume[];
@@ -218,10 +221,12 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
 
   const renderChapterGroup = (ch: Chapter, dragScope: Chapter[]) => {
     const chapterSecs = sectionsByChapter[ch.id] || [];
-    // SECTION_LIST_MAX_HEIGHT 已从 400 降至 300，避免与状态栏重叠
+    // 章节内 virtual list 高度：min(节数 × 行高, SECTION_LIST_MAX_VIRTUAL_HEIGHT)
+    // 之前固定 300px 上限导致少节章节（11 节 × 30 = 330px > 300）下方出现大片空白
+    // 上限改为 800px，让少节章节自然撑开；侧栏自身可滚动
     const virtualHeight = Math.min(
       chapterSecs.length * SECTION_ROW_HEIGHT,
-      SECTION_LIST_MAX_HEIGHT,
+      SECTION_LIST_MAX_VIRTUAL_HEIGHT,
     );
     const isExpanded = expandedChapterIds[ch.id];
     const chapterWordCount = chapterWordCounts[ch.id] || 0;
@@ -497,6 +502,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
                     setDragVolumeId(v.id);
                   }}
                   onDragOver={(e) => {
+                    // 仅 preventDefault（让 drop 能触发），不调用 setState，避免 100+ 节时拖动卡顿
                     e.preventDefault();
                     e.stopPropagation();
                   }}
@@ -878,8 +884,8 @@ const SectionRowView = memo(function SectionRowView({
         data.setDragSectionId(sec.id);
       }}
       onDragOver={(e) => {
+        // 仅 preventDefault（让 drop 能触发），不调用 setState，避免 100+ 节时拖动卡顿
         e.preventDefault();
-        e.stopPropagation();
       }}
       onDrop={(e) => {
         e.preventDefault();

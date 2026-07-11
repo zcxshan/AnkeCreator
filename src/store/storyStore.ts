@@ -76,8 +76,7 @@ interface StoryState {
   reorderSections: (chapterId: string, orderedIds: string[]) => Promise<void>;
   moveSections: (targetChapterId: string, orderedIds: string[]) => Promise<void>;
   /**
-   * 重新拉取当前作品的所有 sections（用于「重算字数」后刷新目录树）
-   * 不修改 activeChapterId / activeSectionId，仅刷新 sections 数组
+   * 重新拉取当前作品的所有 sections（不修改 activeChapterId / activeSectionId，仅刷新 sections 数组）
    */
   refreshSections: () => Promise<void>;
 

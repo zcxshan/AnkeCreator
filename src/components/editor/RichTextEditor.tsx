@@ -521,31 +521,8 @@ export function RichTextEditor({
         const containerEl = container.nodeType === Node.ELEMENT_NODE
           ? container as HTMLElement
           : container.parentElement;
-        // 引用块内 Shift+Enter：把光标移到 blockquote 之外（不是块内换行）
-        const quoteBlock = containerEl?.closest('.quote-block, .quote-line, blockquote');
-        if (quoteBlock) {
-          e.preventDefault();
-          // 找 blockquote 的下一个兄弟（trailing <br>），光标放到它之后
-          const trailing = quoteBlock.nextSibling;
-          if (trailing && trailing.nodeType === Node.ELEMENT_NODE && (trailing as HTMLElement).tagName === 'BR') {
-            const newRange = document.createRange();
-            newRange.setStartAfter(trailing);
-            newRange.collapse(true);
-            selection.removeAllRanges();
-            selection.addRange(newRange);
-          } else {
-            // blockquote 后没有 trailing br → 插入一个 br，光标放到那里
-            const br = document.createElement('br');
-            quoteBlock.parentNode?.insertBefore(br, quoteBlock.nextSibling);
-            const newRange = document.createRange();
-            newRange.setStartAfter(br);
-            newRange.collapse(true);
-            selection.removeAllRanges();
-            selection.addRange(newRange);
-          }
-          handleInput();
-          return;
-        }
+        // Shift+Enter 在引用/折叠块内 = 块内换行（与 Enter 行为一致，走浏览器默认）
+        // 因此不在此处处理 quote/collapse 块
         const codeBlock = containerEl?.closest('.code-block');
         if (codeBlock) {
           e.preventDefault();

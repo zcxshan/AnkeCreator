@@ -28,9 +28,6 @@ import { SyncDialog } from '../common/SyncDialog';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { InputDialog } from '../common/InputDialog';
 import { useToastStore } from '../../store/toastStore';
-import {
-  recalculateWordCounts,
-} from '../../services/wordCountRecalculator';
 import { useSettingStore } from '../../store/settingStore';
 import { uploadImagesWithProgress, ensureLocalWarning, type UploadProgressEvent } from '../../utils/uploadImage';
 import { UploadProgressDialog } from '../common/UploadProgressDialog';
@@ -385,14 +382,6 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
   // 同步按钮二次确认（防止误覆盖辛苦写的内容）—— 安卓 + Windows 都生效
   const [syncConfirmOpen, setSyncConfirmOpen] = useState(false);
   const [syncConfirmKind, setSyncConfirmKind] = useState<'visual-to-bbcode' | 'bbcode-to-visual'>('visual-to-bbcode');
-
-  // 重算字数按钮状态（修复目录字数与选中节字数不一致的问题）
-  const [recalcState, setRecalcState] = useState<
-    | { status: 'idle' }
-    | { status: 'running'; done: number; total: number }
-    | { status: 'done'; done: number; total: number }
-  >({ status: 'idle' });
-  const recalcControllerRef = useRef<{ abort: () => void } | null>(null);
 
   const handleOpenSyncDialog = (source: 'directory' | 'outline' = 'directory') => {
     if (!activeStoryId) return;
@@ -1233,34 +1222,6 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
             <span className="hidden sm:inline">{sectionWordCount.toLocaleString()} 字</span>
             <span className="sm:hidden">{sectionWordCount > 999 ? `${(sectionWordCount/1000).toFixed(1)}k` : sectionWordCount}</span>
           </span>
-          {/* 重算字数按钮（修复目录字数与选中节字数不一致） */}
-          <button
-            onClick={handleRecalculateWordCounts}
-            disabled={recalcState.status === 'running'}
-            className="text-xs px-2 py-1 rounded-md flex items-center gap-1 transition-colors"
-            style={{
-              color: recalcState.status === 'running' ? 'var(--text-muted)' : 'var(--text-secondary)',
-              background: 'var(--bg-hover)',
-              cursor: recalcState.status === 'running' ? 'wait' : 'pointer',
-              opacity: recalcState.status === 'running' ? 0.7 : 1,
-            }}
-            onMouseEnter={(e) => {
-              if (recalcState.status !== 'running') {
-                e.currentTarget.style.background = 'var(--bg-hover-strong, rgba(0,0,0,0.08))';
-              }
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'var(--bg-hover)';
-            }}
-            title="用编辑器算法重新计算所有节的字数（修复字数不一致）"
-          >
-            <span>🔄</span>
-            <span className="hidden md:inline">
-              {recalcState.status === 'running'
-                ? `重算中 ${recalcState.done}/${recalcState.total}`
-                : '重算字数'}
-            </span>
-          </button>
         </div>
       </header>
       )}
@@ -1676,7 +1637,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
               <ResizeHandle
                 side="right"
                 onResize={(delta) => setRightSidebarWidth((w) => {
-                  const next = Math.min(600, Math.max(200, w + delta));
+                  const next = Math.min(480, Math.max(280, w + delta));
                   userRightWidthRef.current = next;
                   return next;
                 })}
