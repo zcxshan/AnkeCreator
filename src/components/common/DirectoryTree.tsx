@@ -399,7 +399,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
                 itemSize={SECTION_ROW_HEIGHT}
                 itemData={sectionRowData}
                 width="100%"
-                overscanCount={2}
+                overscanCount={50}
               >
                 {VirtualSectionRow}
               </FixedSizeList>

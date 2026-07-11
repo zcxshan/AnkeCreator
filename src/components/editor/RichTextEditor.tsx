@@ -511,7 +511,7 @@ export function RichTextEditor({
       return;
     }
     
-    // 代码块内 Shift+Enter 换行
+    // Shift+Enter 引用/折叠块出块 + 代码块内换行
     if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.metaKey) {
       const selection = window.getSelection();
       if (selection && selection.rangeCount > 0) {
@@ -521,12 +521,28 @@ export function RichTextEditor({
         const containerEl = container.nodeType === Node.ELEMENT_NODE
           ? container as HTMLElement
           : container.parentElement;
-        // Shift+Enter 在引用/折叠块内 = 块内换行（与 Enter 行为一致，走浏览器默认）
-        // 因此不在此处处理 quote/collapse 块
+        // 代码块内 Shift+Enter 换行
         const codeBlock = containerEl?.closest('.code-block');
         if (codeBlock) {
           e.preventDefault();
           document.execCommand('insertHTML', false, '\n');
+          return;
+        }
+        // 引用块内 Shift+Enter：把光标移到 blockquote 之后（整个引用块向下移动一行）
+        const quoteBlock = containerEl?.closest('.quote-block, .quote-line, blockquote');
+        if (quoteBlock) {
+          e.preventDefault();
+          // 在 blockquote 之后插入新 <p><br></p>，光标放到 br 之后
+          const newP = document.createElement('p');
+          const newBr = document.createElement('br');
+          newP.appendChild(newBr);
+          quoteBlock.parentNode?.insertBefore(newP, quoteBlock.nextSibling);
+          const newRange = document.createRange();
+          newRange.setStartAfter(newBr);
+          newRange.collapse(true);
+          selection.removeAllRanges();
+          selection.addRange(newRange);
+          handleInput();
           return;
         }
       }

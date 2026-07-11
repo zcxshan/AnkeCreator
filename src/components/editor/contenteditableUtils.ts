@@ -2748,8 +2748,35 @@ export function attachCollapseBlockHandlers(
       }
     }
 
-    // Shift+Enter：在折叠块 body 内 = 块内换行（与 Enter 行为一致，走浏览器默认）
-    // 因此不在 onKeyDown 拦截 Shift+Enter，让浏览器处理块内换行
+    // Shift+Enter：在折叠块 body 内 → 把光标移到折叠块之后（整个折叠块向下移动一行）
+    if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.metaKey) {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return;
+      const range = sel.getRangeAt(0);
+      if (!editor.contains(range.startContainer)) return;
+      const containerEl = range.startContainer.nodeType === Node.ELEMENT_NODE
+        ? range.startContainer as HTMLElement
+        : (range.startContainer.parentElement as HTMLElement | null);
+      if (!containerEl) return;
+      const inBody = containerEl.closest('.collapse-body');
+      if (inBody && !containerEl.closest('.collapse-title')) {
+        e.preventDefault();
+        const block = findCollapseBlockAncestor(inBody, editor);
+        if (!block) return;
+        // 在折叠块后插入新 <p><br></p>，光标放到 br 之后
+        const newP = document.createElement('p');
+        const newBr = document.createElement('br');
+        newP.appendChild(newBr);
+        block.parentNode?.insertBefore(newP, block.nextSibling);
+        const newRange = document.createRange();
+        newRange.setStartAfter(newBr);
+        newRange.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(newRange);
+        dispatchInput(editor);
+        return;
+      }
+    }
 
     if (e.key !== 'Delete' && e.key !== 'Backspace') return;
     const selected = getSelectedCollapseBlock(editor);
