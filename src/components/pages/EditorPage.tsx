@@ -28,6 +28,9 @@ import { SyncDialog } from '../common/SyncDialog';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { InputDialog } from '../common/InputDialog';
 import { useToastStore } from '../../store/toastStore';
+import {
+  recalculateWordCounts,
+} from '../../services/wordCountRecalculator';
 import { useSettingStore } from '../../store/settingStore';
 import { uploadImagesWithProgress, ensureLocalWarning, type UploadProgressEvent } from '../../utils/uploadImage';
 import { UploadProgressDialog } from '../common/UploadProgressDialog';
@@ -100,7 +103,7 @@ function countWordsFromHtml(html: string): { words: number; dice: number } {
   }
 }
 
-function countWordsAndDice(json: any): { words: number; dice: number } {
+export function countWordsAndDice(json: any): { words: number; dice: number } {
   let words = 0;
   let dice = 0;
   const walk = (node: any) => {
@@ -383,6 +386,14 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
   const [syncConfirmOpen, setSyncConfirmOpen] = useState(false);
   const [syncConfirmKind, setSyncConfirmKind] = useState<'visual-to-bbcode' | 'bbcode-to-visual'>('visual-to-bbcode');
 
+  // 重算字数按钮状态（修复目录字数与选中节字数不一致的问题）
+  const [recalcState, setRecalcState] = useState<
+    | { status: 'idle' }
+    | { status: 'running'; done: number; total: number }
+    | { status: 'done'; done: number; total: number }
+  >({ status: 'idle' });
+  const recalcControllerRef = useRef<{ abort: () => void } | null>(null);
+
   const handleOpenSyncDialog = (source: 'directory' | 'outline' = 'directory') => {
     if (!activeStoryId) return;
     const outlineStruct = buildOutlineStructure(outlines);
@@ -564,6 +575,52 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
       useToastStore.getState().showToast('已将 BBCode 同步到可视化视图', 'success');
     } catch (e) {
       useToastStore.getState().showToast(`同步失败：${(e as Error).message}`, 'error');
+    }
+  };
+
+  // 重算当前作品所有节的字数（用前端算法，与编辑器实时统计一致）
+  const handleRecalculateWordCounts = async () => {
+    if (!story?.id) {
+      useToastStore.getState().showToast('请先打开一个安科作品', 'error');
+      return;
+    }
+    if (recalcState.status === 'running') return;
+
+    if (!window.confirm(
+      '重算会逐节读取内容并重新统计字数，可能耗时数分钟。\n' +
+      '主要用于修复目录字数与实际字数不一致的问题。\n\n是否继续？',
+    )) {
+      return;
+    }
+
+    setRecalcState({ status: 'running', done: 0, total: 0 });
+    const controller = recalculateWordCounts(story.id, {
+      onProgress: (done, total) => {
+        setRecalcState({ status: 'running', done, total });
+      },
+      batchSize: 10,
+    });
+    recalcControllerRef.current = controller;
+
+    try {
+      const result = await controller.promise;
+      useToastStore.getState().showToast(
+        `重算完成：更新 ${result.updated} 节，跳过 ${result.skipped}，` +
+        `总字数 ${result.totalBefore.toLocaleString()} → ${result.totalAfter.toLocaleString()}` +
+        `（${(result.durationMs / 1000).toFixed(1)}s）`,
+        'success',
+      );
+      setRecalcState({ status: 'done', done: result.updated, total: result.updated });
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') {
+        useToastStore.getState().showToast('已取消重算', 'info');
+      } else {
+        useToastStore.getState().showToast(`重算失败：${(e as Error).message}`, 'error');
+      }
+    } finally {
+      recalcControllerRef.current = null;
+      // 3 秒后回归 idle 文案
+      setTimeout(() => setRecalcState({ status: 'idle' }), 3000);
     }
   };
 
@@ -889,6 +946,11 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
     setSectionStats(stats);
   }, [sections]);
 
+  // 进入章节时不再全量重算字数（避免大章节切换卡顿）
+  // 字数校准改为按需：用户点击"🔄 重算字数"按钮时才全量重算
+  // sectionStats 已从 sections 元数据正确初始化（见上方 useEffect）
+  // 当前编辑节的实时字数由下方 sectionWordCount useEffect 覆盖
+
   // 当前编辑节：实时更新字数（基于 sectionContent）
   useEffect(() => {
     if (!section) return;
@@ -1171,6 +1233,34 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
             <span className="hidden sm:inline">{sectionWordCount.toLocaleString()} 字</span>
             <span className="sm:hidden">{sectionWordCount > 999 ? `${(sectionWordCount/1000).toFixed(1)}k` : sectionWordCount}</span>
           </span>
+          {/* 重算字数按钮（修复目录字数与选中节字数不一致） */}
+          <button
+            onClick={handleRecalculateWordCounts}
+            disabled={recalcState.status === 'running'}
+            className="text-xs px-2 py-1 rounded-md flex items-center gap-1 transition-colors"
+            style={{
+              color: recalcState.status === 'running' ? 'var(--text-muted)' : 'var(--text-secondary)',
+              background: 'var(--bg-hover)',
+              cursor: recalcState.status === 'running' ? 'wait' : 'pointer',
+              opacity: recalcState.status === 'running' ? 0.7 : 1,
+            }}
+            onMouseEnter={(e) => {
+              if (recalcState.status !== 'running') {
+                e.currentTarget.style.background = 'var(--bg-hover-strong, rgba(0,0,0,0.08))';
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'var(--bg-hover)';
+            }}
+            title="用编辑器算法重新计算所有节的字数（修复字数不一致）"
+          >
+            <span>🔄</span>
+            <span className="hidden md:inline">
+              {recalcState.status === 'running'
+                ? `重算中 ${recalcState.done}/${recalcState.total}`
+                : '重算字数'}
+            </span>
+          </button>
         </div>
       </header>
       )}

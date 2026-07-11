@@ -7,7 +7,7 @@ import { useToastStore } from '../../store/toastStore';
 // 节行高度（与原 renderSectionRow 的 py-1.5 + 文字行高一致）
 const SECTION_ROW_HEIGHT = 30;
 // 节数超过此阈值时启用虚拟滚动（避免大章节渲染卡顿）
-const VIRTUALIZE_THRESHOLD = 50;
+const VIRTUALIZE_THRESHOLD = 20;
 // 单章节虚拟列表最大高度（从 400 降至 300，避免与状态栏重叠；降低 overscan 总高度）
 const SECTION_LIST_MAX_HEIGHT = 300;
 
@@ -162,6 +162,27 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
     };
   }, [volumes, chapters, sections]);
 
+  // 章/卷字数预计算（useMemo 缓存，避免每次渲染都 reduce）
+  const chapterWordCounts = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const chId of Object.keys(sectionsByChapter)) {
+      map[chId] = (sectionsByChapter[chId] || []).reduce(
+        (sum, s) => sum + (sectionStats[s.id]?.words || 0), 0,
+      );
+    }
+    return map;
+  }, [sectionsByChapter, sectionStats]);
+
+  const volumeWordCounts = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const v of sortedVolumes) {
+      map[v.id] = (chaptersByVolume[v.id] || []).reduce(
+        (sum, ch) => sum + (chapterWordCounts[ch.id] || 0), 0,
+      );
+    }
+    return map;
+  }, [sortedVolumes, chaptersByVolume, chapterWordCounts]);
+
   const commitRename = () => {
     if (!editingId) return;
     const v = editingValue.trim();
@@ -203,7 +224,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
       SECTION_LIST_MAX_HEIGHT,
     );
     const isExpanded = expandedChapterIds[ch.id];
-    const chapterWordCount = chapterSecs.reduce((sum, s) => sum + (sectionStats[s.id]?.words || 0), 0);
+    const chapterWordCount = chapterWordCounts[ch.id] || 0;
     const isChapterActive = activeChapterId === ch.id;
 
     return (
@@ -466,15 +487,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
           {sortedVolumes.map((v) => {
             const vChapters = chaptersByVolume[v.id] || [];
             const vExpanded = expandedVolumeIds[v.id];
-            const vWordCount = vChapters.reduce(
-              (sum, c) =>
-                sum +
-                (sectionsByChapter[c.id] || []).reduce(
-                  (s, sec) => s + (sectionStats[sec.id]?.words || 0),
-                  0,
-                ),
-              0,
-            );
+            const vWordCount = volumeWordCounts[v.id] || 0;
             return (
               <div key={v.id} className="mb-1">
                 <div
@@ -621,14 +634,13 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
       {/* 内容较少时显示底部空状态占位（避免大片空白，固定在列底部） */}
       {hasAnyContent && sortedVolumes.length + orphanChapters.length <= 2 && (
         <div
-          className="shrink-0 px-4 py-6 text-center text-xs border-t"
+          className="shrink-0 px-4 py-4 text-center text-xs"
           style={{
             color: 'var(--text-secondary)',
-            borderColor: 'var(--border-color)',
             background: 'var(--bg-card)',
           }}
         >
-          <div className="mb-1" style={{ fontSize: 16 }}>💡</div>
+          <div className="mb-1" style={{ fontSize: 14 }}>💡</div>
           <div>目录已显示所有内容</div>
           <div className="mt-1 text-[10px]">可在右侧编辑区开始写作</div>
         </div>
@@ -847,6 +859,8 @@ const SectionRowView = memo(function SectionRowView({
   data: SectionRowData;
   style?: React.CSSProperties;
 }) {
+  // 注意：sectionStats 从 data 中读取，但 memo 比较函数会做细粒度判断，
+  // 仅当本节的 stat 变化时才 re-render，避免编辑时 FixedSizeList 全部行 re-render
   const stats = data.sectionStats[sec.id] || { words: 0, dice: 0 };
   const isSecActive = data.activeSectionId === sec.id;
   return (
@@ -947,6 +961,21 @@ const SectionRowView = memo(function SectionRowView({
       </span>
     </div>
   );
+}, (prevProps, nextProps) => {
+  // 自定义比较：仅当影响本行渲染的 prop 变化时才 re-render
+  // 关键：sectionStats 变化时只 re-render 对应节，而非全部行
+  if (prevProps.sec.id !== nextProps.sec.id) return false;
+  if (prevProps.data.activeSectionId !== nextProps.data.activeSectionId) return false;
+  if (prevProps.data.dragSectionId !== nextProps.data.dragSectionId) return false;
+  if (prevProps.data.editingId !== nextProps.data.editingId) return false;
+  if (prevProps.data.editingValue !== nextProps.data.editingValue) return false;
+  // 检查本节的 stat 是否变化
+  const prevStat = prevProps.data.sectionStats[prevProps.sec.id];
+  const nextStat = nextProps.data.sectionStats[nextProps.sec.id];
+  if (prevStat?.words !== nextStat?.words || prevStat?.dice !== nextStat?.dice) return false;
+  // style 变化（虚拟列表定位）
+  if (prevProps.style !== nextProps.style) return false;
+  return true; // 跳过 re-render
 });
 
 // FixedSizeList 的 row 组件（接收 style + data，从 data.sections[index] 取节）

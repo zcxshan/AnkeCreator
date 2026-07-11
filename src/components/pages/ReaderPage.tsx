@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useStoryStore } from '../../store/storyStore';
 import { useToastStore } from '../../store/toastStore';
 import * as db from '../../db/index';
-import { isCapacitor } from '../../utils/platform';
+import { isCapacitor, isElectron, isMobile } from '../../utils/platform';
 
 interface ReaderPageProps {
   onBack: () => void;
@@ -251,9 +251,23 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%', background: colors.bg, color: colors.text }}>
-      {/* 全宽顶栏（sticky 在 TitleBar 下方 32px 处，z-40） */}
-      <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', background: colors.bg, borderBottom: `1px solid ${colors.border}`, position: 'sticky', top: 32, zIndex: 40 }}>
+    // 桌面端：固定视口高（减去 TitleBar 32px）+ overflow: hidden
+    // → 内部目录与内容各自独立滚动（不与 body 同步滚）
+    // 移动端：保留 minHeight: 100% 由 body 统一滚动（前两轮设计）
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        ...(isMobile
+          ? { minHeight: '100%' }
+          : { height: isElectron ? 'calc(100vh - 32px)' : '100vh' }),
+        overflow: isMobile ? 'visible' : 'hidden',
+        background: colors.bg,
+        color: colors.text,
+      }}
+    >
+      {/* 全宽顶栏（正常文档流，不悬浮，避免与 overflow:hidden 父容器冲突） */}
+      <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', background: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
         <button onClick={onBack} title="返回" style={toolbarBtnStyle(colors)}>← 返回</button>
         <span style={{ fontWeight: 600 }}>{story.title}</span>
       </div>
@@ -384,7 +398,8 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
           padding: '8px 16px',
           borderBottom: `1px solid ${colors.border}`,
           background: colors.bg,
-          flexWrap: isCapacitor ? 'nowrap' : 'wrap',
+          flexWrap: 'nowrap',
+          overflowX: 'auto',
           position: 'relative',
         }}>
           <button onClick={() => setLeftDrawerOpen(!leftDrawerOpen)} title="目录" style={toolbarBtnStyle(colors)}>☰</button>

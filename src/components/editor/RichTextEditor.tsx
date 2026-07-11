@@ -151,10 +151,14 @@ export function RichTextEditor({
   useEffect(() => {
     const el = divRef.current;
     if (!el) return;
+    // rAF 节流：每帧最多执行一次样式更新（避免拖选时频繁触发）
+    let rafId: number | null = null;
+    // 防抖 timer：选区字数统计延迟 100ms（拖选过程中不频繁计算 HTML 字数）
+    let wordCountTimer: number | null = null;
+
     const onSelectionChange = () => {
       const sel = window.getSelection();
       if (!sel || sel.rangeCount === 0) {
-        // 光标完全没选区（点了别处）→ 清空模块级 range，下次插入会走 fallback
         setLastEditorRange(null);
         return;
       }
@@ -162,46 +166,61 @@ export function RichTextEditor({
       if (el.contains(r.startContainer)) {
         const cloned = r.cloneRange();
         savedRangeRef.current = cloned;
-        // 同步到模块，供 insertDiceCard/insertImageBlock 等不 focus 的插入函数使用
         setLastEditorRange(cloned.cloneRange());
-        // 同步光标处样式到 cursorStyles（仅展示用，不影响新输入）
-        const cur = getCurrentStyles(el);
-        const store = useEditorStore.getState();
-        const c = store.cursorStyles;
-        const same =
-          c.color === cur.color &&
-          c.fontSize === cur.fontSize &&
-          c.fontFamily === cur.fontFamily &&
-          !!c.bold === !!cur.bold &&
-          !!c.italic === !!cur.italic &&
-          !!c.underline === !!cur.underline &&
-          !!c.strike === !!cur.strike &&
-          !!c.sup === !!cur.sup &&
-          !!c.sub === !!cur.sub;
-        if (!same) {
-          useEditorStore.setState({ cursorStyles: cur });
+
+        // 样式更新：rAF 节流（每帧最多一次）
+        if (rafId === null) {
+          rafId = requestAnimationFrame(() => {
+            rafId = null;
+            const cur = getCurrentStyles(el);
+            const store = useEditorStore.getState();
+            const c = store.cursorStyles;
+            const same =
+              c.color === cur.color &&
+              c.fontSize === cur.fontSize &&
+              c.fontFamily === cur.fontFamily &&
+              !!c.bold === !!cur.bold &&
+              !!c.italic === !!cur.italic &&
+              !!c.underline === !!cur.underline &&
+              !!c.strike === !!cur.strike &&
+              !!c.sup === !!cur.sup &&
+              !!c.sub === !!cur.sub;
+            if (!same) {
+              useEditorStore.setState({ cursorStyles: cur });
+            }
+          });
         }
-        // 选区字数统计：非折叠选区时计算字数
+
+        // 选区字数统计：100ms 防抖（拖选过程中不频繁解析 HTML）
+        if (wordCountTimer !== null) clearTimeout(wordCountTimer);
         if (!r.collapsed && el.contains(r.endContainer)) {
-          try {
-            const fragment = r.cloneContents();
-            const tmp = document.createElement('div');
-            tmp.appendChild(fragment);
-            const stats = countWordsFromHtml(tmp.innerHTML);
-            useEditorStore.setState({ selectionStats: stats });
-          } catch {
-            useEditorStore.setState({ selectionStats: null });
-          }
+          const rangeCopy = r.cloneRange();
+          wordCountTimer = window.setTimeout(() => {
+            try {
+              const fragment = rangeCopy.cloneContents();
+              const tmp = document.createElement('div');
+              tmp.appendChild(fragment);
+              const stats = countWordsFromHtml(tmp.innerHTML);
+              useEditorStore.setState({ selectionStats: stats });
+            } catch {
+              useEditorStore.setState({ selectionStats: null });
+            }
+          }, 100);
         } else {
-          useEditorStore.setState({ selectionStats: null });
+          wordCountTimer = window.setTimeout(() => {
+            useEditorStore.setState({ selectionStats: null });
+          }, 100);
         }
       } else {
         // 光标在 editor 之外（弹窗 / 工具栏）→ 保留旧模块级 range（不更新到 null）
-        // 因为接下来可能要在弹窗里编辑然后插入到 editor 的原光标位置
       }
     };
     document.addEventListener('selectionchange', onSelectionChange);
-    return () => document.removeEventListener('selectionchange', onSelectionChange);
+    return () => {
+      document.removeEventListener('selectionchange', onSelectionChange);
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      if (wordCountTimer !== null) clearTimeout(wordCountTimer);
+    };
   }, []);
 
   // content 变化 -> 写入 div.innerHTML（切节加载，用 requestIdleCallback 避免阻塞主线程）
