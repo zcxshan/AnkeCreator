@@ -851,7 +851,13 @@ const SectionRowView = memo(function SectionRowView({
   const isSecActive = data.activeSectionId === sec.id;
   return (
     <div
-      style={style}
+      // 合并 prop 传入的 style（虚拟列表的定位样式）与组件自身的视觉样式
+      // 避免 JSX duplicate "style" attribute
+      style={{
+        ...(style || {}),
+        color: isSecActive ? 'var(--accent)' : 'var(--text-primary)',
+        background: isSecActive ? 'var(--accent-soft)' : 'transparent',
+      }}
       draggable
       onDragStart={(e) => {
         e.stopPropagation();
@@ -910,10 +916,6 @@ const SectionRowView = memo(function SectionRowView({
         'group flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer text-xs transition-all relative',
         data.dragSectionId === sec.id ? 'opacity-50' : '',
       ].join(' ')}
-      style={{
-        color: isSecActive ? 'var(--accent)' : 'var(--text-primary)',
-        background: isSecActive ? 'var(--accent-soft)' : 'transparent',
-      }}
       onClick={() => data.onSelectSection(sec.id)}
     >
       {isSecActive && (
