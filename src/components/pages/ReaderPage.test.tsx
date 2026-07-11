@@ -27,6 +27,7 @@ vi.mock('../../db/index', () => ({
 vi.mock('../../utils/platform', () => ({
   isCapacitor: false,
   isElectron: false,
+  isMobile: false,
 }));
 
 // showToast 必须引用稳定：ReaderPage 内容加载 useEffect 依赖 [activeSectionId, showToast]，

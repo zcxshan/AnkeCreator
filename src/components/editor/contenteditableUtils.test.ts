@@ -15,6 +15,8 @@ import {
   removeDiceCard,
   removeCollapseBlock,
   removeImageBlock,
+  applyActiveStylesToInsertion,
+  applyInlineStyle,
 } from './contenteditableUtils';
 import { useEditorHistoryStore } from '../../store/editorHistoryStore';
 
@@ -500,5 +502,299 @@ describe('Phase E - 原子块 push 与 handleInput 互斥', () => {
 
     const afterPastLen = useEditorHistoryStore.getState().past.length;
     expect(afterPastLen).toBe(beforePastLen + 1);
+  });
+});
+
+/**
+ * Fix #1：字号正反馈 bug
+ *
+ * 之前：用户在已应用 150% 字号的位置继续输入新字符，会嵌套产生
+ * `<span style="font-size: 150%"><span style="font-size: 150%">...</span></span>`
+ * CSS font-size:% 相对父元素计算，嵌套后实际字号被反复相乘：
+ *  - 150% × 150% = 225%（一次输入后）
+ *  - 150% × 150% × 150% = 337.5%（两次输入后）
+ *  → 字号越来越大（>100% 时）/越来越小（<100% 时）
+ *
+ * 修复：检测光标所在 span 与 active 样式是否完全一致，如一致则直接插入文本节点。
+ */
+describe('Fix #1: 字号正反馈 bug（TDD）', () => {
+  let editor: HTMLElement;
+  let textNode: Text;
+  let range: Range;
+
+  beforeEach(() => {
+    editor = document.createElement('div');
+    editor.contentEditable = 'true';
+    document.body.appendChild(editor);
+  });
+
+  afterEach(() => {
+    document.body.removeChild(editor);
+  });
+
+  /** 在 editor 末尾追加一个含指定样式的 span + 文本节点，把光标放到 span 内部末尾 */
+  function setupCursorInsideSpan(
+    fontSize: string | null,
+    color: string | null = null,
+  ) {
+    const span = document.createElement('span');
+    if (fontSize) span.style.fontSize = fontSize;
+    if (color) span.style.color = color;
+    span.appendChild(document.createTextNode('Hello'));
+    editor.appendChild(span);
+    textNode = span.firstChild as Text;
+    range = document.createRange();
+    range.setStart(textNode, textNode.textContent!.length);
+    range.collapse(true);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  }
+
+  it('在 150% 字号 span 内连续输入 N 个字符，只插入文本节点，不嵌套 span', () => {
+    setupCursorInsideSpan('150%');
+    const active = { fontSize: '150%' };
+
+    // 模拟连续 5 次输入
+    for (const ch of 'abcde') {
+      applyActiveStylesToInsertion(editor, active, ch);
+    }
+
+    // 关键断言：editor 中应该只有 1 个 span（初始的那个），且其内文本 = "Helloabcde"
+    const spans = editor.querySelectorAll('span');
+    expect(spans.length).toBe(1);
+    expect(spans[0].style.fontSize).toBe('150%');
+    expect(spans[0].textContent).toBe('Helloabcde');
+  });
+
+  it('在 50% 字号 span 内连续输入字符，不嵌套 span', () => {
+    setupCursorInsideSpan('50%');
+    const active = { fontSize: '50%' };
+
+    for (const ch of 'xyz') {
+      applyActiveStylesToInsertion(editor, active, ch);
+    }
+
+    const spans = editor.querySelectorAll('span');
+    expect(spans.length).toBe(1);
+    expect(spans[0].style.fontSize).toBe('50%');
+    expect(spans[0].textContent).toBe('Helloxyz');
+  });
+
+  it('在带颜色的 span 内输入，色 + 字号一致时不嵌套', () => {
+    setupCursorInsideSpan('150%', 'red');
+    const active = { fontSize: '150%', color: 'red' };
+
+    applyActiveStylesToInsertion(editor, active, 'A');
+
+    const spans = editor.querySelectorAll('span');
+    expect(spans.length).toBe(1);
+    expect(spans[0].style.fontSize).toBe('150%');
+    expect(spans[0].style.color).toBe('red');
+    expect(spans[0].textContent).toBe('HelloA');
+  });
+
+  it('光标在不同样式的 span 内仍正常嵌套（不同样式需要新 span）', () => {
+    // 父 span 是 100%，active 想设 150% → 需要嵌套
+    setupCursorInsideSpan('100%');
+    const active = { fontSize: '150%' };
+
+    applyActiveStylesToInsertion(editor, active, 'B');
+
+    const spans = editor.querySelectorAll('span');
+    expect(spans.length).toBe(2);
+    // 内层是 150%
+    const inner = spans[1];
+    expect(inner.style.fontSize).toBe('150%');
+    expect(inner.textContent).toBe('B');
+  });
+
+  it('在 sup 包裹的 span 内输入：不破坏 sup 包裹，样式匹配时不嵌套', () => {
+    // 构造：<sup><span fontSize=150%>X</span></sup>
+    const sup = document.createElement('sup');
+    const span = document.createElement('span');
+    span.style.fontSize = '150%';
+    span.appendChild(document.createTextNode('X'));
+    sup.appendChild(span);
+    editor.appendChild(sup);
+
+    textNode = span.firstChild as Text;
+    range = document.createRange();
+    range.setStart(textNode, textNode.textContent!.length);
+    range.collapse(true);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+
+    const active = { fontSize: '150%', sup: true };
+    applyActiveStylesToInsertion(editor, active, 'Y');
+
+    // 仍然只有 1 个 span，且 sup 包裹结构保留
+    const spans = editor.querySelectorAll('span');
+    expect(spans.length).toBe(1);
+    expect(spans[0].style.fontSize).toBe('150%');
+    expect(spans[0].textContent).toBe('XY');
+    // sup 节点存在
+    expect(editor.querySelector('sup')).not.toBeNull();
+  });
+});
+
+/**
+ * Fix #1c 增强：多 span 选区应用同一字号
+ *
+ * 之前：选区跨两个老 <span style="font-size:150%">，applyInlineStyle 150% 后
+ *   变成 <span 150%><span 150%>a</span><span 150%>b</span></span>
+ *   内层 span 仍带 150%，与外层相乘 → 225% → 337.5% → ...
+ * 修复：applyInlineStyle 在 wrap 后调用 unwrapRedundantSpansDeep，递归清理内层冗余 span。
+ */
+describe('Fix #1c 增强: 多 span 选区递归解包（TDD）', () => {
+  let editor: HTMLElement;
+
+  beforeEach(() => {
+    editor = document.createElement('div');
+    editor.contentEditable = 'true';
+    document.body.appendChild(editor);
+  });
+
+  afterEach(() => {
+    document.body.removeChild(editor);
+  });
+
+  /** 把 editor 末尾的子节点当作内容，构造一个跨所有子节点文本的 Range（不折叠）。 */
+  function selectAllTextInEditor(): Range | null {
+    const sel = window.getSelection();
+    if (!sel) return null;
+    const range = document.createRange();
+    // 找到第一个文本节点和最后一个文本节点
+    const firstText = (() => {
+      const w = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+      return w.nextNode() as Text | null;
+    })();
+    const lastText = (() => {
+      const w = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+      let n: Node | null = null;
+      while (w.nextNode()) n = w.currentNode as Text;
+      return n as Text | null;
+    })();
+    if (!firstText || !lastText) return null;
+    range.setStart(firstText, 0);
+    range.setEnd(lastText, lastText.textContent!.length);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    return range;
+  }
+
+  it('基础递归解包：选区跨两个相同字号 150% 兄弟 span，应用 150% 后无嵌套', () => {
+    // <span fontSize=150%>a</span><span fontSize=150%>b</span>
+    const s1 = document.createElement('span');
+    s1.style.fontSize = '150%';
+    s1.appendChild(document.createTextNode('a'));
+    const s2 = document.createElement('span');
+    s2.style.fontSize = '150%';
+    s2.appendChild(document.createTextNode('b'));
+    editor.appendChild(s1);
+    editor.appendChild(s2);
+
+    expect(selectAllTextInEditor()).not.toBeNull();
+
+    const ok = applyInlineStyle(editor, { fontSize: '150%' }, { skipFocus: true });
+    expect(ok).toBe(true);
+
+    // 关键断言：没有嵌套的匹配 span（避免 % 相乘）
+    // 兄弟 span 是允许的（不嵌套就不相乘）
+    const allSpans = editor.querySelectorAll('span');
+    for (const s of allSpans) {
+      const parent = s.parentElement;
+      if (parent && parent.tagName === 'SPAN' && parent.style.fontSize === '150%') {
+        // 父级也是 150% span → 嵌套了！这才是 bug
+        throw new Error(`Found nested 150% span which causes % multiplication: ${parent.outerHTML} > ${s.outerHTML}`);
+      }
+    }
+    // 文本内容必须保留
+    expect(editor.textContent).toBe('ab');
+  });
+
+  it('三层嵌套 + 选区在深层内部：applyInlineStyle 走预检短路，结构保持不变（避免无谓修改）', () => {
+    // <span fontSize=150%><span fontSize=150%><span fontSize=150%>text</span></span></span>
+    const s1 = document.createElement('span');
+    s1.style.fontSize = '150%';
+    const s2 = document.createElement('span');
+    s2.style.fontSize = '150%';
+    const s3 = document.createElement('span');
+    s3.style.fontSize = '150%';
+    s3.appendChild(document.createTextNode('text'));
+    s2.appendChild(s3);
+    s1.appendChild(s2);
+    editor.appendChild(s1);
+
+    // 选区必须不折叠（applyInlineStyle 折叠时直接返回 false）
+    const textNode = s3.firstChild as Text;
+    const r = document.createRange();
+    r.setStart(textNode, 0);
+    r.setEnd(textNode, 4);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(r);
+
+    const ok = applyInlineStyle(editor, { fontSize: '150%' }, { skipFocus: true });
+    expect(ok).toBe(true);
+
+    // 期望：选区完全在最内层 150% span 内 → 预检命中，不修改 DOM
+    // 原始 3 层嵌套保持不变（applyInlineStyle 不主动清理历史冗余，那是 recalcWordCount 的职责）
+    expect(editor.textContent).toBe('text');
+    expect(editor.querySelectorAll('span[style*="150%"]').length).toBe(3);
+  });
+
+  it('混合样式不误清：内层 span 是 bold 而非字号，不应被解包', () => {
+    // <span fontSize=150%><span fontWeight=bold>text</span></span>
+    const outer = document.createElement('span');
+    outer.style.fontSize = '150%';
+    const inner = document.createElement('span');
+    inner.style.fontWeight = 'bold';
+    inner.appendChild(document.createTextNode('text'));
+    outer.appendChild(inner);
+    editor.appendChild(outer);
+
+    expect(selectAllTextInEditor()).not.toBeNull();
+
+    const ok = applyInlineStyle(editor, { fontSize: '150%' }, { skipFocus: true });
+    expect(ok).toBe(true);
+
+    // 期望：内层 bold span 必须保留（其样式 fontWeight=bold 与 fontSize 150% 不冲突）
+    const boldSpan = editor.querySelector('span[style*="font-weight"]');
+    expect(boldSpan).not.toBeNull();
+    expect(boldSpan?.textContent).toBe('text');
+  });
+
+  it('跨段不相邻：选区跨 3 个 150% 兄弟 span，应用后无嵌套', () => {
+    // <span fontSize=150%>a</span><span fontSize=150%>b</span><span fontSize=150%>c</span>
+    const s1 = document.createElement('span');
+    s1.style.fontSize = '150%';
+    s1.appendChild(document.createTextNode('a'));
+    const s2 = document.createElement('span');
+    s2.style.fontSize = '150%';
+    s2.appendChild(document.createTextNode('b'));
+    const s3 = document.createElement('span');
+    s3.style.fontSize = '150%';
+    s3.appendChild(document.createTextNode('c'));
+    editor.appendChild(s1);
+    editor.appendChild(s2);
+    editor.appendChild(s3);
+
+    expect(selectAllTextInEditor()).not.toBeNull();
+
+    const ok = applyInlineStyle(editor, { fontSize: '150%' }, { skipFocus: true });
+    expect(ok).toBe(true);
+
+    // 关键断言：没有嵌套的匹配 span
+    const allSpans = editor.querySelectorAll('span[style*="150%"]');
+    for (const s of allSpans) {
+      const parent = s.parentElement;
+      if (parent && parent.tagName === 'SPAN' && parent.style.fontSize === '150%') {
+        throw new Error(`Found nested 150% span: ${parent.outerHTML} > ${s.outerHTML}`);
+      }
+    }
+    // 文本内容必须保留
+    expect(editor.textContent).toBe('abc');
   });
 });

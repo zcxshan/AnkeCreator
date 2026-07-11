@@ -1,7 +1,15 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import type { Chapter, Section, SectionMeta, Volume } from '../../types';
+import React, { useState, useEffect, useRef, useMemo, memo } from 'react';
+import { FixedSizeList, type ListChildComponentProps } from 'react-window';
+import type { Chapter, SectionMeta, Volume } from '../../types';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useToastStore } from '../../store/toastStore';
+
+// 节行高度（与原 renderSectionRow 的 py-1.5 + 文字行高一致）
+const SECTION_ROW_HEIGHT = 30;
+// 节数超过此阈值时启用虚拟滚动（避免大章节渲染卡顿）
+const VIRTUALIZE_THRESHOLD = 50;
+// 单章节虚拟列表最大高度（从 400 降至 300，避免与状态栏重叠；降低 overscan 总高度）
+const SECTION_LIST_MAX_HEIGHT = 300;
 
 interface DirectoryTreeProps {
   volumes: Volume[];
@@ -167,112 +175,33 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
     setEditingId(null);
   };
 
-  const renderSectionRow = (sec: Section, chapterSecs: Section[]) => {
-    const stats = sectionStats[sec.id] || { words: 0, dice: 0 };
-    const isSecActive = activeSectionId === sec.id;
-    return (
-      <div
-        key={sec.id}
-        draggable
-        onDragStart={(e) => {
-          e.stopPropagation();
-          setDragSectionId(sec.id);
-        }}
-        onDragOver={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-        }}
-        onDrop={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if (!dragSectionId || dragSectionId === sec.id) {
-            setDragSectionId(null);
-            return;
-          }
-          const dragSec = sections.find((s) => s.id === dragSectionId);
-          if (!dragSec) {
-            setDragSectionId(null);
-            return;
-          }
-          const targetChapterId = sec.chapter_id;
-          // 取目标章下所有节（已按 order_index 排序），跨章时包含被拖入的节不在其中
-          const targetChapterSecs = sections
-            .filter((s) => s.chapter_id === targetChapterId)
-            .sort((a, b) => a.order_index - b.order_index);
-          const targetIds = targetChapterSecs.map((s) => s.id);
-          const fromIdx = targetIds.indexOf(dragSectionId);
-          const toIdx = targetIds.indexOf(sec.id);
-          const newOrder = [...targetIds];
-          if (fromIdx >= 0) {
-            newOrder.splice(fromIdx, 1);
-            newOrder.splice(toIdx, 0, dragSectionId);
-          } else {
-            // 来自其他章：直接把拖入节插入到目标位置
-            newOrder.splice(toIdx, 0, dragSectionId);
-          }
-          if (dragSec.chapter_id === targetChapterId) {
-            onReorderSections(targetChapterId, newOrder);
-          } else {
-            onMoveSections(targetChapterId, newOrder);
-          }
-          setDragSectionId(null);
-        }}
-        onDragEnd={() => setDragSectionId(null)}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          setContextMenu({
-            x: e.clientX,
-            y: e.clientY,
-            type: 'section',
-            id: sec.id,
-            title: sec.title,
-            chapterId: sec.chapter_id,
-          });
-        }}
-        className={[
-          'group flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer text-xs transition-all relative',
-          isSecActive ? '' : '',
-          dragSectionId === sec.id ? 'opacity-50' : '',
-        ].join(' ')}
-        style={{
-          color: isSecActive ? 'var(--accent)' : 'var(--text-primary)',
-          background: isSecActive ? 'var(--accent-soft)' : 'transparent',
-        }}
-        onClick={() => onSelectSection(sec.id)}
-      >
-        {isSecActive && (
-          <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded-r-full" style={{ background: 'var(--accent)' }} />
-        )}
-        <span className="shrink-0 text-[10px]">📄</span>
-        {editingId === sec.id ? (
-          <input
-            ref={editingRef}
-            value={editingValue}
-            onChange={(e) => setEditingValue(e.target.value)}
-            onClick={(e) => e.stopPropagation()}
-            onBlur={commitRename}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') commitRename();
-              if (e.key === 'Escape') setEditingId(null);
-            }}
-            className="flex-1 min-w-0 text-xs px-1 py-0.5 rounded border outline-none"
-            style={{ borderColor: 'var(--accent)', background: 'var(--bg-input)', color: 'var(--text-primary)' }}
-          />
-        ) : (
-          <span className={`flex-1 truncate ${isSecActive ? 'font-medium' : ''}`}>{sec.title}</span>
-        )}
-        {stats.dice > 0 && (
-          <span className="shrink-0 text-[9px] px-1 rounded" style={{ color: 'var(--accent)', background: 'var(--accent-soft)' }}>🎲{stats.dice}</span>
-        )}
-        <span className="shrink-0 text-[10px]" style={{ color: 'var(--text-secondary)' }}>
-          {stats.words > 0 ? `${stats.words}` : ''}
-        </span>
-      </div>
-    );
-  };
+  // 节行数据（虚拟列表用，把所有闭包变量打包传给 SectionRowView）
+  // 用 useMemo 避免每次重渲染都创建新对象导致 FixedSizeList 全部 re-render
+  const sectionRowData = useMemo(() => ({
+    sections,
+    sectionStats,
+    activeSectionId,
+    dragSectionId,
+    editingId,
+    editingValue,
+    setEditingValue,
+    editingRef,
+    setEditingId,
+    setDragSectionId,
+    setContextMenu,
+    onSelectSection,
+    onReorderSections,
+    onMoveSections,
+    commitRename,
+  }), [sections, sectionStats, activeSectionId, dragSectionId, editingId, editingValue, commitRename]);
 
   const renderChapterGroup = (ch: Chapter, dragScope: Chapter[]) => {
     const chapterSecs = sectionsByChapter[ch.id] || [];
+    // SECTION_LIST_MAX_HEIGHT 已从 400 降至 300，避免与状态栏重叠
+    const virtualHeight = Math.min(
+      chapterSecs.length * SECTION_ROW_HEIGHT,
+      SECTION_LIST_MAX_HEIGHT,
+    );
     const isExpanded = expandedChapterIds[ch.id];
     const chapterWordCount = chapterSecs.reduce((sum, s) => sum + (sectionStats[s.id]?.words || 0), 0);
     const isChapterActive = activeChapterId === ch.id;
@@ -373,7 +302,16 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
           <span className="shrink-0 text-[10px]" style={{ color: 'var(--text-secondary)' }}>
             {chapterWordCount > 0 ? `${chapterWordCount}字` : ''}
           </span>
-          <div className="shrink-0 flex items-center gap-0.5 transition-opacity">
+          <div
+            className={[
+              'shrink-0 flex items-center gap-0.5 transition-opacity min-w-[40px] justify-end',
+              // 默认隐藏，hover 时显示（避免视觉拥挤）
+              // 编辑时强制显示（用户可能需要重命名）
+              editingId === ch.id
+                ? 'opacity-100'
+                : 'opacity-0 group-hover:opacity-100',
+            ].join(' ')}
+          >
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -426,7 +364,25 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
         )}
         {isExpanded && chapterSecs.length > 0 && (
           <div className="ml-3 border-l pl-1 space-y-0.5" style={{ borderColor: 'var(--border-color)' }}>
-            {chapterSecs.map((sec) => renderSectionRow(sec, chapterSecs))}
+            {chapterSecs.length > VIRTUALIZE_THRESHOLD ? (
+              // 大章节：虚拟滚动（避免 100+ 节一次性渲染卡顿）
+              <FixedSizeList
+                key={ch.id}
+                height={virtualHeight}
+                itemCount={chapterSecs.length}
+                itemSize={SECTION_ROW_HEIGHT}
+                itemData={sectionRowData}
+                width="100%"
+                overscanCount={2}
+              >
+                {VirtualSectionRow}
+              </FixedSizeList>
+            ) : (
+              // 普通章节：直接渲染所有节
+              chapterSecs.map((sec) => (
+                <SectionRowView key={sec.id} sec={sec} data={sectionRowData} />
+              ))
+            )}
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -591,7 +547,15 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
                   <span className="shrink-0 text-[10px]" style={{ color: 'var(--text-secondary)' }}>
                     {vWordCount > 0 ? `${vWordCount}字` : ''}
                   </span>
-                  <div className="shrink-0 flex items-center gap-0.5">
+                  <div
+                    className={[
+                      'shrink-0 flex items-center gap-0.5 transition-opacity min-w-[40px] justify-end',
+                      // 默认隐藏，hover/编辑时显示
+                      editingId === v.id
+                        ? 'opacity-100'
+                        : 'opacity-0 group-hover:opacity-100',
+                    ].join(' ')}
+                  >
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -653,6 +617,22 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
           )}
         </div>
       </div>
+
+      {/* 内容较少时显示底部空状态占位（避免大片空白，固定在列底部） */}
+      {hasAnyContent && sortedVolumes.length + orphanChapters.length <= 2 && (
+        <div
+          className="shrink-0 px-4 py-6 text-center text-xs border-t"
+          style={{
+            color: 'var(--text-secondary)',
+            borderColor: 'var(--border-color)',
+            background: 'var(--bg-card)',
+          }}
+        >
+          <div className="mb-1" style={{ fontSize: 16 }}>💡</div>
+          <div>目录已显示所有内容</div>
+          <div className="mt-1 text-[10px]">可在右侧编辑区开始写作</div>
+        </div>
+      )}
 
       {contextMenu && (
         <div
@@ -835,3 +815,146 @@ function ContextMenuItem({
     </button>
   );
 }
+
+// ============================================================================
+// 节行渲染（提取为 memo 组件，支持 FixedSizeList 虚拟列表）
+// ============================================================================
+
+interface SectionRowData {
+  sections: SectionMeta[];
+  sectionStats: Record<string, { words: number; dice: number }>;
+  activeSectionId: string | null;
+  dragSectionId: string | null;
+  editingId: string | null;
+  editingValue: string;
+  setEditingValue: (v: string) => void;
+  editingRef: React.MutableRefObject<HTMLInputElement | null>;
+  setEditingId: (id: string | null) => void;
+  setDragSectionId: (id: string | null) => void;
+  setContextMenu: (m: any) => void;
+  onSelectSection: (id: string) => void;
+  onReorderSections: (chapterId: string, orderedIds: string[]) => void;
+  onMoveSections: (targetChapterId: string, orderedIds: string[]) => void;
+  commitRename: () => void;
+}
+
+const SectionRowView = memo(function SectionRowView({
+  sec,
+  data,
+  style,
+}: {
+  sec: SectionMeta;
+  data: SectionRowData;
+  style?: React.CSSProperties;
+}) {
+  const stats = data.sectionStats[sec.id] || { words: 0, dice: 0 };
+  const isSecActive = data.activeSectionId === sec.id;
+  return (
+    <div
+      style={style}
+      draggable
+      onDragStart={(e) => {
+        e.stopPropagation();
+        data.setDragSectionId(sec.id);
+      }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!data.dragSectionId || data.dragSectionId === sec.id) {
+          data.setDragSectionId(null);
+          return;
+        }
+        const dragSec = data.sections.find((s) => s.id === data.dragSectionId);
+        if (!dragSec) {
+          data.setDragSectionId(null);
+          return;
+        }
+        const targetChapterId = sec.chapter_id;
+        const targetChapterSecs = data.sections
+          .filter((s) => s.chapter_id === targetChapterId)
+          .sort((a, b) => a.order_index - b.order_index);
+        const targetIds = targetChapterSecs.map((s) => s.id);
+        const fromIdx = targetIds.indexOf(data.dragSectionId);
+        const toIdx = targetIds.indexOf(sec.id);
+        const newOrder = [...targetIds];
+        if (fromIdx >= 0) {
+          newOrder.splice(fromIdx, 1);
+          newOrder.splice(toIdx, 0, data.dragSectionId);
+        } else {
+          newOrder.splice(toIdx, 0, data.dragSectionId);
+        }
+        if (dragSec.chapter_id === targetChapterId) {
+          data.onReorderSections(targetChapterId, newOrder);
+        } else {
+          data.onMoveSections(targetChapterId, newOrder);
+        }
+        data.setDragSectionId(null);
+      }}
+      onDragEnd={() => data.setDragSectionId(null)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        data.setContextMenu({
+          x: e.clientX,
+          y: e.clientY,
+          type: 'section',
+          id: sec.id,
+          title: sec.title,
+          chapterId: sec.chapter_id,
+        });
+      }}
+      className={[
+        'group flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer text-xs transition-all relative',
+        data.dragSectionId === sec.id ? 'opacity-50' : '',
+      ].join(' ')}
+      style={{
+        color: isSecActive ? 'var(--accent)' : 'var(--text-primary)',
+        background: isSecActive ? 'var(--accent-soft)' : 'transparent',
+      }}
+      onClick={() => data.onSelectSection(sec.id)}
+    >
+      {isSecActive && (
+        <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded-r-full" style={{ background: 'var(--accent)' }} />
+      )}
+      <span className="shrink-0 text-[10px]">📄</span>
+      {data.editingId === sec.id ? (
+        <input
+          ref={data.editingRef}
+          value={data.editingValue}
+          onChange={(e) => data.setEditingValue(e.target.value)}
+          onClick={(e) => e.stopPropagation()}
+          onBlur={data.commitRename}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') data.commitRename();
+            if (e.key === 'Escape') data.setEditingId(null);
+          }}
+          className="flex-1 min-w-0 text-xs px-1 py-0.5 rounded border outline-none"
+          style={{ borderColor: 'var(--accent)', background: 'var(--bg-input)', color: 'var(--text-primary)' }}
+        />
+      ) : (
+        <span className={`flex-1 truncate ${isSecActive ? 'font-medium' : ''}`}>{sec.title}</span>
+      )}
+      {stats.dice > 0 && (
+        <span className="shrink-0 text-[9px] px-1 rounded" style={{ color: 'var(--accent)', background: 'var(--accent-soft)' }}>🎲{stats.dice}</span>
+      )}
+      <span className="shrink-0 text-[10px]" style={{ color: 'var(--text-secondary)' }}>
+        {stats.words > 0 ? `${stats.words}` : ''}
+      </span>
+    </div>
+  );
+});
+
+// FixedSizeList 的 row 组件（接收 style + data，从 data.sections[index] 取节）
+const VirtualSectionRow = memo(function VirtualSectionRow({
+  index,
+  style,
+  data,
+}: ListChildComponentProps<SectionRowData & { sections: SectionMeta[] }>) {
+  // 兼容调用方可能传 sections 在 data 顶层
+  const sec = data.sections[index];
+  if (!sec) return null;
+  return <SectionRowView sec={sec} data={data} style={style} />;
+});
