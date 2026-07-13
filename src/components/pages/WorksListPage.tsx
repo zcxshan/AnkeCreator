@@ -46,7 +46,7 @@ function compareWorks(a: WorkSummary, b: WorkSummary): number {
 }
 
 export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader }: WorksListPageProps) {
-  const { stories, trashedStories, loadTrashedStories, softDeleteStory, restoreStory, permanentlyDeleteStory, renameStory, setActiveStory, toggleStarred, togglePinned, setStoryOrder } = useStoryStore();
+  const { stories, trashedStories, loadTrashedStories, softDeleteStory, restoreStory, permanentlyDeleteStory, renameStory, updateStoryDescription, setActiveStory, toggleStarred, togglePinned, setStoryOrder } = useStoryStore();
   const showToast = useToastStore((s) => s.showToast);
 
   const [search, setSearch] = useState('');

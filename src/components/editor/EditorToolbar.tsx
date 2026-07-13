@@ -884,7 +884,13 @@ export function EditorToolbar({
                   width: 12,
                   height: 12,
                   borderRadius: 3,
-                  background: NGA_COLORS.find((c) => c.value === activeColorNgaName)?.cssColor || '#000',
+                  // 改动 2：暗色模式下当前色为黑色时，按钮上显示白色（与下拉弹窗一致）
+                  background: (() => {
+                    const found = NGA_COLORS.find((c) => c.value === activeColorNgaName);
+                    if (!found) return isDark ? '#fff' : '#000';
+                    if (found.value === 'black' && isDark) return '#ffffff';
+                    return found.cssColor;
+                  })(),
                   border: '1px solid var(--border-color)',
                   verticalAlign: 'middle',
                   marginRight: 2,
@@ -894,17 +900,18 @@ export function EditorToolbar({
             </ToolbarBtn>
             {colorPickerOpen && (
               <div style={{ ...popoverPanel, top: 30, left: 0, minWidth: 220, flexDirection: 'row', flexWrap: 'wrap', gap: 4, maxHeight: 260, overflowY: 'auto' }}>
-                {NGA_COLORS.map((c) => {
-                  // 改动 2：暗色模式翻转黑色色块的显示色为白色，
-                  // 避免 #000000 色块在暗色背景下与背景同色不可见。
-                  // 注意：仅修改**显示色**，不修改 c.value（仍是 'black'），
-                  // 选中后写出的 BBCode 仍是 [color=black]，符合 NGA 标准。
-                  const displayColor =
-                    isDark && c.cssColor.toLowerCase() === '#000000' ? '#ffffff' : c.cssColor
+                {NGA_COLORS.map((c, idx) => {
+                  // 改动 2：最后一个色块（黑色）根据主题翻转：
+                  // - 暗色模式：value='white', cssColor='#ffffff'（显示白色 + 应用白色）
+                  // - 亮色模式：value='black', cssColor='#000000'（显示黑色 + 应用黑色）
+                  // 用户原话：夜间模式点击白色色块输出的字色应该是白色
+                  const isLast = idx === NGA_COLORS.length - 1;
+                  const effectiveCssColor = isLast && isDark ? '#ffffff' : c.cssColor;
+                  const displayColor = effectiveCssColor;
                   // 防御性边框：暗色背景下所有色块加亮色细边，避免相近色混淆
                   const baseBorder = isDark
                     ? 'rgba(255,255,255,0.25)'
-                    : 'rgba(0,0,0,0.1)'
+                    : 'rgba(0,0,0,0.1)';
                   return (
                     <button
                       key={c.value}
@@ -913,12 +920,12 @@ export function EditorToolbar({
                         // 1. 有选区：直接应用颜色（不切换），与 toggleColor 不同
                         // 2. 无选区：仅同步 activeStyles，下一次输入自动应用
                         // skipFocus: 弹窗关闭后让编辑器仍可保留当前选区视觉高亮
-                        applyInlineStylePreservingFocus({ color: c.cssColor });
-                        useEditorStore.getState().setActiveStyles({ color: c.cssColor });
+                        applyInlineStylePreservingFocus({ color: effectiveCssColor });
+                        useEditorStore.getState().setActiveStyles({ color: effectiveCssColor });
                         useEditorStore.getState().lockActiveStyles();
                         setColorPickerOpen(false);
                       }}
-                      title={c.label}
+                      title={isLast && isDark ? '白色' : c.label}
                       style={{
                         width: 28,
                         height: 28,
