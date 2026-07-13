@@ -87,7 +87,7 @@ export function DicePlaygroundPage({ onBack }: DicePlaygroundPageProps) {
       } else {
         // 动画结束，定格真实结果
         setDisplayTotal(result.total);
-        const entry: RollHistoryEntry = {
+        const entry: PlaygroundRollEntry = {
           id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
           expr: trimmed,
           total: result.total,
@@ -96,7 +96,8 @@ export function DicePlaygroundPage({ onBack }: DicePlaygroundPageProps) {
           timestamp: Date.now(),
         };
         setLastResult(entry);
-        setHistory((prev) => [entry, ...prev].slice(0, MAX_HISTORY));
+        // 改动 9：写到 persist store，关闭页面/重启后历史保留
+        addHistory(entry);
         setIsRolling(false);
       }
     };
@@ -106,8 +107,11 @@ export function DicePlaygroundPage({ onBack }: DicePlaygroundPageProps) {
   const handleRoll = () => doRoll(expr);
 
   const handleClearHistory = () => {
-    setHistory([]);
-    setLastResult(null);
+    // 改动 9：二次确认，避免误清空
+    if (window.confirm('确定清空所有历史记录？此操作不可撤销。')) {
+      clearHistoryStore();
+      setLastResult(null);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
