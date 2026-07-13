@@ -49,6 +49,8 @@ import {
   setImageBlockAlign,
   removeLinkAtCursor,
   getCurrentStyles,
+  getInsertionPoint,
+  dispatchInput,
 } from './contenteditableUtils';
 import { useEditorStore } from '../../store/editorStore';
 import { useSettingStore } from '../../store/settingStore';
@@ -643,16 +645,32 @@ export function EditorToolbar({
   const handleSmileyConfirm = () => {
     const safePack = (smileyPack || '').trim() || '表情包';
     const safeFace = (smileyFace || '').trim() || '表情';
+    const text = `[s:${safePack}:${safeFace}]`;
     withEditor((ed) => {
+      // 关键：用 getInsertionPoint 而非 document.createRange()。
+      // 原因：document.createRange() 创建的是 body 起点 (0,0) 的空 range，
+      // 之前直接 range.insertNode 会把表情文本插到 body 末尾，用户视觉上看不到任何变化。
+      // getInsertionPoint 会优先用 _lastEditorRange（用户在编辑器内的最后光标），
+      // 退化到当前 sel，最后兜底到编辑器末尾。
+      const range = getInsertionPoint(ed);
       const sel = window.getSelection();
       if (!sel) return;
-      const range = document.createRange();
-      const node = document.createTextNode(`[s:${safePack}:${safeFace}]`);
-      range.insertNode(node);
-      range.setStartAfter(node);
-      range.collapse(true);
+      if (range.collapsed) {
+        const node = document.createTextNode(text);
+        range.insertNode(node);
+        range.setStartAfter(node);
+        range.collapse(true);
+      } else {
+        // 替换选区
+        range.deleteContents();
+        const node = document.createTextNode(text);
+        range.insertNode(node);
+        range.setStartAfter(node);
+        range.collapse(true);
+      }
       sel.removeAllRanges();
       sel.addRange(range);
+      dispatchInput(ed);
     });
     setSmileyPack('');
     setSmileyFace('');

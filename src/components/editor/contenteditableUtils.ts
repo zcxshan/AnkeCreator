@@ -988,12 +988,23 @@ export function isInsideList(editor: HTMLElement, tag: 'UL' | 'OL'): boolean {
 
 // ------------------------------------------------------------
 // 对齐：给当前 block 设 style.textAlign
+// 关键：必须只影响光标所在行 / 选区所在行，不能整块统一。
+// 用 document.execCommand 让浏览器原生处理选区内的所有 block，
+// 避免我们手动实现时把对齐应用到外层 <div contenteditable> 整块。
 // ------------------------------------------------------------
+const ALIGN_CMD_MAP: Record<string, string> = {
+  left: 'justifyLeft',
+  center: 'justifyCenter',
+  right: 'justifyRight',
+  justify: 'justifyFull',
+};
+
 export function setBlockAlign(editor: HTMLElement, align: string): void {
   focusEditor(editor);
-  const block = getCurrentBlock(editor);
-  if (!block) return;
-  block.style.textAlign = align;
+  const cmd = ALIGN_CMD_MAP[align] || 'justifyLeft';
+  // 浏览器原生 execCommand 自动处理选区内的所有 block 元素，
+  // 折叠选区（光标）只影响所在 block，多 block 选区影响所有选中的 block
+  document.execCommand(cmd, false);
   dispatchInput(editor);
 }
 
