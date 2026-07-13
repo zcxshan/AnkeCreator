@@ -54,7 +54,44 @@ export function ImageLibraryPanel() {
         listImageLibraryItems(currentFolderId),
       ]);
       setFolders(fs);
-      setItems(its);
+
+      // 改动 8：扫描磁盘，合并 DB + 磁盘文件
+      // - 当前在根目录（currentFolderId === null）时扫描整个 images/
+      // - 在某文件夹中时只扫描 images/<folderName>/
+      const currentFolder = currentFolderId
+        ? fs.find((f) => f.id === currentFolderId) || null
+        : null;
+      let diskOnlyItems: ImageLibraryItem[] = [];
+      try {
+        const scan = await window.electronAPI?.scanImagesInDir?.(
+          currentFolder ? { folderName: currentFolder.name } : undefined,
+        );
+        const files = scan?.files ?? [];
+        // 已知 DB URL 集合
+        const dbUrls = new Set(its.map((i) => i.url));
+        // 已知磁盘上重复的（多个文件夹子目录可能产生重复 URL）：
+        //   我们按 url 去重，保留第一个
+        const seenUrls = new Set<string>();
+        for (const f of files) {
+          if (seenUrls.has(f.url)) continue;
+          seenUrls.add(f.url);
+          if (dbUrls.has(f.url)) continue;
+          diskOnlyItems.push({
+            id: `disk-${f.path}`,
+            url: f.url,
+            filename: f.filename,
+            source: 'local',
+            folderId: currentFolderId,
+            // 渲染层用 created_at 排序，磁盘扫描项无原创建时间，用 mtime
+            created_at: new Date(f.mtime).toISOString(),
+            // 自定义字段：标记为磁盘扫描
+            fromDisk: true,
+          } as ImageLibraryItem & { fromDisk?: boolean });
+        }
+      } catch (e) {
+        console.warn('扫描磁盘图片失败（继续显示 DB 记录）:', e);
+      }
+      setItems([...its, ...diskOnlyItems]);
     } catch (e) {
       setError((e as Error).message || '加载失败');
     } finally {
@@ -125,24 +162,49 @@ export function ImageLibraryPanel() {
       return;
     }
     try {
-      const selected = await window.electronAPI.selectImage();
+      // 改动 6：批量选择多张图片
+      const selected = await window.electronAPI.selectImage({ multiple: true });
       if (!selected) return;
-      const { buffer, filename } = selected;
-      const res = await window.electronAPI.saveImageLocal({
-        buffer,
-        filename,
-        mimeType: selected.mimeType,
-      });
-      if (!res.ok || !res.url) {
-        setError(res.error || '本地保存失败');
-        return;
+      const list = Array.isArray(selected) ? selected : [selected];
+      if (list.length === 0) return;
+
+      // 改动 7：传 folderId + folderName 让保存到对应子目录
+      const currentFolder = currentFolderId
+        ? folders.find((f) => f.id === currentFolderId) || null
+        : null;
+      const folderId = currentFolder?.id ?? null;
+      const folderName = currentFolder?.name;
+
+      let successCount = 0;
+      let failCount = 0;
+      let firstError = '';
+      for (const item of list) {
+        const { buffer, filename } = item;
+        const res = await window.electronAPI.saveImageLocal({
+          buffer,
+          filename,
+          mimeType: item.mimeType,
+          folderId,
+          folderName,
+        });
+        if (res.ok && res.url) {
+          await addImageLibraryItem({
+            folderId: currentFolderId,
+            url: res.url,
+            filename,
+            source: 'local',
+          });
+          successCount++;
+        } else {
+          failCount++;
+          if (!firstError) firstError = res.error || '本地保存失败';
+        }
       }
-      await addImageLibraryItem({
-        folderId: currentFolderId,
-        url: res.url,
-        filename,
-        source: 'local',
-      });
+      if (failCount > 0) {
+        setError(`${successCount} 张成功，${failCount} 张失败（${firstError}）`);
+      } else {
+        setError('');
+      }
       await refresh();
     } catch (e) {
       setError((e as Error).message || '本地上传失败');
@@ -150,23 +212,45 @@ export function ImageLibraryPanel() {
   };
 
   const handleUrlUpload = async () => {
-    const url = urlInput.trim();
-    if (!url) return;
-    const filename = urlFilename.trim() || url.split('/').pop() || 'image';
-    try {
-      await addImageLibraryItem({
-        folderId: currentFolderId,
-        url,
-        filename,
-        source: 'url',
-      });
-      setShowUrlUploadModal(false);
-      setUrlInput('');
-      setUrlFilename('');
-      await refresh();
-    } catch (e) {
-      setError((e as Error).message || 'URL 上传失败');
+    const text = urlInput.trim();
+    if (!text) return;
+    // 改动 6：支持多 URL（每行一个）
+    const urls = text
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (urls.length === 0) return;
+    let successCount = 0;
+    let failCount = 0;
+    for (let i = 0; i < urls.length; i++) {
+      const url = urls[i];
+      // 第一个 URL 允许用 urlFilename 字段；其他从 URL 推断
+      const filename =
+        i === 0 && urlFilename.trim()
+          ? urlFilename.trim()
+          : (url.split('/').pop() || `image_${i + 1}`).split('?')[0] || `image_${i + 1}`;
+      try {
+        await addImageLibraryItem({
+          folderId: currentFolderId,
+          url,
+          filename,
+          source: 'url',
+        });
+        successCount++;
+      } catch (e) {
+        console.error('URL 上传失败:', url, e);
+        failCount++;
+      }
     }
+    if (failCount > 0) {
+      setError(`${successCount} 条成功，${failCount} 条失败`);
+    } else {
+      setError('');
+    }
+    setShowUrlUploadModal(false);
+    setUrlInput('');
+    setUrlFilename('');
+    await refresh();
   };
 
   const handleCopyUrl = (url: string) => {
@@ -324,6 +408,15 @@ export function ImageLibraryPanel() {
                         <div className="text-xs truncate" style={{ color: 'var(--text-primary)' }}>{item.filename}</div>
                         <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                           {item.source === 'local' ? '本地' : 'URL'}
+                          {(item as any).fromDisk && (
+                            <span
+                              className="ml-1 px-1 rounded"
+                              style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}
+                              title="通过磁盘扫描识别（未在数据库中）"
+                            >
+                              📁 磁盘
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -386,24 +479,34 @@ export function ImageLibraryPanel() {
         </Modal>
       )}
 
-      {/* URL 上传弹窗 */}
+      {/* URL 上传弹窗（改动 6：支持多 URL，每行一个） */}
       {showUrlUploadModal && (
         <Modal onClose={() => setShowUrlUploadModal(false)} title="URL 上传">
           <div className="space-y-3">
             <div>
-              <label className="text-xs block mb-1" style={{ color: 'var(--text-secondary)' }}>图片 URL</label>
-              <input
-                type="text"
+              <label className="text-xs block mb-1" style={{ color: 'var(--text-secondary)' }}>
+                图片 URL（每行一个，可批量）
+              </label>
+              <textarea
                 value={urlInput}
                 onChange={(e) => setUrlInput(e.target.value)}
-                placeholder="https://example.com/image.png"
+                placeholder={'https://example.com/image1.png\nhttps://example.com/image2.png\nhttps://example.com/image3.png'}
                 autoFocus
+                rows={4}
                 className="w-full px-3 py-2 rounded-lg text-sm"
-                style={{ background: 'var(--bg-base)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                style={{
+                  background: 'var(--bg-base)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border-color)',
+                  resize: 'vertical',
+                  fontFamily: 'inherit',
+                }}
               />
             </div>
             <div>
-              <label className="text-xs block mb-1" style={{ color: 'var(--text-secondary)' }}>文件名（可选）</label>
+              <label className="text-xs block mb-1" style={{ color: 'var(--text-secondary)' }}>
+                文件名（可选，仅第一个 URL 生效）
+              </label>
               <input
                 type="text"
                 value={urlFilename}
@@ -411,7 +514,7 @@ export function ImageLibraryPanel() {
                 placeholder="image.png"
                 className="w-full px-3 py-2 rounded-lg text-sm"
                 style={{ background: 'var(--bg-base)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
-                onKeyDown={(e) => { if (e.key === 'Enter') void handleUrlUpload(); }}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) void handleUrlUpload(); }}
               />
             </div>
           </div>
