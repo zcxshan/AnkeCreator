@@ -12,7 +12,7 @@ import path from 'path'
 
 // 主进程数据库（JSON 文件存储）
 import * as db from './db-main'
-import { migrateFromUserDataIfNeeded, migrateFlattenDataIfNeeded } from './paths'
+import { migrateFromUserDataIfNeeded, migrateFlattenDataIfNeeded, isDataRootFallback } from './paths'
 
 // 全局错误捕获（必须在所有 app.on('xxx') 之前）
 import { registerGlobalErrorHandlers } from './errorReporter'
@@ -86,6 +86,16 @@ function createWindow() {
     })
   }
 
+  // 同步窗口最大化/还原状态到 renderer（修复拖动取消最大化时图标不更新的 bug）
+  // 关键：renderer 端只在点击标题栏按钮时乐观更新，但用户拖动窗口边缘/标题栏取消最大化时
+  // 不会有"点击"事件，必须由 main 主动推送状态
+  win.on('maximize', () => {
+    win?.webContents.send('window:maximize-state', true)
+  })
+  win.on('unmaximize', () => {
+    win?.webContents.send('window:maximize-state', false)
+  })
+
   win.on('closed', () => {
     win = null
   })
@@ -142,6 +152,26 @@ if (runDiag()) {
       migrateFlattenDataIfNeeded()
     } catch (e) {
       console.error('[main] 扁平化迁移失败（继续启动）:', e)
+    }
+
+    // 步骤 1.6/4: 提示用户数据目录回退（仅打包模式）
+    // 关键：用户安装到 C:\Program Files\ 等无写权限位置时，
+    // 数据会自动回退到 %APPDATA%，必须明确告知用户数据实际位置，
+    // 避免「安装目录里的 data/ 是空的」造成「数据丢失」错觉
+    if (isDataRootFallback()) {
+      try {
+        dialog.showMessageBox({
+          type: 'info',
+          title: '数据目录已切换',
+          message:
+            '由于安装目录无写权限，您的数据已自动保存到 %APPDATA% 目录。\n\n' +
+            '请勿卸载时直接删除安装目录，否则不会影响您的数据。\n' +
+            '如需更换数据位置，请重新安装到「文档」「D盘」等有写权限的位置。',
+          buttons: ['我知道了'],
+        })
+      } catch {
+        /* noop */
+      }
     }
 
     // 步骤 2/4: 初始化数据库

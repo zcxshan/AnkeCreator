@@ -24,20 +24,28 @@ export function TitleBar({
 
   useEffect(() => {
     if (!window.electronAPI) return;
-    const check = () => {
-      // Electron 未暴露 isMaximized 状态的主动查询，这里依赖窗口尺寸变化被动跟踪
-    };
-    check();
-    const timer = setInterval(check, 2000);
-    return () => clearInterval(timer);
+    // 订阅主进程推送的 maximize / unmaximize 状态变化
+    // 关键：用户拖动窗口边缘/标题栏取消最大化时，renderer 端无法自行感知状态，
+    // 必须由 main 主动推送（main.ts 已挂 win.on('maximize'/'unmaximize')）
+    const api = window.electronAPI as unknown as {
+      onMaximizeStateChange?: (cb: (isMaximized: boolean) => void) => () => void
+    }
+    if (typeof api.onMaximizeStateChange !== 'function') return;
+    const unsubscribe = api.onMaximizeStateChange((isMax) => {
+      setIsMaximized(isMax)
+    })
+    return () => {
+      unsubscribe()
+    }
   }, []);
 
   const hasElectron = !!window.electronAPI;
 
   const handleToggleMaximize = () => {
     if (hasElectron) {
+      // 不再本地乐观更新 setIsMaximized((v) => !v)
+      // 状态由 onMaximizeStateChange 回调统一更新，避免与 main 推送的状态不一致
       window.electronAPI?.toggleMaximize();
-      setIsMaximized((v) => !v);
     }
   };
 

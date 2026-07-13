@@ -10,6 +10,14 @@ const windowAPI = {
   minimize: () => ipcRenderer.send('window:minimize'),
   toggleMaximize: () => ipcRenderer.send('window:toggle-maximize'),
   close: () => ipcRenderer.send('window:close'),
+  /** 订阅窗口最大化/还原状态变化（修复拖动取消最大化时图标不更新的 bug） */
+  onMaximizeStateChange: (cb: (isMaximized: boolean) => void): (() => void) => {
+    const listener = (_e: unknown, isMax: boolean) => cb(isMax)
+    ipcRenderer.on('window:maximize-state', listener)
+    return () => {
+      ipcRenderer.removeListener('window:maximize-state', listener)
+    }
+  },
 }
 
 // 图片操作（sm.ms 图床上传 / 本地保存）
@@ -313,9 +321,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   minimize: windowAPI.minimize,
   toggleMaximize: windowAPI.toggleMaximize,
   close: windowAPI.close,
+  onMaximizeStateChange: windowAPI.onMaximizeStateChange,
   selectImage: imageAPI.select,
   uploadImage: imageAPI.upload,
   saveImageLocal: imageAPI.saveLocal,
+  scanImagesInDir: imageAPI.scanFiles,
   platform: process.platform,
   collectNga: ngaAPI.collect,
   cancelNgaCollect: ngaAPI.cancelCollect,
@@ -380,9 +390,13 @@ export type ElectronAPI = {
   minimize: () => void
   toggleMaximize: () => void
   close: () => void
-  selectImage: () => Promise<{ buffer: string; filename: string; mimeType: string; filePath?: string } | null>
+  /** 订阅窗口最大化/还原状态变化（修复拖动取消最大化时图标不更新的 bug） */
+  onMaximizeStateChange: (cb: (isMaximized: boolean) => void) => () => void
+  selectImage: (payload?: { multiple?: boolean }) => Promise<{ buffer: string; filename: string; mimeType: string; filePath?: string } | Array<{ buffer: string; filename: string; mimeType: string; filePath?: string }> | null>
   uploadImage: (payload: { buffer: string; filename: string; mimeType: string }) => Promise<{ ok: boolean; url?: string; error?: string }>
-  saveImageLocal: (payload: { buffer: string; filename: string; mimeType: string }) => Promise<{ ok: boolean; url?: string; error?: string }>
+  saveImageLocal: (payload: { buffer: string; filename: string; mimeType: string; folderId?: string | null; folderName?: string }) => Promise<{ ok: boolean; url?: string; error?: string }>
+  /** 改动 8：扫描 <imagesDir>/ 下所有图片（含子目录） */
+  scanImagesInDir: (payload?: { folderName?: string }) => Promise<{ files: Array<{ path: string; filename: string; url: string; mtime: number; size: number; folder?: string }> }>
   openImageFolder: () => Promise<{ ok: boolean; error?: string }>
   platform: NodeJS.Platform
   collectNga: (payload: {

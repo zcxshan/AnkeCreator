@@ -31,21 +31,76 @@ import * as fs from 'fs'
 import * as path from 'path'
 
 let _dataRoot: string | null = null
+let _dataRootFallback: boolean = false
 
 /**
  * 数据根目录（#9：v3.2+ 扁平化）
  * - 打包模式：<安装路径>/data/（所有数据统一在此目录下）
+ * - 如果 <安装路径> 无写权限（常见于 C:\Program Files\），
+ *   自动回退到 %APPDATA%\com.shanshian.ankecreator\data\，
+ *   避免数据丢失。
  * - dev 模式（未打包）：app.getPath('userData')
+ *
+ * 回退策略：第一次调用时尝试检测 installDir 是否可写，
+ *   不可写时切换到 %APPDATA%，后续所有调用都走回退后的路径。
  */
 export function getDataRoot(): string {
   if (_dataRoot) return _dataRoot
   if (app.isPackaged) {
     const installDir = path.dirname(process.execPath)
-    _dataRoot = path.join(installDir, 'data')
+    const installDataDir = path.join(installDir, 'data')
+    // 第一次调用：检测 installDir/data/ 是否可写
+    if (isPathWritable(installDataDir)) {
+      _dataRoot = installDataDir
+      console.log('[paths] 数据目录：', _dataRoot, '(安装路径)')
+    } else {
+      // 回退到 %APPDATA%
+      const appdata = app.getPath('appData')
+      const fallbackDataDir = path.join(appdata, 'com.shanshian.ankecreator', 'data')
+      _dataRoot = fallbackDataDir
+      _dataRootFallback = true
+      console.warn(
+        '[paths] 安装路径无写权限，回退到 %APPDATA%：',
+        fallbackDataDir,
+      )
+    }
+    // 确保目录存在
+    try {
+      if (!fs.existsSync(_dataRoot)) {
+        fs.mkdirSync(_dataRoot, { recursive: true })
+      }
+    } catch (e) {
+      console.error('[paths] 创建数据目录失败:', e)
+    }
   } else {
     _dataRoot = app.getPath('userData')
   }
   return _dataRoot
+}
+
+/**
+ * 是否发生过回退（installDir 无写权限时回退到 %APPDATA%）
+ * 用于在 main.ts 启动时给用户友好提示
+ */
+export function isDataRootFallback(): boolean {
+  return _dataRootFallback
+}
+
+/**
+ * 检测路径是否可写（不存在时尝试创建）
+ */
+function isPathWritable(p: string): boolean {
+  try {
+    if (!fs.existsSync(p)) {
+      fs.mkdirSync(p, { recursive: true })
+    }
+    const probe = path.join(p, '.write-probe')
+    fs.writeFileSync(probe, 'ok', 'utf-8')
+    fs.unlinkSync(probe)
+    return true
+  } catch {
+    return false
+  }
 }
 
 /**
