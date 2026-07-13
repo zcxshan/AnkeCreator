@@ -14,6 +14,8 @@ interface WorkCardProps {
   onOpen: (id: string) => void;
   onDelete: (id: string) => void;
   onRename: (id: string) => void;
+  /** 修改作品简介 */
+  onEditDescription?: (id: string) => void;
   /** 导出为安科文件（JSON 格式） */
   onExport: (id: string) => void;
   onPinned?: (id: string) => void;
@@ -32,6 +34,7 @@ export function WorkCard({
   onOpen,
   onDelete,
   onRename,
+  onEditDescription,
   onExport,
   onPinned,
   onMoveToFavorite,

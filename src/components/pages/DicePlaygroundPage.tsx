@@ -11,18 +11,14 @@ import { rollExpression } from '../../utils/diceEngine';
 import { useToastStore } from '../../store/toastStore';
 import { useSettingStore } from '../../store/settingStore';
 import { playDiceRollSound } from '../../utils/diceSound';
+// 改动 3：补齐 store 导入
+import {
+  useDicePlaygroundHistoryStore,
+  type PlaygroundRollEntry,
+} from '../../store/dicePlaygroundHistoryStore';
 
 interface DicePlaygroundPageProps {
   onBack: () => void;
-}
-
-interface RollHistoryEntry {
-  id: string;
-  expr: string;
-  total: number;
-  detail: string;
-  allRolls: number[];
-  timestamp: number;
 }
 
 const QUICK_PRESETS = [
@@ -38,8 +34,11 @@ const MAX_HISTORY = 20;
 
 export function DicePlaygroundPage({ onBack }: DicePlaygroundPageProps) {
   const [expr, setExpr] = useState('1d100');
-  const [lastResult, setLastResult] = useState<RollHistoryEntry | null>(null);
-  const [history, setHistory] = useState<RollHistoryEntry[]>([]);
+  const [lastResult, setLastResult] = useState<PlaygroundRollEntry | null>(null);
+  // 改动 3：history 改用 zustand persist store（持久化，关闭/重启后保留）
+  const history = useDicePlaygroundHistoryStore((s) => s.history);
+  const addHistory = useDicePlaygroundHistoryStore((s) => s.add);
+  const clearHistoryStore = useDicePlaygroundHistoryStore((s) => s.clear);
   const [isRolling, setIsRolling] = useState(false);
   const [displayTotal, setDisplayTotal] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);

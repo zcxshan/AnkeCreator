@@ -56,6 +56,8 @@ import { useEditorStore } from '../../store/editorStore';
 import { useSettingStore } from '../../store/settingStore';
 import { useToastStore } from '../../store/toastStore';
 import { useDiceStore } from '../../store/diceStore';
+// 改动 2：夜间模式感知（字色下拉弹窗的黑色色块翻转）
+import { useThemeStore } from '../../store/themeStore';
 import { uploadImagesWithProgress, ensureLocalWarning, type UploadProgressEvent } from '../../utils/uploadImage';
 import { UploadProgressDialog } from '../common/UploadProgressDialog';
 import { DiceNGAImportDialog } from '../dice/DiceNGAImportDialog';
@@ -338,6 +340,8 @@ export function EditorToolbar({
 
   const [colorPickerOpen, setColorPickerOpen] = useState(false);
   const colorPickerRef = useDismiss(colorPickerOpen, () => setColorPickerOpen(false));
+  // 改动 2：暗色模式下字色下拉弹窗的黑色色块要翻转为白色，避免与暗色背景混淆
+  const isDark = useThemeStore((s) => s.mode === 'dark');
 
   // 字号 input 本地态：允许用户输入 < 20 或 > 500 临时值，失焦时自动钳位到 [20, 500]
   // 这样用户可以连续输入多位数字且不丢焦点（每次 onChange 不触发 focusEditor）
@@ -890,31 +894,46 @@ export function EditorToolbar({
             </ToolbarBtn>
             {colorPickerOpen && (
               <div style={{ ...popoverPanel, top: 30, left: 0, minWidth: 220, flexDirection: 'row', flexWrap: 'wrap', gap: 4, maxHeight: 260, overflowY: 'auto' }}>
-                {NGA_COLORS.map((c) => (
-                  <button
-                    key={c.value}
-                    onClick={() => {
-                      // Word 模式：
-                      // 1. 有选区：直接应用颜色（不切换），与 toggleColor 不同
-                      // 2. 无选区：仅同步 activeStyles，下一次输入自动应用
-                      // skipFocus: 弹窗关闭后让编辑器仍可保留当前选区视觉高亮
-                      applyInlineStylePreservingFocus({ color: c.cssColor });
-                      useEditorStore.getState().setActiveStyles({ color: c.cssColor });
-                      useEditorStore.getState().lockActiveStyles();
-                      setColorPickerOpen(false);
-                    }}
-                    title={c.label}
-                    style={{
-                      width: 28,
-                      height: 28,
-                      borderRadius: 4,
-                      background: c.cssColor,
-                      border: c.value === activeColorNgaName ? '2px solid var(--accent)' : '1px solid var(--border-color)',
-                      cursor: 'pointer',
-                      outline: 'none',
-                    }}
-                  />
-                ))}
+                {NGA_COLORS.map((c) => {
+                  // 改动 2：暗色模式翻转黑色色块的显示色为白色，
+                  // 避免 #000000 色块在暗色背景下与背景同色不可见。
+                  // 注意：仅修改**显示色**，不修改 c.value（仍是 'black'），
+                  // 选中后写出的 BBCode 仍是 [color=black]，符合 NGA 标准。
+                  const displayColor =
+                    isDark && c.cssColor.toLowerCase() === '#000000' ? '#ffffff' : c.cssColor
+                  // 防御性边框：暗色背景下所有色块加亮色细边，避免相近色混淆
+                  const baseBorder = isDark
+                    ? 'rgba(255,255,255,0.25)'
+                    : 'rgba(0,0,0,0.1)'
+                  return (
+                    <button
+                      key={c.value}
+                      onClick={() => {
+                        // Word 模式：
+                        // 1. 有选区：直接应用颜色（不切换），与 toggleColor 不同
+                        // 2. 无选区：仅同步 activeStyles，下一次输入自动应用
+                        // skipFocus: 弹窗关闭后让编辑器仍可保留当前选区视觉高亮
+                        applyInlineStylePreservingFocus({ color: c.cssColor });
+                        useEditorStore.getState().setActiveStyles({ color: c.cssColor });
+                        useEditorStore.getState().lockActiveStyles();
+                        setColorPickerOpen(false);
+                      }}
+                      title={c.label}
+                      style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: 4,
+                        background: displayColor,
+                        border:
+                          c.value === activeColorNgaName
+                            ? '2px solid var(--accent)'
+                            : `1px solid ${baseBorder}`,
+                        cursor: 'pointer',
+                        outline: 'none',
+                      }}
+                    />
+                  )
+                })}
               </div>
             )}
           </div>

@@ -197,6 +197,8 @@ export function registerImageIpc(getWindow: () => BrowserWindow | null): void {
           }
         }
         walk(baseDir, payload?.folderName ? sanitizeFolderName(payload.folderName) : '')
+        // 改动 4-6：增加日志，方便调试磁盘扫描识别
+        console.log('[image:scanFiles] 扫描目录:', baseDir, '找到', result.length, '个文件')
         return { files: result }
       } catch (e) {
         console.error('[image:scanFiles] 扫描失败:', e)
