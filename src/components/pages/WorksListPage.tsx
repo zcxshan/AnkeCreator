@@ -61,6 +61,8 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [confirmState, setConfirmState] = useState<null | { type: 'soft-delete' | 'permanent-delete' | 'clear-trash' | 'duplicate'; work?: WorkSummary }>(null);
   const [pendingRename, setPendingRename] = useState<WorkSummary | null>(null);
+  // 修改简介弹窗目标
+  const [pendingEditDescription, setPendingEditDescription] = useState<WorkSummary | null>(null);
   const [importState, setImportState] = useState<null | { originalTitle: string; description?: string; data: any }>(null);
   const [importProgress, setImportProgress] = useState<{ current: number; total: number; message: string } | null>(null);
   const [batchMode, setBatchMode] = useState(false);
@@ -1219,6 +1221,10 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
                     const w = works.find((x) => x.id === id);
                     if (w) setPendingRename(w);
                   }}
+                  onEditDescription={(id) => {
+                    const w = works.find((x) => x.id === id);
+                    if (w) setPendingEditDescription(w);
+                  }}
                   onExport={(id) => handleExportStory(id)}
                   onPinned={(id) => togglePinned(id)}
                   onMoveToFavorite={(id) => handleOpenMoveToFavorite(id)}
@@ -1352,6 +1358,27 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
           </div>
         </Modal>
       )}
+
+      {/* 修改简介弹窗（多行文本，最多 500 字） */}
+      <InputDialog
+        open={pendingEditDescription !== null}
+        title={`修改「${pendingEditDescription?.title || ''}」的简介`}
+        placeholder="一句话介绍这个安科世界…"
+        defaultValue={pendingEditDescription?.description || ''}
+        multiline
+        rows={4}
+        maxLength={500}
+        confirmText="保存"
+        cancelText="取消"
+        onCancel={() => setPendingEditDescription(null)}
+        onConfirm={(value) => {
+          if (pendingEditDescription) {
+            updateStoryDescription(pendingEditDescription.id, value);
+            showToast('简介已更新', 'success');
+          }
+          setPendingEditDescription(null);
+        }}
+      />
 
       {/* 确认对话框 */}
       {confirmState?.type === 'soft-delete' && confirmState.work && (

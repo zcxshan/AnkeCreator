@@ -348,6 +348,13 @@ export function WorkCard({
           onClick={(e) => e.stopPropagation()}
         >
           <MenuItem icon="✏️" label="重命名" onClick={() => { onRename(work.id); setMenuOpen(false); }} />
+          {onEditDescription && (
+            <MenuItem
+              icon="📝"
+              label="修改简介"
+              onClick={() => { onEditDescription(work.id); setMenuOpen(false); }}
+            />
+          )}
           {onReader && (
             <MenuItem
               icon="📖"
