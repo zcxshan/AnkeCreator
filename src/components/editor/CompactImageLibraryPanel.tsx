@@ -35,6 +35,34 @@ export function CompactImageLibraryPanel({ onInsertImage }: CompactImageLibraryP
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
+      // reconcile 修正 items 的 folderId（与 ImageLibraryPage 一致）
+      try {
+        await window.electronAPI?.reconcileLibrary?.();
+      } catch (e) {
+        console.warn('[右栏图库] reconcile 失败（继续加载）:', e);
+      }
+
+      // 全量同步磁盘 data/images → DB（folders + items 一次性完成）
+      // - 递归识别用户直接放入 data/images 的文件夹（含嵌套子目录）为 DB folder
+      // - 磁盘有但 DB 没有的图片 → 自动入库为 local item
+      // - DB 有但磁盘没有且 source='local' 的图片 → 从 DB 删除（source='url' 不动）
+      try {
+        const syncRes = await window.electronAPI?.syncDiskToDb?.();
+        if (
+          syncRes?.ok &&
+          (syncRes.foldersCreated > 0 ||
+            syncRes.itemsAdded > 0 ||
+            syncRes.itemsDeleted > 0)
+        ) {
+          console.log(
+            `[右栏图库] syncDiskToDb: +${syncRes.foldersCreated} folders (reused ${syncRes.foldersReused}), +${syncRes.itemsAdded} items, -${syncRes.itemsDeleted} items`,
+          );
+        }
+      } catch (e) {
+        console.warn('[右栏图库] syncDiskToDb 失败（继续加载）:', e);
+      }
+
+      // 同步后拉取 folders + items（已含同步结果）
       const [fs, its] = await Promise.all([
         listImageLibraryFolders(currentFolderId),
         listImageLibraryItems(currentFolderId),
@@ -148,10 +176,23 @@ export function CompactImageLibraryPanel({ onInsertImage }: CompactImageLibraryP
                     <img
                       src={item.url}
                       alt={item.filename}
+                      loading="lazy"
                       className="w-full h-full object-cover"
-                      onError={(e) => {
-                        (e.currentTarget as HTMLImageElement).style.display = 'none';
-                        const parent = (e.currentTarget as HTMLImageElement).parentElement;
+                      onError={async (e) => {
+                        const img = e.currentTarget as HTMLImageElement;
+                        // v23: IPC 兜底 — local:// 协议失败时尝试通过 IPC 读取（与 ImageLibraryPage 保持一致）
+                        if (item.url.startsWith('local://') && !img.dataset.fallbackTried) {
+                          img.dataset.fallbackTried = '1';
+                          try {
+                            const res = await window.electronAPI?.readAsDataUrl?.(item.url);
+                            if (res?.ok && res.dataUrl) {
+                              img.src = res.dataUrl;
+                              return;
+                            }
+                          } catch {}
+                        }
+                        img.style.display = 'none';
+                        const parent = img.parentElement;
                         if (parent) parent.innerHTML = '<span style="font-size:16px">🖼️</span>';
                       }}
                     />

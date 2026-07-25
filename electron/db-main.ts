@@ -28,11 +28,15 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { WorldSettingTemplate, CharacterTemplate, CharacterVariant } from '../src/types';
+import { appendUrlRecord, removeUrlRecord } from '../src/utils/urlRecordStore';
+import { migrateV13RootFolderBug } from '../src/utils/migrateImageLibraryRootFolder';
+import { syncDiskToDbPure, type SyncDiskToDbResult } from '../src/utils/syncDiskToDb';
 import {
   getDataDir as getDataDirFromPaths,
   getStoriesDir,
   getTrashDir,
   getTemplatesDir,
+  getImagesDir,
   migrateFromUserDataIfNeeded,
 } from './paths';
 
@@ -72,6 +76,8 @@ function countWordsInHtml(html: string | null | undefined): number {
   const text = String(html)
     .replace(/<style[\s\S]*?<\/style>/gi, '')
     .replace(/<script[\s\S]*?<\/script>/gi, '')
+    // 排除原子块（骰子卡 / 图片块）内部文字，与 UI 层 countWordsFromHtml 算法一致
+    .replace(/<div\b[^>]*\bdata-type=["'](?:image-block|dice-card)["'][^>]*>[\s\S]*?<\/div>/gi, '')
     .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/g, ' ')
     .replace(/&[a-z]+;/gi, ' ')
@@ -100,6 +106,7 @@ type VolumeRow = {
   story_id: string;
   title: string;
   order_index: number;
+  word_count?: number;
   created_at: string;
   updated_at: string;
 };
@@ -110,6 +117,7 @@ type ChapterRow = {
   volume_id: string | null;
   title: string;
   order_index: number;
+  word_count?: number;
   created_at: string;
   updated_at: string;
 };
@@ -430,6 +438,9 @@ export function initMainDatabase(): void {
     saveGlobalJSON('story_stats', {});
   }
 
+  // 需求6:首次启动预填常用素材网站
+  seedMaterialSitesIfEmpty();
+
   // 初始化模板文件
   if (!fs.existsSync(templateFilePath('world_templates'))) {
     writeTemplateFile('world_templates', {});
@@ -442,6 +453,20 @@ export function initMainDatabase(): void {
 
   // 启动迁移：如果 story_stats.json 为空但 stories 不为空，全量填充
   migrateStoryStatsIfNeeded();
+
+  // v14：数据迁移（v13 "根目录"子目录污染，幂等，重复运行无副作用）
+  try {
+    migrateV13RootFolderBugData();
+  } catch (e) {
+    console.warn('[imageLibrary] v14 migration 失败:', e);
+  }
+
+  // v21：把旧 local:// URL 迁移为 local:/// 格式（与 scanImageDirectory 保持一致）
+  try {
+    migrateLocalUrlToPathBased();
+  } catch (e) {
+    console.warn('[imageLibrary] v21 URL 迁移失败:', e);
+  }
 }
 
 /** 旧格式 → per-story 文件迁移 */
@@ -640,6 +665,63 @@ function recomputeStoryStats(storyId: string): void {
   writeStoryFile(storyId, bundle);
   // 更新全局缓存
   writeStoryStats(storyId, newStats);
+}
+
+/** 重新计算指定章节的字数（所有节的 word_count 之和），并更新 bundle.chapters */
+function recomputeChapterWordCount(bundle: StoryBundle, chapterId: string): number {
+  const wc = bundle.sections
+    .filter((s) => s.chapter_id === chapterId)
+    .reduce((sum, s) => sum + (s.word_count || 0), 0);
+  const idx = bundle.chapters.findIndex((c) => c.id === chapterId);
+  if (idx >= 0) bundle.chapters[idx].word_count = wc;
+  return wc;
+}
+
+/** 重新计算指定卷的字数（卷下所有章的节字数之和），并更新 bundle.volumes */
+function recomputeVolumeWordCount(bundle: StoryBundle, volumeId: string): number {
+  const chapterIds = new Set(
+    bundle.chapters.filter((c) => c.volume_id === volumeId).map((c) => c.id),
+  );
+  const wc = bundle.sections
+    .filter((s) => s.chapter_id && chapterIds.has(s.chapter_id))
+    .reduce((sum, s) => sum + (s.word_count || 0), 0);
+  const idx = bundle.volumes.findIndex((v) => v.id === volumeId);
+  if (idx >= 0) bundle.volumes[idx].word_count = wc;
+  return wc;
+}
+
+/** 重新计算指定章节及其所属卷的字数（节内容变化时调用） */
+function recomputeChapterAndVolumeWordCount(bundle: StoryBundle, chapterId: string): void {
+  const chIdx = bundle.chapters.findIndex((c) => c.id === chapterId);
+  if (chIdx < 0) return;
+  recomputeChapterWordCount(bundle, chapterId);
+  const volId = bundle.chapters[chIdx].volume_id;
+  if (volId) recomputeVolumeWordCount(bundle, volId);
+}
+
+/**
+ * 重新计算指定 story 下所有 sections 的 word_count，并反向回填章/卷 word_count
+ * 用于导入流程完成后校准字数缓存，确保进度条走完时所有字数都已正确落盘
+ */
+export function recomputeStoryWordCounts(storyId: string): void {
+  const bundle = readStoryFile(storyId);
+  if (!bundle) return;
+  // 对所有 sections 重新计算 word_count
+  for (const s of bundle.sections) {
+    s.word_count = countWordsInHtml(s.content ?? null);
+  }
+  // 反向回填所有章的字数
+  for (const ch of bundle.chapters) {
+    recomputeChapterWordCount(bundle, ch.id);
+  }
+  // 反向回填所有卷的字数
+  for (const v of bundle.volumes) {
+    recomputeVolumeWordCount(bundle, v.id);
+  }
+  const now = nowISO();
+  bundle.story.updated_at = now;
+  writeStoryFile(storyId, bundle);
+  recomputeStoryStats(storyId);
 }
 
 // —— Story —— //
@@ -1352,9 +1434,14 @@ export function deleteChapter(id: string): void {
   if (!storyId) return;
   const bundle = readStoryFile(storyId);
   if (!bundle) return;
+  // 记录章所属的卷，用于删除后重算卷字数
+  const ch = bundle.chapters.find((r) => r.id === id);
+  const volId = ch?.volume_id;
   // 级联删除该章下的节
   bundle.sections = bundle.sections.filter((s) => s.chapter_id !== id);
   bundle.chapters = bundle.chapters.filter((r) => r.id !== id);
+  // 重算所属卷的字数
+  if (volId) recomputeVolumeWordCount(bundle, volId);
   bundle.story.updated_at = nowISO();
   writeStoryFile(storyId, bundle);
   recomputeStoryStats(storyId);
@@ -1378,6 +1465,14 @@ export function moveChapters(
 ): void {
   const bundle = readStoryFile(storyId);
   if (!bundle) return;
+  // 记录受影响的卷（源卷 + 目标卷）
+  const affectedVolumeIds = new Set<string>();
+  for (const ch of bundle.chapters) {
+    if (orderedIds.includes(ch.id) && ch.volume_id) {
+      affectedVolumeIds.add(ch.volume_id);
+    }
+  }
+  if (targetVolumeId) affectedVolumeIds.add(targetVolumeId);
   const orderMap: Record<string, number> = {};
   orderedIds.forEach((id, i) => (orderMap[id] = i));
   bundle.chapters = bundle.chapters.map((r) =>
@@ -1385,6 +1480,10 @@ export function moveChapters(
       ? { ...r, volume_id: targetVolumeId, order_index: orderMap[r.id], updated_at: nowISO() }
       : r,
   );
+  // 重算受影响卷的字数
+  for (const volId of affectedVolumeIds) {
+    recomputeVolumeWordCount(bundle, volId);
+  }
   bundle.story.updated_at = nowISO();
   writeStoryFile(storyId, bundle);
 }
@@ -1439,6 +1538,7 @@ export function createSection(data: { chapter_id: string; title: string; content
     updated_at: now,
   };
   bundle.sections.push(row);
+  recomputeChapterAndVolumeWordCount(bundle, data.chapter_id);
   bundle.story.updated_at = now;
   writeStoryFile(storyId, bundle);
   recomputeStoryStats(storyId);
@@ -1452,7 +1552,9 @@ export function updateSection(id: string, patch: Partial<SectionRow>): SectionRo
   if (!bundle) return undefined;
   const idx = bundle.sections.findIndex((r) => r.id === id);
   if (idx < 0) return undefined;
+  const chId = bundle.sections[idx].chapter_id;
   bundle.sections[idx] = { ...bundle.sections[idx], ...patch, updated_at: nowISO() };
+  if (patch.content !== undefined && chId) recomputeChapterAndVolumeWordCount(bundle, chId);
   bundle.story.updated_at = nowISO();
   writeStoryFile(storyId, bundle);
   if (patch.content !== undefined) recomputeStoryStats(storyId);
@@ -1464,7 +1566,10 @@ export function deleteSection(id: string): void {
   if (!storyId) return;
   const bundle = readStoryFile(storyId);
   if (!bundle) return;
+  const sec = bundle.sections.find((r) => r.id === id);
+  const chId = sec?.chapter_id;
   bundle.sections = bundle.sections.filter((r) => r.id !== id);
+  if (chId) recomputeChapterAndVolumeWordCount(bundle, chId);
   bundle.story.updated_at = nowISO();
   writeStoryFile(storyId, bundle);
   recomputeStoryStats(storyId);
@@ -1492,6 +1597,7 @@ export function bulkCreateVolumes(rows: Array<{ story_id: string; title: string;
         story_id: storyId,
         title: r.title,
         order_index: order,
+        word_count: 0,
         created_at: now,
         updated_at: now,
       });
@@ -1523,6 +1629,7 @@ export function bulkCreateChapters(rows: Array<{ story_id: string; volume_id?: s
         volume_id: r.volume_id ?? null,
         title: r.title,
         order_index: order,
+        word_count: 0,
         created_at: now,
         updated_at: now,
       });
@@ -1576,6 +1683,11 @@ export function bulkCreateSections(rows: Array<{ chapter_id: string; title: stri
       });
       result.push({ id, _oldId: r._oldId });
     }
+    // 重新计算受影响章/卷的字数缓存
+    const affectedChapterIds = new Set(byStory[storyId].map((r) => r.chapter_id));
+    for (const chId of affectedChapterIds) {
+      recomputeChapterAndVolumeWordCount(bundle, chId);
+    }
     bundle.story.updated_at = now;
     writeStoryFile(storyId, bundle);
     recomputeStoryStats(storyId);
@@ -1602,6 +1714,8 @@ export function setSectionContent(id: string, content: string | null): void {
   const oldWc = bundle.sections[idx].word_count || 0;
   const wc = countWordsInHtml(content);
   bundle.sections[idx] = { ...bundle.sections[idx], content, word_count: wc, updated_at: nowISO() };
+  const chId = bundle.sections[idx].chapter_id;
+  if (chId) recomputeChapterAndVolumeWordCount(bundle, chId);
   bundle.story.updated_at = nowISO();
   writeStoryFile(storyId, bundle);
   // 增量更新 stats 缓存
@@ -1696,8 +1810,19 @@ export function moveSections(
       });
     }
   }
-  // 写回所有修改过的 bundles
+  // 收集所有受影响的 chapter_id（源章 + 目标章）
+  const affectedChapterIds = new Set<string>();
+  for (const s of movedSections) {
+    if (s.chapter_id) affectedChapterIds.add(s.chapter_id);
+  }
+  if (targetChapterId) affectedChapterIds.add(targetChapterId);
+  // 写回所有修改过的 bundles，并重算受影响的章/卷字数
   for (const [sid, bundle] of bundles) {
+    for (const chId of affectedChapterIds) {
+      if (bundle.chapters.some((c) => c.id === chId)) {
+        recomputeChapterAndVolumeWordCount(bundle, chId);
+      }
+    }
     bundle.story.updated_at = nowISO();
     writeStoryFile(sid, bundle);
   }
@@ -2067,6 +2192,10 @@ export function cleanupStoryFromFavorites(storyId: string): void {
 }
 
 // —— 图片库 —— //
+function sanitizeFolderName(name: string): string {
+  return name.replace(/[\\/:*?"<>|]/g, '_').slice(0, 100);
+}
+
 type ImageLibraryFolderRow = {
   id: string;
   name: string;
@@ -2081,6 +2210,8 @@ type ImageLibraryItemRow = {
   url: string;
   filename: string;
   source: 'local' | 'url';
+  // 改动 v3：拖动换顺序字段，0-based 整数；缺失时按 created_at 排序
+  order?: number;
   created_at: string;
 };
 
@@ -2088,6 +2219,23 @@ type ImageLibraryData = {
   folders: Record<string, ImageLibraryFolderRow>;
   items: Record<string, ImageLibraryItemRow>;
 };
+
+/** 根据 folderId 递归构建磁盘目录路径（支持嵌套） */
+export function buildFolderDiskPath(folderId: string, data?: ImageLibraryData): string | null {
+  const d = data ?? loadImageLibrary();
+  const folder = d.folders[folderId];
+  if (!folder) return null;
+  const parts: string[] = [];
+  const visited = new Set<string>();  // v7: 循环引用检测，防止 parentId 链成环导致无限循环
+  let cur: ImageLibraryFolderRow | null = folder;
+  while (cur) {
+    if (visited.has(cur.id)) break;  // 检测到循环，中断
+    visited.add(cur.id);
+    parts.unshift(sanitizeFolderName(cur.name));
+    cur = cur.parentId ? d.folders[cur.parentId] : null;
+  }
+  return path.join(getImagesDir(), ...parts);
+}
 
 function loadImageLibrary(): ImageLibraryData {
   return loadGlobalJSON<ImageLibraryData>('image_library', { folders: {}, items: {} });
@@ -2106,6 +2254,18 @@ export function listImageLibraryFolders(parentId?: string | null): ImageLibraryF
   return folders.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 }
 
+// v36: 列出所有文件夹(不过滤 parentId),用于子目录删除时的统计
+export function listAllImageLibraryFolders(): ImageLibraryFolderRow[] {
+  const data = loadImageLibrary();
+  return Object.values(data.folders);
+}
+
+// v36: 列出所有图片项(不过滤 folderId),用于子目录删除时的统计
+export function listAllImageLibraryItems(): ImageLibraryItemRow[] {
+  const data = loadImageLibrary();
+  return Object.values(data.items);
+}
+
 export function createImageLibraryFolder(folderData: { name: string; parentId: string | null }): ImageLibraryFolderRow {
   if (!folderData.name || !folderData.name.trim()) {
     throw new Error('文件夹名称不能为空');
@@ -2121,15 +2281,63 @@ export function createImageLibraryFolder(folderData: { name: string; parentId: s
   };
   data.folders[row.id] = row;
   saveImageLibrary(data);
+  // 同步创建磁盘子目录（修复：新建文件夹不在 data/images 下创建子目录的 bug）
+  try {
+    const diskPath = buildFolderDiskPath(row.id, data);
+    if (diskPath && !fs.existsSync(diskPath)) {
+      fs.mkdirSync(diskPath, { recursive: true });
+    }
+  } catch (e) {
+    console.warn('[imageLibrary] 创建磁盘子目录失败:', e);
+  }
   return row;
 }
 
 export function renameImageLibraryFolder(id: string, name: string): ImageLibraryFolderRow | null {
   const data = loadImageLibrary();
   if (!data.folders[id]) return null;
+
+  // v35: 记录旧 URL 前缀（用于后续更新 item URL）
+  const imagesDir = getImagesDir();
+  const oldDiskPath = buildFolderDiskPath(id, data);
+  let oldUrlPrefix: string | null = null;
+  if (oldDiskPath) {
+    const oldRel = path.relative(imagesDir, oldDiskPath).replace(/\\/g, '/');
+    oldUrlPrefix = `local:///${oldRel}/`;
+  }
+
+  // 更新文件夹名
   data.folders[id].name = name.trim();
   data.folders[id].updated_at = nowISO();
+
+  // v35: 计算新 URL 前缀
+  const newDiskPath = buildFolderDiskPath(id, data);
+  let newUrlPrefix: string | null = null;
+  if (newDiskPath) {
+    const newRel = path.relative(imagesDir, newDiskPath).replace(/\\/g, '/');
+    newUrlPrefix = `local:///${newRel}/`;
+  }
+
+  // v35: 更新该文件夹及所有子文件夹下图片的 URL
+  // 子文件夹下的图片 URL 也以 oldUrlPrefix 开头
+  // （如 local:///oldName/child/image.png），会自动更新为 local:///newName/child/image.png
+  if (oldUrlPrefix && newUrlPrefix && oldUrlPrefix !== newUrlPrefix) {
+    for (const item of Object.values(data.items)) {
+      if (!item.url || !item.url.startsWith(oldUrlPrefix)) continue;
+      item.url = newUrlPrefix + item.url.slice(oldUrlPrefix.length);
+    }
+  }
+
   saveImageLibrary(data);
+
+  // 同步 rename 磁盘目录
+  try {
+    if (oldDiskPath && newDiskPath && oldDiskPath !== newDiskPath && fs.existsSync(oldDiskPath)) {
+      fs.renameSync(oldDiskPath, newDiskPath);
+    }
+  } catch (e) {
+    console.warn('[imageLibrary] rename 磁盘目录失败:', e);
+  }
   return data.folders[id];
 }
 
@@ -2160,6 +2368,15 @@ export function deleteImageLibraryFolder(id: string): { ok: boolean; error?: str
     }
   }
   saveImageLibrary(data);
+  // 同步删除磁盘目录
+  try {
+    const diskPath = buildFolderDiskPath(id, data);
+    if (diskPath && fs.existsSync(diskPath)) {
+      fs.rmSync(diskPath, { recursive: true, force: true });
+    }
+  } catch (e) {
+    console.warn('[imageLibrary] 删除磁盘目录失败:', e);
+  }
   return { ok: true };
 }
 
@@ -2167,19 +2384,38 @@ export function listImageLibraryItems(folderId?: string | null): ImageLibraryIte
   const data = loadImageLibrary();
   let items = Object.values(data.items);
   if (folderId !== undefined) {
-    items = items.filter((it) => it.folderId === folderId);
+    // v9 兼容老数据：folderId === null 时也匹配 folderId === undefined（历史遗留数据）
+    if (folderId === null) {
+      items = items.filter((it) => it.folderId === null || it.folderId === undefined);
+    } else {
+      items = items.filter((it) => it.folderId === folderId);
+    }
   }
-  return items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  // 改动 v3：优先按 order 升序排序，缺失 order 的项回退到 created_at 倒序
+  return items.sort((a, b) => {
+    const aHasOrder = typeof a.order === 'number';
+    const bHasOrder = typeof b.order === 'number';
+    if (aHasOrder && bHasOrder) {
+      return a.order! - b.order!;
+    }
+    if (aHasOrder && !bHasOrder) return -1;
+    if (!aHasOrder && bHasOrder) return 1;
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  });
 }
 
 export function addImageLibraryItem(itemData: { folderId: string | null; url: string; filename: string; source: 'local' | 'url' }): ImageLibraryItemRow {
   const data = loadImageLibrary();
+  // 改动 v3：自动设置 order = 当前 folder 内 item 总数（0-based 追加到末尾）
+  const sameFolder = Object.values(data.items).filter((it) => it.folderId === itemData.folderId);
+  const maxOrder = sameFolder.reduce((m, it) => (typeof it.order === 'number' ? Math.max(m, it.order) : m), -1);
   const row: ImageLibraryItemRow = {
     id: uuid4(),
     folderId: itemData.folderId,
     url: itemData.url,
     filename: itemData.filename,
     source: itemData.source,
+    order: maxOrder + 1,
     created_at: nowISO(),
   };
   data.items[row.id] = row;
@@ -2197,8 +2433,368 @@ export function deleteImageLibraryItem(id: string): { ok: boolean; error?: strin
 
 export function moveImageLibraryItem(id: string, folderId: string | null): ImageLibraryItemRow | null {
   const data = loadImageLibrary();
-  if (!data.items[id]) return null;
-  data.items[id].folderId = folderId;
+  const row = data.items[id];
+  if (!row) return null;
+  if (row.folderId === folderId) return row;  // 没变化
+  // 改动 v3：跨文件夹移动时把 order 追加到目标 folder 末尾
+  const sameFolder = Object.values(data.items).filter((it) => it.folderId === folderId && it.id !== id);
+  const maxOrder = sameFolder.reduce((m, it) => (typeof it.order === 'number' ? Math.max(m, it.order) : m), -1);
+  row.order = maxOrder + 1;
+  // 改动 v3：磁盘文件也搬到目标 folder 子目录（仅 local:// 图片）
+  if (row.url.startsWith('local://') && row.source === 'local') {
+    try {
+      const oldUrlPath = row.url.replace(/^local:\/\//, '');
+      if (oldUrlPath.includes('..') || oldUrlPath.startsWith('/') || oldUrlPath.startsWith('\\')) {
+        // 非法 url，忽略磁盘搬移
+      } else {
+        const oldFullPath = path.join(getImagesDir(), oldUrlPath);
+        const oldFolder = path.dirname(oldFullPath);
+        // 目标子目录
+        let newFolder: string | null = null;
+        if (folderId) {
+          newFolder = buildFolderDiskPath(folderId, data);
+        } else {
+          newFolder = getImagesDir();
+        }
+        if (newFolder && fs.existsSync(oldFullPath)) {
+          if (!fs.existsSync(newFolder)) fs.mkdirSync(newFolder, { recursive: true });
+          let newFullPath = path.join(newFolder, path.basename(oldFullPath));
+          // v6 修复：目标已有同名文件 → 加 (1)(2) 后缀，避免跳过 rename 但 url 已改的 bug
+          if (fs.existsSync(newFullPath) && newFullPath !== oldFullPath) {
+            const ext = path.extname(oldFullPath);
+            const stem = path.basename(oldFullPath, ext);
+            let i = 1;
+            while (fs.existsSync(path.join(newFolder, `${stem} (${i})${ext}`))) i++;
+            newFullPath = path.join(newFolder, `${stem} (${i})${ext}`);
+          }
+          fs.renameSync(oldFullPath, newFullPath);
+          // 修正 row.url 反映新位置
+          const rel = path.relative(getImagesDir(), newFullPath).replace(/\\/g, '/');
+          row.url = 'local:///' + rel;
+        }
+      }
+    } catch (e) {
+      // v6 修复：磁盘搬移失败时抛错，不让 DB 与磁盘状态不一致
+      console.error('[imageLibrary] 搬移磁盘文件失败:', e);
+      throw new Error('磁盘文件搬移失败：' + (e as Error).message);
+    }
+  }
+  // v7 修复：URL 图片拖文件夹时维护 .urls.json（local:// 图片已由上面磁盘搬移处理）
+  if (row.source === 'url' && row.url.startsWith('http')) {
+    try {
+      const imagesDir = getImagesDir();
+      // 源文件夹路径（搬移前的 folderId）
+      const oldFolderId = row.folderId;
+      const oldDir = oldFolderId ? buildFolderDiskPath(oldFolderId, data) : imagesDir;
+      // 目标文件夹路径
+      const newDir = folderId ? buildFolderDiskPath(folderId, data) : imagesDir;
+      // 从源 .urls.json 移除
+      if (oldDir) removeUrlRecord(oldDir, row.url);
+      // 追加到目标 .urls.json
+      if (newDir) {
+        appendUrlRecord({
+          dir: newDir,
+          record: { url: row.url, filename: row.filename, created_at: row.created_at || new Date().toISOString() },
+        });
+      }
+    } catch (e) {
+      console.error('[imageLibrary] 维护 .urls.json 失败:', e);
+      // 不抛错：.urls.json 失败不应阻塞 DB 移动
+    }
+  }
+  row.folderId = folderId;
   saveImageLibrary(data);
   return data.items[id];
+}
+
+/**
+ * 改动 v13: 资源库 reconcile
+ * 检测每个 item 的 folderId 与磁盘实际位置是否一致,不一致时以磁盘为准修正 folderId
+ * - 文件实际在根目录但 DB folderId 是某个子目录 → folderId 设为 null
+ * - 文件实际在子目录但 DB folderId 是 null → 保持 null (无法从 URL 反推 folderId,用户手动处理)
+ * - folderId 指向已删除的文件夹 → folderId 设为 null
+ * - URL 图片 (http://) 跳过
+ *
+ * 返回: 修正的 item 列表 (id, newFolderId, reason)
+ */
+export function reconcileImageLibrary(): Array<{ id: string; newFolderId: string | null; reason: string }> {
+  const data = loadImageLibrary();
+  const imagesDir = getImagesDir();
+  const changes: Array<{ id: string; newFolderId: string | null; reason: string }> = [];
+  for (const item of Object.values(data.items)) {
+    // 跳过 URL 图片
+    if (!item.url.startsWith('local://')) continue;
+    // 解析 URL 对应的物理路径
+    const urlPath = item.url.replace(/^local:\/\//, '');
+    const actualPath = path.join(imagesDir, urlPath);
+    const actualDir = path.normalize(path.dirname(actualPath));
+    // 解析 folderId 对应的期望物理路径
+    let expectedDir: string;
+    if (item.folderId) {
+      const nestedDir = buildFolderDiskPath(item.folderId, data);
+      if (!nestedDir) {
+        // folderId 无效 → 修正为 null
+        changes.push({ id: item.id, newFolderId: null, reason: 'deleted-folder' });
+        item.folderId = null;
+        continue;
+      }
+      expectedDir = path.normalize(nestedDir);
+    } else {
+      expectedDir = path.normalize(imagesDir);
+    }
+    // 比较
+    if (actualDir !== expectedDir) {
+      // 不一致 → 以磁盘实际位置为准
+      if (actualDir === path.normalize(imagesDir)) {
+        // 文件实际在根 → folderId 设为 null
+        changes.push({ id: item.id, newFolderId: null, reason: 'moved-from-folder-to-root' });
+        item.folderId = null;
+      } else {
+        // 文件在某个子目录但 DB folderId 错 → 设为 null (保守)
+        changes.push({ id: item.id, newFolderId: null, reason: 'folder-changed' });
+        item.folderId = null;
+      }
+    }
+  }
+  if (changes.length > 0) {
+    saveImageLibrary(data);
+    console.log(`[imageLibrary] reconcile 修正了 ${changes.length} 个 item:`, changes);
+  }
+  return changes;
+}
+
+/**
+ * 全量同步磁盘 data/images → DB（folders + items 一次性完成）。
+ *
+ * 三步（详见 src/utils/syncDiskToDb.ts）：
+ * 1. 递归同步 folders：磁盘子目录 → DB folder 记录（同名同父级复用 folderId）
+ * 2. 递归收集磁盘上所有图片文件
+ * 3. 同步 items：磁盘有但 DB 没有 → 新增；DB 有但磁盘没有且 source='local' → 删除
+ *
+ * 调用时机：ImageLibraryPage.refresh() 在 reconcile 之后调用。
+ * 失败处理：抛出异常由调用方决定（IPC 层会 catch 并返回 { ok: false }）。
+ *
+ * 持久化：仅在 foldersCreated/itemsAdded/itemsDeleted > 0 时写盘（foldersReused 不触发写盘）。
+ */
+export function syncDiskToDb(): SyncDiskToDbResult {
+  const data = loadImageLibrary();
+  const imagesDir = getImagesDir();
+  const counters = syncDiskToDbPure(data, imagesDir);
+  if (counters.foldersCreated > 0 || counters.itemsAdded > 0 || counters.itemsDeleted > 0) {
+    saveImageLibrary(data);
+    console.log(
+      `[imageLibrary] syncDiskToDb: +${counters.foldersCreated} folders (reused ${counters.foldersReused}), +${counters.itemsAdded} items, -${counters.itemsDeleted} items`,
+    );
+  }
+  return counters;
+}
+
+// v14：一次性数据迁移，修复 v13 引入的"根目录"子目录污染
+// 详见 src/utils/migrateImageLibraryRootFolder.ts
+// 启动时自动调用（initMainDatabase 末尾），幂等
+export function migrateV13RootFolderBugData(): {
+  changes: Array<{ id: string; oldUrl: string; newUrl: string; reason: string }>;
+  deletedRootDir: boolean;
+} {
+  const data = loadImageLibrary();
+  const imagesDir = getImagesDir();
+  const items = Object.values(data.items).map((it) => ({
+    id: it.id,
+    url: it.url,
+    folderId: it.folderId,
+  }));
+  const result = migrateV13RootFolderBug(items, imagesDir);
+  if (result.changes.length > 0) {
+    // 同步修改回 data.items
+    for (const change of result.changes) {
+      const row = data.items[change.id];
+      if (row) row.url = change.newUrl;
+    }
+    saveImageLibrary(data);
+    console.log(
+      `[imageLibrary] v14 migrate 修复了 ${result.changes.length} 个 item:`,
+      result.changes,
+      result.deletedRootDir ? '(已删除空目录)' : '',
+    );
+  }
+  return result;
+}
+
+/**
+ * v21 迁移：把 DB 中旧 local://（两斜杠）URL 统一改为 local:///（三斜杠）。
+ *
+ * 背景：v19 把 scanImageDirectory 改为生成 local:/// 格式，
+ * 但 DB 中已存的图片记录仍是旧 local:// 格式，
+ * 导致 reconcileImageLibrary 和 dbUrls.has(f.url) 匹配失败。
+ *
+ * 规则：
+ * - local://001/4.png → local:///001/4.png
+ * - local://1.png → local:///1.png
+ * - 已是 local:/// 格式 → 跳过
+ * - 非 local:// 开头 → 跳过（http:// 等）
+ *
+ * 幂等：重复运行无副作用。
+ */
+export function migrateLocalUrlToPathBased(): void {
+  const data = loadImageLibrary();
+  let changed = false;
+  for (const item of Object.values(data.items)) {
+    if (!item.url.startsWith('local://')) continue;
+    if (item.url.startsWith('local:///')) continue; // 已是新格式
+    // local://xxx → local:///xxx
+    const rest = item.url.replace(/^local:\/\//, '');
+    item.url = `local:///${rest}`;
+    changed = true;
+  }
+  if (changed) {
+    saveImageLibrary(data);
+    console.log('[imageLibrary] v21 迁移：local:// → local:///');
+  }
+}
+
+// 改动 v3：资源库图片重命名 / 跨文件夹移动（DB 部分），同步 db 的 filename/url 等
+export function updateImageLibraryItem(
+  id: string,
+  patch: { filename?: string; url?: string; folderId?: string | null },
+): ImageLibraryItemRow | null {
+  const data = loadImageLibrary();
+  const row = data.items[id];
+  if (!row) return null;
+  if (patch.filename !== undefined) row.filename = patch.filename;
+  if (patch.url !== undefined) row.url = patch.url;
+  if (patch.folderId !== undefined) {
+    // 跨文件夹移动时把 order 追加到目标 folder 末尾
+    if (patch.folderId !== row.folderId) {
+      const sameFolder = Object.values(data.items).filter(
+        (it) => it.folderId === patch.folderId && it.id !== id,
+      );
+      const maxOrder = sameFolder.reduce(
+        (m, it) => (typeof it.order === 'number' ? Math.max(m, it.order) : m),
+        -1,
+      );
+      row.order = maxOrder + 1;
+    }
+    row.folderId = patch.folderId;
+  }
+  saveImageLibrary(data);
+  return row;
+}
+
+// 改动 v3：拖动换顺序 — 按 ids 顺序重置 order（0, 1, 2, ...），仅对 folderId 相同的项生效
+export function reorderImageLibraryItems(
+  ids: string[],
+  folderId: string | null,
+): { ok: boolean; error?: string } {
+  const data = loadImageLibrary();
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i];
+    const row = data.items[id];
+    if (row && row.folderId === folderId) {
+      row.order = i;
+    }
+  }
+  saveImageLibrary(data);
+  return { ok: true };
+}
+
+// —— 素材网站推荐（material_sites）—— //
+type MaterialSiteRow = {
+  id: string;
+  name: string;
+  url: string;
+  category: string; // MaterialCategory
+  description?: string;
+  created_at: string;
+  updated_at: string;
+};
+
+function loadMaterialSites(): Record<string, MaterialSiteRow> {
+  return loadGlobalJSON<Record<string, MaterialSiteRow>>('material_sites', {});
+}
+
+function saveMaterialSites(data: Record<string, MaterialSiteRow>): void {
+  saveGlobalJSON('material_sites', data);
+}
+
+export function listMaterialSites(): MaterialSiteRow[] {
+  const data = loadMaterialSites();
+  return Object.values(data).sort((a, b) =>
+    a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0,
+  );
+}
+
+export function createMaterialSite(input: {
+  name: string;
+  url: string;
+  category: string;
+  description?: string;
+}): MaterialSiteRow {
+  const data = loadMaterialSites();
+  const now = new Date().toISOString();
+  const id = `mat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const row: MaterialSiteRow = {
+    id,
+    name: input.name,
+    url: input.url,
+    category: input.category,
+    description: input.description || '',
+    created_at: now,
+    updated_at: now,
+  };
+  data[id] = row;
+  saveMaterialSites(data);
+  return row;
+}
+
+export function updateMaterialSite(
+  id: string,
+  patch: Partial<Omit<MaterialSiteRow, 'id' | 'created_at'>>,
+): MaterialSiteRow | null {
+  const data = loadMaterialSites();
+  const row = data[id];
+  if (!row) return null;
+  if (patch.name !== undefined) row.name = patch.name;
+  if (patch.url !== undefined) row.url = patch.url;
+  if (patch.category !== undefined) row.category = patch.category;
+  if (patch.description !== undefined) row.description = patch.description;
+  row.updated_at = new Date().toISOString();
+  saveMaterialSites(data);
+  return row;
+}
+
+export function deleteMaterialSite(id: string): boolean {
+  const data = loadMaterialSites();
+  if (!data[id]) return false;
+  delete data[id];
+  saveMaterialSites(data);
+  return true;
+}
+
+/**
+ * 首次启动时预填常用素材网站（仅当 material_sites.json 不存在时执行）
+ */
+function seedMaterialSitesIfEmpty(): void {
+  const p = dataFilePath('material_sites');
+  if (fs.existsSync(p)) return;
+  const presets: Array<{ name: string; url: string; category: string; description: string }> = [
+    { name: 'Unsplash', url: 'https://unsplash.com', category: '图片', description: '高质量免费摄影图片' },
+    { name: 'Pexels', url: 'https://www.pexels.com', category: '图片', description: '免费图片和视频素材' },
+    { name: 'Pixiv', url: 'https://www.pixiv.net', category: '图片', description: '日本插画/漫画创作社区' },
+    { name: 'Pngtree', url: 'https://pngtree.com', category: '图片', description: 'PNG 素材与透明背景图' },
+    { name: 'Iconfont', url: 'https://www.iconfont.cn', category: '图标', description: '阿里巴巴矢量图标库' },
+    { name: 'Flaticon', url: 'https://www.flaticon.com', category: '图标', description: '免费矢量图标库' },
+    { name: 'Google Fonts', url: 'https://fonts.google.com', category: '字体', description: '谷歌免费网页字体' },
+    { name: 'FontAwesome', url: 'https://fontawesome.com', category: '字体', description: '图标字体库' },
+    { name: 'Freesound', url: 'https://freesound.org', category: '音效', description: '免费音效素材社区' },
+    { name: 'NGA 安科版块', url: 'https://bbs.nga.cn/thread.php?fid=784', category: '教程', description: 'NGA 安科创作交流版块' },
+    { name: '骨碌碌', url: 'https://www.gululu.world/', category: '工具', description: '在线随机数/骰子生成工具' },
+    { name: 'BanG Dream!差分', url: 'https://live2d.haneoka.org/', category: '图片', description: 'BanG Dream!全员Live2D差分制作工具' },
+  ];
+  const data: Record<string, MaterialSiteRow> = {};
+  const now = new Date().toISOString();
+  for (const item of presets) {
+    const id = `mat-seed-${Math.random().toString(36).slice(2, 10)}`;
+    data[id] = { id, ...item, created_at: now, updated_at: now };
+  }
+  saveMaterialSites(data);
 }

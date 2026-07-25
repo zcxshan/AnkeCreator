@@ -13,6 +13,9 @@ export default defineConfig({
     electron([
       {
         entry: 'electron/main.ts',
+        onstart(args) {
+          args.startup(['.', '--no-sandbox', '--remote-debugging-port=9222'])
+        },
         vite: {
           build: {
             outDir: 'dist-electron',

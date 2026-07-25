@@ -1,7 +1,5 @@
 // 统一封装：图片上传/保存
-// - 根据 useSettingStore.imageStoreMode 分发：
-//     'remote' → 走 4 图床链（catbox → sm.ms → 0x0.st → telegra.ph）
-//     'local'  → 走 Electron 主进程写文件 + local:// 协议；Capacitor 走 Filesystem
+// - 仅本地保存模式：走 Electron 主进程写文件 + local:// 协议；Capacitor 走 Filesystem
 // - 单张：uploadImageFile()
 // - 多张 + 进度回调：uploadImagesWithProgress()
 // - 失败时返回 { ok: false, error }，**不**降级到 base64（用户硬约束）
@@ -72,9 +70,9 @@ export async function ensureLocalWarning(): Promise<boolean> {
 }
 
 /**
- * 单张上传/保存：根据 settingStore.imageStoreMode 分发
- * - 'remote' → uploadToRemote（4 图床链）
- * - 'local'  → saveImageLocal（Electron 模式用 filePath 作为 URL）
+ * 单张上传/保存：本地保存模式
+ * - Electron：主进程写文件 + local:// 协议
+ * - Capacitor：@capacitor/filesystem 写入设备 Documents
  *
  * @param filePath Electron selectImage IPC 返回的绝对路径（仅本地模式有效）
  */
@@ -82,11 +80,7 @@ export async function uploadImageFile(
   file: File | Blob,
   filePath?: string,
 ): Promise<UploadedImage> {
-  const mode = useSettingStore.getState().imageStoreMode;
-  if (mode === 'local') {
-    return saveImageLocal(file, filePath);
-  }
-  return uploadToRemote(file);
+  return saveImageLocal(file, filePath);
 }
 
 /**
@@ -239,7 +233,7 @@ async function saveImageLocal(
   // 3. 纯浏览器：返回错误
   return {
     ok: false,
-    error: '本地保存仅支持 Electron 或 Capacitor 应用，请切换到"远端图床"模式',
+    error: '本地保存仅支持 Electron 或 Capacitor 应用',
     host: 'local',
   };
 }
@@ -252,53 +246,4 @@ function fileToDataURL(file: File | Blob): Promise<string> {
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
   });
-}
-
-/**
- * 远端图床：Electron IPC 或浏览器 fetch
- * - Electron：主进程走 4 图床链，避开 CORS
- * - 浏览器：直接 fetch 走 4 图床链
- * - **不**降级到 base64；全部失败时返回 ok:false
- */
-async function uploadToRemote(file: File | Blob): Promise<UploadedImage> {
-  // Electron：主进程上传
-  if (
-    typeof window !== 'undefined' &&
-    window.electronAPI?.uploadImage &&
-    file instanceof File
-  ) {
-    try {
-      const buf = await fileToBase64(file);
-      const res = await window.electronAPI.uploadImage({
-        buffer: buf,
-        filename: file.name,
-        mimeType: file.type || 'image/png',
-      });
-      return {
-        ok: res.ok,
-        url: res.url,
-        error: res.error,
-        host: (res as any).host,
-      };
-    } catch (e) {
-      return { ok: false, error: (e as Error)?.message || '上传失败' };
-    }
-  }
-  // 浏览器：直接 fetch
-  try {
-    const mod = await import('./imageHosting');
-    const uploadPromise = mod.uploadImage(
-      file,
-      file instanceof File ? file.name : undefined,
-    );
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error('图床上传超时（30s），建议改用本地上传')), 30000);
-    });
-    const res = await Promise.race([uploadPromise, timeoutPromise]);
-    return { ok: res.ok, url: res.url, error: res.error, host: res.host };
-  } catch (e) {
-    const msg = (e as Error)?.message || '上传失败';
-    const hint = isCapacitor ? '（图床可能 CORS 拦截或网络超时，建议改用本地上传）' : '';
-    return { ok: false, error: msg + hint };
-  }
 }

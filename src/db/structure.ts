@@ -290,6 +290,8 @@ function countWordsInHtml(html: string | null | undefined): number {
   const text = html
     .replace(/<style[\s\S]*?<\/style>/gi, '')
     .replace(/<script[\s\S]*?<\/script>/gi, '')
+    // 排除原子块（骰子卡 / 图片块）内部文字，与 UI 层 countWordsFromHtml 算法一致
+    .replace(/<div\b[^>]*\bdata-type=["'](?:image-block|dice-card)["'][^>]*>[\s\S]*?<\/div>/gi, '')
     .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/g, ' ')
     .replace(/&[a-z]+;/gi, ' ')
@@ -496,6 +498,17 @@ export async function bulkCreateSections(
     results.push({ id: sec.id, _oldId: r._oldId })
   }
   return results
+}
+
+/**
+ * 重新计算指定 story 下所有 sections/chapters/volumes 的 word_count
+ * 用于导入流程完成后校准字数缓存，确保进度条走完时所有字数都已正确落盘
+ */
+export async function recomputeStoryWordCounts(storyId: string): Promise<boolean> {
+  if (window.dbAPI?.recomputeStoryWordCounts) {
+    return window.dbAPI.recomputeStoryWordCounts(storyId)
+  }
+  return false
 }
 
 // ---- 聚合查询：一次取出一个故事的全部内容（给导出器用） ----

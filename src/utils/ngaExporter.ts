@@ -6,8 +6,8 @@
 // [quote]/[collapse]/[img]/[list]/[url]/[sup]/[sub] 等标签。
 // ============================================================
 
-import type { Character, Section, Story, DiceConfig, DiceResult } from '../types';
-import { htmlToNGABBCode } from './ngaHtmlToBBCode';
+import type { Character, Section, Story, DiceConfig, DiceResult, DiceStyleConfig, DiceTextStyle } from '../types';
+import { htmlToNGABBCode, cssColorToNga, cssFontToNga, ptToSizePercent } from './ngaHtmlToBBCode';
 
 const DEFAULT_SECTION_SEPARATOR = '\n\n';
 
@@ -22,18 +22,45 @@ const DEFAULT_CHARACTER_COLORS = [
   'yellow',
 ];
 
+/** 把 DiceTextStyle 转为 NGA BBCode 内联标签包裹。
+ *  顺序：先 color/size/font（外层），再 b/i/u/del（内层）。
+ *  只为 true 的布尔属性添加标签，避免空标签。 */
+function diceTextStyleToBBCode(text: string, style: DiceTextStyle | undefined): string {
+  if (!style) return text;
+  let result = text;
+  if (style.color) {
+    const ngaName = cssColorToNga(style.color);
+    if (ngaName) result = `[color=${ngaName}]${result}[/color]`;
+  }
+  if (style.fontSize) {
+    const pct = ptToSizePercent(style.fontSize);
+    if (pct) result = `[size=${pct}]${result}[/size]`;
+  }
+  if (style.fontFamily) {
+    const ngaFont = cssFontToNga(style.fontFamily);
+    if (ngaFont) result = `[font=${ngaFont}]${result}[/font]`;
+  }
+  if (style.bold) result = `[b]${result}[/b]`;
+  if (style.italic) result = `[i]${result}[/i]`;
+  if (style.underline) result = `[u]${result}[/u]`;
+  if (style.strike) result = `[del]${result}[/del]`;
+  return result;
+}
+
 /** 单个骰子 → NGA BBCode 折叠/引用块。
  *  - 数值骰子：始终 [b]标题ROLL 1dN=…[/b]
  *  - 选项骰子：
  *      options ≤ 10 → [quote]…[/quote] 包裹，首/末各一行 [b]…ROLL…[/b]，命中项 [b]…[/b]
  *      options >  10 → [collapse=标题ROLL 1dN=…]…[/collapse] 包裹，命中项 [b]…[/b]
+ *  - 需求4:若 payload.style 存在，按用户配置的样式包裹对应文本
  *  由 ngaHtmlToBBCode 在转换 dice-card 节点时调用。 */
 export function renderDiceBlock(
-  payload: { config: DiceConfig; lastResult: DiceResult | null },
+  payload: { config: DiceConfig; lastResult: DiceResult | null; style?: DiceStyleConfig },
   opts: { mark_hit?: boolean } = {},
 ): string {
   const cfg = payload.config;
   const last = payload.lastResult;
+  const style = payload.style;
   const markHit = opts.mark_hit ?? true;
   const kind = cfg.kind || 'option';
 
@@ -52,31 +79,51 @@ export function renderDiceBlock(
     const value = last ? last.total : faces;
     const rollText = last ? `ROLL 1d${faces}=${value}` : `ROLL 1d${faces}=?`;
     const lines: string[] = [];
-    // 首行：标题（不含 ROLL），空标题则跳过
+    // 首行：标题（不含 ROLL），空标题则跳过（名称行不应用 resultText，与 DOM 一致）
     if (name) lines.push(`[b]${name}[/b]`);
     sorted.forEach((opt) => {
       const lo = Math.min(...opt.values);
       const hi = Math.max(...opt.values);
       const isHit =
         markHit && last && last.total >= lo && last.total <= hi;
-      // 直接输出选项文本，不加序号范围前缀
-      lines.push(isHit ? `[b]${opt.content}[/b]` : opt.content);
+      if (isHit) {
+        // 命中选项：有 style 时应用 selectedOption（合并默认 bold:true），否则默认 [b]
+        lines.push(
+          style?.selectedOption
+            ? diceTextStyleToBBCode(opt.content, { bold: true, ...style.selectedOption })
+            : `[b]${opt.content}[/b]`,
+        );
+      } else {
+        // 未命中选项：有 style 时应用 unselectedOption，否则纯文本
+        lines.push(
+          style?.unselectedOption
+            ? diceTextStyleToBBCode(opt.content, style.unselectedOption)
+            : opt.content,
+        );
+      }
     });
-    // 末行：ROLL 1dN=命中值
-    lines.push(`[b]${rollText}[/b]`);
+    // 末行：ROLL 1dN=命中值（有 style 时应用 resultText，合并默认 bold:true）
+    lines.push(
+      style?.resultText
+        ? diceTextStyleToBBCode(rollText, { bold: true, ...style.resultText })
+        : `[b]${rollText}[/b]`,
+    );
     if (optsArr.length > 10) {
       return `[collapse=${name ? name + ' ' : ''}${rollText}]\n${lines.join('\n')}\n[/collapse]`;
     }
     return `[quote]\n${lines.join('\n')}\n[/quote]`;
   }
 
-  // numeric：始终 [b]标题ROLL 表达式=…[/b]
+  // numeric：始终 [b]标题ROLL 表达式=…[/b]（有 style 时应用 resultText）
   const total = last ? last.total : 0;
 
   if (cfg.expression) {
     // 表达式模式：使用 displayText 或简化格式
     const displayText = last?.displayText || `[${cfg.expression}=?]`;
-    return `[b]${name ? name + ' ' : ''}ROLL ${displayText.slice(1, -1)}[/b]`;
+    const text = `${name ? name + ' ' : ''}ROLL ${displayText.slice(1, -1)}`;
+    return style?.resultText
+      ? diceTextStyleToBBCode(text, { bold: true, ...style.resultText })
+      : `[b]${text}[/b]`;
   }
 
   // 传统模式
@@ -86,7 +133,10 @@ export function renderDiceBlock(
   const modStr = modifier === 0 ? '' : modifier > 0 ? `+${modifier}` : `${modifier}`;
   const expr = `${count}d${faces}${modStr}`;
   // 用户示例是 1dN；我们按 1dN 输出最简形式
-  return `[b]${name ? name + ' ' : ''}ROLL ${expr}=${total}[/b]`;
+  const text = `${name ? name + ' ' : ''}ROLL ${expr}=${total}`;
+  return style?.resultText
+    ? diceTextStyleToBBCode(text, { bold: true, ...style.resultText })
+    : `[b]${text}[/b]`;
 }
 
 /** 节级 NGA 导出选项 */

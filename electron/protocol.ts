@@ -10,9 +10,10 @@ import { protocol, session } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import { getImagesDir } from './paths'
+import { parseLocalUrlToFileName } from '../src/utils/parseLocalUrl'
 
 // 本地图片存储目录（用于"本地保存"模式）
-// 路径：<dataRoot>/images/（打包 = <安装路径>/data/images/，dev = %APPDATA%\\...\\images\）
+// 路径：<dataRoot>/images/（打包 = <安装路径>/data/images/，dev = <项目根>/data/images/）
 // 文件名 = sha256(buffer)[:16] + ext
 // （getImagesDir() 内部已确保目录存在）
 
@@ -43,39 +44,52 @@ export function registerSchemesAsPrivileged(): void {
   ])
 }
 
-/** 注册 local:// 协议：把 local://<hash>.<ext> 映射到 <dataRoot>/images/ 下的文件 */
+/** 注册 local:// 协议：把 local://<hash>.<ext> 映射到 <dataRoot>/images/ 下的文件
+ *
+ * URL 解析见 src/utils/parseLocalUrl.ts（支持嵌套 URL v14 修复）
+ */
 export function registerLocalProtocol(): void {
   protocol.handle('local', async (request) => {
+    console.log('[local://] 收到请求:', request.url)
     try {
-      const imagesDir = getImagesDir() // 每次调用重新获取（支持路径动态变化）
-      const url = new URL(request.url)
-      // local://hash.png → hostname='hash.png'
-      // 也兼容 local:///hash.png → pathname='/hash.png'
-      let fileName = url.hostname || url.pathname.replace(/^\/+/, '')
-      // URL 解码（防止扩展名含特殊字符）
-      try {
-        fileName = decodeURIComponent(fileName)
-      } catch {
-        // ignore
-      }
+      const imagesDir = getImagesDir()
+      const fileName = parseLocalUrlToFileName(request.url)
       const filePath = path.join(imagesDir, fileName)
-      // 防路径穿越：必须位于 imagesDir 内
       const normalized = path.normalize(filePath)
+      // v19 诊断：记录 URL 解析详情
+      try {
+        const parsed = new URL(request.url)
+        console.log('[local://] URL 分解:', { hostname: parsed.hostname, pathname: parsed.pathname, fileName })
+      } catch {}
+      console.log('[local://] 解析:', {
+        requestUrl: request.url,
+        fileName,
+        imagesDir,
+        filePath: normalized,
+        exists: fs.existsSync(normalized),
+        size: fs.existsSync(normalized) ? fs.statSync(normalized).size : 0,
+      })
       if (
         !normalized.startsWith(path.normalize(imagesDir) + path.sep) &&
         normalized !== path.normalize(imagesDir)
       ) {
+        console.warn('[local://] 路径穿越拒绝:', normalized)
         return new Response('Forbidden', { status: 403 })
       }
       const data = await fs.promises.readFile(normalized)
+      console.log('[local://] 读取成功:', normalized, '大小:', data.length, 'bytes')
+      // v18 修复：直接传 Buffer(放弃 Uint8Array / Readable stream)
+      // v15-v17 走 stream 路径都失败,v18 回到最简方案
       return new Response(data, {
         status: 200,
         headers: {
           'Content-Type': getMimeByExt(normalized),
           'Cache-Control': 'no-cache',
+          'Content-Length': String(data.length),
         },
       })
     } catch (e) {
+      console.error('[local://] 处理失败:', request.url, e)
       return new Response('Not found', { status: 404 })
     }
   })

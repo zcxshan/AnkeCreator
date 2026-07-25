@@ -624,7 +624,8 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
     const structureTicks = useBulkForStructure
       ? 4 // 上限：1 外层 + 1 批量卷 + 1 批量章 + 1 批量节
       : (1 + volumeCount + chapterCount + sectionCount);
-    const totalSteps = 1 + structureTicks + wsCount + charCount + relCount + outlineCount + 1;
+    // +1 for word_count recompute step (导入完成后校准卷/章/节字数)
+    const totalSteps = 1 + structureTicks + wsCount + charCount + relCount + outlineCount + 1 + 1;
     let currentStep = 0;
 
     const tick = (msg: string) => {
@@ -762,6 +763,15 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
           sectionId: (r.sectionId && sectionIdMap[r.sectionId]) || '',
         }));
         useDiceHistoryStore.getState().addRecords(newRecords);
+      }
+
+      // 校准所有卷/章/节 word_count，确保进度条走完时字数已全部落盘
+      tick('计算卷/章/节字数...');
+      await yieldUI();
+      try {
+        await db.recomputeStoryWordCounts(newStory.id);
+      } catch (e) {
+        console.warn('[import] recomputeStoryWordCounts failed:', e);
       }
 
       tick('完成，刷新列表...');

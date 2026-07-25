@@ -16,6 +16,7 @@
 import { useState, useCallback, useMemo, useEffect } from 'react'
 import { useToastStore } from '../../store/toastStore'
 import { matchText, type MatchMode } from '../../utils/textMatch'
+import { formatRelativeTime } from '../../utils/relativeTime'
 
 interface SortOption {
   value: string
@@ -789,6 +790,8 @@ export function SearchSiteSection<T extends SiteResultItem>({
 import type { GululuResult, NgaResult } from '../../../electron/searchAnke'
 
 export function GululuCard({ item, onOpen }: { item: GululuResult; onOpen: (url: string) => void }) {
+  const updatedRelative = formatRelativeTime(item.updatedAtRaw)
+  const publishedDate = item.publishedAt || ''
   return (
     <div
       className="p-4 rounded-xl cursor-pointer transition-all flex gap-3"
@@ -871,7 +874,8 @@ export function GululuCard({ item, onOpen }: { item: GululuResult; onOpen: (url:
           <span>👤 {item.author}</span>
           <span>📝 {item.wordCount}</span>
           <span>👁 {item.viewCount}</span>
-          <span>🔄 {item.updatedAt}</span>
+          {updatedRelative && <span>🔄 {updatedRelative}更新</span>}
+          {publishedDate && <span>📅 发布于 {publishedDate}</span>}
         </div>
       </div>
     </div>
@@ -952,8 +956,8 @@ export function NgaCard({ item, onOpen }: { item: NgaResult; onOpen: (url: strin
       >
         <span>👤 {item.author}</span>
         <span>🔢 {item.floorCount} 楼</span>
-        <span>💬 最后回复 {item.lastReplyAt}</span>
-        {item.publishedAt && <span>📅 {item.publishedAt}</span>}
+        {item.lastReplyAt && <span>💬 最后回复 {item.lastReplyAt}</span>}
+        {item.publishedAt && <span>📅 发布于 {item.publishedAt}</span>}
       </div>
     </div>
   )

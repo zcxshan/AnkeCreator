@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback, useDeferredValue, memo } from 'react';
 import { useStoryStore } from '../../store/storyStore';
 import { useEditorStore } from '../../store/editorStore';
 import { useEditorHistoryStore } from '../../store/editorHistoryStore';
@@ -40,7 +40,7 @@ import {
 import type { DiffItem } from '../../utils/structureSync';
 import { htmlToNGABBCode } from '../../utils/ngaHtmlToBBCode';
 import { bbcodeToHtml } from '../../utils/ngaBBCodeToHtml';
-import { validateBBCode } from '../../utils/bbcodeValidator';
+import { validateBBCode, type BBCodeError } from '../../utils/bbcodeValidator';
 import { parseOutlineContent } from '../../types';
 import { isCapacitor, isElectron } from '../../utils/platform';
 import { ContextMenu } from '../common/ContextMenu';
@@ -251,7 +251,32 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
   );
   const [bbcodeDraft, setBbcodeDraft] = useState('');
   // BBCode 语法校验错误（实时显示在编辑器下方，非阻塞）
-  const [bbcodeErrors, setBbcodeErrors] = useState<string[]>([]);
+  // v35: 改为 BBCodeError[] (含行号)，支持点击跳转
+  const [bbcodeErrors, setBbcodeErrors] = useState<BBCodeError[]>([]);
+  // v35: 错误面板展开/折叠状态
+  const [bbcodeErrorsExpanded, setBbcodeErrorsExpanded] = useState(false);
+
+  // v35: 点击错误行跳转到 BBCode textarea 对应行
+  const jumpToBbcodeLine = useCallback((line: number) => {
+    const ta = bbcodeTextareaRef.current;
+    if (!ta) return;
+    const text = ta.value;
+    // 计算目标行的字符偏移
+    let offset = 0;
+    let curLine = 1;
+    for (let i = 0; i < text.length && curLine < line; i++) {
+      if (text[i] === '\n') curLine++;
+      offset = i + 1;
+    }
+    // 选中目标行内容
+    let endOffset = offset;
+    while (endOffset < text.length && text[endOffset] !== '\n') endOffset++;
+    ta.focus();
+    ta.setSelectionRange(offset, endOffset);
+    // 滚动到目标行（估算行高，与 textarea leading-relaxed 大致匹配）
+    const lineHeight = 20;
+    ta.scrollTop = Math.max(0, (line - 1) * lineHeight - ta.clientHeight / 3);
+  }, []);
   // BBCode → HTML 防抖定时器
   const bbcodeDebounceRef = useRef<number | null>(null);
 
@@ -567,52 +592,6 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
     }
   };
 
-  // 重算当前作品所有节的字数（用前端算法，与编辑器实时统计一致）
-  const handleRecalculateWordCounts = async () => {
-    if (!story?.id) {
-      useToastStore.getState().showToast('请先打开一个安科作品', 'error');
-      return;
-    }
-    if (recalcState.status === 'running') return;
-
-    if (!window.confirm(
-      '重算会逐节读取内容并重新统计字数，可能耗时数分钟。\n' +
-      '主要用于修复目录字数与实际字数不一致的问题。\n\n是否继续？',
-    )) {
-      return;
-    }
-
-    setRecalcState({ status: 'running', done: 0, total: 0 });
-    const controller = recalculateWordCounts(story.id, {
-      onProgress: (done, total) => {
-        setRecalcState({ status: 'running', done, total });
-      },
-      batchSize: 10,
-    });
-    recalcControllerRef.current = controller;
-
-    try {
-      const result = await controller.promise;
-      useToastStore.getState().showToast(
-        `重算完成：更新 ${result.updated} 节，跳过 ${result.skipped}，` +
-        `总字数 ${result.totalBefore.toLocaleString()} → ${result.totalAfter.toLocaleString()}` +
-        `（${(result.durationMs / 1000).toFixed(1)}s）`,
-        'success',
-      );
-      setRecalcState({ status: 'done', done: result.updated, total: result.updated });
-    } catch (e) {
-      if ((e as Error).name === 'AbortError') {
-        useToastStore.getState().showToast('已取消重算', 'info');
-      } else {
-        useToastStore.getState().showToast(`重算失败：${(e as Error).message}`, 'error');
-      }
-    } finally {
-      recalcControllerRef.current = null;
-      // 3 秒后回归 idle 文案
-      setTimeout(() => setRecalcState({ status: 'idle' }), 3000);
-    }
-  };
-
   // 当前节导出为图片（使用 html-to-image 的 toPng）
   // 清晰度策略：
   //  1) 单图 ≤ MAX_IMAGE_HEIGHT：直接导出，skipAutoScale: true 保证清晰
@@ -900,6 +879,15 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
     [activeStoryId, section?.id, section?.title],
   );
 
+  /** 需求4:编辑已有骰子块 — 打开配置弹窗,加载已有 config+style */
+  const handleEditDiceBlock = useCallback((blockId: string, payload: DiceBlockPayloadV2) => {
+    useDiceStore.getState().openDialog({
+      draft: payload.config,
+      targetBlockId: blockId,
+      originalPayload: payload,
+    });
+  }, []);
+
   // 面包屑路径：section → chapter → volume
   const activeChapter = chapters.find((c) => c.id === section?.chapter_id);
   const activeVolume = volumes.find((v) => v.id === activeChapter?.volume_id);
@@ -913,18 +901,26 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
 
   const [sectionStats, setSectionStats] = useState<Record<string, { words: number; dice: number }>>({});
 
+  // useDeferredValue: 延迟字数计算，避免每次按键都触发昂贵的 HTML 解析
+  // 输入时 UI 立即响应，字数显示在浏览器空闲时更新（避免长文档输入卡顿）
+  const deferredContent = useDeferredValue(sectionContent);
   const sectionWordCount = useMemo(() => {
-    if (!sectionContent) return 0;
+    if (!deferredContent) return 0;
     try {
-      const json = JSON.parse(sectionContent);
+      const json = JSON.parse(deferredContent);
       if (json && typeof json === 'object') {
         return countWordsAndDice(json).words;
       }
     } catch {
       // fallthrough
     }
-    return countWordsFromHtml(sectionContent).words;
-  }, [sectionContent]);
+    return countWordsFromHtml(deferredContent).words;
+  }, [deferredContent]);
+
+  // 显示用字数：加载中保留旧值（从 sectionStats 读取），避免切换节时字数跳变为 0
+  const displayWordCount = sectionLoading
+    ? (section?.id ? (sectionStats[section.id]?.words || 0) : 0)
+    : sectionWordCount;
 
   // 初始统计：直接从 SectionMeta.word_count 获取字数，无需加载 content
   useEffect(() => {
@@ -934,11 +930,6 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
     }
     setSectionStats(stats);
   }, [sections]);
-
-  // 进入章节时不再全量重算字数（避免大章节切换卡顿）
-  // 字数校准改为按需：用户点击"🔄 重算字数"按钮时才全量重算
-  // sectionStats 已从 sections 元数据正确初始化（见上方 useEffect）
-  // 当前编辑节的实时字数由下方 sectionWordCount useEffect 覆盖
 
   // 当前编辑节：实时更新字数（基于 sectionContent）
   useEffect(() => {
@@ -1041,7 +1032,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                 className="w-1.5 h-1.5 rounded-full"
                 style={{ background: 'var(--accent)' }}
               />
-              {sectionWordCount > 999 ? `${(sectionWordCount/1000).toFixed(1)}k` : sectionWordCount}
+              {displayWordCount > 999 ? `${(displayWordCount/1000).toFixed(1)}k` : displayWordCount}
             </span>
             {section && view === 'directory' && (
               <button
@@ -1219,8 +1210,8 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
               className="w-1.5 h-1.5 rounded-full"
               style={{ background: 'var(--accent)' }}
             />
-            <span className="hidden sm:inline">{sectionWordCount.toLocaleString()} 字</span>
-            <span className="sm:hidden">{sectionWordCount > 999 ? `${(sectionWordCount/1000).toFixed(1)}k` : sectionWordCount}</span>
+            <span className="hidden sm:inline">{displayWordCount.toLocaleString()} 字</span>
+            <span className="sm:hidden">{displayWordCount > 999 ? `${(displayWordCount/1000).toFixed(1)}k` : displayWordCount}</span>
           </span>
         </div>
       </header>
@@ -1395,6 +1386,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                       onChangeContent={setSectionContent}
                       onInsertDiceRequest={() => diceStore.openDialog()}
                       onDiceRolled={handleDiceRolled}
+                      onEditDiceBlock={handleEditDiceBlock}
                       onImageSelected={(info) => setSelectedImage(info)}
                       commandsRef={richTextEditorCommandsRef}
                       editable={true}
@@ -1456,9 +1448,10 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                         // 实时语法校验（非阻塞：仅显示错误，不阻止编辑/保存）
                         const result = validateBBCode(bb);
                         setBbcodeErrors((prev) => {
+                          // v35: 比较 message + line
                           if (
                             prev.length === result.errors.length &&
-                            prev.every((e, i) => e === result.errors[i])
+                            prev.every((e, i) => e.message === result.errors[i].message && e.line === result.errors[i].line)
                           ) {
                             return prev;
                           }
@@ -1474,10 +1467,40 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                       }}
                     />
                     {bbcodeErrors.length > 0 && (
-                      <div style={{ padding: '8px 12px', borderTop: '1px solid var(--border-color)' }}>
-                        {bbcodeErrors.map((err, i) => (
-                          <div key={i} style={{ color: '#dc2626', fontSize: 12, marginTop: 2 }}>{err}</div>
-                        ))}
+                      <div style={{ borderTop: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>
+                        {/* v35: 展开/折叠按钮 */}
+                        <div
+                          onClick={() => setBbcodeErrorsExpanded(prev => !prev)}
+                          style={{ padding: '6px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+                        >
+                          <span style={{ color: '#dc2626', fontSize: 12, userSelect: 'none' }}>
+                            {bbcodeErrorsExpanded ? '▼' : '▶'} BBCode 语法错误（{bbcodeErrors.length} 个）
+                          </span>
+                        </div>
+                        {/* v35: 最大高度 + 滚动条 + 点击跳转 */}
+                        {bbcodeErrorsExpanded && (
+                          <div style={{ maxHeight: 200, overflowY: 'auto', padding: '0 12px 6px' }}>
+                            {bbcodeErrors.map((err, i) => (
+                              <div
+                                key={i}
+                                onClick={() => jumpToBbcodeLine(err.line)}
+                                style={{
+                                  color: '#dc2626',
+                                  fontSize: 12,
+                                  marginTop: 2,
+                                  cursor: 'pointer',
+                                  padding: '2px 4px',
+                                  borderRadius: 3,
+                                }}
+                                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(220, 38, 38, 0.08)'; }}
+                                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                                title="点击跳转到对应行"
+                              >
+                                行 {err.line}：{err.message}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1904,6 +1927,9 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
         onSaveNew={(payload) => {
           richTextEditorCommandsRef.current?.insertDice(payload as DiceBlockPayloadV2);
         }}
+        onSaveEdit={(blockId, payload) => {
+          richTextEditorCommandsRef.current?.updateDiceBlock(blockId, payload);
+        }}
       />
 
       {/* 同步对话框（支持大纲→目录 和 目录→大纲 两个方向） */}
@@ -1979,6 +2005,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                 onChangeContent={setSectionContent}
                 onInsertDiceRequest={() => diceStore.openDialog()}
                 onDiceRolled={handleDiceRolled}
+                onEditDiceBlock={handleEditDiceBlock}
                 onImageSelected={(info) => setSelectedImage(info)}
                 commandsRef={richTextEditorCommandsRef}
                 editable={true}
@@ -2083,6 +2110,12 @@ function RightPanel({
   // 全作品搜索跳转：切换到对应作品 + 节，并切回当前节搜索便于继续编辑
   const setActiveStory = useStoryStore((s) => s.setActiveStory);
   const setActiveSection = useStoryStore((s) => s.setActiveSection);
+  // 需求5:快速跳转 - 响应式订阅当前节的保存滚动位置
+  const currentSectionId = section?.id ?? '';
+  const savedScrollTop = useEditorStore((s) =>
+    currentSectionId ? s.sectionScrollPositions[currentSectionId] : undefined,
+  );
+  const hasLastPosition = savedScrollTop !== undefined;
   const handleGlobalSearchNavigate = useCallback(
     async (storyId: string, sectionId: string, searchQuery?: string) => {
       const curStoryId = useStoryStore.getState().activeStoryId;
@@ -2323,6 +2356,57 @@ function RightPanel({
                 />
               )}
             </div>
+            {/* ===== 需求5:快速跳转 ===== */}
+            <div className="pt-4 border-t" style={{ borderColor: 'var(--border-color)' }}>
+              <div
+                className="text-[11px] font-semibold mb-3"
+                style={{ color: 'var(--text-primary)' }}
+              >
+                🚀 快速跳转
+              </div>
+              <div className="flex gap-2">
+                <button
+                  className="flex-1 px-2 py-2 text-xs rounded-md transition-colors"
+                  style={{
+                    background: 'var(--bg-hover)',
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--border-color)',
+                  }}
+                  onClick={() => richTextEditorCommandsRef.current?.scrollToTop()}
+                >
+                  ⬆ 顶部
+                </button>
+                <button
+                  className="flex-1 px-2 py-2 text-xs rounded-md transition-colors"
+                  style={{
+                    background: 'var(--bg-hover)',
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--border-color)',
+                  }}
+                  onClick={() => richTextEditorCommandsRef.current?.scrollToBottom()}
+                >
+                  ⬇ 底部
+                </button>
+                <button
+                  className="flex-1 px-2 py-2 text-xs rounded-md transition-colors"
+                  style={{
+                    background: 'var(--bg-hover)',
+                    color: hasLastPosition ? 'var(--text-primary)' : 'var(--text-muted)',
+                    border: '1px solid var(--border-color)',
+                    opacity: hasLastPosition ? 1 : 0.5,
+                    cursor: hasLastPosition ? 'pointer' : 'not-allowed',
+                  }}
+                  disabled={!hasLastPosition}
+                  onClick={() => {
+                    if (savedScrollTop !== undefined) {
+                      richTextEditorCommandsRef.current?.setScrollTop(savedScrollTop);
+                    }
+                  }}
+                >
+                  📍 上次位置
+                </button>
+              </div>
+            </div>
           </div>
         )}
         {activeTab === 'world' && <CompactWorldSettingPanel onShowToast={onShowToast} />}
@@ -2339,6 +2423,7 @@ function RightPanel({
               onRestoreDice={onRestoreDice}
               onInsertUnrolledDice={onInsertUnrolledDice}
               onCheckDiceExists={onCheckDiceExists}
+              sectionContent={visualValue}
             />
           )}
         {activeTab === 'gallery' && (
@@ -2564,18 +2649,128 @@ interface DiceGroup {
   records: DiceHistoryRecord[];
 }
 
+// P1-1: 抽离为独立 memo 组件，避免无关重渲染
+// - 自定义 memo 比较：仅当 record 或 diceExists 变化时才重渲染
+// - 回调（onRemove/onInsert/onRestore/onJump）是闭包，捕获 ref 或 store.getState()，即使引用变化也能正确工作
+// - formatTime 移入组件内部，避免父组件每次 render 重建
+interface DiceRecordItemProps {
+  record: DiceHistoryRecord;
+  diceExists: boolean;
+  onRemove: (id: string) => void;
+  onInsertUnrolledDice: (sectionId: string, payloadSnapshot: string) => void;
+  onRestoreDice: (sectionId: string, payloadSnapshot: string) => void;
+  onJumpToDice: (sectionId: string, payloadSnapshot: string) => void;
+}
+
+const DiceRecordItem = memo(function DiceRecordItem({
+  record: r,
+  diceExists,
+  onRemove,
+  onInsertUnrolledDice,
+  onRestoreDice,
+  onJumpToDice,
+}: DiceRecordItemProps) {
+  const formatTime = (ts: number): string => {
+    try {
+      const d = new Date(ts);
+      const pad = (n: number) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    } catch {
+      return String(ts);
+    }
+  };
+
+  return (
+    <div
+      className="relative p-3 rounded-lg border transition-colors"
+      style={{ borderColor: 'var(--border-color)', background: 'var(--bg-base)' }}
+    >
+      {/* 单条删除 */}
+      <button
+        onClick={() => onRemove(r.id)}
+        className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center rounded text-[12px] leading-none"
+        style={{ color: 'var(--text-muted)', background: 'transparent' }}
+        title="删除该条记录"
+        onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--danger, #d33)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
+      >
+        ×
+      </button>
+      <div className="text-[10px] mb-1" style={{ color: 'var(--text-secondary)' }}>
+        {formatTime(r.timestamp)}
+      </div>
+      <div className="flex items-center gap-2 mb-1">
+        <div className="text-xs font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+          {r.diceName}
+        </div>
+        <div
+          className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0"
+          style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
+        >
+          {r.diceType}
+        </div>
+      </div>
+      <div className="text-xs font-mono mb-1" style={{ color: 'var(--accent)' }}>
+        结果: {r.result}
+      </div>
+      {r.resultDetail && r.resultDetail !== r.result && (
+        <div className="text-[11px] mb-2 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+          {r.resultDetail}
+        </div>
+      )}
+      <div className="flex items-center justify-between pt-2 mt-1" style={{ borderTop: '1px solid var(--border-color)' }}>
+        <div className="text-[10px] truncate flex-1 pr-2" style={{ color: 'var(--text-secondary)' }}>
+          → {r.sectionTitle || '(未命名节)'}
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={() => onInsertUnrolledDice(r.sectionId, r.payloadSnapshot)}
+            className="text-[10px] px-2 py-1 rounded-md font-medium border"
+            style={{ borderColor: 'var(--accent)', color: 'var(--accent)', background: 'transparent' }}
+            title="在当前光标插入一个相同格式未掷骰的骰子"
+          >
+            插入
+          </button>
+          <button
+            onClick={() => onRestoreDice(r.sectionId, r.payloadSnapshot)}
+            disabled={diceExists}
+            className="text-[10px] px-2 py-1 rounded-md font-medium border disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{ borderColor: 'var(--accent)', color: 'var(--accent)', background: 'transparent' }}
+            title={diceExists ? '该骰子仍在编辑区，无需恢复' : '在编辑区重新插入一个相同的骰子'}
+          >
+            恢复
+          </button>
+          <button
+            onClick={() => onJumpToDice(r.sectionId, r.payloadSnapshot)}
+            className="text-[10px] px-2 py-1 rounded-md font-medium"
+            style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
+          >
+            跳转
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}, (prev, next) => {
+  // 自定义比较：仅当 record 引用或 diceExists 变化时才重渲染
+  // 回调函数引用变化不触发重渲染（它们是闭包，内部用 ref/store.getState() 保证正确性）
+  return prev.record === next.record && prev.diceExists === next.diceExists;
+});
+
 function DiceHistoryPanel({
   storyId,
   onJumpToDice,
   onRestoreDice,
   onInsertUnrolledDice,
   onCheckDiceExists,
+  sectionContent,
 }: {
   storyId?: string | null;
   onJumpToDice: (sectionId: string, payloadSnapshot: string) => void;
   onRestoreDice: (sectionId: string, payloadSnapshot: string) => void;
   onInsertUnrolledDice: (sectionId: string, payloadSnapshot: string) => void;
   onCheckDiceExists: (sectionId: string, payloadSnapshot: string) => boolean;
+  sectionContent?: string;
 }) {
   const allRecords = useDiceHistoryStore((s) => s.records);
   const clearAll = useDiceHistoryStore((s) => s.clearAll);
@@ -2583,6 +2778,9 @@ function DiceHistoryPanel({
   const stories = useStoryStore((s) => s.stories);
   const [pendingClearDice, setPendingClearDice] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  // useDeferredValue: 搜索防抖，避免每次按键都触发 groups useMemo 重算（200+ 条记录时卡顿）
+  // 输入框 value 仍用 searchQuery（保证输入响应），groups/空状态用 deferredSearchQuery
+  const deferredSearchQuery = useDeferredValue(searchQuery);
   const [groupMode, setGroupMode] = useState<DiceGroupMode>('time');
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
@@ -2593,6 +2791,23 @@ function DiceHistoryPanel({
     return m;
   }, [stories]);
 
+  // P1-1 性能优化：用 useDeferredValue + useMemo 缓存「骰子是否仍在编辑区」结果
+  // - deferredSectionContent 滞后于 sectionContent，避免用户在编辑器输入时频繁触发 DOM 查询
+  // - onCheckDiceExistsRef 避免 onCheckDiceExists 内联函数变化导致 useMemo 失效
+  // - existingDiceMap 仅在 deferredSectionContent 或 allRecords 变化时重算，不再每 render 调 N 次 DOM 查询
+  const deferredSectionContent = useDeferredValue(sectionContent ?? '');
+  const onCheckDiceExistsRef = useRef(onCheckDiceExists);
+  onCheckDiceExistsRef.current = onCheckDiceExists;
+  const existingDiceMap = useMemo(() => {
+    const map = new Map<string, boolean>();
+    for (const r of allRecords) {
+      map.set(r.id, onCheckDiceExistsRef.current(r.sectionId, r.payloadSnapshot));
+    }
+    return map;
+    // onCheckDiceExistsRef 是 ref，不需要作为依赖
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deferredSectionContent, allRecords]);
+
   // 范围 + 搜索过滤 + 分组
   const groups = useMemo<DiceGroup[]>(() => {
     // 1. 范围过滤：「作品」模式取全部；其他模式仅当前作品
@@ -2600,8 +2815,8 @@ function DiceHistoryPanel({
     if (groupMode !== 'story') {
       list = storyId ? list.filter((r) => r.storyId === storyId) : [];
     }
-    // 2. 搜索过滤（大小写不敏感）
-    const q = searchQuery.trim().toLowerCase();
+    // 2. 搜索过滤（大小写不敏感，用 deferredSearchQuery 防抖）
+    const q = deferredSearchQuery.trim().toLowerCase();
     if (q) {
       list = list.filter((r) =>
         [r.diceName, r.diceType, r.result, r.resultDetail, r.sectionTitle]
@@ -2648,7 +2863,7 @@ function DiceHistoryPanel({
       title: sid === '__unknown__' ? '未知作品' : (storyNameMap.get(sid) || '未知作品'),
       records: recs,
     }));
-  }, [allRecords, storyId, groupMode, searchQuery, storyNameMap]);
+  }, [allRecords, storyId, groupMode, deferredSearchQuery, storyNameMap]);
 
   const toggleCollapse = (key: string) => {
     setCollapsedGroups((prev) => {
@@ -2661,91 +2876,11 @@ function DiceHistoryPanel({
 
   const totalCount = groups.reduce((sum, g) => sum + g.records.length, 0);
 
-  const formatTime = (ts: number): string => {
-    try {
-      const d = new Date(ts);
-      const pad = (n: number) => String(n).padStart(2, '0');
-      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-    } catch {
-      return String(ts);
-    }
-  };
-
-  const renderRecord = (r: DiceHistoryRecord) => (
-    <div
-      key={r.id}
-      className="relative p-3 rounded-lg border transition-colors"
-      style={{ borderColor: 'var(--border-color)', background: 'var(--bg-base)' }}
-    >
-      {/* 单条删除 */}
-      <button
-        onClick={() => {
-          removeRecord(r.id);
-          useToastStore.getState().showToast('已删除该条记录', 'success');
-        }}
-        className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center rounded text-[12px] leading-none"
-        style={{ color: 'var(--text-muted)', background: 'transparent' }}
-        title="删除该条记录"
-        onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--danger, #d33)'; }}
-        onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
-      >
-        ×
-      </button>
-      <div className="text-[10px] mb-1" style={{ color: 'var(--text-secondary)' }}>
-        {formatTime(r.timestamp)}
-      </div>
-      <div className="flex items-center gap-2 mb-1">
-        <div className="text-xs font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
-          {r.diceName}
-        </div>
-        <div
-          className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0"
-          style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
-        >
-          {r.diceType}
-        </div>
-      </div>
-      <div className="text-xs font-mono mb-1" style={{ color: 'var(--accent)' }}>
-        结果: {r.result}
-      </div>
-      {r.resultDetail && r.resultDetail !== r.result && (
-        <div className="text-[11px] mb-2 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-          {r.resultDetail}
-        </div>
-      )}
-      <div className="flex items-center justify-between pt-2 mt-1" style={{ borderTop: '1px solid var(--border-color)' }}>
-        <div className="text-[10px] truncate flex-1 pr-2" style={{ color: 'var(--text-secondary)' }}>
-          → {r.sectionTitle || '(未命名节)'}
-        </div>
-        <div className="flex items-center gap-1 shrink-0">
-          <button
-            onClick={() => onInsertUnrolledDice(r.sectionId, r.payloadSnapshot)}
-            className="text-[10px] px-2 py-1 rounded-md font-medium border"
-            style={{ borderColor: 'var(--accent)', color: 'var(--accent)', background: 'transparent' }}
-            title="在当前光标插入一个相同格式未掷骰的骰子"
-          >
-            插入
-          </button>
-          <button
-            onClick={() => onRestoreDice(r.sectionId, r.payloadSnapshot)}
-            disabled={onCheckDiceExists(r.sectionId, r.payloadSnapshot)}
-            className="text-[10px] px-2 py-1 rounded-md font-medium border disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{ borderColor: 'var(--accent)', color: 'var(--accent)', background: 'transparent' }}
-            title={onCheckDiceExists(r.sectionId, r.payloadSnapshot) ? '该骰子仍在编辑区，无需恢复' : '在编辑区重新插入一个相同的骰子'}
-          >
-            恢复
-          </button>
-          <button
-            onClick={() => onJumpToDice(r.sectionId, r.payloadSnapshot)}
-            className="text-[10px] px-2 py-1 rounded-md font-medium"
-            style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
-          >
-            跳转
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+  // P1-1: 稳定的 removeRecord 回调，避免 DiceRecordItem 因回调变化重渲染
+  const handleRemove = useCallback((id: string) => {
+    removeRecord(id);
+    useToastStore.getState().showToast('已删除该条记录', 'success');
+  }, [removeRecord]);
 
   const groupBtn = (mode: DiceGroupMode, label: string) => {
     const active = groupMode === mode;
@@ -2809,7 +2944,7 @@ function DiceHistoryPanel({
 
       {totalCount === 0 ? (
         <div className="flex-1 flex items-center justify-center text-xs py-16" style={{ color: 'var(--text-secondary)' }}>
-          {searchQuery ? '没有匹配的记录' : '还没有骰点记录，去正文编辑器掷一次骰子试试。'}
+          {deferredSearchQuery ? '没有匹配的记录' : '还没有骰点记录，去正文编辑器掷一次骰子试试。'}
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto space-y-3 pr-1">
@@ -2831,7 +2966,17 @@ function DiceHistoryPanel({
                 )}
                 {!collapsed && (
                   <div className="space-y-2 mt-1">
-                    {g.records.map(renderRecord)}
+                    {g.records.map((r) => (
+                      <DiceRecordItem
+                        key={r.id}
+                        record={r}
+                        diceExists={existingDiceMap.get(r.id) ?? false}
+                        onRemove={handleRemove}
+                        onInsertUnrolledDice={onInsertUnrolledDice}
+                        onRestoreDice={onRestoreDice}
+                        onJumpToDice={onJumpToDice}
+                      />
+                    ))}
                   </div>
                 )}
               </div>
@@ -2878,12 +3023,17 @@ function CompactWorldSettingPanel({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [pendingBatchDelete, setPendingBatchDelete] = useState<{ ids: string[]; names: string[] } | null>(null);
 
-  const filtered = activeStoryId
-    ? worldSettings
-        .filter((w) => w.story_id === activeStoryId)
-        .slice()
-        .sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
-    : [];
+  // useMemo: 缓存过滤+排序结果，避免每次 render 都重算（条目多时卡顿）
+  const filtered = useMemo(
+    () =>
+      activeStoryId
+        ? worldSettings
+            .filter((w) => w.story_id === activeStoryId)
+            .slice()
+            .sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
+        : [],
+    [activeStoryId, worldSettings],
+  );
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -3211,12 +3361,17 @@ function ByCharacterContent({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [pendingBatchDelete, setPendingBatchDelete] = useState<{ ids: string[]; names: string[] } | null>(null);
 
-  const filtered = activeStoryId
-    ? characters
-        .filter((c) => c.story_id === activeStoryId)
-        .slice()
-        .sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
-    : [];
+  // useMemo: 缓存过滤+排序结果，避免每次 render 都重算（人物多时卡顿）
+  const filtered = useMemo(
+    () =>
+      activeStoryId
+        ? characters
+            .filter((c) => c.story_id === activeStoryId)
+            .slice()
+            .sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
+        : [],
+    [activeStoryId, characters],
+  );
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -3353,6 +3508,7 @@ function ByCharacterContent({
                         <img
                           src={ch.avatar}
                           alt={ch.name}
+                          loading="lazy"
                           className="w-9 h-9 rounded-full shrink-0 object-cover"
                           onError={(e) => {
                             (e.currentTarget as HTMLImageElement).style.display = 'none';
@@ -3405,6 +3561,7 @@ function ByCharacterContent({
                           <img
                             src={v.url}
                             alt={v.name}
+                            loading="lazy"
                             className="absolute inset-0 w-full h-full object-cover"
                             onError={(e) => {
                               const img = e.currentTarget as HTMLImageElement;
@@ -3475,20 +3632,29 @@ function ByVariantContent({
   const characters = useMetaStore((s) => s.characters);
   const [subTab, setSubTab] = useState<'all' | 'grouped'>('all');
 
-  const filteredChars = activeStoryId
-    ? characters
-        .filter((c) => c.story_id === activeStoryId)
-        .slice()
-        .sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
-    : [];
+  // useMemo: 缓存过滤+排序结果，避免每次 render 都重算（人物多时卡顿）
+  const filteredChars = useMemo(
+    () =>
+      activeStoryId
+        ? characters
+            .filter((c) => c.story_id === activeStoryId)
+            .slice()
+            .sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
+        : [],
+    [activeStoryId, characters],
+  );
 
-  // 拍平所有差分（带所属人物名）
-  const allVariants = filteredChars.flatMap((ch) =>
-    (ch.variants || []).map((v) => ({
-      ...v,
-      characterName: ch.name || '未命名',
-      characterId: ch.id,
-    })),
+  // 拍平所有差分（带所属人物名）—— 依赖 filteredChars，缓存避免每次 render 重算 flatMap
+  const allVariants = useMemo(
+    () =>
+      filteredChars.flatMap((ch) =>
+        (ch.variants || []).map((v) => ({
+          ...v,
+          characterName: ch.name || '未命名',
+          characterId: ch.id,
+        })),
+      ),
+    [filteredChars],
   );
 
   const handleInsert = (variantName: string, url: string, charName: string) => {
@@ -3658,6 +3824,59 @@ function VariantThumbnail({
   );
 }
 
+// P1-3: 抽离属性行为独立 memo 组件，避免单个属性编辑触发全部属性行重渲染
+// - editingVal 是 string 原始值，memo 比较生效
+// - 回调用 useCallback 稳定化，避免引用变化导致重渲染
+interface AttributeRowProps {
+  attrKey: string;
+  editingVal: string;
+  onEditingChange: (key: string, val: string) => void;
+  onCommit: (key: string, val: string) => void;
+  onDelete: (key: string) => void;
+}
+
+const AttributeRow = memo(function AttributeRow({
+  attrKey,
+  editingVal,
+  onEditingChange,
+  onCommit,
+  onDelete,
+}: AttributeRowProps) {
+  return (
+    <div
+      className="flex items-center gap-2 px-2 py-1 rounded border"
+      style={{ borderColor: 'var(--border-color)' }}
+    >
+      <span className="text-[10px] font-medium w-16 shrink-0 truncate" style={{ color: 'var(--text-primary)' }}>
+        {attrKey}
+      </span>
+      <input
+        value={editingVal}
+        onChange={(e) => onEditingChange(attrKey, e.target.value)}
+        onBlur={() => onCommit(attrKey, editingVal)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            onCommit(attrKey, editingVal);
+            (e.target as HTMLInputElement).blur();
+          }
+        }}
+        className="flex-1 text-[10px] px-1.5 py-0.5 rounded border outline-none"
+        style={{
+          background: 'var(--bg-input)',
+          borderColor: 'var(--border-color)',
+          color: 'var(--text-primary)',
+        }}
+      />
+      <button
+        onClick={() => onDelete(attrKey)}
+        className="text-[10px] px-1 transition-colors"
+        style={{ color: 'var(--danger)' }}
+        title="删除此属性"
+      >x</button>
+    </div>
+  );
+});
+
 // 简易内嵌版角色编辑器
 function CharacterEditorInline({
   character,
@@ -3694,6 +3913,35 @@ function CharacterEditorInline({
     setAttributes(next);
     updateCharacter(character.id, { attributes: next });
   };
+
+  // P1-3: 稳定的属性行回调，用 functional setState 避免闭包 stale，使 AttributeRow memo 生效
+  // - handleAttrEditingChange: 输入时仅更新 editingAttrs（不影响 attributes，其他行不重渲染）
+  // - handleAttrCommit: blur/Enter 时提交到 attributes + store，并清空 editingAttrs[key]
+  // - handleAttrDelete: 从 attributes 删除 key + 同步 store
+  const handleAttrEditingChange = useCallback((key: string, val: string) => {
+    setEditingAttrs((prev) => ({ ...prev, [key]: val }));
+  }, []);
+  const handleAttrCommit = useCallback((key: string, val: string) => {
+    setAttributes((prev) => {
+      const next = { ...prev, [key]: val };
+      updateCharacter(character.id, { attributes: next });
+      return next;
+    });
+    setEditingAttrs((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }, [character.id, updateCharacter]);
+  const handleAttrDelete = useCallback((key: string) => {
+    setAttributes((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      updateCharacter(character.id, { attributes: next });
+      return next;
+    });
+  }, [character.id, updateCharacter]);
 
   const [name, setName] = useState(character.name || '');
   const [personality, setPersonality] = useState(character.personality || '');
@@ -3858,10 +4106,11 @@ function CharacterEditorInline({
           title={isLocalUploadDisabled ? localUploadDisabledReason : '点击更换头像'}
         >
           {avatar ? (
-            <img 
-              src={avatar} 
-              alt={name} 
-              className="w-full h-full object-cover" 
+            <img
+              src={avatar}
+              alt={name}
+              loading="lazy"
+              className="w-full h-full object-cover"
               onError={(e) => {
                 (e.currentTarget as HTMLImageElement).style.display = 'none';
               }}
@@ -3943,54 +4192,16 @@ function CharacterEditorInline({
           <div className="text-[10px] italic text-center py-2" style={{ color: labelColor }}>暂无属性，点击上方添加</div>
         ) : (
           <div className="space-y-1">
-            {Object.entries(attributes || {}).map(([key, value]) => {
-              const editingVal = editingAttrs[key] ?? String(value);
-              return (
-                <div
-                  key={key}
-                  className="flex items-center gap-2 px-2 py-1 rounded border"
-                  style={{ borderColor: 'var(--border-color)' }}
-                >
-                  <span className="text-[10px] font-medium w-16 shrink-0 truncate" style={{ color: 'var(--text-primary)' }}>
-                    {key}
-                  </span>
-                  <input
-                    value={editingVal}
-                    onChange={(e) => setEditingAttrs((prev) => ({ ...prev, [key]: e.target.value }))}
-                    onBlur={() => {
-                      updateAttributes({ ...attributes, [key]: editingVal });
-                      setEditingAttrs((prev) => {
-                        const next = { ...prev };
-                        delete next[key];
-                        return next;
-                      });
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        updateAttributes({ ...attributes, [key]: editingVal });
-                        (e.target as HTMLInputElement).blur();
-                      }
-                    }}
-                    className="flex-1 text-[10px] px-1.5 py-0.5 rounded border outline-none"
-                    style={{
-                      background: 'var(--bg-input)',
-                      borderColor: 'var(--border-color)',
-                      color: 'var(--text-primary)',
-                    }}
-                  />
-                  <button
-                    onClick={() => {
-                      const next = { ...attributes };
-                      delete next[key];
-                      updateAttributes(next);
-                    }}
-                    className="text-[10px] px-1 transition-colors"
-                    style={{ color: 'var(--danger)' }}
-                    title="删除此属性"
-                  >x</button>
-                </div>
-              );
-            })}
+            {Object.entries(attributes || {}).map(([key, value]) => (
+              <AttributeRow
+                key={key}
+                attrKey={key}
+                editingVal={editingAttrs[key] ?? String(value)}
+                onEditingChange={handleAttrEditingChange}
+                onCommit={handleAttrCommit}
+                onDelete={handleAttrDelete}
+              />
+            ))}
           </div>
         )}
       </div>
@@ -4026,6 +4237,7 @@ function CharacterEditorInline({
                 <img
                   src={v.url}
                   alt={v.name}
+                  loading="lazy"
                   className="absolute inset-0 w-full h-full object-cover"
                   onError={(e) => {
                     const img = e.currentTarget as HTMLImageElement;

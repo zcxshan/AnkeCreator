@@ -114,12 +114,10 @@ describe('bbcodeToHtml - 基础标签', () => {
     expect(closeI).toBeLessThan(closeB);
   });
 
-  it('[b]x[/b][b]y[/b] 两个独立块', () => {
+  it('[b]x[/b][b]y[/b] 两个独立块（v6 后合并为 <b>xy</b>）', () => {
     const html = bbcodeToHtml('[b]x[/b][b]y[/b]');
-    const openTags = (html.match(/<b>/g) || []).length;
-    const closeTags = (html.match(/<\/b>/g) || []).length;
-    expect(openTags).toBe(2);
-    expect(closeTags).toBe(2);
+    // v6 cleanRedundantHtml 合并相邻同标签：<b>x</b><b>y</b> → <b>xy</b>
+    expect(html).toContain('<b>xy</b>');
   });
 });
 
@@ -247,5 +245,65 @@ describe('bbcodeToHtml - 未识别标签不自动闭合', () => {
     expect(html).toContain('[/文本文本]');
     expect(html).toContain('内容');
     expect(html).toContain('</b>');
+  });
+});
+
+describe('v6: BBCode → HTML 清理冗余标签', () => {
+  it('I1: [b][/b] → 空字符串（清理空标签）', () => {
+    const html = bbcodeToHtml('[b][/b]');
+    expect(html.trim()).toBe('');
+  });
+
+  it('I2: [b][b]X[/b][/b] → <b>X</b>（展开冗余嵌套）', () => {
+    const html = bbcodeToHtml('[b][b]X[/b][/b]');
+    // 应只有一个 <b> 标签
+    const bCount = (html.match(/<b>/g) || []).length;
+    expect(bCount).toBe(1);
+    expect(html).toContain('X');
+  });
+
+  it('I3: [color=red][/color] → 空字符串（清理空样式标签）', () => {
+    const html = bbcodeToHtml('[color=red][/color]');
+    expect(html.trim()).toBe('');
+  });
+
+  it('I4: [b]X[/b][b]Y[/b] → <b>XY</b>（合并相邻同标签）', () => {
+    const html = bbcodeToHtml('[b]X[/b][b]Y[/b]');
+    const bCount = (html.match(/<b>/g) || []).length;
+    expect(bCount).toBe(1);
+    expect(html).toContain('X');
+    expect(html).toContain('Y');
+  });
+});
+
+describe('v7: BBCode → HTML 保留空格/空行/换行', () => {
+  it('L1: [code]line1\\n\\n\\n\\nline2[/code] → 保留多空行（不压缩为 \\n\\n）', () => {
+    const html = bbcodeToHtml('[code]line1\n\n\n\nline2[/code]');
+    // v7 之前 collapseBlankLines 会把 \n{3,} 压缩为 \n\n
+    // v7 之后保留多空行
+    expect(html).toContain('line1\n\n\n\nline2');
+  });
+
+  it('L2: [b] [/b]（含空格）→ 不移除含空格标签', () => {
+    const html = bbcodeToHtml('[b] [/b]X');
+    // v7 之前 cleanRedundantHtml 会移除 textContent.trim() 为空的标签
+    // v7 之后只移除 childNodes.length === 0 的标签（含空格的不移除）
+    // 注意：childrenToHTML 会把单个空格转成 &nbsp;（行首空格规则）
+    expect(html).toContain('<b>');
+    expect(html).toContain('&nbsp;');
+  });
+
+  it('L3: [b]  [/b]（含连续空格）→ 不移除，空格转 &nbsp; 保留', () => {
+    const html = bbcodeToHtml('[b]  [/b]X');
+    // 连续 2+ 空格转 &nbsp;，v7 之后不移除含 &nbsp; 的标签
+    expect(html).toContain('<b>');
+    expect(html).toContain('&nbsp;');
+  });
+
+  it('L4: [b][/b]X（完全空标签）→ 仍然移除', () => {
+    const html = bbcodeToHtml('[b][/b]X');
+    // v7 之后仍然移除完全无子节点的标签
+    expect(html).not.toContain('<b></b>');
+    expect(html).toContain('X');
   });
 });

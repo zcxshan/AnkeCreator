@@ -1,26 +1,35 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { EditorToolbar } from './EditorToolbar';
+import { EditorToolbar, type ShortcutHandlers } from './EditorToolbar';
 
 import { ContextMenu, type ContextMenuItemConfig } from '../common/ContextMenu';
 import {
   insertImageBlock,
   attachImageBlockHandlers,
+  reattachImageErrorHandlers,
   insertDiceCard,
   attachDiceCardHandlers,
   scrollToDiceCard,
+  updateDiceBlock,
   getSelectedImageBlock,
   setImageBlockSize,
   updateSelectedImage,
   dispatchInput,
   attachCollapseBlockHandlers,
+  ensureDragHandle,
   getCurrentStyles,
   applyActiveStylesToInsertion,
   applyActiveStylesToRange,
   setLastEditorRange,
+  getInlineStylesFromAncestors,
+  insertStyledParagraphAfter,
+  splitBlockAtCursor,
+  insertQuoteBlock,
 } from './contenteditableUtils';
 import { useEditorStore } from '../../store/editorStore';
 import { useEditorHistoryStore } from '../../store/editorHistoryStore';
 import { useToastStore } from '../../store/toastStore';
+import { useThemeStore } from '../../store/themeStore';
+import type { ThemeMode } from '../../store/themeStore';
 import { countWordsFromHtml } from '../pages/HomePage';
 import type { DiceBlockPayloadV2 } from '../../types';
 
@@ -29,6 +38,8 @@ interface RichTextEditorProps {
   onChangeContent: (htmlStr: string) => void;
   onInsertDiceRequest: () => void;
   onDiceRolled?: (payload: any) => void;
+  /** 需求4:编辑已有骰子块(由 dice-card 编辑按钮触发) */
+  onEditDiceBlock?: (blockId: string, payload: DiceBlockPayloadV2) => void;
   onImageSelected?: (info: { width: number; height: number; src?: string; dataSize?: string } | null) => void;
   editable?: boolean;
   className?: string;
@@ -52,19 +63,30 @@ interface RichTextEditorProps {
 export interface RichTextEditorCommands {
   insertImage: (src: string, size?: string) => void;
   insertDice: (payload: DiceBlockPayloadV2) => void;
+  /** 需求4:更新已有骰子块的 payload(编辑保存后回填) */
+  updateDiceBlock: (blockId: string, payload: DiceBlockPayloadV2) => void;
   focus: () => void;
   getJSON: () => Record<string, unknown>;
   scrollToDiceCard: (payloadSnapshot: string) => boolean;
   setSelectedImageSize: (size: string) => void;
   updateSelectedImageSrc: (src: string) => void;
   updateSelectedImageDataSize: (size: string) => void;
+  /** 需求5: 快速跳转 — 滚动到顶部 */
+  scrollToTop: () => void;
+  /** 需求5: 快速跳转 — 滚动到底部 */
+  scrollToBottom: () => void;
+  /** 需求5: 快速跳转 — 获取当前滚动位置 */
+  getScrollTop: () => number;
+  /** 需求5: 快速跳转 — 设置滚动位置 */
+  setScrollTop: (scrollTop: number) => void;
 }
 
-export function RichTextEditor({
+function RichTextEditorInner({
   content,
   onChangeContent,
   onInsertDiceRequest,
   onDiceRolled,
+  onEditDiceBlock,
   onImageSelected,
   editable = true,
   className,
@@ -91,6 +113,11 @@ export function RichTextEditor({
    * 用于在 touch 手势判定为 pan 时手动更新 scrollTop
    */
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  /** 需求4:用 ref 包装 onEditDiceBlock 避免 effect 频繁重绑定 */
+  const onEditDiceBlockRef = useRef(onEditDiceBlock);
+  onEditDiceBlockRef.current = onEditDiceBlock;
+  /** 需求2: 工具栏快捷键处理函数（由 EditorToolbar 通过 onShortcutReady 注册）*/
+  const shortcutHandlersRef = useRef<ShortcutHandlers | null>(null);
   /**
    * 触摸手势状态：
    * - 记录触摸起点 + 起始 scrollTop
@@ -187,6 +214,9 @@ export function RichTextEditor({
               !!c.sub === !!cur.sub;
             if (!same) {
               useEditorStore.setState({ cursorStyles: cur });
+              // v40: 移除 styleMismatch unlock 逻辑
+              // activeStylesLocked 只由用户主动操作清除(清格式/Backspace 删空/切章节)
+              // 锁定状态下光标移动不解锁,保持 Word 式"持久锁定"
             }
           });
         }
@@ -236,6 +266,10 @@ export function RichTextEditor({
 
     const apply = () => {
       el.innerHTML = displayHTML;
+      // v48 Fix 4: innerHTML 重写后重新挂载 img error listener
+      // 确保章节切换/视图切换后图片仍有 base64 兜底能力
+      // (addEventListener 注册的 listener 不被 innerHTML 序列化,新 img 元素需要重新挂载)
+      reattachImageErrorHandlers(el);
       lastContentRef.current = safeContent;
       // 内容从外部加载（切章节/导入等），重置历史栈
       useEditorHistoryStore.getState().reset(safeContent);
@@ -278,6 +312,11 @@ export function RichTextEditor({
         if (!el) return;
         insertDiceCard(el, payload);
       },
+      updateDiceBlock: (blockId: string, payload: DiceBlockPayloadV2) => {
+        const el = divRef.current;
+        if (!el) return;
+        updateDiceBlock(el, blockId, payload);
+      },
       scrollToDiceCard: (payloadSnapshot: string) => {
         const el = divRef.current;
         if (!el) return false;
@@ -307,9 +346,59 @@ export function RichTextEditor({
           updateSelectedImage(el, selected, { size });
         }
       },
+      scrollToTop: () => {
+        const scrollEl = scrollRef.current;
+        if (scrollEl) scrollEl.scrollTo({ top: 0, behavior: 'smooth' });
+      },
+      scrollToBottom: () => {
+        const scrollEl = scrollRef.current;
+        if (scrollEl) scrollEl.scrollTo({ top: scrollEl.scrollHeight, behavior: 'smooth' });
+      },
+      getScrollTop: () => {
+        return scrollRef.current?.scrollTop ?? 0;
+      },
+      setScrollTop: (scrollTop: number) => {
+        const scrollEl = scrollRef.current;
+        if (scrollEl) scrollEl.scrollTop = scrollTop;
+      },
     }),
     [],
   );
+
+  // 需求5: 节切换时保存/恢复滚动位置
+  const currentSectionId = useEditorStore((s) => s.sectionId);
+  const lastSectionIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prevId = lastSectionIdRef.current;
+    const newId = currentSectionId;
+    // 保存旧节的滚动位置
+    if (prevId && prevId !== newId) {
+      const scrollTop = scrollRef.current?.scrollTop ?? 0;
+      useEditorStore.getState().setSectionScrollPosition(prevId, scrollTop);
+    }
+    lastSectionIdRef.current = newId;
+    // 恢复新节的滚动位置（延迟等 innerHTML 写入完成）
+    if (newId && prevId !== newId) {
+      const savedPos = useEditorStore.getState().getSectionScrollPosition(newId);
+      if (savedPos !== undefined && savedPos > 0) {
+        const timer = window.setTimeout(() => {
+          if (scrollRef.current) scrollRef.current.scrollTop = savedPos;
+        }, 300);
+        return () => window.clearTimeout(timer);
+      }
+    }
+  }, [currentSectionId]);
+
+  // 需求5: 组件卸载时保存当前节的滚动位置
+  useEffect(() => {
+    return () => {
+      const sid = lastSectionIdRef.current;
+      if (sid) {
+        const scrollTop = scrollRef.current?.scrollTop ?? 0;
+        useEditorStore.getState().setSectionScrollPosition(sid, scrollTop);
+      }
+    };
+  }, []);
 
   const handleInput = () => {
     const el = divRef.current;
@@ -338,6 +427,64 @@ export function RichTextEditor({
   const handleInputRef = useRef(handleInput);
   handleInputRef.current = handleInput;
 
+  // 主题切换时迁移编辑器内黑/白文字颜色
+  // - 切到暗色：黑色 span (#000000/#000/black) → #ffffff
+  // - 切到亮色：白色 span (#ffffff/#fff/white) → #000000
+  // 其他颜色（红/蓝/绿等）保持不变；首次挂载只记录不迁移
+  const themeMode = useThemeStore((s) => s.mode);
+  const prevThemeModeRef = useRef<ThemeMode | null>(null);
+  useEffect(() => {
+    const prevMode = prevThemeModeRef.current;
+    if (prevMode === null) {
+      prevThemeModeRef.current = themeMode;
+      return;
+    }
+    if (prevMode === themeMode) return;
+    prevThemeModeRef.current = themeMode;
+
+    const el = divRef.current;
+    if (!el) return;
+
+    const BLACK_SET = new Set(['black', '#000000', '#000', 'rgb(0, 0, 0)', 'rgba(0, 0, 0, 1)']);
+    const WHITE_SET = new Set(['white', '#ffffff', '#fff', 'rgb(255, 255, 255)', 'rgba(255, 255, 255, 1)']);
+
+    let changed = false;
+    const spans = el.querySelectorAll<HTMLSpanElement>('span[style*="color"]');
+    for (const span of Array.from(spans)) {
+      const color = (span.style.color || '').trim().toLowerCase();
+      if (!color) continue;
+      if (themeMode === 'dark' && BLACK_SET.has(color)) {
+        span.style.color = '#ffffff';
+        changed = true;
+      } else if (themeMode === 'light' && WHITE_SET.has(color)) {
+        span.style.color = '#000000';
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      const html = el.innerHTML;
+      // 更新 lastContentRef 避免 handleInput 误判重复
+      lastContentRef.current = html;
+      onChangeContent(html);
+      // 不推历史栈：主题切换是 UI 偏好，不是内容编辑
+    }
+
+    // 修复：迁移 store 里的 activeStyles.color（用户光标处尚未输入，但选中的颜色已被锁）
+    // 主题切换后，如果当前 activeStyles.color 是黑/白，必须同步迁移，
+    // 否则用户输入的文字颜色会与新主题不匹配。
+    const store = useEditorStore.getState();
+    const cur = store.activeStyles.color;
+    if (cur) {
+      const c = cur.trim().toLowerCase();
+      if (themeMode === 'dark' && BLACK_SET.has(c)) {
+        useEditorStore.getState().setActiveStyles({ color: '#ffffff' });
+      } else if (themeMode === 'light' && WHITE_SET.has(c)) {
+        useEditorStore.getState().setActiveStyles({ color: '#000000' });
+      }
+    }
+  }, [themeMode, onChangeContent]);
+
   // 原生 beforeinput 事件：把活动样式应用到即将插入的字符上
   // 用 addEventListener 监听原生 InputEvent（React 合成 onBeforeInput 的 inputType 永远 undefined）
   // 支持：insertText / insertReplacementText（英文/数字/符号输入）
@@ -364,12 +511,26 @@ export function RichTextEditor({
         active.strike ||
         active.sup ||
         active.sub;
-      if (!hasStyle) return;
+      // v6 修复：B/I/U/S 显式取消时（active.bold === false 等）也要接管输入，
+      // 否则浏览器原生插入会继承父 span 的样式
+      const hasExplicitCancel =
+        active.bold === false ||
+        active.italic === false ||
+        active.underline === false ||
+        active.strike === false;
+      if (!hasStyle && !hasExplicitCancel) return;
       // 只在光标折叠且选区内无文本时接管
       const sel = window.getSelection();
-      if (!sel || !sel.isCollapsed) return;
-      e.preventDefault();
-      if (applyActiveStylesToInsertion(el, active, e.data)) {
+      // v37 修复: 仅在 sel 明确非折叠时 return（用户选中了文本要替换）
+      // sel 不可用或 rangeCount=0 时，让 applyActiveStylesToInsertion 内部使用 _lastEditorRange fallback
+      // 避免 v36 场景下 unwrap 破坏 sel 后无法接管输入
+      if (sel && !sel.isCollapsed) return;
+      // v9 修复：preventDefault 必须在确认能接管后才能调用
+      // 否则 activeStylesLocked=true + 显式取消 + 无父 span 时
+      // applyActiveStylesToInsertion 返回 false → 浏览器默认插入被阻止 → "编辑都编辑不了"
+      if (applyActiveStylesToInsertion(el, active, e.data, useEditorStore.getState().activeStylesLocked)) {
+        // 成功接管：阻止默认 + 触发 input 事件保存
+        e.preventDefault();
         // 不再 unlock：保持锁定，让后续输入继续延续预选样式（#8）
         // 锁定状态由 Backspace 删空 / 用户主动改样式 / 切章节 清除
         // 触发 input 事件让 onChangeContent 保存
@@ -439,7 +600,13 @@ export function RichTextEditor({
       active.strike ||
       active.sup ||
       active.sub;
-    if (!hasStyle) return;
+    // v6 修复：B/I/U/S 显式取消时也要接管 IME 输入
+    const hasExplicitCancel =
+      active.bold === false ||
+      active.italic === false ||
+      active.underline === false ||
+      active.strike === false;
+    if (!hasStyle && !hasExplicitCancel) return;
 
     const insertedText = (e.nativeEvent as CompositionEvent).data || '';
     if (!insertedText) return;
@@ -450,16 +617,35 @@ export function RichTextEditor({
     // 光标所在节点应为文本节点（IME 刚插入）
     const textNode = range.startContainer;
     if (textNode.nodeType !== Node.TEXT_NODE) return;
-    const textLen = insertedText.length;
-    const startOffset = Math.max(0, range.startOffset - textLen);
-    if (range.startOffset - startOffset !== textLen) return;
 
-    // 创建包裹范围：从光标前 textLen 个字符到光标
+    // v40 修复: 在 textNode 中搜索匹配 insertedText 的子串定位起止位置
+    // (移除 startOffset - textLen 反推逻辑,该逻辑假设光标在 IME 文本末尾,
+    //  对中间提交场景错误)
+    const cursorOffset = range.startOffset;
+    const nodeValue = (textNode as Text).nodeValue || '';
+    let insertStart = -1;
+    // 优先在 cursorOffset 之前查找(IME 提交后光标通常在文本末尾)
+    const searchStart = Math.max(0, cursorOffset - insertedText.length);
+    const beforeCursor = nodeValue.substring(searchStart, cursorOffset);
+    const idx = beforeCursor.lastIndexOf(insertedText);
+    if (idx >= 0) {
+      insertStart = searchStart + idx;
+    } else {
+      // 在整个文本节点中搜索
+      const globalIdx = nodeValue.indexOf(insertedText);
+      if (globalIdx >= 0) {
+        insertStart = globalIdx;
+      }
+    }
+    if (insertStart < 0) return;
+    const insertEnd = insertStart + insertedText.length;
+
+    // 创建包裹范围：覆盖 IME 提交文本
     const wrapRange = document.createRange();
-    wrapRange.setStart(textNode as Text, startOffset);
-    wrapRange.setEnd(textNode as Text, range.startOffset);
+    wrapRange.setStart(textNode as Text, insertStart);
+    wrapRange.setEnd(textNode as Text, insertEnd);
 
-    if (applyActiveStylesToRange(wrapRange, active, el)) {
+    if (applyActiveStylesToRange(wrapRange, active, el, useEditorStore.getState().activeStylesLocked)) {
       handleInput();
     }
   };
@@ -545,6 +731,54 @@ export function RichTextEditor({
           handleInput();
           return;
         }
+
+        // v41 新增: 普通编辑区域 Shift+Enter 软换行(插入 <br>),延续当前 inline 样式
+        // Word 标准: Shift+Enter 在当前段落内换行,不创建新段落
+        e.preventDefault();
+        const r = selection.getRangeAt(0);
+        // 如果选区非折叠,先删除选区内容
+        if (!r.collapsed) r.deleteContents();
+        // 获取当前 inline 样式(与 Enter 逻辑一致: 优先光标处样式,回退 activeStyles)
+        let shiftEnterStyles: ReturnType<typeof getInlineStylesFromActive> = null;
+        if (r.collapsed && el.contains(r.commonAncestorContainer)) {
+          const cursorNode = r.startContainer;
+          shiftEnterStyles = collectInlineStyleFromAncestors(
+            cursorNode.nodeType === Node.ELEMENT_NODE
+              ? cursorNode
+              : cursorNode.parentNode,
+            el,
+          );
+        }
+        if (!shiftEnterStyles) {
+          const activeStyles = useEditorStore.getState().activeStyles;
+          shiftEnterStyles = getInlineStylesFromActive(activeStyles);
+        }
+        const br = document.createElement('br');
+        if (shiftEnterStyles) {
+          // 用 span 包裹 <br> 以延续样式
+          const span = document.createElement('span');
+          if (shiftEnterStyles.fontWeight) span.style.fontWeight = shiftEnterStyles.fontWeight;
+          if (shiftEnterStyles.fontStyle) span.style.fontStyle = shiftEnterStyles.fontStyle;
+          if (shiftEnterStyles.textDecoration) span.style.textDecoration = shiftEnterStyles.textDecoration;
+          span.appendChild(br);
+          r.insertNode(span);
+          // 光标移到 span 之后(新行开头)
+          const newRange = document.createRange();
+          newRange.setStartAfter(span);
+          newRange.collapse(true);
+          selection.removeAllRanges();
+          selection.addRange(newRange);
+        } else {
+          r.insertNode(br);
+          // 光标移到 <br> 之后
+          const newRange = document.createRange();
+          newRange.setStartAfter(br);
+          newRange.collapse(true);
+          selection.removeAllRanges();
+          selection.addRange(newRange);
+        }
+        handleInput();
+        return;
       }
     }
 
@@ -584,6 +818,205 @@ export function RichTextEditor({
           }
           return;
         }
+        // v31 修复:回车继承样式从"基于光标位置"改为"基于 activeStyles(用户意图)"
+        // 设计哲学:工具栏 B/I/U/S 按钮高亮 = 用户意图 = 新行/新输入应延续
+        // 这与 Word/Quill/Typora 的标准行为一致
+        // - 旧 v25c 方案: <p style="..."><br></p> + 光标在 <br> 之前 → <br> 撑起空行 + <p> style 不被新输入字符继承
+        // - 新 v31 方案: <p><span style="..."></span></p> + 光标在 <span> 内 → 无 <br> 占位 + 新输入字符进入 <span> 继承样式
+        // v36 修正:Enter 创建新行时,优先用光标处 inline 样式(更具上下文)
+        // 场景:光标在非粗体位置 + B 工具栏高亮 → 新行不应加粗(光标优先)
+        const sel3 = window.getSelection();
+        let inlineStyles: ReturnType<typeof getInlineStylesFromActive> = null;
+        if (sel3 && sel3.rangeCount > 0) {
+          const rCursor = sel3.getRangeAt(0);
+          if (rCursor.collapsed && el.contains(rCursor.commonAncestorContainer)) {
+            const cursorNode = rCursor.startContainer;
+            const cursorStyles = collectInlineStyleFromAncestors(
+              cursorNode.nodeType === Node.ELEMENT_NODE
+                ? cursorNode
+                : cursorNode.parentNode,
+              el,
+            );
+            if (cursorStyles) inlineStyles = cursorStyles;
+          }
+        }
+        if (!inlineStyles) {
+          const activeStyles = useEditorStore.getState().activeStyles;
+          inlineStyles = getInlineStylesFromActive(activeStyles);
+        }
+
+        if (sel3 && sel3.rangeCount > 0) {
+          const r3 = sel3.getRangeAt(0);
+          const commonAncestor = r3.commonAncestorContainer;
+          const ancestorEl = commonAncestor.nodeType === Node.ELEMENT_NODE
+            ? commonAncestor as HTMLElement
+            : commonAncestor.parentElement;
+          // v41 Fix 1C: 去掉 'div'，避免匹配编辑器根本身（裸文本由 else fallback 处理）
+          const blockEl = ancestorEl?.closest('p, h1, h2, h3, h4, h5, h6, blockquote, li') as HTMLElement | null;
+
+          // v40: 列表 <li> 内 Enter → 创建新 <li>(而非 <p>)
+          // v41 Fix 1A/1B: 光标在开头→前方插空li；末尾→带样式新li；中间→splitBlock
+          if (blockEl && blockEl.tagName === 'LI') {
+            const liText = blockEl.textContent || '';
+            // 空 <li> 末尾按 Enter → 退出列表(创建 <p>)
+            if (liText.trim() === '') {
+              const newP = document.createElement('p');
+              newP.appendChild(document.createElement('br'));
+              const listParent = blockEl.closest('ul, ol');
+              if (listParent && listParent.parentNode) {
+                // 在列表之后插入 <p>
+                if (listParent.nextSibling) {
+                  listParent.parentNode.insertBefore(newP, listParent.nextSibling);
+                } else {
+                  listParent.parentNode.appendChild(newP);
+                }
+                // 移除空 <li>
+                blockEl.remove();
+              } else {
+                el.appendChild(newP);
+              }
+              const cursor = document.createRange();
+              cursor.setStart(newP, 0);
+              cursor.collapse(true);
+              sel3.removeAllRanges();
+              sel3.addRange(cursor);
+              e.preventDefault();
+              handleInput();
+              return;
+            }
+
+            // v41 Fix 1B: 光标在 <li> 开头(offset===0) → 在前方插入空 li（Word 标准）
+            // 场景: <li>|text</li> 按 Enter → <li><br></li><li>text</li>,光标留在原 li(现第二个)
+            if (r3.collapsed && r3.startOffset === 0 && blockEl.textContent && blockEl.textContent.length > 0) {
+              e.preventDefault();
+              const emptyLi = document.createElement('li');
+              if (inlineStyles) {
+                // 延续当前 inline 样式: <li><span style="..."><br></span></li>
+                const span = document.createElement('span');
+                if (inlineStyles.fontWeight) span.style.fontWeight = inlineStyles.fontWeight;
+                if (inlineStyles.fontStyle) span.style.fontStyle = inlineStyles.fontStyle;
+                if (inlineStyles.textDecoration) span.style.textDecoration = inlineStyles.textDecoration;
+                span.appendChild(document.createElement('br'));
+                emptyLi.appendChild(span);
+              } else {
+                emptyLi.appendChild(document.createElement('br'));
+              }
+              blockEl.parentNode?.insertBefore(emptyLi, blockEl);
+              // 光标留在原 li(现在变成第二个)的文本开头
+              const cursor = document.createRange();
+              cursor.setStart(blockEl, 0);
+              cursor.collapse(true);
+              sel3.removeAllRanges();
+              sel3.addRange(cursor);
+              handleInput();
+              return;
+            }
+
+            // 非空 <li> 末尾或中间 → splitBlockAtCursor 创建新 <li>
+            e.preventDefault();
+            const cursor = splitBlockAtCursor(el, blockEl, r3);
+            // 把新创建的 <p> 改为 <li>
+            const newP = cursor.startContainer;
+            if (newP.nodeType === Node.ELEMENT_NODE && (newP as HTMLElement).tagName === 'P') {
+              const newLi = document.createElement('li');
+              while (newP.firstChild) {
+                newLi.appendChild(newP.firstChild);
+              }
+              // v41 Fix 1A: 如果 newLi 为空(只有 <br>),替换为带样式 span 以延续 inline 样式
+              // 场景: <li><span style="font-weight:bold">bold|</span></li> 按 Enter
+              //       → 新 li 应为 <li><span style="font-weight:bold"><br></span></li>
+              if (newLi.childNodes.length === 1 && newLi.firstChild?.nodeName === 'BR' && inlineStyles) {
+                newLi.removeChild(newLi.firstChild);
+                const span = document.createElement('span');
+                if (inlineStyles.fontWeight) span.style.fontWeight = inlineStyles.fontWeight;
+                if (inlineStyles.fontStyle) span.style.fontStyle = inlineStyles.fontStyle;
+                if (inlineStyles.textDecoration) span.style.textDecoration = inlineStyles.textDecoration;
+                span.appendChild(document.createElement('br'));
+                newLi.appendChild(span);
+                // 光标放在 span 内 br 之前(与 insertStyledParagraphAfter 一致)
+                cursor.setStart(span, 0);
+              } else {
+                cursor.setStart(newLi, 0);
+              }
+              cursor.collapse(true);
+              newP.parentNode?.replaceChild(newLi, newP);
+            }
+            sel3.removeAllRanges();
+            sel3.addRange(cursor);
+            handleInput();
+            return;
+          }
+
+          if (blockEl) {
+            // v32 修复:光标在文本中间时,split block(加粗文本中间按 Enter → 左半加粗 + 右半加粗)
+            const cursorNode = r3.startContainer;
+            const isCursorInMiddleOfText =
+              cursorNode.nodeType === Node.TEXT_NODE &&
+              r3.startOffset > 0 &&
+              r3.startOffset < (cursorNode as Text).length;
+
+            if (isCursorInMiddleOfText) {
+              e.preventDefault();
+              const cursor = splitBlockAtCursor(el, blockEl, r3);
+              sel3.removeAllRanges();
+              sel3.addRange(cursor);
+              handleInput();
+              // v40: 空编辑器 Enter 后,若编辑器变空则添加 <br> 占位
+              if (!el.textContent && el.querySelectorAll('br').length === 0) {
+                el.appendChild(document.createElement('br'));
+              }
+              return;
+            }
+
+            // v31 原有逻辑:段落末尾按 Enter → insertStyledParagraphAfter
+            if (inlineStyles) {
+              e.preventDefault();
+              const cursor = insertStyledParagraphAfter(el, blockEl, inlineStyles);
+              sel3.removeAllRanges();
+              sel3.addRange(cursor);
+              handleInput();
+              return;
+            }
+
+            // v34 修复:activeStyles 为空时也要确保能换行
+            // (修复"样式文本末尾按 Enter 无反应"的 bug)
+            // 新行样式只与菜单栏 activeStyles 有关,activeStyles 为空 → 新行是普通 <p><br></p>
+            e.preventDefault();
+            const cursor = insertStyledParagraphAfter(el, blockEl, null);
+            sel3.removeAllRanges();
+            sel3.addRange(cursor);
+            handleInput();
+            return;
+          } else {
+            // v41 Fix 1D: blockEl 为 null 时光标在编辑器根的直接子节点(裸文本等)
+            // 创建 <p><br></p> 或 <p><span style><br></span></p> 追加到编辑器根
+            e.preventDefault();
+            const p = document.createElement('p');
+            if (inlineStyles) {
+              const span = document.createElement('span');
+              if (inlineStyles.fontWeight) span.style.fontWeight = inlineStyles.fontWeight;
+              if (inlineStyles.fontStyle) span.style.fontStyle = inlineStyles.fontStyle;
+              if (inlineStyles.textDecoration) span.style.textDecoration = inlineStyles.textDecoration;
+              span.appendChild(document.createElement('br'));
+              p.appendChild(span);
+            } else {
+              p.appendChild(document.createElement('br'));
+            }
+            el.appendChild(p);
+            const newRange = document.createRange();
+            const firstChild = p.firstChild;
+            if (firstChild && firstChild.nodeType === Node.ELEMENT_NODE && (firstChild as HTMLElement).tagName === 'SPAN') {
+              newRange.setStart(firstChild, 0);
+            } else {
+              newRange.setStart(p, 0);
+            }
+            newRange.collapse(true);
+            sel3.removeAllRanges();
+            sel3.addRange(newRange);
+            handleInput();
+            return;
+          }
+        }
       }
     }
     
@@ -592,6 +1025,27 @@ export function RichTextEditor({
       e.preventDefault();
       onSearchOpen?.();
       return;
+    }
+
+    // 需求2: 格式快捷键
+    const ctrlOrCmd = e.ctrlKey || e.metaKey;
+    if (ctrlOrCmd && !e.shiftKey) {
+      const key = e.key.toLowerCase();
+      if (key === 'b') { e.preventDefault(); shortcutHandlersRef.current?.bold(); return; }
+      if (key === 'i') { e.preventDefault(); shortcutHandlersRef.current?.italic(); return; }
+      if (key === 'u') { e.preventDefault(); shortcutHandlersRef.current?.underline(); return; }
+    }
+    if (ctrlOrCmd && e.shiftKey) {
+      const key = e.key.toLowerCase();
+      if (key === 's') { e.preventDefault(); shortcutHandlersRef.current?.strike(); return; }
+      if (key === 'q') {
+        e.preventDefault();
+        const editorEl = divRef.current;
+        if (editorEl) { insertQuoteBlock(editorEl); dispatchInput(editorEl); }
+        return;
+      }
+      if (key === 'c') { e.preventDefault(); shortcutHandlersRef.current?.collapse(); return; }
+      if (key === 'd') { e.preventDefault(); onInsertDiceRequest?.(); return; }
     }
 
     // Ctrl+Z 撤销 - 使用应用级历史栈（替代 execCommand）
@@ -636,8 +1090,9 @@ export function RichTextEditor({
             }
           });
           if (removed) {
-            // 让浏览器继续处理剩余文本的删除
-            // 不 preventDefault，让原生删除执行
+            // v40: 防止浏览器重复删除(已手动删除 atomic blocks,若不 preventDefault,
+            //   浏览器会再次尝试删除光标处内容,可能删多)
+            e.preventDefault();
             dispatchInput(editorEl);
           }
         }
@@ -767,8 +1222,14 @@ export function RichTextEditor({
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) return;
     const curRange = sel.getRangeAt(0);
-    const curInQuote = (curRange.startContainer as HTMLElement).closest?.(
-      '.quote-block, .quote-line, blockquote, .code-block, pre'
+    // v40: 明确判断 nodeType,用 parentElement?.closest() 替代 as HTMLElement
+    //   (TextNode 没有 closest 方法,原代码靠 ?. 侥幸返回 undefined)
+    const startEl = curRange.startContainer.nodeType === Node.ELEMENT_NODE
+      ? (curRange.startContainer as HTMLElement)
+      : curRange.startContainer.parentElement;
+    // v41 Fix B: 新增 collapse-head, image-block, dice-card 原子块逃逸
+    const curInQuote = startEl?.closest?.(
+      '.quote-block, .quote-line, blockquote, .code-block, pre, .collapse-head, .image-block, .dice-card'
     );
     if (!curInQuote) return;
 
@@ -795,8 +1256,14 @@ export function RichTextEditor({
     }
     if (targetRange) {
       // 确认目标点不在引用/代码块内
-      const targetInQuote = (targetRange.startContainer as HTMLElement).closest?.(
-        '.quote-block, .quote-line, blockquote, .code-block, pre'
+      // v41 Fix B: 新增 collapse-head, image-block, dice-card 原子块逃逸
+      // 修复：startContainer 可能是 TextNode，强转 HTMLElement 后 closest 失效，
+      //   导致块内拖选松手即被清空。统一用 parentElement 取祖先后再 closest。
+      const targetEl = targetRange.startContainer.nodeType === Node.ELEMENT_NODE
+        ? (targetRange.startContainer as HTMLElement)
+        : targetRange.startContainer.parentElement;
+      const targetInQuote = targetEl?.closest?.(
+        '.quote-block, .quote-line, blockquote, .code-block, pre, .collapse-head, .image-block, .dice-card'
       );
       if (!targetInQuote) {
         sel.removeAllRanges();
@@ -811,13 +1278,36 @@ export function RichTextEditor({
   // - 原子块的数据类型被选中后可以作为整体被拖动
   // - 普通文本选中后也可以被拖动
   // 不再对拖拽做任何 preventDefault，完全委托给浏览器原生行为
+  // 折叠块：仅识别从 .collapse-drag-handle 触发的拖动，避免整块 draggable 干扰 body 文本选中
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
     // 如果拖动起点在 .dice-card 内的 .dice-roll 按钮或链接，跳过
     if (target.closest && target.closest('[data-role="roll"]')) {
       return;
     }
-    const atomicBlock = target.closest('[data-type="image-block"],[data-type="dice-card"],[data-type="collapse-block"]') as HTMLElement | null;
+
+    // 折叠块：仅识别从 .collapse-drag-handle 触发的拖动
+    const dragHandle = target.closest?.('.collapse-drag-handle');
+    if (dragHandle) {
+      const collapseBlock = dragHandle.closest('[data-type="collapse-block"]') as HTMLElement | null;
+      if (collapseBlock) {
+        e.dataTransfer.effectAllowed = 'move';
+        const outerHtml = collapseBlock.outerHTML;
+        e.dataTransfer.setData('application/x-anke-block', 'collapse-block');
+        e.dataTransfer.setData('text/html', outerHtml);
+        e.dataTransfer.setData('text/plain', outerHtml);
+        try {
+          e.dataTransfer.setDragImage(collapseBlock, 20, 20);
+        } catch {
+          /* noop */
+        }
+        collapseBlock.setAttribute('data-dragging', 'true');
+      }
+      return;
+    }
+
+    // image-block / dice-card：保持原有整块拖动逻辑
+    const atomicBlock = target.closest('[data-type="image-block"],[data-type="dice-card"]') as HTMLElement | null;
     if (atomicBlock) {
       e.dataTransfer.effectAllowed = 'move';
       const outerHtml = atomicBlock.outerHTML;
@@ -923,7 +1413,7 @@ export function RichTextEditor({
             if (titleMatch && titleMatch[1]) {
               node.setAttribute('data-title', titleMatch[1]);
             }
-            node.setAttribute('draggable', 'true');
+            ensureDragHandle(node);
           }
         };
         if (movedNode) ensureBlockAttr(movedNode);
@@ -1031,7 +1521,7 @@ export function RichTextEditor({
                 if (titleMatch && titleMatch[1]) {
                   node.setAttribute('data-title', titleMatch[1]);
                 }
-                node.setAttribute('draggable', 'true');
+                ensureDragHandle(node);
               }
             }
             editor.appendChild(node);
@@ -1216,8 +1706,18 @@ export function RichTextEditor({
     };
     el.addEventListener('anke-dice-rolled', handler as EventListener);
 
+    // 需求4:监听 dice-card 编辑按钮触发的 CustomEvent
+    const editHandler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { blockId: string; payload: DiceBlockPayloadV2 };
+      if (detail && onEditDiceBlockRef.current) {
+        onEditDiceBlockRef.current(detail.blockId, detail.payload);
+      }
+    };
+    el.addEventListener('dice-edit-request', editHandler as EventListener);
+
     return () => {
       el.removeEventListener('anke-dice-rolled', handler as EventListener);
+      el.removeEventListener('dice-edit-request', editHandler as EventListener);
       detach();
     };
   }, [onDiceRolled]);
@@ -1254,6 +1754,7 @@ export function RichTextEditor({
         onRedo={onRedo ?? handleRedo}
         canUndo={canUndo}
         canRedo={canRedo}
+        onShortcutReady={(handlers) => { shortcutHandlersRef.current = handlers; }}
       />
       {/* 滚动容器：普通 div，Android WebView 触摸滚动正常 */}
       <div
@@ -1268,7 +1769,7 @@ export function RichTextEditor({
           minHeight: 0,
           overflowY: 'auto',
           overflowX: 'hidden',
-          background: 'var(--bg-editor)',
+          // v43: background 移至 .anke-editor-scroll CSS 类(用 --bg-editor-margin 作为 padding 留白区域颜色)
           position: 'relative',
         }}
         className="anke-editor-scroll"
@@ -1315,7 +1816,7 @@ export function RichTextEditor({
             minHeight: '100%',
             padding: '24px 32px',
             outline: 'none',
-            cursor: 'text',
+            cursor: editable ? 'text' : 'default',
             zoom: zoom, // Ctrl+滚轮缩放（Chrome/Electron 原生支持）
             ...(style || {}),
           }}
@@ -1424,3 +1925,7 @@ export function RichTextEditor({
     </div>
   );
 }
+
+// React.memo 包裹：避免父组件重渲染时（如 sectionStats 更新）触发编辑器不必要重渲染
+// 注意：父组件传入的回调 props 应保持引用稳定（useCallback），否则 memo 会失效
+export const RichTextEditor = React.memo(RichTextEditorInner);

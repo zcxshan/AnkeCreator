@@ -302,8 +302,100 @@ export function bbcodeToHtml(input: string | null | undefined): string {
   // 渲染：root 的 children 拼出最终 HTML
   const html = root.kind === 'el' ? childrenToHTML(root.children) : '';
 
+  // v6 新增：清理冗余 HTML 标签（空标签、冗余嵌套、相邻同标签合并）
+  const cleaned = cleanRedundantHtml(html);
+
   // 兜底：把纯文本中的连续空行压缩，但保留段落换行
-  return collapseBlankLines(html);
+  return collapseBlankLines(cleaned);
+}
+
+/**
+ * v6 新增：清理 BBCode → HTML 转换后的冗余标签。
+ *
+ * 清理规则：
+ * 1. 移除空内联标签：<b></b>, <i></i>, <u></u>, <del></del>, <span style="..."></span>, <sup></sup>, <sub></sub>
+ * 2. 展开冗余嵌套：<b><b>X</b></b> → <b>X</b>, <span style="color:red"><span style="color:red">X</span></span> → <span style="color:red">X</span>
+ * 3. 合并相邻同标签同属性：<b>X</b><b>Y</b> → <b>XY</b>
+ *
+ * 用 DOMParser 解析后操作 DOM，避免正则误伤。
+ */
+function cleanRedundantHtml(html: string): string {
+  if (!html || !html.trim()) return html;
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html');
+    const root = doc.body.firstChild as HTMLElement | null;
+    if (!root) return html;
+
+    // 迭代直到稳定（每趟可能有新的空标签暴露出来）
+    let changed = true;
+    let guard = 0;
+    while (changed && guard++ < 10) {
+      changed = false;
+      // 1. 移除空内联标签（v7: 只移除完全无子节点的标签，保留含空格/&nbsp;/<br> 的标签）
+      const emptyTags = root.querySelectorAll('b, i, u, del, span, sup, sub, a, font');
+      for (const el of emptyTags) {
+        if (el.childNodes.length === 0) {
+          // 只移除真正空的标签（无任何子节点），保留含空格/&nbsp;/<br> 的标签
+          el.remove();
+          changed = true;
+        }
+      }
+
+      // 2. 展开冗余嵌套（同标签同属性）
+      const allEls = root.querySelectorAll('b, i, u, del, span, sup, sub, font');
+      for (const el of allEls) {
+        if (el.childElementCount === 1) {
+          const child = el.firstElementChild as HTMLElement;
+          if (child && sameTagAndStyle(el, child)) {
+            // 子元素完全相同 → 用子元素的内容替换父元素
+            while (child.firstChild) {
+              el.insertBefore(child.firstChild, child);
+            }
+            child.remove();
+            changed = true;
+          }
+        }
+      }
+
+      // 3. 合并相邻同标签同属性
+      const inlineEls = root.querySelectorAll('b, i, u, del, span, sup, sub, font');
+      for (const el of inlineEls) {
+        const next = el.nextElementSibling as HTMLElement | null;
+        if (next && sameTagAndStyle(el, next)) {
+          // 把 next 的子节点移到 el 末尾
+          while (next.firstChild) {
+            el.appendChild(next.firstChild);
+          }
+          next.remove();
+          changed = true;
+        }
+      }
+    }
+
+    return root.innerHTML;
+  } catch {
+    // DOMParser 失败时返回原 HTML（降级）
+    return html;
+  }
+}
+
+/** 判断两个元素是否标签相同且 style 属性相同 */
+function sameTagAndStyle(a: HTMLElement, b: HTMLElement): boolean {
+  if (a.tagName !== b.tagName) return false;
+  // 比较 style（normalize 后比较）
+  const sa = (a.getAttribute('style') || '').replace(/\s+/g, ' ').trim();
+  const sb = (b.getAttribute('style') || '').replace(/\s+/g, ' ').trim();
+  if (sa !== sb) return false;
+  // 比较 color 属性（font 标签）
+  const ca = a.getAttribute('color');
+  const cb = b.getAttribute('color');
+  if (ca !== cb) return false;
+  // 比较 face 属性（font 标签）
+  const fa = a.getAttribute('face');
+  const fb = b.getAttribute('face');
+  if (fa !== fb) return false;
+  return true;
 }
 
 function findMatchingOpenIndex(stack: Node[], tag: string): number {
@@ -371,7 +463,7 @@ function buildOpenNode(tag: string, attrRaw: string): Node {
         // onerror 兜底：图片加载失败时显示占位（保持和 insertImageBlock 一致）
         // 用内联 JS 而非 base64 SVG 占位图，因为图片可能在 Electron 渲染进程/Capacitor 加载
         const onerror = `this.onerror=null;this.style.minHeight='40px';this.style.background='var(--bg-hover, #f0f0f0)';this.alt='图片加载失败';this.insertAdjacentHTML('afterend','<span style=&quot;display:inline-block;color:#999;font-size:12px;padding:4px 6px;background:var(--bg-hover,#f0f0f0);border-radius:3px;margin:2px 4px&quot;>[图片无法加载]</span>');`;
-        return `<div data-type="image-block" data-size="original" style="display:inline-block;margin:2px 4px;vertical-align:middle;outline:none;user-select:none"><img src="${escapeHtml(url)}" onerror="${onerror}" style="max-width:100%;height:auto;display:inline-block;cursor:pointer;user-select:none" alt=""></div>`;
+        return `<div data-type="image-block" data-size="original" style="display:inline-block;margin:2px 4px;vertical-align:middle;outline:none;user-select:none"><img src="${escapeHtml(url)}" data-original-src="${escapeHtml(url)}" onerror="${onerror}" style="max-width:100%;height:auto;display:inline-block;cursor:pointer;user-select:none" alt=""></div>`;
       });
     }
     case 'quote': {
@@ -379,7 +471,7 @@ function buildOpenNode(tag: string, attrRaw: string): Node {
       void title;
       return elNode('quote', {}, (inner) => {
         // 行级 [quote] 用 blockquote[data-type="quote-block"]（CSS 风格与 NGA 一致）
-        return `<blockquote data-type="quote-block" style="background:${NGA_QUOTE_BG};padding:8px 12px;border-radius:4px;margin:6px 0;border-left:3px solid #c8b88a">${inner}</blockquote>`;
+        return `<blockquote data-type="quote-block" style="background:var(--quote-bg);padding:8px 12px;border-radius:4px;margin:6px 0;border-left:3px solid var(--quote-border, #c8b88a)">${inner}</blockquote>`;
       });
     }
     case 'collapse': {
@@ -388,7 +480,7 @@ function buildOpenNode(tag: string, attrRaw: string): Node {
         // 与 insertCollapseBlock 保持一致结构（toggle span + title span + data-collapsed）
         // 让 BBCode 转换产物和工具栏插入的 collapse-block 都能被 attachCollapseBlockHandlers
         // 的 click toggle 识别。head 设 contenteditable="false" 避免点击被吞。
-        return `<div data-type="collapse-block" data-title="${escapeHtml(title)}" data-collapsed="true" style="display:block;margin:6px 0;border-radius:4px;overflow:hidden;outline:none"><div class="collapse-head" contenteditable="false" style="background:${NGA_COLLAPSE_HEAD_BG};padding:6px 10px;font-weight:600;display:flex;align-items:center;gap:4px;user-select:none;cursor:pointer"><span class="collapse-toggle" style="cursor:pointer;user-select:none;flex-shrink:0">+</span><span class="collapse-title" style="flex:1;min-width:0">${escapeHtml(title)}</span></div><div class="collapse-body" style="background:${NGA_COLLAPSE_BODY_BG};padding:8px 12px;display:none">${inner}</div></div>`;
+        return `<div data-type="collapse-block" data-title="${escapeHtml(title)}" data-collapsed="true" style="display:block;margin:6px 0;border-radius:4px;overflow:hidden;outline:none"><div class="collapse-head" contenteditable="false" style="background:var(--collapse-head-bg);padding:6px 10px;font-weight:600;display:flex;align-items:center;gap:4px;user-select:none;cursor:pointer"><span class="collapse-toggle" style="cursor:pointer;user-select:none;flex-shrink:0">+</span><span class="collapse-title" style="flex:1;min-width:0">${escapeHtml(title)}</span><span class="collapse-drag-handle" contenteditable="false" draggable="true" style="cursor:grab;user-select:none;flex-shrink:0;margin-left:4px;font-size:14px;line-height:1;opacity:0.6" title="拖动移动整个折叠块">⠿</span></div><div class="collapse-body" style="background:var(--collapse-body-bg);padding:8px 12px;display:none">${inner}</div></div>`;
       });
     }
     case 'code':
@@ -470,6 +562,7 @@ export function expandNgaImageUrl(url: string): string {
 function collapseBlankLines(s: string): string {
   return s
     .replace(/\r\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+    // v7: 保留用户的多空行（不压缩 \n{3,}），只裁掉首尾的纯换行
+    .replace(/^\n+/, '')
+    .replace(/\n+$/, '\n');
 }

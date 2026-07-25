@@ -165,27 +165,6 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
     };
   }, [volumes, chapters, sections]);
 
-  // 章/卷字数预计算（useMemo 缓存，避免每次渲染都 reduce）
-  const chapterWordCounts = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const chId of Object.keys(sectionsByChapter)) {
-      map[chId] = (sectionsByChapter[chId] || []).reduce(
-        (sum, s) => sum + (sectionStats[s.id]?.words || 0), 0,
-      );
-    }
-    return map;
-  }, [sectionsByChapter, sectionStats]);
-
-  const volumeWordCounts = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const v of sortedVolumes) {
-      map[v.id] = (chaptersByVolume[v.id] || []).reduce(
-        (sum, ch) => sum + (chapterWordCounts[ch.id] || 0), 0,
-      );
-    }
-    return map;
-  }, [sortedVolumes, chaptersByVolume, chapterWordCounts]);
-
   const commitRename = () => {
     if (!editingId) return;
     const v = editingValue.trim();
@@ -229,7 +208,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
       SECTION_LIST_MAX_VIRTUAL_HEIGHT,
     );
     const isExpanded = expandedChapterIds[ch.id];
-    const chapterWordCount = chapterWordCounts[ch.id] || 0;
+    const chapterWordCount = ch.word_count || 0;
     const isChapterActive = activeChapterId === ch.id;
 
     return (
@@ -399,7 +378,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
                 itemSize={SECTION_ROW_HEIGHT}
                 itemData={sectionRowData}
                 width="100%"
-                overscanCount={50}
+                overscanCount={10}
               >
                 {VirtualSectionRow}
               </FixedSizeList>
@@ -492,7 +471,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
           {sortedVolumes.map((v) => {
             const vChapters = chaptersByVolume[v.id] || [];
             const vExpanded = expandedVolumeIds[v.id];
-            const vWordCount = volumeWordCounts[v.id] || 0;
+            const vWordCount = v.word_count || 0;
             return (
               <div key={v.id} className="mb-1">
                 <div

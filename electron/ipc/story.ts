@@ -133,6 +133,10 @@ export function registerStoryIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('db:list-image-library-folders', (_e, parentId?: string | null) =>
     db.listImageLibraryFolders(parentId),
   )
+  // v36: 列出所有文件夹(不过滤 parentId),用于子目录删除时的统计
+  ipcMain.handle('db:list-all-image-library-folders', () => db.listAllImageLibraryFolders())
+  // v36: 列出所有图片项(不过滤 folderId),用于子目录删除时的统计
+  ipcMain.handle('db:list-all-image-library-items', () => db.listAllImageLibraryItems())
   ipcMain.handle(
     'db:create-image-library-folder',
     (_e, data: { name: string; parentId: string | null }) => db.createImageLibraryFolder(data),
@@ -153,6 +157,28 @@ export function registerStoryIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('db:move-image-library-item', (_e, id: string, folderId: string | null) =>
     db.moveImageLibraryItem(id, folderId),
   )
+  // 改动 v3：资源库图片重命名 / 跨文件夹移动
+  ipcMain.handle('db:update-image-library-item', (_e, id: string, patch: any) =>
+    db.updateImageLibraryItem(id, patch),
+  )
+  // 改动 v3：资源库图片拖动换顺序
+  ipcMain.handle(
+    'db:reorder-image-library-items',
+    (_e, ids: string[], folderId: string | null) => db.reorderImageLibraryItems(ids, folderId),
+  )
+
+  // ---- 素材网站推荐（material sites）----
+  ipcMain.handle('db:list-material-sites', () => db.listMaterialSites())
+  ipcMain.handle(
+    'db:create-material-site',
+    (_e, data: { name: string; url: string; category: string; description?: string }) =>
+      db.createMaterialSite(data),
+  )
+  ipcMain.handle(
+    'db:update-material-site',
+    (_e, id: string, patch: any) => db.updateMaterialSite(id, patch),
+  )
+  ipcMain.handle('db:delete-material-site', (_e, id: string) => db.deleteMaterialSite(id))
 
   // ---- 导出为 EPUB 电子书（含离线图片 + 进度推送 + 暂停/取消）----
   ipcMain.handle(

@@ -7,12 +7,14 @@
 // ============================================================
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { DiceBlockPayloadV2, DiceConfig, DiceKind } from '../../types';
+import type { DiceBlockPayloadV2, DiceConfig, DiceKind, DiceTextStyle } from '../../types';
+import { NGA_COLORS, NGA_FONTS, percentToCssFontSize } from '../../types';
 import {
   useDiceStore,
   createDefaultNumericDice,
   createDefaultOptionDice,
 } from '../../store/diceStore';
+import { useThemeStore } from '../../store/themeStore';
 import {
   NUMERIC_MAX_COUNT,
   NUMERIC_MAX_FACES,
@@ -21,6 +23,7 @@ import {
   createOptionId,
 } from '../../utils/diceEngine';
 import { parseNgaAnjia, toDiceOptions, type DiceNGAOption } from '../../utils/parseNgaAnjia';
+import { ptToSizePercent } from '../../utils/ngaHtmlToBBCode';
 
 interface DiceConfigDialogProps {
   /** 保存时触发：如果有 targetBlockId，则调用 updateBlock；否则调用 onSaveNew 把新建的 dice 加到当前节 */
@@ -31,9 +34,10 @@ interface DiceConfigDialogProps {
 export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProps) {
   const { dialog, closeDialog, setDraftName, setDraftKind, setDraftFaces,
     addDraftOption, removeDraftOption, updateDraftOption, setDraftCount,
-    setDraftNumericFaces, setDraftModifier, setDraftExpression, setDraft, validateDraftCoverage } =
+    setDraftNumericFaces, setDraftModifier, setDraftExpression, setDraft, validateDraftCoverage,
+    setStyleDraft, resetStyleDraft } =
     useDiceStore();
-  const { open, draft, targetBlockId } = dialog;
+  const { open, draft, targetBlockId, originalPayload, styleDraft } = dialog;
 
   // 临时错误提示（覆盖校验失败时显示）
   const [coverageWarning, setCoverageWarning] = useState<string | null>(null);
@@ -129,8 +133,11 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
     const payload: DiceBlockPayloadV2 = {
       version: 2,
       config: finalConfig,
-      lastResult: null,
-      history: [],
+      // 需求4:编辑已有骰子时保留 lastResult/history(修复既有 bug)
+      lastResult: originalPayload?.lastResult ?? null,
+      history: originalPayload?.history ?? [],
+      // 需求4:写入样式配置(空对象时不写入,减小 payload 体积)
+      style: Object.keys(styleDraft).length > 0 ? styleDraft : undefined,
     };
 
     if (targetBlockId) {
@@ -325,11 +332,58 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
               ✓ 覆盖校验通过：1~{faces} 全部命中且无重复
             </div>
           )}
-        </div>
+
+        {/* ===== 需求4:骰子样式设置 ===== */}
+        <details
+          className="mt-4 border rounded-lg overflow-hidden"
+          style={{ borderColor: 'var(--border-color)' }}
+        >
+          <summary
+            className="px-4 py-2 cursor-pointer text-sm font-medium"
+            style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
+          >
+            🎨 样式设置(可选)
+          </summary>
+          <div className="p-4 space-y-4">
+            <DiceStyleEditor
+              title="骰子点数文本"
+              description="投掷结果表达式(如 [1D10=7])和投掷动画数字"
+              style={styleDraft.resultText}
+              onChange={(patch) => setStyleDraft('resultText', patch)}
+              onReset={() => resetStyleDraft('resultText')}
+            />
+            <DiceStyleEditor
+              title="被选中选项文本"
+              description="命中选项的显示样式"
+              style={styleDraft.selectedOption}
+              onChange={(patch) => setStyleDraft('selectedOption', patch)}
+              onReset={() => resetStyleDraft('selectedOption')}
+            />
+            <DiceStyleEditor
+              title="未被选中选项文本"
+              description="未命中选项的显示样式"
+              style={styleDraft.unselectedOption}
+              onChange={(patch) => setStyleDraft('unselectedOption', patch)}
+              onReset={() => resetStyleDraft('unselectedOption')}
+            />
+            <button
+              className="text-xs px-3 py-1.5 rounded-md"
+              style={{
+                background: 'var(--bg-hover)',
+                color: 'var(--text-secondary)',
+                border: '1px solid var(--border-color)',
+              }}
+              onClick={() => resetStyleDraft()}
+            >
+              恢复全部默认
+            </button>
+          </div>
+        </details>
+      </div>
 
         {/* 底部 */}
         <div
-          className="flex items-center justify-end gap-2 px-5 py-3 border-t"
+          className="flex items-center justify-end gap-2 px-5 py-3 border-t shrink-0"
           style={{ background: 'var(--bg-toolbar)', borderColor: 'var(--border-color)' }}
         >
           <button
@@ -347,6 +401,295 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
             {targetBlockId ? '保存修改' : '创建骰子'}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** 需求4:骰子样式编辑器子组件 — 复用 NGA 常量，视觉对齐编辑器工具栏 */
+function DiceStyleEditor({
+  title,
+  description,
+  style,
+  onChange,
+  onReset,
+}: {
+  title: string;
+  description: string;
+  style: DiceTextStyle | undefined;
+  onChange: (patch: Partial<DiceTextStyle>) => void;
+  onReset: () => void;
+}) {
+  const toggleBtns: { key: keyof DiceTextStyle; label: string; css: React.CSSProperties }[] = [
+    { key: 'bold', label: 'B', css: { fontWeight: 700 } },
+    { key: 'italic', label: 'I', css: { fontStyle: 'italic' } },
+    { key: 'underline', label: 'U', css: { textDecoration: 'underline' } },
+    { key: 'strike', label: 'S', css: { textDecoration: 'line-through' } },
+  ];
+
+  // 颜色 popover 状态
+  const [colorOpen, setColorOpen] = useState(false);
+  const colorRef = useRef<HTMLDivElement>(null);
+  const isDark = useThemeStore((s) => s.mode === 'dark');
+
+  // 外部点击关闭颜色 popover
+  useEffect(() => {
+    if (!colorOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node | null;
+      if (t && colorRef.current && !colorRef.current.contains(t)) setColorOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [colorOpen]);
+
+  // 字体：从 CSS fontFamily 反查 NGA value
+  const activeFontValue = (() => {
+    if (!style?.fontFamily) return '';
+    const found = NGA_FONTS.find((f) => f.cssFamily === style.fontFamily);
+    return found ? found.value : '';
+  })();
+
+  // 字号本地态：允许连续输入，失焦钳位
+  const [fontSizeInput, setFontSizeInput] = useState('');
+  useEffect(() => {
+    if (style?.fontSize) {
+      const pct = ptToSizePercent(style.fontSize);
+      setFontSizeInput(pct ? String(pct) : '');
+    } else {
+      setFontSizeInput('');
+    }
+  }, [style?.fontSize]);
+
+  const handleFontSizeChange = (v: number) => {
+    if (v < 20 || v > 500) return;
+    onChange({ fontSize: percentToCssFontSize(v) });
+  };
+
+  return (
+    <div
+      className="p-3 rounded-md"
+      style={{ background: 'var(--bg-input)', border: '1px solid var(--border-color)' }}
+    >
+      <div className="flex items-center justify-between mb-2">
+        <div>
+          <div className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>
+            {title}
+          </div>
+          <div className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>
+            {description}
+          </div>
+        </div>
+        <button
+          className="text-[10px] px-2 py-1 rounded"
+          style={{ color: 'var(--text-muted)' }}
+          onClick={onReset}
+        >
+          重置
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-2 items-center">
+        {toggleBtns.map((btn) => {
+          const active = !!style?.[btn.key];
+          return (
+            <button
+              key={btn.key}
+              type="button"
+              className="w-7 h-7 text-xs rounded border flex items-center justify-center"
+              style={{
+                background: active ? 'var(--accent-bg)' : 'var(--bg-card)',
+                color: active ? 'var(--accent)' : 'var(--text-primary)',
+                borderColor: active ? 'var(--accent)' : 'var(--border-color)',
+                ...btn.css,
+              }}
+              onClick={() => onChange({ [btn.key]: !active } as Partial<DiceTextStyle>)}
+            >
+              {btn.label}
+            </button>
+          );
+        })}
+        {/* 字色：NGA 24 色色板 popover（参考工具栏） */}
+        <div ref={colorRef} style={{ position: 'relative' }}>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              className="flex items-center gap-1 text-[10px] px-1 py-0.5 rounded border"
+              style={{
+                background: 'var(--bg-card)',
+                color: 'var(--text-secondary)',
+                borderColor: colorOpen ? 'var(--accent)' : 'var(--border-color)',
+              }}
+              onClick={() => setColorOpen((v) => !v)}
+              title="文字颜色"
+            >
+              <span
+                style={{
+                  display: 'inline-block',
+                  width: 12,
+                  height: 12,
+                  borderRadius: 3,
+                  background: (() => {
+                    if (!style?.color) return isDark ? '#fff' : '#000';
+                    if (style.color === '#000000' && isDark) return '#ffffff';
+                    return style.color;
+                  })(),
+                  border: '1px solid var(--border-color)',
+                  verticalAlign: 'middle',
+                }}
+              />
+              字色
+            </button>
+            {style?.color && (
+              <button
+                className="text-[9px]"
+                style={{ color: 'var(--text-muted)' }}
+                onClick={() => onChange({ color: undefined })}
+                title="清除颜色"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          {colorOpen && (
+            <div
+              style={{
+                position: 'absolute',
+                zIndex: 50,
+                top: 28,
+                left: 0,
+                background: 'var(--bg-card)',
+                border: '1px solid var(--border-color)',
+                borderRadius: 6,
+                padding: 8,
+                boxShadow: '0 6px 20px rgba(0,0,0,0.15)',
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 4,
+                minWidth: 220,
+                maxHeight: 260,
+                overflowY: 'auto',
+              }}
+            >
+              {NGA_COLORS.map((c, idx) => {
+                const isLast = idx === NGA_COLORS.length - 1;
+                const effectiveCssColor = isLast && isDark ? '#ffffff' : c.cssColor;
+                const baseBorder = isDark
+                  ? 'rgba(255,255,255,0.25)'
+                  : 'rgba(0,0,0,0.1)';
+                return (
+                  <button
+                    key={c.value}
+                    onClick={() => {
+                      onChange({ color: effectiveCssColor });
+                      setColorOpen(false);
+                    }}
+                    title={isLast && isDark ? '白色' : c.label}
+                    style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: 4,
+                      background: effectiveCssColor,
+                      border:
+                        style?.color === effectiveCssColor
+                          ? '2px solid var(--accent)'
+                          : `1px solid ${baseBorder}`,
+                      cursor: 'pointer',
+                      outline: 'none',
+                    }}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </div>
+        {/* 字体：NGA 16 项（参考工具栏） */}
+        <label
+          className="flex items-center gap-1 text-[10px]"
+          style={{ color: 'var(--text-secondary)' }}
+        >
+          字体
+          <select
+            value={activeFontValue}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (!v) { onChange({ fontFamily: undefined }); return; }
+              const found = NGA_FONTS.find((f) => f.value === v);
+              if (found) onChange({ fontFamily: found.cssFamily });
+            }}
+            className="text-[10px] px-1 py-0.5 rounded border"
+            style={{
+              background: 'var(--bg-card)',
+              color: 'var(--text-primary)',
+              borderColor: 'var(--border-color)',
+              minWidth: 80,
+            }}
+          >
+            <option value="">默认</option>
+            {NGA_FONTS.map((f) => (
+              <option key={f.value} value={f.value}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {/* 字号：number input + range（参考工具栏） */}
+        <label
+          className="flex items-center gap-1 text-[10px]"
+          style={{ color: 'var(--text-secondary)' }}
+        >
+          字号
+          <input
+            type="number"
+            min={20}
+            max={500}
+            step={1}
+            value={fontSizeInput}
+            onChange={(e) => {
+              const raw = e.target.value;
+              setFontSizeInput(raw);
+              if (raw === '') { onChange({ fontSize: undefined }); return; }
+              const v = parseInt(raw, 10);
+              if (isNaN(v)) return;
+              handleFontSizeChange(v);
+            }}
+            onBlur={() => {
+              let v = parseInt(fontSizeInput, 10);
+              if (isNaN(v)) { setFontSizeInput(''); return; }
+              const clamped = Math.max(20, Math.min(500, v));
+              if (String(clamped) !== fontSizeInput) setFontSizeInput(String(clamped));
+              handleFontSizeChange(clamped);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                (e.currentTarget as HTMLInputElement).blur();
+              }
+            }}
+            className="w-12 text-[10px] px-1 py-0.5 rounded border"
+            style={{
+              background: 'var(--bg-card)',
+              color: 'var(--text-primary)',
+              borderColor: 'var(--border-color)',
+            }}
+            title="输入 20-500 的百分比"
+          />
+          <input
+            type="range"
+            min={20}
+            max={500}
+            step={1}
+            value={fontSizeInput ? parseInt(fontSizeInput, 10) : 100}
+            onChange={(e) => {
+              const v = parseInt(e.target.value, 10);
+              if (isNaN(v)) return;
+              setFontSizeInput(String(v));
+              handleFontSizeChange(v);
+            }}
+            style={{ width: 60, accentColor: 'var(--accent)', cursor: 'pointer' }}
+            title="拖动调整字号 20%-500%"
+          />
+          <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>%</span>
+        </label>
       </div>
     </div>
   );

@@ -2,7 +2,7 @@
 // 数据清理 IPC（应用内"清空所有数据"入口）
 //
 // - data:clearAll：删除 <dataRoot>/ 下的图片、JSON 数据库 + 渲染层所有 storage
-//   （打包 = <安装路径>/data/，dev = %APPDATA%\\...\\）
+//   （打包 = <安装路径>/data/，dev = <项目根>/data/）
 // - data:openUninstallGuide：弹系统对话框说明卸载行为
 //
 // **不**修改任何业务逻辑；仅清空数据。
@@ -12,18 +12,13 @@
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import fs from 'fs'
 import path from 'path'
-import { app } from 'electron'
 import * as db from './db-main'
-import { getImagesDir } from './paths'
+import { getImagesDir, getDataRoot } from './paths'
 
 /** 描述当前数据根目录的简短字符串（用于弹窗展示） */
 function describeDataDir(): string {
-  // 打包模式：<安装路径>/data
-  // dev 模式：%APPDATA%\<appId>
-  if (app.isPackaged) {
-    return '<安装路径>\\data'
-  }
-  return app.getPath('userData')
+  // 统一显示实际数据目录（打包=<安装路径>\data，dev=<项目根>\data）
+  return getDataRoot()
 }
 
 /** 注册数据清理相关 IPC handler */
@@ -105,26 +100,21 @@ export function registerDataIpc(getWindow: () => BrowserWindow | null): void {
   // 文案匹配 build/installer.nsh 的两步确认流程
   ipcMain.handle('data:openUninstallGuide', async (): Promise<{ ok: boolean }> => {
     const win = getWindow()
-    // 打包模式：数据在 <安装路径>/data/（v3.2+ 扁平化后所有数据都在此目录下）
-    // dev 模式：数据在 %APPDATA%\com.shanshian.ankecreator\
-    const dataDirDesc = app.isPackaged ? '<安装路径>\\data' : '%APPDATA%\\com.shanshian.ankecreator'
+    // 数据统一在 data/ 目录下（打包=<安装路径>\data，dev=<项目根>\data）
     const result = await dialog.showMessageBox(win ?? (undefined as any), {
       type: 'info',
       title: '数据管理说明（卸载 / 更新 / 清空）',
       message: '安科作者助手的数据管理机制',
       detail:
         '【卸载时（Windows + GUI 模式）】\n' +
-        '  1) 先弹「请先导出重要数据」提示 → 选「否」可取消整个卸载\n' +
-        '  2) 再弹「是否同时清空数据」 → 默认「否」（保护数据）\n' +
-        `  - 选「是」：彻底清理 ${dataDirDesc}（含 stories/、templates/、images/、sounds/、迁移标记文件）\n` +
-        `  - 选「否」：数据保留在 ${dataDirDesc}，下次重装自动恢复\n\n` +
+        '  - 仅弹一条提示，数据始终保留在安装路径\\data\\\n' +
+        '  - 如需彻底删除数据，请手动删除 data\\ 文件夹\n\n' +
         '【更新时（覆盖安装）】\n' +
         '  - 所有数据自动保留在原位置\n' +
-        '  - 安装器会先调用「卸载」步骤（按上述流程询问），然后再装新版本\n' +
-        '  - 即使选「是」清空数据，迁移标记文件会先被清掉（避免脏数据）\n\n' +
-        '【主动清空（设置里点「清空所有本地数据」）】\n' +
-        `  - 立即清空 ${dataDirDesc} + %APPDATA%\\com.shanshian.ankecreator\\ 下所有数据\n` +
-        '  - 不可恢复，请先导出重要作品！\n\n' +
+        '  - 如果安装到不同路径，安装器会自动从旧位置复制 data 到新位置\n\n' +
+        '【主动清空】\n' +
+        `  - 设置页已移除「清空所有本地数据」按钮\n` +
+        '  - 如需清空，请到安装目录下手动删除 data\\ 文件夹\n\n' +
         '【Android 端】\n' +
         '  - 系统卸载会自动清空应用私有目录（/data/data/<package>/）\n' +
         '  - 已禁用云备份（Android Auto Backup），避免卸载重装后从云端恢复旧数据\n\n' +

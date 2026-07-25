@@ -9,10 +9,11 @@
 
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import path from 'path'
+import fs from 'fs'
 
 // 主进程数据库（JSON 文件存储）
 import * as db from './db-main'
-import { migrateFromUserDataIfNeeded, migrateFlattenDataIfNeeded, isDataRootFallback } from './paths'
+import { migrateFromUserDataIfNeeded, migrateFlattenDataIfNeeded, isDataRootFallback, getDataDir } from './paths'
 
 // 全局错误捕获（必须在所有 app.on('xxx') 之前）
 import { registerGlobalErrorHandlers } from './errorReporter'
@@ -36,6 +37,19 @@ const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
 const RENDERER_DIST = path.join(appRoot, 'dist')
 
 process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(appRoot, 'public') : RENDERER_DIST
+
+// ============================================================
+// 把 Electron 默认 userData 路径（C 盘 AppData）重定向到 data/ 目录下
+// 确保 cookies、localStorage、IndexedDB、session 等也存到 data/ 而不是 C 盘
+// 必须在 app.whenReady() 之前调用
+// ============================================================
+try {
+  const electronDataDir = path.join(getDataDir(), 'electron-data')
+  app.setPath('userData', electronDataDir)
+  console.log('[main] Electron userData →', electronDataDir)
+} catch (e) {
+  console.warn('[main] 设置 userData 路径失败，使用默认 C 盘路径：', e)
+}
 
 // ============================================================
 // 窗口管理
@@ -144,6 +158,38 @@ if (runDiag()) {
       migrateFromUserDataIfNeeded()
     } catch (e) {
       console.error('[main] 迁移失败（继续启动）:', e)
+    }
+
+    // 步骤 1.4/4: v31 新增 — 如果刚刚发生了从注册表记录的旧版位置迁移，
+    // 弹一个友好提示告诉用户数据已自动恢复
+    if (app.isPackaged) {
+      try {
+        const newDataDir = getDataDir()
+        const regFlag = path.join(newDataDir, '.migrated-from-registry')
+        const appDataFlag = path.join(newDataDir, '.migrated-from-appdata')
+        if (fs.existsSync(regFlag) || fs.existsSync(appDataFlag)) {
+          let flagPath = fs.existsSync(regFlag) ? regFlag : appDataFlag
+          try {
+            const flagData = JSON.parse(fs.readFileSync(flagPath, 'utf-8'))
+            // 只在「实际发生了复制」的情况下提示(skipped 标记不弹)
+            if (flagData?.from && flagData?.to) {
+              dialog.showMessageBox({
+                type: 'info',
+                title: '数据已自动恢复',
+                message:
+                  '检测到您之前的作品数据,已自动从旧版安装位置复制到当前安装位置。\n\n' +
+                  '您之前的作品、世界观、人物、图片等都已保留,可以继续使用。\n\n' +
+                  '旧版安装位置的数据已保留作为备份,如需彻底删除请手动清理。',
+                buttons: ['我知道了'],
+              })
+            }
+          } catch {
+            /* flag 文件解析失败不弹 */
+          }
+        }
+      } catch (e) {
+        console.error('[main] v31 迁移提示失败（继续启动）:', e)
+      }
     }
 
     // 步骤 1.5/4: v3.2+ 数据扁平化迁移（#9：旧的 <installDir>/data/data/ → <installDir>/data/）

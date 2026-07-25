@@ -951,8 +951,19 @@ function CharacterEditorModal({
                       src={v.url}
                       alt={v.name}
                       className="absolute inset-0 w-full h-full object-cover"
-                      onError={(e) => {
+                      onError={async (e) => {
                         const img = e.currentTarget as HTMLImageElement;
+                        // v36: 与 ImageLibraryPage 一致,local:// 协议失败时通过 IPC 读 dataUrl 兜底
+                        if (v.url.startsWith('local://') && !img.dataset.fallbackTried) {
+                          img.dataset.fallbackTried = '1';
+                          try {
+                            const res = await window.electronAPI?.readAsDataUrl?.(v.url);
+                            if (res?.ok && res.dataUrl) {
+                              img.src = res.dataUrl;
+                              return;  // 兜底成功,不显示 fallback
+                            }
+                          } catch {}
+                        }
                         img.style.display = 'none';
                         const fallback = img.parentElement?.querySelector('.img-fallback') as HTMLElement | null;
                         if (fallback) fallback.style.display = 'flex';

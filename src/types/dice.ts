@@ -68,6 +68,27 @@ export interface DiceResult {
   timestamp: number;
 }
 
+/** 需求4:单个文本样式配置 */
+export interface DiceTextStyle {
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  strike?: boolean;
+  color?: string;       // CSS 颜色值
+  fontFamily?: string;  // CSS font-family
+  fontSize?: string;    // CSS font-size(如 '14px'、'12pt')
+}
+
+/** 需求4:骰子卡片样式配置(三类文本) */
+export interface DiceStyleConfig {
+  /** 骰子点数文本(投掷动画滚动数字 + 结果区表达式) */
+  resultText?: DiceTextStyle;
+  /** 被选中(命中)选项文本 */
+  selectedOption?: DiceTextStyle;
+  /** 未被选中选项文本 */
+  unselectedOption?: DiceTextStyle;
+}
+
 /** 新一代骰点块 payload（用于替换旧的 DiceBlockPayload） */
 export interface DiceBlockPayloadV2 {
   version: 2;
@@ -75,6 +96,8 @@ export interface DiceBlockPayloadV2 {
   lastResult: DiceResult | null;
   /** 历史记录，最多保留若干条，方便回顾 */
   history?: DiceResult[];
+  /** 需求4:骰子卡片样式配置(每个骰子单独配置) */
+  style?: DiceStyleConfig;
 }
 
 /** 最终对外：DiceBlock 的 payload 可能是老版本或新版本 */

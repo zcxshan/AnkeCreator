@@ -10,7 +10,6 @@
 // ============================================================
 
 import { create } from 'zustand';
-import type { TextStyles } from '../types';
 import * as db from '../db/index';
 
 type SaveStatus = 'idle' | 'saving' | 'saved';
@@ -38,9 +37,6 @@ interface EditorState {
   sectionContent: string | null;
   sectionLoading: boolean;
 
-  // 文本样式工具栏状态（用于新块 & 选中块的样式）
-  toolbarStyles: TextStyles;
-
   // 活动样式：选区/光标位置上的样式 + 用户最近一次切换，下一次输入会延续
   activeStyles: ActiveEditorStyles;
 
@@ -64,10 +60,6 @@ interface EditorState {
   setSectionContent: (content: string) => void;
   flushSectionContent: () => void; // 立即写回数据库（例如切换节、退出前）
 
-  // 工具栏
-  setToolbarStyle: (patch: Partial<TextStyles>) => void;
-  resetToolbar: () => void;
-
   // 活动样式（contenteditable）
   setActiveStyles: (patch: Partial<ActiveEditorStyles>) => void;
   clearActiveStyles: () => void;
@@ -86,6 +78,11 @@ interface EditorState {
   // 手动保存
   markSaving: () => void;
   markSaved: () => void;
+
+  // 需求5: 快速跳转 — 按节记录滚动位置（跨会话持久化到 localStorage）
+  sectionScrollPositions: Record<string, number>;
+  setSectionScrollPosition: (sectionId: string, scrollTop: number) => void;
+  getSectionScrollPosition: (sectionId: string) => number | undefined;
 }
 
 // 防抖保存：500ms 内连续输入会被合并为一次保存
@@ -125,21 +122,29 @@ export function flushDebouncedSave(): void {
   }
 }
 
+// 需求5: 从 localStorage 读取节滚动位置
+const SCROLL_POSITIONS_KEY = 'anke:section-scroll-positions';
+function loadScrollPositions(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(SCROLL_POSITIONS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch { return {}; }
+}
+function saveScrollPositions(positions: Record<string, number>): void {
+  try { localStorage.setItem(SCROLL_POSITIONS_KEY, JSON.stringify(positions)); } catch {}
+}
+
 export const useEditorStore = create<EditorState>((set, get) => ({
   sectionId: null,
   sectionContent: null,
   sectionLoading: false,
-  // 默认工具栏样式：Word 风格的宋体 + 小四(12pt)
-  toolbarStyles: {
-    size: 12,
-    font: 'simsun',
-  },
   activeStyles: {},
   cursorStyles: {},
   selectionStats: null,
   activeStylesLocked: false,
   saveStatus: 'idle',
   lastSavedAt: null,
+  sectionScrollPositions: loadScrollPositions(),
 
   loadSection: async (sectionId) => {
     flushDebouncedSave();
@@ -152,7 +157,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return;
     }
     if (get().sectionId === sectionId) return;
-    set({ sectionId: null, sectionContent: null, sectionLoading: true });
+    // 保留旧 sectionContent 供 UI 过渡显示，避免字数跳变为 0
+    set({ sectionId: null, sectionLoading: true });
     const content = await db.getSectionContent(sectionId);
     set({ sectionId, sectionContent: content, sectionLoading: false, activeStyles: {}, activeStylesLocked: false, selectionStats: null });
   },
@@ -184,19 +190,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     get().markSaved();
   },
 
-  setToolbarStyle: (patch) =>
-    set((state) => ({
-      toolbarStyles: { ...state.toolbarStyles, ...patch },
-    })),
-
-  resetToolbar: () =>
-    set({
-      toolbarStyles: {
-        size: 12,
-        font: 'simsun',
-      },
-    }),
-
   setActiveStyles: (patch) =>
     set((state) => ({
       activeStyles: { ...state.activeStyles, ...patch },
@@ -215,4 +208,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   markSaving: () => set({ saveStatus: 'saving' }),
   markSaved: () =>
     set({ saveStatus: 'saved', lastSavedAt: new Date().toISOString() }),
+
+  setSectionScrollPosition: (sectionId, scrollTop) => {
+    set((state) => {
+      const positions = { ...state.sectionScrollPositions, [sectionId]: scrollTop };
+      saveScrollPositions(positions);
+      return { sectionScrollPositions: positions };
+    });
+  },
+
+  getSectionScrollPosition: (sectionId) => {
+    return get().sectionScrollPositions[sectionId];
+  },
 }));

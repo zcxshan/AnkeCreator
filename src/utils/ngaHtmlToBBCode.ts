@@ -27,8 +27,10 @@ export function htmlToNGABBCode(html: string | null | undefined): string {
     const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html');
     const root = doc.body.firstChild as HTMLElement | null;
     if (!root) return '';
+    // v18 修复:DOM 规范化(在 BBCode 转换前去除冗余嵌套 <b><b>x</b></b> 等)
+    normalizeDom(root);
     const lines = processBlockChildren(root);
-    const out = lines.filter((l) => l !== null && l !== undefined).join('\n').trim();
+    const out = lines.filter((l) => l !== null && l !== undefined).join('\n').replace(/^\n+/, '').replace(/\n+$/, '');
     if (!out) return '';
     // 合并连续相同的 [color=*]/[size=*]/[font=*] 开闭 tag，去除无效嵌套
     let result = collapseBbCode(out + '\n');
@@ -45,6 +47,141 @@ export function htmlToNGABBCode(html: string | null | undefined): string {
   } catch {
     // 降级：简单 strip HTML
     return html.replace(/<[^>]+>/g, '').trim() + '\n';
+  }
+}
+
+/**
+ * v18 新增:DOM 规范化
+ * 1. 移除所有空 inline 标签(<b></b> / <span></span> 等)
+ * 2. 合并相邻同名 <span>(相同 color/font-size/font-family)
+ * 3. unwrap 嵌套的同语义 inline 标签(外层 <b><b>x</b></b> → <b>x</b>)
+ * 4. <strong> → <b>, <em> → <i>, <del> → <s>
+ */
+function normalizeDom(root: HTMLElement): void {
+  // 先做 N 次深度遍历直到稳定(因为 unwrap 会改变结构)
+  for (let pass = 0; pass < 10; pass++) {
+    const before = root.innerHTML
+    // 1) 标准化标签名: <strong>→<b>, <em>→<i>, <del>→<s>
+    renameTags(root)
+    // 2) 移除空 inline 标签
+    removeEmptyInlineTags(root)
+    // 3) unwrap 嵌套的同语义 inline 标签
+    unwrapNestedSameTag(root)
+    // 4) unwrap 嵌套的同属性 span
+    unwrapNestedSameStyleSpan(root)
+    // 5) 合并相邻同名 span
+    mergeAdjacentSameSpan(root)
+    if (root.innerHTML === before) break
+  }
+}
+
+function normalizeStyle(cssText: string): string {
+  return cssText.replace(/\s+/g, ' ').trim().toLowerCase().split(';').filter(Boolean).sort().join(';')
+}
+
+function unwrapNestedSameStyleSpan(root: HTMLElement): void {
+  // <span style="color:red"><span style="color:red">x</span></span> → <span style="color:red">x</span>
+  const spans = Array.from(root.querySelectorAll('span'))
+  for (const span of spans) {
+    const parent = span.parentElement
+    if (!parent || parent.tagName !== 'SPAN') continue
+    const spanStyle = normalizeStyle(span.style.cssText)
+    const parentStyle = normalizeStyle(parent.style.cssText)
+    if (spanStyle && spanStyle === parentStyle) {
+      while (span.firstChild) parent.insertBefore(span.firstChild, span)
+      parent.removeChild(span)
+    }
+  }
+}
+
+function renameTags(root: HTMLElement): void {
+  const mapping: Record<string, string> = {
+    STRONG: 'B',
+    EM: 'I',
+    DEL: 'S',
+    STRIKE: 'S',
+  }
+  for (const [from, to] of Object.entries(mapping)) {
+    const nodes = root.querySelectorAll(from.toLowerCase())
+    nodes.forEach((node) => {
+      const newEl = document.createElement(to.toLowerCase())
+      while (node.firstChild) newEl.appendChild(node.firstChild)
+      // 保留内联样式(如 <span style="color:red"> 内包含 <strong>)
+      if ((node as HTMLElement).style?.cssText) {
+        newEl.setAttribute('style', (node as HTMLElement).style.cssText)
+      }
+      node.parentNode?.replaceChild(newEl, node)
+    })
+  }
+}
+
+function removeEmptyInlineTags(root: HTMLElement): void {
+  // 反复剥离空 inline 标签
+  const inlineTags = ['B', 'I', 'U', 'S', 'SPAN', 'SUP', 'SUB', 'FONT']
+  for (let i = 0; i < 5; i++) {
+    let changed = false
+    for (const tag of inlineTags) {
+      const nodes = Array.from(root.querySelectorAll(tag.toLowerCase()))
+      for (const node of nodes) {
+        if (!node.textContent && !node.querySelector('img')) {
+          node.parentNode?.removeChild(node)
+          changed = true
+        }
+      }
+    }
+    if (!changed) break
+  }
+}
+
+function unwrapNestedSameTag(root: HTMLElement): void {
+  // <b><b>x</b></b> → <b>x</b>
+  // 注意:只 unwrap 直接子节点的同名标签
+  const samePairs: Array<[string, string]> = [
+    ['b', 'b'], ['i', 'i'], ['u', 'u'], ['s', 's'],
+  ]
+  for (const [outer, inner] of samePairs) {
+    const outers = Array.from(root.querySelectorAll(outer))
+    for (const out of outers) {
+      // 找直接子节点中所有同名标签
+      const inners = Array.from(out.children).filter(
+        (c) => c.tagName.toLowerCase() === inner,
+      )
+      for (const inEl of inners) {
+        // 把 inEl 的子节点移到 out 后面(把 inEl 从 DOM 中移除)
+        const parent = inEl.parentNode
+        if (!parent) continue
+        while (inEl.firstChild) parent.insertBefore(inEl.firstChild, inEl)
+        parent.removeChild(inEl)
+      }
+    }
+  }
+}
+
+function mergeAdjacentSameSpan(root: HTMLElement): void {
+  // 合并相邻的相同属性 span
+  const spans = Array.from(root.querySelectorAll('span'))
+  for (const span of spans) {
+    // 跳过空白文本节点找到下一个兄弟
+    let next = span.nextSibling
+    while (next && next.nodeType === Node.TEXT_NODE && next.textContent?.trim() === '') {
+      next = next.nextSibling
+    }
+    if (!next || next.nodeType !== Node.ELEMENT_NODE) continue
+    const nextEl = next as HTMLElement
+    if (nextEl.tagName !== 'SPAN') continue
+    // 比较全部关键样式（v19: 增加 fontWeight/fontStyle/textDecoration）
+    if (
+      span.style.color === nextEl.style.color &&
+      span.style.fontSize === nextEl.style.fontSize &&
+      span.style.fontFamily === nextEl.style.fontFamily &&
+      span.style.fontWeight === nextEl.style.fontWeight &&
+      span.style.fontStyle === nextEl.style.fontStyle &&
+      span.style.textDecoration === nextEl.style.textDecoration
+    ) {
+      // 把 nextEl 的内容移到 span 中,然后移除 nextEl
+      while (nextEl.firstChild) span.appendChild(nextEl.firstChild)
+      nextEl.remove()
+    }
   }
 }
 
@@ -109,6 +246,9 @@ function collapseBbCode(input: string): string {
     joined = unwrapOverriddenNested(joined, 'size');
     joined = unwrapOverriddenNested(joined, 'font');
   }
+  // v17 修复：清理错配的闭标签（[b]xxx[/b][/i] → [b]xxx[/b]）
+  // 注意：必须在整段级别执行（按行执行会把 [code]\n...\n[/code] 这种跨行配对的闭标签误删）
+  joined = stripOrphanCloseTags(joined);
   return joined;
 }
 
@@ -217,7 +357,56 @@ function collapseLine(line: string): string {
   // 空列表/表格（[h][/h] 是分割线的有效写法，不清除）
   cur = cur.replace(/\[list(=\d+)?\]\s*\[\/list\1?\]/g, '');
   cur = cur.replace(/\[table\]\s*\[\/table\]/g, '');
+  // v17 修复：多轮迭代清空空标签对（解决 [i][u][/u][/i] 这种嵌套空标签）
+  cur = collapseAllEmptyTags(cur);
   return cur;
+}
+
+/**
+ * v17：反复剥离所有空标签对（多轮迭代直到稳定）。
+ * 解决 [i][u][/u][/i] 这种"内层 [u][/u] 清掉后外层 [i][/i] 变空"需要 2 轮清理的场景。
+ */
+function collapseAllEmptyTags(input: string): string {
+  let prev = '';
+  let cur = input;
+  let guard = 0;
+  const reEmptyNoAttr = /\[(b|i|u|del|sup|sub|quote|code)\]\s*\[\/\1\]/g;
+  const reEmptyAttr = /\[(color|size|font|align|collapse|url)=[^\]]+\]\s*\[\/\1\]/g;
+  while (prev !== cur && guard++ < 20) {
+    prev = cur;
+    cur = cur.replace(reEmptyNoAttr, '');
+    cur = cur.replace(reEmptyAttr, '');
+  }
+  return cur;
+}
+
+/**
+ * v17：删除没有匹配开标签的闭标签 [/tag]。
+ * 解决 [b]xxx[/b][/i] 这种由 HTML 解析阶段脏 DOM 产生的错配闭标签。
+ * 跨整段统计开闭标签（不是逐行），避免 [collapse=...]\nX\n[/collapse] 这种
+ * 跨行配对的闭标签被误删。
+ */
+function stripOrphanCloseTags(input: string): string {
+  const tags = [
+    'b', 'i', 'u', 'del', 'sup', 'sub',
+    'color', 'size', 'font', 'align', 'quote', 'collapse', 'code',
+  ];
+  for (const tag of tags) {
+    const openRe = new RegExp(`\\[${tag}(=[^\\]]+)?\\]`, 'g');
+    const opens = (input.match(openRe) || []).length;
+    const closeRe = new RegExp(`\\[\\/${tag}\\]`, 'g');
+    const closes = (input.match(closeRe) || []).length;
+    if (closes > opens) {
+      // 从右往左删除多余的闭标签
+      let extra = closes - opens;
+      const re = new RegExp(`\\[\\/${tag}\\]`, 'g');
+      input = input.replace(re, (m) => {
+        if (extra > 0) { extra--; return ''; }
+        return m;
+      });
+    }
+  }
+  return input;
 }
 
 function mergeAdjacentSameTag(input: string, tag: string): string {
@@ -284,31 +473,29 @@ function mergeAdjacentSameTagAcrossLines(input: string, tag: string): string {
 /**
  * 深度冗余嵌套展开（[b][i][b]X[/b][/i][/b] → [b][i]X[/i][/b]）
  * 递归处理跨任意中间 tag 的同名嵌套，逐层剥开最内层。
+ *
+ * v16 修复：用负向前瞻确保 inner 不含任何同名开/闭标签，
+ * 使正则只匹配最内层的冗余对，避免从左匹配最外层导致内层永远无法清理的问题。
  */
 function unwrapDeepRedundant(input: string, tag: string): string {
   let prev = '';
   let cur = input;
   let guard = 0;
-  // 预编译内层检测正则
-  const innerOpenNoAttr = new RegExp(`\\[${tag}\\]`);
-  const innerClose = new RegExp(`\\[\\/${tag}\\]`);
-  const innerOpenAttr = new RegExp(`\\[${tag}=`);
 
   while (prev !== cur && guard++ < 50) {
     prev = cur;
 
     // 无属性：[tag]<pre>[tag]inner[/tag]<post>[/tag] → [tag]<pre>inner<post>[/tag]
-    // inner 必须是「最内层」（不含 [tag] 或 [/tag]）
+    // inner 必须是「最内层」——用负向前瞻确保 inner 不含同名开/闭标签
     const reNoAttr = new RegExp(
       `\\[${tag}\\]` +
-        `([\\s\\S]*?)` + // pre
-        `\\[${tag}\\]([\\s\\S]*?)\\[\\/${tag}\\]` + // 内层
-        `([\\s\\S]*?)` + // post
+        `([\\s\\S]*?)` +
+        `\\[${tag}\\]((?:(?!\\[${tag}\\]|\\[\\/${tag}\\])[\\s\\S])*)\\[\\/${tag}\\]` +
+        `([\\s\\S]*?)` +
         `\\[\\/${tag}\\]`,
       'g',
     );
-    cur = cur.replace(reNoAttr, (m, pre, inner, post) => {
-      if (innerOpenNoAttr.test(inner) || innerClose.test(inner)) return m;
+    cur = cur.replace(reNoAttr, (_m, pre, inner, post) => {
       return `[${tag}]${pre}${inner}${post}[/${tag}]`;
     });
 
@@ -316,13 +503,12 @@ function unwrapDeepRedundant(input: string, tag: string): string {
     const reAttr = new RegExp(
       `\\[${tag}=([^\\[\\]]+)\\]` +
         `([\\s\\S]*?)` +
-        `\\[${tag}=\\1\\]([\\s\\S]*?)\\[\\/${tag}\\]` +
+        `\\[${tag}=\\1\\]((?:(?!\\[${tag}=|\\[\\/${tag}\\])[\\s\\S])*)\\[\\/${tag}\\]` +
         `([\\s\\S]*?)` +
         `\\[\\/${tag}\\]`,
       'g',
     );
-    cur = cur.replace(reAttr, (m, val, pre, inner, post) => {
-      if (innerOpenAttr.test(inner) || innerClose.test(inner)) return m;
+    cur = cur.replace(reAttr, (_m, val, pre, inner, post) => {
       return `[${tag}=${val}]${pre}${inner}${post}[/${tag}]`;
     });
   }
@@ -388,7 +574,7 @@ function processBlockChildren(container: Node): string[] {
     // 纯内联内容（没有 p/div 等块级元素）：整段作为一行
     const line = processInlineChildren(container as HTMLElement);
     const trimmed = trimLineKeepNbsp(line);
-    if (trimmed) lines.push(trimmed);
+    lines.push(trimmed);  // v7: 保留空行（不过滤空字符串）
     return lines;
   }
 
@@ -401,7 +587,7 @@ function processBlockChildren(container: Node): string[] {
     inlineRunNodes.forEach((n) => tmp.appendChild(n.cloneNode(true)));
     const line = processInlineChildren(tmp);
     const trimmed = trimLineKeepNbsp(line);
-    if (trimmed) lines.push(trimmed);
+    lines.push(trimmed);  // v7: 保留空行（不过滤空字符串）
     inlineRunNodes.length = 0;
   };
 
@@ -419,7 +605,7 @@ function processBlockChildren(container: Node): string[] {
         // 块元素：先 flush inline run，再处理块
         flushInlineRun();
         const res = processBlockElement(el);
-        for (const r of res) if (r) lines.push(r);
+        for (const r of res) lines.push(r);  // v7: 保留空行（不过滤空字符串）
       }
     }
   }
@@ -507,13 +693,14 @@ function processBlockElement(el: HTMLElement): string[] {
 
   const inner = processInlineChildren(el);
   const trimmedInner = trimLineKeepNbsp(inner);
-  if (!trimmedInner) return [];
+  if (!trimmedInner) return [''];  // v7: 空块保留为空行（不丢弃）
 
   const textAlign = el.style.textAlign?.toLowerCase() || '';
   if (textAlign && textAlign !== 'left' && textAlign !== 'justify') {
-    // 对齐去重：若内层已以相同 [align=xxx] 开头，不再重复包裹（避免 [align][align]）
+    // v6 修复：如果 inner 已被相同 align 包裹（开头+结尾匹配），不再重复包裹
     const alignOpen = `[align=${textAlign}]`;
-    if (trimmedInner.startsWith(alignOpen)) {
+    const alignClose = '[/align]';
+    if (trimmedInner.startsWith(alignOpen) && trimmedInner.endsWith(alignClose)) {
       return [trimmedInner];
     }
     return [`[align=${textAlign}]${trimmedInner}[/align]`];
@@ -586,7 +773,8 @@ function processInlineElement(el: HTMLElement): string {
     return href ? `[url=${href}]${text}[/url]` : text;
   }
   if (tag === 'img') {
-    const src = el.getAttribute('src') || '';
+    // v35: 优先读 data-original-src，防止 base64 兜底污染 src 后丢失原始 URL
+    const src = el.getAttribute('data-original-src') || el.getAttribute('src') || '';
     if (!src) return '';
     // NGA 不支持 base64 data URL 和 local:// 协议，替换为占位符
     if (isUnreachableImage(src)) {
@@ -601,32 +789,51 @@ function processInlineElement(el: HTMLElement): string {
     const opens: string[] = [];
     const closes: string[] = [];
     const color = el.getAttribute('color');
+    let colorOpen = '';
     if (color) {
       const ngaColor = cssColorToNga(color) || color;
       if (ngaColor && ngaColor !== NGA_DEFAULT_COLOR) {
-        opens.push(`[color=${ngaColor}]`);
-        closes.unshift('[/color]');
+        colorOpen = `[color=${ngaColor}]`;
       }
     }
     const size = el.getAttribute('size');
+    let sizeOpen = '';
     if (size) {
       // HTML font size 1-7 映射到 NGA 百分比
       const sizeMap: Record<string, number> = { '1': 80, '2': 100, '3': 120, '4': 140, '5': 160, '6': 180, '7': 200 };
       const percent = sizeMap[size];
       if (percent && percent !== NGA_DEFAULT_FONT_SIZE) {
-        opens.push(`[size=${percent}%]`);
-        closes.unshift('[/size]');
+        sizeOpen = `[size=${percent}%]`;
       }
     }
     const face = el.getAttribute('face');
+    let fontOpen = '';
     if (face) {
       const ngaFont = cssFontToNga(face) || face;
       if (ngaFont && ngaFont !== NGA_DEFAULT_FONT) {
-        opens.push(`[font=${ngaFont}]`);
-        closes.unshift('[/font]');
+        fontOpen = `[font=${ngaFont}]`;
       }
     }
     const inner = processInlineChildren(el);
+    // v6 修复：检查 inner 是否已以相同标签开头（避免 font+span 双包裹重复）
+    if (colorOpen && inner.startsWith(colorOpen)) {
+      // inner 已有相同 color 标签，不再重复包裹
+    } else if (colorOpen) {
+      opens.push(colorOpen);
+      closes.unshift('[/color]');
+    }
+    if (sizeOpen && inner.startsWith(sizeOpen)) {
+      // inner 已有相同 size 标签
+    } else if (sizeOpen) {
+      opens.push(sizeOpen);
+      closes.unshift('[/size]');
+    }
+    if (fontOpen && inner.startsWith(fontOpen)) {
+      // inner 已有相同 font 标签
+    } else if (fontOpen) {
+      opens.push(fontOpen);
+      closes.unshift('[/font]');
+    }
     return `${opens.join('')}${inner}${closes.join('')}`;
   }
   if (tag === 'span') {
@@ -662,7 +869,8 @@ function processDiceCard(el: HTMLElement): string[] {
 function processImageBlock(el: HTMLElement): string[] {
   const size = el.getAttribute('data-size') || 'original';
   const imgEl = el.querySelector('img');
-  const src = imgEl?.getAttribute('src') || '';
+  // v35: 优先读 data-original-src，防止 base64 兜底污染 src 后丢失原始 URL
+  const src = imgEl?.getAttribute('data-original-src') || imgEl?.getAttribute('src') || '';
   if (!src) return [];
 
   // NGA 不接受 base64 data URL、local://、file:// 和绝对路径，替换为占位符
@@ -702,7 +910,8 @@ function processCollapseBlock(el: HTMLElement): string[] {
   const title = (titleEl?.textContent || el.getAttribute('data-title') || '折叠').trim();
   const bodyEl = el.querySelector('.collapse-body');
   const bodyContent = bodyEl ? processBlockChildren(bodyEl) : processBlockChildren(el);
-  const bodyBBCode = bodyContent.filter((l) => l).join('\n');
+  // v8: 保留空行（不 filter 空字符串），空内容兜底用 trim 判断
+  const bodyBBCode = bodyContent.join('\n');
   // 空内容兜底：不输出空 collapse 标签对
   if (!bodyBBCode.trim()) return [];
   if (title) return [`[collapse=${title}]`, bodyBBCode, '[/collapse]'];
@@ -711,7 +920,8 @@ function processCollapseBlock(el: HTMLElement): string[] {
 
 function processQuoteLine(el: HTMLElement): string[] {
   const inner = processBlockChildren(el);
-  const body = inner.filter((l) => l).join('\n');
+  // v8: 保留空行（不 filter 空字符串）
+  const body = inner.join('\n');
   // 空内容兜底：不输出空 quote 标签对
   if (!body.trim()) return [];
   return ['[quote]', body, '[/quote]'];
@@ -727,8 +937,11 @@ function processList(el: HTMLElement, openTag: string): string[] {
       if (hasBlockContent) {
         // 有块级内容：逐块处理
         const innerLines = processBlockChildren(child);
-        const validLines = innerLines.filter((l) => l && l.trim());
-        if (validLines.length === 0) continue;
+        // v8: 保留空行（只过滤 null/undefined，保留空字符串）
+        const validLines = innerLines.filter((l) => l !== null && l !== undefined);
+        // 全部为空字符串时跳过（避免输出纯空行的列表项）
+        const hasContent = validLines.some((l) => l.trim());
+        if (!hasContent) continue;
         if (validLines.length === 1) {
           // 单行内容：合并到 [*] 后
           items.push(`[*]${validLines[0].trim()}`);
@@ -742,7 +955,8 @@ function processList(el: HTMLElement, openTag: string): string[] {
       } else {
         // 纯内联内容
         const inner = processInlineChildren(child);
-        const trimmed = inner.replace(/\s+/g, ' ').trim();
+        // v8: 保留换行（不压缩 \s+ 为单空格），只裁首尾空白
+        const trimmed = trimLineKeepNbsp(inner);
         if (trimmed) items.push(`[*]${trimmed}`);
       }
     }
@@ -828,12 +1042,14 @@ function parseSpanStyle(el: HTMLElement): { open: string; close: string } {
   }
 
   // text-decoration → [u] / [del]
+  // v23 修复：用两个独立 if 而非 if-else，支持同时有下划线和删除线（如 underline line-through）
   const textDecoration = el.style.textDecoration;
   if (textDecoration) {
     if (textDecoration.includes('underline')) {
       tags.push('[u]');
       closers.push('[/u]');
-    } else if (
+    }
+    if (
       textDecoration.includes('line-through') ||
       textDecoration.includes('strike')
     ) {

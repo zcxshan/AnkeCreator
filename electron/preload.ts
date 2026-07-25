@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { GululuResult, NgaResult } from './searchAnke'
+import type { WheelScheme, DrawHistory } from '../src/types/wheel'
 
 // ============================================================
 // 通过 contextBridge 暴露给渲染进程的 API
@@ -20,16 +21,61 @@ const windowAPI = {
   },
 }
 
-// 图片操作（sm.ms 图床上传 / 本地保存）
+// 图片操作（本地保存 / 磁盘扫描）
 const imageAPI = {
-  select: (): Promise<{ buffer: string; filename: string; mimeType: string } | null> =>
-    ipcRenderer.invoke('image:select'),
-  upload: (payload: { buffer: string; filename: string; mimeType: string }): Promise<{ ok: boolean; url?: string; error?: string }> =>
-    ipcRenderer.invoke('image:upload', payload),
-  saveLocal: (payload: { buffer: string; filename: string; mimeType: string }): Promise<{ ok: boolean; url?: string; error?: string }> =>
+  select: (payload?: { multiple?: boolean }): Promise<
+    | { buffer: string; filename: string; mimeType: string; filePath?: string }
+    | Array<{ buffer: string; filename: string; mimeType: string; filePath?: string }>
+    | null
+  > => ipcRenderer.invoke('image:select', payload),
+  saveLocal: (payload: {
+    buffer: string;
+    filename: string;
+    mimeType: string;
+    folderId?: string | null;
+    folderName?: string;
+  }): Promise<{ ok: boolean; url?: string; error?: string }> =>
     ipcRenderer.invoke('image:saveLocal', payload),
+  scanFiles: (payload?: { folderId?: string; folderName?: string }): Promise<{
+    files: Array<{ path: string; filename: string; url: string; mtime: number; size: number; folder?: string }>;
+  }> => ipcRenderer.invoke('image:scanFiles', payload),
   openImageFolder: (): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('image:openFolder'),
+  deleteLocal: (payload: { url: string }): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('image:deleteLocal', payload),
+  // 改动 v3：资源库图片重命名时同步改磁盘（仅 local:// 图片）
+  renameLocal: (payload: { oldUrl: string; newFilename: string }): Promise<{ ok: boolean; newUrl?: string; error?: string }> =>
+    ipcRenderer.invoke('image:renameLocal', payload),
+  // v11：URL 上传时同步写 .urls.json 到对应文件夹
+  // - folderId 优先（精确解析嵌套目录）
+  // - folderName fallback（旧版兼容）
+  appendUrlRecord: (payload: {
+    folderId?: string | null
+    folderName?: string
+    record: { url: string; filename: string; created_at: string }
+  }): Promise<{ ok: boolean; count?: number; error?: string }> =>
+    ipcRenderer.invoke('image:appendUrlRecord', payload),
+  // v13：资源库 reconcile，修复 DB 与磁盘不一致
+  reconcileLibrary: (): Promise<{
+    ok: boolean
+    changes: Array<{ id: string; newFolderId: string | null; reason: string }>
+    error?: string
+  }> => ipcRenderer.invoke('image:reconcile'),
+  // 全量同步磁盘 data/images → DB（folders + items 一次性完成）
+  // - 磁盘子目录递归识别为 DB folder（同名同父级复用）
+  // - 磁盘有但 DB 没有 → 新增 local item
+  // - DB 有但磁盘没有且 source='local' → 删除（source='url' 不动）
+  syncDiskToDb: (): Promise<{
+    ok: boolean
+    foldersCreated: number
+    foldersReused: number
+    itemsAdded: number
+    itemsDeleted: number
+    error?: string
+  }> => ipcRenderer.invoke('image:syncDiskToDb'),
+  // v19：IPC 兜底 — local:// 协议失败时读取图片为 data URL
+  readAsDataUrl: (url: string): Promise<{ ok: boolean; dataUrl?: string; error?: string }> =>
+    ipcRenderer.invoke('image:readAsDataUrl', { url }),
 }
 
 // NGA 安价收集
@@ -97,7 +143,7 @@ const ngaAPI = {
 // ============================================================
 // 数据库 API
 // 所有方法均为 Promise，对应主进程中 db-main.ts 的同步函数
-// 数据保存到 <安装路径>/data/AnkeCreatorData（dev 模式走 %APPDATA%）
+// 数据保存到 data/ 目录下（打包 = <安装路径>/data/，dev = <项目根>/data/）
 // ============================================================
 const dbAPI = {
   // Story
@@ -184,6 +230,9 @@ const dbAPI = {
   bulkCreateChapters: (rows: any[]): Promise<any[]> => ipcRenderer.invoke('db:bulk-create-chapters', rows),
   bulkCreateSections: (rows: any[]): Promise<any[]> => ipcRenderer.invoke('db:bulk-create-sections', rows),
 
+  // 导入完成后校准所有 word_count
+  recomputeStoryWordCounts: (storyId: string): Promise<boolean> => ipcRenderer.invoke('db:recompute-story-word-counts', storyId),
+
   // Section content
   getSectionContent: (id: string): Promise<string | null> => ipcRenderer.invoke('db:get-section-content', id),
   setSectionContent: (id: string, content: string | null): Promise<boolean> => ipcRenderer.invoke('db:set-section-content', id, content),
@@ -228,6 +277,12 @@ const dbAPI = {
   // Image Library
   listImageLibraryFolders: (parentId?: string | null): Promise<any[]> =>
     ipcRenderer.invoke('db:list-image-library-folders', parentId),
+  // v36: 列出所有文件夹(不过滤 parentId),用于子目录删除时的统计
+  listAllImageLibraryFolders: (): Promise<any[]> =>
+    ipcRenderer.invoke('db:list-all-image-library-folders'),
+  // v36: 列出所有图片项(不过滤 folderId),用于子目录删除时的统计
+  listAllImageLibraryItems: (): Promise<any[]> =>
+    ipcRenderer.invoke('db:list-all-image-library-items'),
   createImageLibraryFolder: (data: { name: string; parentId: string | null }): Promise<any> =>
     ipcRenderer.invoke('db:create-image-library-folder', data),
   renameImageLibraryFolder: (id: string, name: string): Promise<any> =>
@@ -246,6 +301,30 @@ const dbAPI = {
     ipcRenderer.invoke('db:delete-image-library-item', id),
   moveImageLibraryItem: (id: string, folderId: string | null): Promise<boolean> =>
     ipcRenderer.invoke('db:move-image-library-item', id, folderId),
+  // 改动 v3：资源库图片重命名 / 跨文件夹移动
+  updateImageLibraryItem: (
+    id: string,
+    patch: { filename?: string; url?: string; folderId?: string | null },
+  ): Promise<any> => ipcRenderer.invoke('db:update-image-library-item', id, patch),
+  // 改动 v3：资源库图片拖动换顺序
+  reorderImageLibraryItems: (ids: string[], folderId: string | null): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('db:reorder-image-library-items', ids, folderId),
+
+  // Material Sites（需求6:寻找素材面板）
+  listMaterialSites: (): Promise<any[]> =>
+    ipcRenderer.invoke('db:list-material-sites'),
+  createMaterialSite: (data: {
+    name: string;
+    url: string;
+    category: string;
+    description?: string;
+  }): Promise<any> => ipcRenderer.invoke('db:create-material-site', data),
+  updateMaterialSite: (
+    id: string,
+    patch: { name?: string; url?: string; category?: string; description?: string },
+  ): Promise<any> => ipcRenderer.invoke('db:update-material-site', id, patch),
+  deleteMaterialSite: (id: string): Promise<boolean> =>
+    ipcRenderer.invoke('db:delete-material-site', id),
 
   // 整作品另存为 + 导入（弹系统对话框）
   saveStoryAsFile: (data: any, suggestedName?: string): Promise<{ ok: boolean; canceled?: boolean; filePath?: string; error?: string }> =>
@@ -323,9 +402,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   close: windowAPI.close,
   onMaximizeStateChange: windowAPI.onMaximizeStateChange,
   selectImage: imageAPI.select,
-  uploadImage: imageAPI.upload,
   saveImageLocal: imageAPI.saveLocal,
   scanImagesInDir: imageAPI.scanFiles,
+  deleteImageLocal: imageAPI.deleteLocal,
+  renameImageLocal: imageAPI.renameLocal,
+  appendUrlRecord: imageAPI.appendUrlRecord, // v11：暴露给 UI 调用
+  reconcileLibrary: imageAPI.reconcileLibrary, // v13: UI refresh() 调一次 reconcile
+  syncDiskToDb: imageAPI.syncDiskToDb, // v50: UI refresh() 调一次同步磁盘 → DB（识别子目录与新放入的图片）
+  readAsDataUrl: imageAPI.readAsDataUrl, // v19: IPC 兜底读取图片
+  openImageFolder: imageAPI.openImageFolder,
   platform: process.platform,
   collectNga: ngaAPI.collect,
   cancelNgaCollect: ngaAPI.cancelCollect,
@@ -385,6 +470,43 @@ contextBridge.exposeInMainWorld('electronAPI', {
 contextBridge.exposeInMainWorld('dbAPI', dbAPI)
 contextBridge.exposeInMainWorld('appAPI', appAPI)
 
+// ============================================================
+// 玩转盘 API
+// 对应 electron/ipc/wheel.ts 中注册的 IPC 通道
+// 数据保存到 <dataDir>/wheels.json
+// ============================================================
+const wheelAPI = {
+  // 方案 CRUD
+  listSchemes: (): Promise<WheelScheme[]> => ipcRenderer.invoke('wheel:list-schemes'),
+  getScheme: (id: string): Promise<WheelScheme | null> =>
+    ipcRenderer.invoke('wheel:get-scheme', id),
+  createScheme: (data: Omit<WheelScheme, 'id' | 'created_at' | 'updated_at'>): Promise<WheelScheme> =>
+    ipcRenderer.invoke('wheel:create-scheme', data),
+  updateScheme: (id: string, patch: Partial<WheelScheme>): Promise<WheelScheme | null> =>
+    ipcRenderer.invoke('wheel:update-scheme', id, patch),
+  deleteScheme: (id: string): Promise<boolean> => ipcRenderer.invoke('wheel:delete-scheme', id),
+  // 历史记录
+  addHistory: (record: DrawHistory): Promise<boolean> =>
+    ipcRenderer.invoke('wheel:add-history', record),
+  listHistory: (limit?: number): Promise<DrawHistory[]> =>
+    ipcRenderer.invoke('wheel:list-history', limit),
+  clearHistory: (): Promise<boolean> => ipcRenderer.invoke('wheel:clear-history'),
+  // 导入导出（弹系统对话框）
+  saveSchemeAsFile: (
+    data: WheelScheme,
+    suggestedName?: string,
+  ): Promise<{ ok: boolean; canceled?: boolean; filePath?: string; error?: string }> =>
+    ipcRenderer.invoke('wheel:export-scheme', { data, suggestedName }),
+  openSchemeFile: (): Promise<{
+    ok: boolean
+    canceled?: boolean
+    filePath?: string
+    data?: any
+    error?: string
+  }> => ipcRenderer.invoke('wheel:import-scheme'),
+}
+contextBridge.exposeInMainWorld('wheelAPI', wheelAPI)
+
 // 类型声明（供 TypeScript 渲染进程使用）
 export type ElectronAPI = {
   minimize: () => void
@@ -393,10 +515,32 @@ export type ElectronAPI = {
   /** 订阅窗口最大化/还原状态变化（修复拖动取消最大化时图标不更新的 bug） */
   onMaximizeStateChange: (cb: (isMaximized: boolean) => void) => () => void
   selectImage: (payload?: { multiple?: boolean }) => Promise<{ buffer: string; filename: string; mimeType: string; filePath?: string } | Array<{ buffer: string; filename: string; mimeType: string; filePath?: string }> | null>
-  uploadImage: (payload: { buffer: string; filename: string; mimeType: string }) => Promise<{ ok: boolean; url?: string; error?: string }>
   saveImageLocal: (payload: { buffer: string; filename: string; mimeType: string; folderId?: string | null; folderName?: string }) => Promise<{ ok: boolean; url?: string; error?: string }>
   /** 改动 8：扫描 <imagesDir>/ 下所有图片（含子目录） */
-  scanImagesInDir: (payload?: { folderName?: string }) => Promise<{ files: Array<{ path: string; filename: string; url: string; mtime: number; size: number; folder?: string }> }>
+  scanImagesInDir: (payload?: { folderId?: string; folderName?: string }) => Promise<{ files: Array<{ path: string; filename: string; url: string; mtime: number; size: number; folder?: string }> }>
+  /** v11：URL 上传时同步写 .urls.json 到对应文件夹(支持嵌套子目录) */
+  appendUrlRecord: (payload: {
+    folderId?: string | null
+    folderName?: string
+    record: { url: string; filename: string; created_at: string }
+  }) => Promise<{ ok: boolean; count?: number; error?: string }>
+  /** v13: 资源库 reconcile，修复 DB 与磁盘不一致 */
+  reconcileLibrary: () => Promise<{
+    ok: boolean
+    changes: Array<{ id: string; newFolderId: string | null; reason: string }>
+    error?: string
+  }>
+  /** 全量同步磁盘 data/images → DB（folders + items 一次性完成） */
+  syncDiskToDb: () => Promise<{
+    ok: boolean
+    foldersCreated: number
+    foldersReused: number
+    itemsAdded: number
+    itemsDeleted: number
+    error?: string
+  }>
+  /** v19: IPC 兜底 — local:// 协议失败时读取图片为 data URL */
+  readAsDataUrl: (url: string) => Promise<{ ok: boolean; dataUrl?: string; error?: string }>
   openImageFolder: () => Promise<{ ok: boolean; error?: string }>
   platform: NodeJS.Platform
   collectNga: (payload: {
@@ -500,6 +644,7 @@ declare global {
     dbAPI: typeof dbAPI
     appAPI: typeof appAPI
     dataAPI: typeof dataAPI
+    wheelAPI: typeof wheelAPI
   }
 }
 

@@ -3,26 +3,29 @@
 // 高内聚：本页只负责顶栏 + 顶部 Tab 切换 + 渲染对应子面板
 // 低耦合：不侵入图片库/模板库内部逻辑，仅组合现有面板
 //
-// 2 个顶级 Tab（#3 美化）：
+// 3 个顶级 Tab（#3 美化）：
 // - 🖼️ 图片         → ImageLibraryPanel
 // - 📋 模板         → TemplatesPanel（内部子 Tab：世界观 / 人物）
+// - 🔍 寻找素材     → FindMaterialPanel（素材网站推荐，增删改查）
 // ============================================================
 
 import { useState } from 'react';
 import { ImageLibraryPanel } from './ImageLibraryPage';
 import { TemplatesPanel } from './TemplatesPage';
+import { FindMaterialPanel } from './FindMaterialPanel';
 
 interface ResourceLibraryPageProps {
   onBack: () => void;
   onShowAuthor?: () => void;
 }
 
-type ResourceTab = 'image' | 'template';
+type ResourceTab = 'image' | 'template' | 'material';
 type TemplateSubTab = 'world' | 'character';
 
 const TABS: { key: ResourceTab; label: string; icon: string }[] = [
   { key: 'image', label: '图片', icon: '🖼️' },
   { key: 'template', label: '模板', icon: '📋' },
+  { key: 'material', label: '寻找素材', icon: '🔍' },
 ];
 
 export function ResourceLibraryPage({ onBack, onShowAuthor }: ResourceLibraryPageProps) {
@@ -32,7 +35,7 @@ export function ResourceLibraryPage({ onBack, onShowAuthor }: ResourceLibraryPag
 
   return (
     <div
-      className="min-h-full w-full flex flex-col"
+      className="h-full w-full flex flex-col"
       style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}
     >
       {/* 顶栏（非 sticky，随 body 滚动） */}
@@ -113,6 +116,7 @@ export function ResourceLibraryPage({ onBack, onShowAuthor }: ResourceLibraryPag
             onShowAuthor={onShowAuthor}
           />
         )}
+        {activeTab === 'material' && <FindMaterialPanel />}
       </div>
     </div>
   );

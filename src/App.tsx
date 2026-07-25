@@ -10,6 +10,7 @@ import { FindAnkePage } from './components/pages/FindAnkePage';
 import { CreationLogPage } from './components/pages/CreationLogPage';
 import { ReaderPage } from './components/pages/ReaderPage';
 import { DicePlaygroundPage } from './components/pages/DicePlaygroundPage';
+import { WheelPage } from './components/pages/WheelPage';
 import { TitleBar } from './components/common/TitleBar';
 import { AuthorInfo } from './components/common/AuthorInfo';
 import { ToastContainer } from './components/common/Toast';
@@ -24,7 +25,7 @@ import { isCapacitor, isElectron } from './utils/platform';
 import { useSettingStore } from './store/settingStore';
 import './index.css';
 
-type Route = 'home' | 'works' | 'editor' | 'reader' | 'resource-library' | 'tutorial' | 'anjia-collect' | 'anke-collect' | 'find-anke' | 'dice-playground' | 'creation-log';
+type Route = 'home' | 'works' | 'editor' | 'reader' | 'resource-library' | 'tutorial' | 'anjia-collect' | 'anke-collect' | 'find-anke' | 'dice-playground' | 'creation-log' | 'wheel-playground';
 
 function App() {
   const { activeSectionId, activeStoryId } = useStoryStore();
@@ -171,6 +172,7 @@ function App() {
           onShowAnkeCollect={() => setRoute('anke-collect')}
           onShowFindAnke={() => setRoute('find-anke')}
           onShowDicePlayground={() => setRoute('dice-playground')}
+          onShowWheelPlayground={() => setRoute('wheel-playground')}
           onShowCreationLog={(storyId) => {
             setCreationLogStoryId(storyId);
             setRoute('creation-log');
@@ -184,6 +186,12 @@ function App() {
   if (route === 'dice-playground') {
     return renderWithTitleBar(
       <DicePlaygroundPage onBack={() => setRoute('home')} />,
+    );
+  }
+
+  if (route === 'wheel-playground') {
+    return renderWithTitleBar(
+      <WheelPage onBack={() => setRoute('home')} />,
     );
   }
 

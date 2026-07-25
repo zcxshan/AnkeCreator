@@ -14,6 +14,8 @@
   --bg-sidebar: #f3f3f3;
   --bg-sidebar-header: #ececec;
   --bg-editor: #ffffff;
+  --bg-editor-readonly: #f0f0f0; /* v41 Fix 3B: 不可编辑区域背景色（与可编辑区域区分） */
+  --bg-editor-margin: #e8e8e8; /* v43: 编辑器 padding 留白区域背景色（与可编辑内容区域区分） */
   --bg-toolbar: #f3f3f3;
   --bg-card: #ffffff;
   --bg-hover: #e8e8e8;
@@ -26,6 +28,7 @@
   --text-primary: #000000;
   --text-secondary: #555555;
   --text-muted: #888888;
+  --text-readonly: #999999; /* v41 Fix 3B: 不可编辑区域文字颜色 */
   --text-link: #0066bf;
   --text-on-accent: #ffffff;
 
@@ -105,6 +108,8 @@
   --bg-sidebar: #252526;
   --bg-sidebar-header: #37373d;
   --bg-editor: #1e1e1e;
+  --bg-editor-readonly: #2a2a2a; /* v41 Fix 3B: 不可编辑区域背景色（暗色） */
+  --bg-editor-margin: #2a2a2a; /* v43: 暗色编辑器 padding 留白区域背景色 */
   --bg-toolbar: #323233;
   --bg-card: #252526;
   --bg-hover: #2a2d2e;
@@ -117,6 +122,7 @@
   --text-primary: #ffffff;
   --text-secondary: #bbbbbb;
   --text-muted: #888888;
+  --text-readonly: #888888; /* v41 Fix 3B: 不可编辑区域文字颜色（暗色） */
   --text-link: #3794ff;
   --text-on-accent: #ffffff;
 
@@ -242,7 +248,10 @@ body {
 
 .anke-editor-content {
   color: var(--text-primary);
-  background: var(--bg-editor);
+  background-color: var(--bg-editor);
+  /* v43: background 只覆盖内容区域(content box),padding 区域显示外层 .anke-editor-scroll 的 --bg-editor-margin 颜色
+   * 这样可编辑内容区域与 padding 留白区域视觉上有明确区分 */
+  background-clip: content-box;
   /* 让浏览器知道垂直 pan 直接路由到外层 scroll 容器（而不是给 JS 处理）
    * 配合 JS 手势判定（touchstart 不 preventDefault，touchmove 累计位移超阈值再接管）
    * 实现：tap（点一下）→ 光标 + 键盘；pan（滑动）→ 滚动外层 div
@@ -251,8 +260,42 @@ body {
   -webkit-touch-callout: none;
 }
 
+/* v41 Fix 3A: 不可编辑区域视觉区分（参考 Word 只读模式）
+ * - 背景: 灰底（与可编辑区域的纯白/纯黑区分）
+ * - 文字: 灰色（提示只读）
+ * - 光标: default（不显示 I-beam，避免误导用户认为可编辑）
+ * 限定到 .anke-editor-content 根，不影响内部原子块（collapse-head 等自身有 contenteditable=false）
+ */
+.anke-editor-content[contenteditable='false'] {
+  background: var(--bg-editor-readonly);
+  color: var(--text-readonly);
+  cursor: default;
+}
+
+.anke-editor-content[contenteditable='false'] p,
+.anke-editor-content[contenteditable='false'] li,
+.anke-editor-content[contenteditable='false'] h1,
+.anke-editor-content[contenteditable='false'] h2,
+.anke-editor-content[contenteditable='false'] h3,
+.anke-editor-content[contenteditable='false'] h4,
+.anke-editor-content[contenteditable='false'] h5,
+.anke-editor-content[contenteditable='false'] h6,
+.anke-editor-content[contenteditable='false'] blockquote,
+.anke-editor-content[contenteditable='false'] span {
+  color: var(--text-readonly);
+}
+
+/* 原子块（collapse-head/image-block/dice-card）整体半透明，保持原色不变 */
+.anke-editor-content[contenteditable='false'] .collapse-head,
+.anke-editor-content[contenteditable='false'] .image-block,
+.anke-editor-content[contenteditable='false'] .dice-card {
+  opacity: 0.85;
+}
+
 /* 编辑器滚动容器样式（普通 div，Android WebView 触摸滚动正常） */
 .anke-editor-scroll {
+  /* 改回与编辑区域一致:padding 留白区域与内容区同色,视觉上合并为一片 */
+  background: var(--bg-editor);
   touch-action: pan-y;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
@@ -876,6 +919,11 @@ html.capacitor-platform-ios body.keyboard-open .mobile-bottom-nav {
 .reader-content .collapse-body {
   padding: 12px;
   line-height: 1.7;
+}
+
+/* 阅读模式隐藏折叠块的拖动把手（只读不拖动） */
+.reader-content .collapse-drag-handle {
+  display: none;
 }
 
 /* 阅读模式隐藏 dice-card 的掷骰按钮（只读） */

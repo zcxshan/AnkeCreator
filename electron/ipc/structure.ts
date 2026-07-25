@@ -65,6 +65,11 @@ export function registerStructureIpc(): void {
   ipcMain.handle('db:bulk-create-volumes', (_e, rows: any[]) => db.bulkCreateVolumes(rows))
   ipcMain.handle('db:bulk-create-chapters', (_e, rows: any[]) => db.bulkCreateChapters(rows))
   ipcMain.handle('db:bulk-create-sections', (_e, rows: any[]) => db.bulkCreateSections(rows))
+  // 导入完成后校准所有 word_count
+  ipcMain.handle('db:recompute-story-word-counts', (_e, storyId: string) => {
+    db.recomputeStoryWordCounts(storyId)
+    return true
+  })
 
   // ---- Section content (富文本正文) ----
   ipcMain.handle('db:get-section-content', (_e, id: string) => db.getSectionContent(id))

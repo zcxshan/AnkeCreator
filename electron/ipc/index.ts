@@ -18,6 +18,7 @@ import { registerNgaIpc } from '../ngaCrawler'
 import { registerGululuIpc } from '../gululuCrawler'
 import { registerDataIpc } from '../dataManager'
 import { registerSearchAnkeIpc } from '../searchAnke'
+import { registerWheelIpc } from './wheel'
 
 
 /** 注册所有 IPC handler
@@ -38,6 +39,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   registerGululuIpc(getWindow)
   registerDataIpc(getWindow)
   registerSearchAnkeIpc()
+  registerWheelIpc(getWindow)
   // 在系统浏览器打开外链
   ipcMain.handle('shell:openExternal', (_e, url: string) => shell.openExternal(url))
 }

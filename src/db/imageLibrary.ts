@@ -27,6 +27,22 @@ export async function listImageLibraryFolders(
   return memoryFolders.filter((f) => (f.parentId ?? null) === (parentId ?? null));
 }
 
+// v36: 列出所有文件夹(不过滤 parentId),用于子目录删除时的统计
+export async function listAllImageLibraryFolders(): Promise<ImageLibraryFolder[]> {
+  if (window.dbAPI?.listAllImageLibraryFolders) {
+    return window.dbAPI.listAllImageLibraryFolders();
+  }
+  return [...memoryFolders];
+}
+
+// v36: 列出所有图片项(不过滤 folderId),用于子目录删除时的统计
+export async function listAllImageLibraryItems(): Promise<ImageLibraryItem[]> {
+  if (window.dbAPI?.listAllImageLibraryItems) {
+    return window.dbAPI.listAllImageLibraryItems();
+  }
+  return [...memoryItems];
+}
+
 export async function createImageLibraryFolder(data: {
   name: string;
   parentId: string | null;
@@ -113,6 +129,38 @@ export async function moveImageLibraryItem(
   }
   const item = memoryItems.find((i) => i.id === id);
   if (item) item.folderId = folderId;
+  return true;
+}
+
+// 改动 v3：资源库图片重命名 / 跨文件夹移动（DB + 内存双路径）
+export async function updateImageLibraryItem(
+  id: string,
+  patch: { filename?: string; url?: string; folderId?: string | null },
+): Promise<ImageLibraryItem | null> {
+  if (window.dbAPI?.updateImageLibraryItem) {
+    return window.dbAPI.updateImageLibraryItem(id, patch);
+  }
+  const item = memoryItems.find((i) => i.id === id);
+  if (!item) return null;
+  if (patch.filename !== undefined) item.filename = patch.filename;
+  if (patch.url !== undefined) item.url = patch.url;
+  if (patch.folderId !== undefined) item.folderId = patch.folderId;
+  return item;
+}
+
+// 改动 v3：资源库图片拖动换顺序（DB + 内存双路径）
+export async function reorderImageLibraryItems(
+  ids: string[],
+  folderId: string | null,
+): Promise<boolean> {
+  if (window.dbAPI?.reorderImageLibraryItems) {
+    const res = await window.dbAPI.reorderImageLibraryItems(ids, folderId);
+    return !!res?.ok;
+  }
+  for (let i = 0; i < ids.length; i++) {
+    const item = memoryItems.find((it) => it.id === ids[i]);
+    if (item && item.folderId === folderId) item.order = i;
+  }
   return true;
 }
 

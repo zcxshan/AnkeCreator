@@ -16,6 +16,8 @@ import type {
   DiceOptionValue,
   DiceResult,
   DiceKind,
+  DiceTextStyle,
+  DiceStyleConfig,
 } from '../types';
 import {
   createDefaultNumericDice,
@@ -107,6 +109,10 @@ interface DialogState {
   targetBlockId: string | null;
   /** 新建/编辑的默认类型 */
   initialKind: DiceKind;
+  /** 需求4:编辑已有骰子时保存的原始 payload(用于保留 lastResult/history/style) */
+  originalPayload?: DiceBlockPayloadV2 | null;
+  /** 需求4:样式草稿 */
+  styleDraft: DiceStyleConfig;
 }
 
 interface DiceStoreState {
@@ -118,6 +124,8 @@ interface DiceStoreState {
     draft?: DiceConfig;
     targetBlockId?: string;
     initialKind?: DiceKind;
+    /** 需求4:编辑已有骰子时传入原始 payload,用于保留 lastResult/history 并回填 style */
+    originalPayload?: DiceBlockPayloadV2;
     /**
      * 从外部传入的选项列表（如 NGA 安价文本解析结果）
      * - 若提供，则忽略 draft，按 initialOptions 构建新 draft
@@ -128,6 +136,12 @@ interface DiceStoreState {
   }) => void;
   closeDialog: () => void;
   setDraft: (draft: DiceConfig) => void;
+
+  // ---- 需求4:样式草稿编辑 ----
+  /** 设置某类文本的样式字段 */
+  setStyleDraft: (category: 'resultText' | 'selectedOption' | 'unselectedOption', patch: Partial<DiceTextStyle>) => void;
+  /** 重置某类文本的样式(或全部) */
+  resetStyleDraft: (category?: 'resultText' | 'selectedOption' | 'unselectedOption') => void;
 
   // ---- 针对 draft 的字段级编辑 ----
   setDraftName: (name: string) => void;
@@ -162,6 +176,8 @@ function initialDialog(): DialogState {
     draft: null,
     targetBlockId: null,
     initialKind: 'option',
+    originalPayload: null,
+    styleDraft: {},
   };
 }
 
@@ -195,12 +211,17 @@ export const useDiceStore = create<DiceStoreState>((set, get) => ({
         kind === 'numeric' ? createDefaultNumericDice() : createDefaultOptionDice();
     }
     const kind = opts?.initialKind || 'option';
+    const originalPayload = opts?.originalPayload ?? null;
     set({
       dialog: {
         open: true,
         draft: baseDraft,
         targetBlockId: opts?.targetBlockId ?? null,
         initialKind: kind,
+        originalPayload,
+        styleDraft: originalPayload?.style
+          ? JSON.parse(JSON.stringify(originalPayload.style))
+          : {},
       },
     });
   },
@@ -211,6 +232,30 @@ export const useDiceStore = create<DiceStoreState>((set, get) => ({
     })),
 
   setDraft: (draft) => set((s) => ({ dialog: { ...s.dialog, draft } })),
+
+  setStyleDraft: (category, patch) => {
+    set((state) => {
+      const cur = state.dialog.styleDraft[category] ?? {};
+      return {
+        dialog: {
+          ...state.dialog,
+          styleDraft: {
+            ...state.dialog.styleDraft,
+            [category]: { ...cur, ...patch },
+          },
+        },
+      };
+    });
+  },
+
+  resetStyleDraft: (category) => {
+    set((state) => {
+      if (!category) return { dialog: { ...state.dialog, styleDraft: {} } };
+      const next = { ...state.dialog.styleDraft };
+      delete next[category];
+      return { dialog: { ...state.dialog, styleDraft: next } };
+    });
+  },
 
   setDraftName: (name) =>
     set((s) => {

@@ -135,6 +135,7 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
         workTitle: workTitle.trim(),
         sectionMode,
         floorsPerSection: fps,
+        manualFormat,
       });
       if (!result.ok) {
         showToast(`收集失败：${result.error}`, 'error');
@@ -220,6 +221,7 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
         workTitle: workTitle.trim(),
         sectionMode,
         floorsPerSection: fps,
+        manualFormat,
         retryFloorNums: failedFloors,
         existingItems: collectedItems,
       });

@@ -346,6 +346,8 @@ function processSectionHtml(html: string, imageMap: Map<string, string>): string
   )
 
   // 处理 collapse-block：转为 <details><summary>
+  // 先移除折叠块的拖动把手（EPUB 不需要交互元素，避免把 ⠿ 字符带入 details）
+  result = result.replace(/<span\b[^>]*class=["'][^"']*collapse-drag-handle[^"']*["'][^>]*>[\s\S]*?<\/span>/gi, '')
   result = result.replace(
     /<div\b[^>]*data-type=["']collapse-block["'][^>]*data-title=["']([^"']*)["'][^>]*>([\s\S]*?)<\/div>/gi,
     (_match, title, content) => {

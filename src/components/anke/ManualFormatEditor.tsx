@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import type {
   ManualFormatConfig,
   ManualVolumeConfig,
   ManualChapterConfig,
   ManualSectionConfig,
 } from '../../utils/ankeCollect';
+import { parseSectionText } from '../../utils/parseSectionText';
 
 interface ManualFormatEditorProps {
   value: ManualFormatConfig;
@@ -42,6 +44,12 @@ const btnStyle: React.CSSProperties = {
   cursor: 'pointer',
 };
 
+const parseBtnStyle: React.CSSProperties = {
+  ...btnStyle,
+  border: '1px dashed var(--text-secondary)',
+  color: 'var(--text-secondary)',
+};
+
 const deleteBtnStyle: React.CSSProperties = {
   height: 22,
   width: 22,
@@ -63,10 +71,6 @@ const sectionStyle: React.CSSProperties = {
   background: 'var(--bg-base)',
 };
 
-function genId(): string {
-  return `id_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
-}
-
 function emptySection(): ManualSectionConfig {
   return { title: '', startFloor: 1, endFloor: 1 };
 }
@@ -78,6 +82,12 @@ function emptyVolume(): ManualVolumeConfig {
 }
 
 export function ManualFormatEditor({ value, onChange, maxFloor }: ManualFormatEditorProps) {
+  // 解析文本弹窗状态：targetChapterKey = `${vi}-${ci}` 唯一标识当前编辑的章
+  const [parseModalOpen, setParseModalOpen] = useState(false);
+  const [parseModalChapterKey, setParseModalChapterKey] = useState<string | null>(null);
+  const [parseText, setParseText] = useState('');
+  const [parseError, setParseError] = useState('');
+
   const updateVolume = (vi: number, vol: ManualVolumeConfig) => {
     const volumes = value.volumes.slice();
     volumes[vi] = vol;
@@ -118,6 +128,48 @@ export function ManualFormatEditor({ value, onChange, maxFloor }: ManualFormatEd
   const deleteSection = (vi: number, ci: number, si: number) => {
     const ch = value.volumes[vi].chapters[ci];
     updateChapter(vi, ci, { ...ch, sections: ch.sections.filter((_, i) => i !== si) });
+  };
+
+  // 打开解析文本弹窗
+  const openParseModal = (vi: number, ci: number) => {
+    setParseModalChapterKey(`${vi}-${ci}`);
+    setParseText('');
+    setParseError('');
+    setParseModalOpen(true);
+  };
+
+  const handleCancelParse = () => {
+    setParseModalOpen(false);
+    setParseModalChapterKey(null);
+    setParseText('');
+    setParseError('');
+  };
+
+  // 点击解析按钮：调用 parseSectionText，成功后替换该章的现有节结构
+  const handleParse = () => {
+    if (!parseModalChapterKey) return;
+    const [viStr, ciStr] = parseModalChapterKey.split('-');
+    const vi = parseInt(viStr, 10);
+    const ci = parseInt(ciStr, 10);
+
+    const effectiveMaxFloor = Number.isFinite(maxFloor) && maxFloor! > 0 ? maxFloor! : 9999;
+    const result = parseSectionText(parseText, effectiveMaxFloor);
+    if (!result.ok || !result.sections) {
+      setParseError(result.error || '解析失败');
+      return;
+    }
+
+    // 替换该章的现有节结构（按用户确认：替换现有节）
+    const ch = value.volumes[vi]?.chapters?.[ci];
+    if (!ch) {
+      setParseError('找不到目标章');
+      return;
+    }
+    updateChapter(vi, ci, { ...ch, sections: result.sections });
+    setParseModalOpen(false);
+    setParseModalChapterKey(null);
+    setParseText('');
+    setParseError('');
   };
 
   return (
@@ -187,7 +239,16 @@ export function ManualFormatEditor({ value, onChange, maxFloor }: ManualFormatEd
                       <button style={deleteBtnStyle} title="删除此节" onClick={() => deleteSection(vi, ci, si)}>×</button>
                     </div>
                   ))}
-                  <button style={btnStyle} onClick={() => addSection(vi, ci)}>+ 添加节</button>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <button style={btnStyle} onClick={() => addSection(vi, ci)}>+ 添加节</button>
+                    <button
+                      style={parseBtnStyle}
+                      onClick={() => openParseModal(vi, ci)}
+                      title="按文本批量生成节结构（替换现有节）"
+                    >
+                      📋 解析文本
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -200,6 +261,132 @@ export function ManualFormatEditor({ value, onChange, maxFloor }: ManualFormatEd
         <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
           提示：当前帖子最高 {maxFloor} 楼，节楼号范围应在此区间内。
         </div>
+      )}
+
+      {/* 解析文本弹窗 */}
+      {parseModalOpen && parseModalChapterKey && createPortal(
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'rgba(0,0,0,0.45)',
+          }}
+          role="dialog"
+          aria-modal="true"
+          onClick={handleCancelParse}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--bg-card, #fff)',
+              borderRadius: 10,
+              boxShadow: '0 12px 40px rgba(0,0,0,0.2)',
+              padding: '20px 24px 16px',
+              minWidth: 420,
+              maxWidth: 560,
+              border: '1px solid var(--border-color, #e5e7eb)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+            }}
+          >
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
+              解析文本生成节结构
+            </h3>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+              <div>请在下方输入节定义文本，每条用 <code>;</code> 或 <code>；</code> 分隔。中英文标点均可。</div>
+              <div style={{ marginTop: 4 }}>
+                格式：<code>节名：起始楼层，终止楼层；</code> 或 <code>节名：起始楼层；</code>
+              </div>
+              <div style={{ marginTop: 4, color: 'var(--text-muted)' }}>
+                示例：<code>第一节：1，10；第二节：11，20；第三节：21；</code>
+              </div>
+              <div style={{ marginTop: 4, color: 'var(--text-muted)' }}>
+                未指定终止楼层时：非最后一节取下一节起始楼层减一；最后一节取表单填写的终止楼层
+                {maxFloor ? `（当前 ${maxFloor}）` : ''}。
+              </div>
+              <div style={{ marginTop: 4, color: 'var(--danger)' }}>
+                注意：解析成功后会替换该章现有的所有节。
+              </div>
+            </div>
+            <textarea
+              value={parseText}
+              onChange={(e) => {
+                setParseText(e.target.value);
+                if (parseError) setParseError('');
+              }}
+              placeholder="节名1：起始楼层1，终止楼层1；节名2：起始楼层2；节名3：起始楼层3，终止楼层3；"
+              autoFocus
+              style={{
+                width: '100%',
+                minHeight: 120,
+                padding: '8px 10px',
+                fontSize: 13,
+                lineHeight: 1.5,
+                borderRadius: 6,
+                border: '1px solid var(--border-color)',
+                background: 'var(--bg-input)',
+                color: 'var(--text-primary)',
+                outline: 'none',
+                resize: 'vertical',
+                fontFamily: 'inherit',
+                boxSizing: 'border-box',
+              }}
+            />
+            {parseError && (
+              <div
+                style={{
+                  fontSize: 12,
+                  color: 'var(--danger)',
+                  background: 'var(--bg-danger-soft, rgba(255,0,0,0.06))',
+                  padding: '6px 10px',
+                  borderRadius: 4,
+                  border: '1px solid var(--danger)',
+                }}
+              >
+                {parseError}
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+              <button
+                onClick={handleCancelParse}
+                style={{
+                  height: 30,
+                  padding: '0 16px',
+                  fontSize: 13,
+                  borderRadius: 6,
+                  border: '1px solid var(--border-color)',
+                  background: 'transparent',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                }}
+              >
+                取消
+              </button>
+              <button
+                onClick={handleParse}
+                style={{
+                  height: 30,
+                  padding: '0 16px',
+                  fontSize: 13,
+                  borderRadius: 6,
+                  border: '1px solid var(--accent)',
+                  background: 'var(--accent)',
+                  color: 'var(--bg-base, #fff)',
+                  cursor: 'pointer',
+                  fontWeight: 500,
+                }}
+              >
+                解析
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

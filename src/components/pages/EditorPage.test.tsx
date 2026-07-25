@@ -23,6 +23,10 @@ const sectionState = {
   flushDebouncedSave: vi.fn(),
   editorMode: 'bbcode' as 'visual' | 'bbcode',
   setEditorMode: vi.fn(),
+  // 需求5:快速跳转 — 按节持久化滚动位置
+  sectionScrollPositions: {} as Record<string, number>,
+  setSectionScrollPosition: vi.fn(),
+  getSectionScrollPosition: vi.fn(() => undefined),
 };
 
 vi.mock('../../store/editorStore', () => ({
@@ -578,6 +582,14 @@ describe('EditorPage BBCode 语法校验（集成 bbcodeValidator）', () => {
       await new Promise((r) => setTimeout(r, 350));
     });
 
+    // v35: 错误面板默认折叠，先点击展开按钮
+    const expandBtn = screen.queryByText(/BBCode 语法错误/);
+    if (expandBtn) {
+      await act(async () => {
+        fireEvent.click(expandBtn);
+      });
+    }
+
     // 关键断言：出现校验错误信息
     // 注意：用 "未闭合" 而非 "[b]" 作为匹配，因为 textarea 的 textContent
     // 在 jsdom 中也会包含用户输入的 "[b]unclosed"，会造成假阳性。
@@ -605,9 +617,9 @@ describe('EditorPage BBCode 语法校验（集成 bbcodeValidator）', () => {
       await new Promise((r) => setTimeout(r, 350));
     });
 
-    // 关键断言：没有校验错误信息
-    const errorMsg = screen.queryByText(/未闭合|多余的闭合标签|标签交叉闭合/);
-    expect(errorMsg).toBeNull();
+    // 关键断言：没有校验错误信息（错误面板不渲染）
+    const errorPanel = screen.queryByText(/BBCode 语法错误/);
+    expect(errorPanel).toBeNull();
   });
 });
 

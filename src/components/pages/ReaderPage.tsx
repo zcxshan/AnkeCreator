@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react';
 import { useStoryStore } from '../../store/storyStore';
 import { useToastStore } from '../../store/toastStore';
 import * as db from '../../db/index';
@@ -20,6 +20,106 @@ const THEME_COLORS: Record<Theme, { bg: string; text: string; textSecondary: str
 const FONT_SIZES: Record<FontSize, number> = { small: 14, medium: 16, large: 18 };
 
 const SERIF_FONT = `Georgia, 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', serif`;
+
+// ============================================================
+// 分段懒加载渲染（超长节性能优化）
+// - 将 HTML 按顶层块级元素拆分
+// - 每段用 IntersectionObserver 懒加载，进入视口前用占位 div
+// - 首次加载只渲染前 INITIAL_RENDER_BLOCKS 块，避免一次性渲染数万 DOM 节点卡死
+// - 一旦可见就保持渲染（避免反复加载 + 保留 collapse/image 块状态）
+// ============================================================
+
+// 首次加载时默认渲染的块数（前 N 块立即渲染，避免首屏空白）
+const INITIAL_RENDER_BLOCKS = 8;
+// IntersectionObserver 预加载距离：视口上下各扩展 800px，提前加载即将进入的块
+const LAZY_ROOT_MARGIN = '800px 0px';
+
+/**
+ * 将 HTML 字符串拆分为块级段落数组
+ * - 用 DOMParser 解析（不触发图片加载等副作用）
+ * - 取顶层节点（元素节点直接 outerHTML，文本节点包装为 <p>）
+ * - 解析失败时回退为原 HTML 单段
+ */
+function splitHtmlToBlocks(html: string): string[] {
+  if (!html) return [];
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(`<div id="split-root">${html}</div>`, 'text/html');
+    const root = doc.getElementById('split-root');
+    if (!root) return [html];
+    const blocks: string[] = [];
+    for (const node of Array.from(root.childNodes)) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const el = node as Element;
+        blocks.push(el.outerHTML);
+      } else if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.textContent?.trim();
+        if (text) blocks.push(`<p>${text}</p>`);
+      }
+    }
+    return blocks.length > 0 ? blocks : [html];
+  } catch {
+    return [html];
+  }
+}
+
+/**
+ * 懒加载块组件
+ * - initiallyVisible=true 的块（前 N 块）直接渲染，不观察
+ * - 其他块用 IntersectionObserver 观察，进入视口（含 rootMargin 预加载）后渲染
+ * - 不可见时用占位 div（minHeight 20px），避免高度塌陷
+ */
+const LazyBlock = memo(function LazyBlock({
+  html,
+  initiallyVisible,
+}: {
+  html: string;
+  initiallyVisible: boolean;
+}) {
+  const [visible, setVisible] = useState(initiallyVisible);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (initiallyVisible) return; // 已默认可见，无需观察
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            setVisible(true);
+            observer.disconnect();
+          }
+        }
+      },
+      { rootMargin: LAZY_ROOT_MARGIN },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [initiallyVisible]);
+
+  if (visible) {
+    return <div ref={containerRef} dangerouslySetInnerHTML={{ __html: html }} />;
+  }
+  // 占位：未渲染时给一个最小高度，避免高度完全塌陷影响滚动条估算
+  return <div ref={containerRef} style={{ minHeight: 20 }} />;
+});
+
+/**
+ * 分段渲染内容
+ * - 将 HTML 拆分为块，每块用 LazyBlock 包裹
+ * - 父级 click 事件委托仍有效（块内的 collapse/image 元素仍在 DOM 树内）
+ */
+const LazyReaderContent = memo(function LazyReaderContent({ html }: { html: string }) {
+  const blocks = useMemo(() => splitHtmlToBlocks(html), [html]);
+  return (
+    <>
+      {blocks.map((block, i) => (
+        <LazyBlock key={i} html={block} initiallyVisible={i < INITIAL_RENDER_BLOCKS} />
+      ))}
+    </>
+  );
+});
 
 export function ReaderPage({ onBack }: ReaderPageProps) {
   const { stories, activeStoryId, volumes, chapters, sections, activeSectionId, setActiveSection } = useStoryStore();
@@ -616,8 +716,9 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
                       fontFamily: SERIF_FONT,
                       color: colors.text,
                     }}
-                    dangerouslySetInnerHTML={{ __html: sectionContent || '<p style="color:#999">（本节无内容）</p>' }}
-                  />
+                  >
+                    <LazyReaderContent html={sectionContent || '<p style="color:#999">（本节无内容）</p>'} />
+                  </div>
                 )}
               </>
             ) : (

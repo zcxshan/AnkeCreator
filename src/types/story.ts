@@ -20,6 +20,8 @@ export interface Volume extends Entity {
   story_id: string;
   title: string;
   order_index: number;
+  /** 预计算的卷字数缓存（所有章节字数之和） */
+  word_count?: number;
 }
 
 export interface Chapter extends Entity {
@@ -27,6 +29,8 @@ export interface Chapter extends Entity {
   volume_id: string | null;
   title: string;
   order_index: number;
+  /** 预计算的章字数缓存（所有节字数之和） */
+  word_count?: number;
 }
 
 export interface Section extends Entity {

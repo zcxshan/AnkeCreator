@@ -7,9 +7,8 @@
 // 决策规则：
 //   - 打包模式（app.isPackaged === true）：<安装路径>/data/
 //     安装路径 = path.dirname(process.execPath)
-//   - dev 模式（npm run dev，未打包）：app.getPath('userData')
-//     = C:\Users\<user>\AppData\Roaming\com.shanshian.ankecreator\
-//     保持现状，避免污染安装路径
+//   - dev 模式（npm run dev，未打包）：<项目根>/data/
+//     与打包模式一致，数据统一在项目/安装路径下的 data/ 目录
 //
 // v3.2+ 扁平化（#9）：所有数据统一在 <安装路径>/data/ 下，不再有 data/data/ 嵌套
 //   - <installDir>/data/                     ← getDataDir()（也是 getDataRoot()）
@@ -39,7 +38,7 @@ let _dataRootFallback: boolean = false
  * - 如果 <安装路径> 无写权限（常见于 C:\Program Files\），
  *   自动回退到 %APPDATA%\com.shanshian.ankecreator\data\，
  *   避免数据丢失。
- * - dev 模式（未打包）：app.getPath('userData')
+ * - dev 模式（未打包）：<项目根>/data/
  *
  * 回退策略：第一次调用时尝试检测 installDir 是否可写，
  *   不可写时切换到 %APPDATA%，后续所有调用都走回退后的路径。
@@ -73,7 +72,10 @@ export function getDataRoot(): string {
       console.error('[paths] 创建数据目录失败:', e)
     }
   } else {
-    _dataRoot = app.getPath('userData')
+    // dev 模式：用项目根目录下的 data/（与打包模式一致，不写 C 盘 AppData）
+    const appRoot = process.env.APP_ROOT || app.getAppPath()
+    _dataRoot = path.join(appRoot, 'data')
+    console.log('[paths] 数据目录：', _dataRoot, '(dev 模式)')
   }
   return _dataRoot
 }
@@ -119,6 +121,18 @@ export function getStoriesDir(): string {
   const dir = path.join(getDataDir(), 'stories')
   ensureDirWritable(dir)
   return dir
+}
+
+/**
+ * 玩转盘数据文件：<dataDir>/wheels.json
+ *
+ * 全局单文件存储所有转盘方案和抽取历史（方案数量少，无需 per-file）
+ * 包含 schemes 数组 + history 数组（最近 100 条抽取历史）
+ */
+export function getWheelsFile(): string {
+  // 确保父目录存在且可写
+  ensureDirWritable(getDataDir())
+  return path.join(getDataDir(), 'wheels.json')
 }
 
 /**
@@ -214,6 +228,12 @@ function ensureDirWritable(dir: string): void {
  *   2. 新位置 <installPath>/data/ 下 stories 目录为空
  *   3. 旧位置 %APPDATA%\com.shanshian.ankecreator\ 存在数据
  */
+/**
+ * v31 入口：检查并迁移旧数据到新位置
+ * - 调用 migrateFromAppData()  从 %APPDATA% 迁移
+ * - 调用 migrateFromRegistry() 从注册表记录的旧版安装位置迁移
+ * 每个子函数都自带幂等性（标记文件防重复迁移）
+ */
 export function migrateFromUserDataIfNeeded(): void {
   console.log('[paths] 检查是否需要迁移...')
   if (!app.isPackaged) {
@@ -221,6 +241,25 @@ export function migrateFromUserDataIfNeeded(): void {
     return
   }
 
+  try {
+    migrateFromAppData()
+  } catch (e) {
+    console.error('[paths] migrateFromAppData 异常（继续）:', e)
+  }
+
+  try {
+    migrateFromRegistry()
+  } catch (e) {
+    console.error('[paths] migrateFromRegistry 异常（继续）:', e)
+  }
+}
+
+/**
+ * v3.2 引入：把 %APPDATA%\<appId>\ 下的旧 data/images/sounds 迁移到 <installDir>/data/
+ * v31 重命名（保留行为）：函数名从 migrateFromUserDataIfNeeded 改为 migrateFromAppData
+ * 触发条件（仅打包模式）：
+ */
+function migrateFromAppData(): void {
   const newDataDir = getDataDir() // #9 扁平化后就是 <installDir>/data/
   const migrationFlag = path.join(newDataDir, '.migrated-from-appdata')
 
@@ -308,6 +347,124 @@ export function migrateFromUserDataIfNeeded(): void {
     console.log('[paths] 旧数据保留在原位置作为备份，可在确认新位置正常后手动删除')
   } catch (e) {
     console.error('[paths] 复制失败（不写标记，下次启动重试）:', e)
+  }
+}
+
+/**
+ * v31 新增：从 Windows 注册表读旧版安装位置，复制 data 到 <installDir>/data/
+ * 用于解决"升级到不同安装路径时数据丢失"问题
+ * 触发条件：NSIS customInstall 阶段未复制成功（静默安装、NSIS 失败、用户没看提示等）
+ * 触发场景：用户从 v3.2 升级到 v3.x 时，手动选了不同的安装路径
+ */
+function migrateFromRegistry(): void {
+  if (process.platform !== 'win32') {
+    // macOS / Linux 走 .app / 启动器，路径一致，不需要这个迁移
+    return
+  }
+
+  const newDataDir = getDataDir()
+  const migrationFlag = path.join(newDataDir, '.migrated-from-registry')
+
+  // 已迁移过 → 跳过
+  if (fs.existsSync(migrationFlag)) {
+    console.log('[paths] 已迁移过 registry 旧位置，跳过')
+    return
+  }
+
+  // 新位置已有 per-story 数据 → 跳过
+  try {
+    if (
+      fs.existsSync(path.join(newDataDir, 'stories')) &&
+      fs.readdirSync(path.join(newDataDir, 'stories')).filter((f) => f.endsWith('.json')).length > 0
+    ) {
+      console.log('[paths] 新位置已有数据，跳过 registry 迁移')
+      fs.writeFileSync(
+        migrationFlag,
+        JSON.stringify({ skipped: true, at: new Date().toISOString() }),
+        'utf-8',
+      )
+      return
+    }
+  } catch {
+    /* 继续 */
+  }
+
+  // 从 Windows 注册表读旧版 InstallLocation
+  // HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\<appId>\InstallLocation
+  // 注意：安装/卸载时 NSIS 会写/删此键，所以这里读到的是「当前实际存在的注册表项」
+  // 如果当前安装的新版刚好也写了这个键，那读到的就是新路径 → 无效，所以加 newDataDir 比较
+  let oldInstallDir = ''
+  try {
+    const { execSync } = require('child_process')
+    const appId = app.getName()
+    const result = execSync(
+      `reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${appId}" /v InstallLocation`,
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
+    )
+    const match = result.match(/InstallLocation\s+REG_SZ\s+(.+)/)
+    if (match) oldInstallDir = match[1].trim()
+  } catch (e) {
+    console.log('[paths] 注册表无旧版记录或读取失败:', (e as Error).message?.split('\n')[0])
+    return
+  }
+
+  if (!oldInstallDir) {
+    console.log('[paths] 注册表无 InstallLocation，跳过')
+    return
+  }
+
+  // 防御性：如果读到的就是新路径（升级后 NSIS 已写入新值），跳过
+  if (path.resolve(oldInstallDir) === path.resolve(path.dirname(process.execPath))) {
+    console.log('[paths] 注册表记录就是当前安装路径，跳过')
+    return
+  }
+
+  if (!fs.existsSync(oldInstallDir)) {
+    console.log('[paths] 注册表记录的旧版位置不存在:', oldInstallDir)
+    return
+  }
+
+  const oldDataDir = path.join(oldInstallDir, 'data')
+  if (!fs.existsSync(path.join(oldDataDir, 'stories'))) {
+    console.log('[paths] 旧版位置无 data/stories，无需迁移:', oldDataDir)
+    // 写标记，避免每次启动都读注册表
+    fs.writeFileSync(
+      migrationFlag,
+      JSON.stringify({ skipped: true, at: new Date().toISOString(), reason: 'old-data-empty' }),
+      'utf-8',
+    )
+    return
+  }
+
+  // 复制 data 目录
+  try {
+    const startMs = Date.now()
+    console.log('[paths] 从注册表记录的旧版位置复制数据:', oldDataDir, '→', newDataDir)
+    if (!fs.existsSync(newDataDir)) {
+      fs.mkdirSync(newDataDir, { recursive: true })
+    }
+    fs.cpSync(oldDataDir, newDataDir, { recursive: true })
+
+    fs.writeFileSync(
+      migrationFlag,
+      JSON.stringify(
+        {
+          migratedAt: new Date().toISOString(),
+          from: oldDataDir,
+          to: newDataDir,
+          source: 'registry',
+        },
+        null,
+        2,
+      ),
+      'utf-8',
+    )
+
+    const elapsed = Date.now() - startMs
+    console.log(`[paths] registry 旧版数据迁移完成，耗时 ${elapsed}ms`)
+    console.log('[paths] 旧位置保留作为备份')
+  } catch (e) {
+    console.error('[paths] registry 旧版数据迁移失败（不写标记，下次启动重试）:', e)
   }
 }
 

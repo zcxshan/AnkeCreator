@@ -14,6 +14,7 @@ interface HomePageProps {
   onShowAnkeCollect?: () => void;
   onShowFindAnke?: () => void;
   onShowDicePlayground?: () => void;
+  onShowWheelPlayground?: () => void;
   onShowCreationLog?: (storyId: string) => void;
 }
 
@@ -50,7 +51,7 @@ interface RecentStorySummary {
  *   │ 最近编辑的作品（点击进入编辑）         │
  *   └────────────────────────────────────────┘
  */
-export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onShowTutorial, onShowAuthor, onShowAnjiaCollect, onShowAnkeCollect, onShowGululuCollect, onShowFindAnke, onShowDicePlayground, onShowCreationLog }: HomePageProps) {
+export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onShowTutorial, onShowAuthor, onShowAnjiaCollect, onShowAnkeCollect, onShowGululuCollect, onShowFindAnke, onShowDicePlayground, onShowWheelPlayground, onShowCreationLog }: HomePageProps) {
   const { stories, createStory, setActiveStory } = useStoryStore();
 
   const [showNewStoryModal, setShowNewStoryModal] = useState(false);
@@ -243,6 +244,19 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
               >
                 <span>🎲</span> 玩骰子
+              </button>
+            )}
+            {onShowWheelPlayground && (
+              <button
+                onClick={onShowWheelPlayground}
+                className={isCapacitor
+                  ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
+                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'}
+                style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
+              >
+                <span>🎡</span> 玩转盘
               </button>
             )}
             {onShowCreationLog && (

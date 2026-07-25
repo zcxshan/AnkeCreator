@@ -16,9 +16,11 @@ export interface ImageLibraryFolder {
 export interface ImageLibraryItem {
   id: string;
   folderId: string | null;
-  /** local://hash.png 或 https://... */
+  /** local://foo.png、local://<folder>/foo.png 或 https://... */
   url: string;
   filename: string;
   source: 'local' | 'url';
+  /** 改动 v3：拖动换顺序字段，0-based 整数；缺失时按 created_at 排序 */
+  order?: number;
   created_at: string;
 }

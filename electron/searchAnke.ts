@@ -12,9 +12,10 @@
 // 解析方式：纯正则 + 字符串切分（与 src/utils/ngaCrawler.ts 一致，不引入 cheerio）
 // ============================================================
 
-import { app, ipcMain } from 'electron'
+import { ipcMain } from 'electron'
 import fs from 'fs'
 import path from 'path'
+import { getDataRoot } from './paths'
 
 export interface GululuResult {
   title: string
@@ -66,6 +67,136 @@ function unixToDate(ts: number): string {
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
+}
+
+/** unix 时间戳(秒) → "YYYY-MM-DD HH:MM"（NGA 时间显示用，含时分更直观） */
+function unixToDateTime(ts: number): string {
+  const d = new Date(ts * 1000)
+  if (isNaN(d.getTime())) return ''
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+  return `${y}-${m}-${day} ${hh}:${mm}`
+}
+
+/**
+ * 解析 NGA title 属性时间 "YY-MM-DD HH:MM" → unix 时间戳(秒)
+ * NGA 时间为北京时间（UTC+8），title 格式如 "25-06-26 21:28"（2位年份）
+ * 解析失败返回 0
+ */
+function parseNgaDate(titleStr: string): number {
+  if (!titleStr) return 0
+  const m = titleStr.match(/^(\d{2})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$/)
+  if (!m) return 0
+  const year = 2000 + parseInt(m[1], 10)
+  const month = parseInt(m[2], 10) - 1
+  const day = parseInt(m[3], 10)
+  const hour = parseInt(m[4], 10)
+  const minute = parseInt(m[5], 10)
+  // NGA 时间为北京时间（UTC+8）：用 UTC 构造后减去 8 小时得到 unix 时间戳
+  const d = new Date(Date.UTC(year, month, day, hour, minute))
+  if (isNaN(d.getTime())) return 0
+  return Math.floor((d.getTime() - 8 * 3600 * 1000) / 1000)
+}
+
+/**
+ * 从 HTML 标签字符串中提取 title 属性值
+ * 不依赖 class 与 title 顺序：先匹配整个标签，再从标签内提取 title
+ */
+function extractTitleAttr(tagHtml: string): string {
+  const m = tagHtml.match(/\btitle=["']([^"']*)["']/i)
+  return m ? m[1] : ''
+}
+
+/**
+ * 解析 title 属性值为 unix 时间戳(秒)
+ * 支持两种格式（NGA 实测 2026-07-25 验证）：
+ *   1. 'YY-MM-DD HH:MM'（北京时间，如 '26-05-31 18:24'）→ parseNgaDate
+ *      postdate 与 replydate 元素的 title 实测均为此格式
+ *   2. 纯数字 unix 时间戳（如 '1784911776'）→ 直接 parseInt
+ *      旧版本 NGA 或某些情况下可能出现，保留兼容
+ */
+function parseNgaTitleToUnix(title: string): number {
+  if (!title) return 0
+  const trimmed = title.trim()
+  // 纯数字（10 位 unix 时间戳）→ 直接解析
+  if (/^\d{10}$/.test(trimmed)) return parseInt(trimmed, 10)
+  // YY-MM-DD HH:MM 格式 → 复用 parseNgaDate
+  return parseNgaDate(trimmed)
+}
+
+/**
+ * 从一行 HTML 中提取 postdate（发布时间）和 replydate（最后回复时间）的 unix 时间戳
+ * NGA 实测结构（2026-07-25 重新验证）：
+ *   <span class="silver postdate smoke nobr" id="t_pt1_0" title="26-05-31 18:24">...</span>
+ *   <a href="..." class="silver replydate smoke nobr" id="t_rt1_0" title="26-07-25 02:33">1小时前</a>
+ *
+ * - postdate 与 replydate 的 title 实测均为 'YY-MM-DD HH:MM' 格式
+ * - 两者均通过 parseNgaTitleToUnix 统一解析（兼容数字时间戳格式）
+ *
+ * 兜底路径：当 extractTopicArgMap 无法从 JS 调用提取时间戳时使用
+ */
+function extractNgaTimestamps(html: string): { publishedTs: number; lastReplyTs: number } {
+  const postdateMatch = html.match(/<span\b[^>]*\bclass=["'][^"']*\bpostdate\b[^"']*["'][^>]*>/i)
+  const replydateMatch = html.match(/<a\b[^>]*\bclass=["'][^"']*\breplydate\b[^"']*["'][^>]*>/i)
+  const publishedTs = postdateMatch ? parseNgaTitleToUnix(extractTitleAttr(postdateMatch[0])) : 0
+  const lastReplyTs = replydateMatch ? parseNgaTitleToUnix(extractTitleAttr(replydateMatch[0])) : 0
+  return { publishedTs, lastReplyTs }
+}
+
+/**
+ * 从 HTML 中提取所有 commonui.topicArg.add(...) 调用，建立 tid → 时间戳映射
+ *
+ * NGA 实测结构（2026-07-25 重新验证）：
+ * commonui.topicArg.add(
+ *   't_rc1_0','t_tt1_0','t_ta1_0','t_pt1_0',  // args[0-3]: 4 个元素 ID
+ *   't_tr1_0','t_rt1_0','t_pc1_0',             // args[4-6]: 3 个元素 ID
+ *   '784',          // args[7]: fid
+ *   46894532,       // args[8]: tid ← 关键索引
+ *   '','',          // args[9-10]: 未知
+ *   '0',            // args[11]: 未知
+ *   1780223071,     // args[12]: postdate 时间戳 ← 关键索引
+ *   1784911776,     // args[13]: replydate 时间戳 ← 关键索引
+ *   669,            // args[14]: 回复数
+ *   ...
+ * )
+ *
+ * 主路径：从 JS 调用提取时间戳，比 HTML title 属性更可靠（两个时间戳均为数字格式）
+ */
+function extractTopicArgMap(html: string): Map<string, {
+  publishedTs: number
+  lastReplyTs: number
+  replyCount: number
+}> {
+  const map = new Map<string, { publishedTs: number; lastReplyTs: number; replyCount: number }>()
+  // 匹配 commonui.topicArg.add(...) 整个调用（跨多行，到 </script> 结束）
+  const callRe = /commonui\.topicArg\.add\(\s*([\s\S]*?)\)\s*<\/script>/gi
+  let m: RegExpExecArray | null
+  while ((m = callRe.exec(html)) !== null) {
+    const argsText = m[1]
+    // 提取所有参数：字符串用单引号、数字无引号、null 字面量
+    const args: (string | number | null)[] = []
+    const argRe = /'([^']*)'|(\d+)|null/g
+    let am: RegExpExecArray | null
+    while ((am = argRe.exec(argsText)) !== null) {
+      if (am[1] !== undefined) args.push(am[1])
+      else if (am[2] !== undefined) args.push(parseInt(am[2], 10))
+      else args.push(null)
+    }
+    // 参数索引：args[8]=tid, args[12]=postdate, args[13]=replydate, args[14]=replyCount
+    if (args.length >= 15) {
+      const tid = String(args[8])
+      const publishedTs = typeof args[12] === 'number' ? args[12] : 0
+      const lastReplyTs = typeof args[13] === 'number' ? args[13] : 0
+      const replyCount = typeof args[14] === 'number' ? args[14] : 0
+      if (tid && /^\d+$/.test(tid) && (publishedTs || lastReplyTs)) {
+        map.set(tid, { publishedTs, lastReplyTs, replyCount })
+      }
+    }
+  }
+  return map
 }
 
 /** 清理 HTML 标签，保留纯文本 */
@@ -226,15 +357,8 @@ async function searchGululu(
 
   function saveDebugLog(json: any): void {
     try {
-      let userData = ''
-      try {
-        userData = app.getPath('userData')
-      } catch {
-        userData = ''
-      }
-      const logDir = userData
-        ? path.join(userData, 'logs')
-        : path.join(process.env.APPDATA || process.env.HOME || process.cwd(), '.AnkeCreator', 'logs')
+      // 统一保存到 data/logs/，不写 C 盘 AppData
+      const logDir = path.join(getDataRoot(), 'logs')
       fs.mkdirSync(logDir, { recursive: true })
       const logPath = path.join(logDir, `searchGululu_${Date.now()}.json`)
       const clone = JSON.parse(JSON.stringify(json || {}))
@@ -649,6 +773,8 @@ async function searchNgaAnke(
   // ===== 辅助：解析单页 HTML 为 NgaResult[]（主模式 + 单页 fallback） =====
   function parseHtmlMain(html: string, baseUrl: string): NgaResult[] {
     const pageResults: NgaResult[] = []
+    // 主路径：从 commonui.topicArg.add(...) JS 调用提取 tid → 时间戳映射
+    const topicArgMap = extractTopicArgMap(html)
     const rowRe = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi
     let rowMatch: RegExpExecArray | null
     let trCount = 0
@@ -700,12 +826,20 @@ async function searchNgaAnke(
       const authorMatch = row.match(authorRe)
       const author = authorMatch ? stripHtmlTags(authorMatch[2]) : ''
 
-      const tsMatches = row.match(/\d{10}/g)
-      const publishedTs = tsMatches && tsMatches.length > 0 ? parseInt(tsMatches[0], 10) : 0
-      const lastReplyTs = tsMatches && tsMatches.length > 1 ? parseInt(tsMatches[1], 10) : publishedTs
-
-      const publishedAt = publishedTs ? unixToDate(publishedTs) : ''
-      const lastReplyAt = lastReplyTs ? unixToDate(lastReplyTs) : publishedAt
+      // 时间戳提取：优先从 topicArgMap 查询（主路径），否则回退到 HTML title 属性（兜底）
+      let publishedTs: number
+      let lastReplyTs: number
+      const tsFromJs = topicArgMap.get(tid)
+      if (tsFromJs) {
+        publishedTs = tsFromJs.publishedTs
+        lastReplyTs = tsFromJs.lastReplyTs
+      } else {
+        const ts = extractNgaTimestamps(row)
+        publishedTs = ts.publishedTs
+        lastReplyTs = ts.lastReplyTs
+      }
+      const publishedAt = publishedTs ? unixToDateTime(publishedTs) : ''
+      const lastReplyAt = lastReplyTs ? unixToDateTime(lastReplyTs) : ''
 
       if (keyword) {
         const k = keyword.toLowerCase()
@@ -737,6 +871,7 @@ async function searchNgaAnke(
       '[searchNgaAnke] parseMain trCount=', trCount,
       'tidLinkMatches=', pageTidLinks,
       'newResults=', pageResults.length,
+      'topicArgMapSize=', topicArgMap.size,
     )
     return pageResults
   }
@@ -744,6 +879,8 @@ async function searchNgaAnke(
   // ===== 辅助：按单元格解析（绕过嵌套表格，直接匹配 c2/c1） =====
   function parseHtmlByCell(html: string, baseUrl: string): NgaResult[] {
     const pageResults: NgaResult[] = []
+    // 主路径：从 commonui.topicArg.add(...) JS 调用提取 tid → 时间戳映射
+    const topicArgMap = extractTopicArgMap(html)
     const cellRe = /<td\b[^>]*class=["']?c2["']?[^>]*>([\s\S]*?)<\/td>/gi
     let cm: RegExpExecArray | null
     let lastIndex = 0
@@ -774,11 +911,25 @@ async function searchNgaAnke(
       }
       lastIndex = cm.index + cm[0].length
 
-      const tsMatches = cell.match(/\d{10}/g)
-      const publishedTs = tsMatches && tsMatches.length > 0 ? parseInt(tsMatches[0], 10) : 0
-      const lastReplyTs = tsMatches && tsMatches.length > 1 ? parseInt(tsMatches[1], 10) : publishedTs
-      const publishedAt = publishedTs ? unixToDate(publishedTs) : ''
-      const lastReplyAt = lastReplyTs ? unixToDate(lastReplyTs) : publishedAt
+      // 时间戳提取：优先从 topicArgMap 查询（主路径），否则回退到 HTML title 属性（兜底）
+      let publishedTs: number
+      let lastReplyTs: number
+      const tsFromJs = topicArgMap.get(tid)
+      if (tsFromJs) {
+        publishedTs = tsFromJs.publishedTs
+        lastReplyTs = tsFromJs.lastReplyTs
+      } else {
+        // postdate 在 c2 单元格内；replydate 在 c2 之后的 td 中（同一个 tr 内）
+        // 将 c2 单元格内容和后续 td 内容拼接一次性提取
+        const afterCellHtml = html.slice(cm.index + cm[0].length)
+        const trEndIdx = afterCellHtml.search(/<\/tr>/i)
+        const afterRange = trEndIdx > 0 ? afterCellHtml.slice(0, trEndIdx) : afterCellHtml.slice(0, 3000)
+        const ts = extractNgaTimestamps(cell + afterRange)
+        publishedTs = ts.publishedTs
+        lastReplyTs = ts.lastReplyTs
+      }
+      const publishedAt = publishedTs ? unixToDateTime(publishedTs) : ''
+      const lastReplyAt = lastReplyTs ? unixToDateTime(lastReplyTs) : ''
 
       if (keyword) {
         const k = keyword.toLowerCase()
@@ -811,8 +962,20 @@ async function searchNgaAnke(
     const pageResults: NgaResult[] = []
     const tidRe = /<a\b[^>]*href=["']?read\.php\?tid=(\d+)["']?[^>]*>([\s\S]*?)<\/a>/gi
     const tidLinks: { tid: string; text: string; alt: string }[] = []
+    // 同步提取每个 tid 所在 <tr> 的时间戳（postdate/replydate）
+    const tidTimestamps = new Map<string, { publishedTs: number; lastReplyTs: number }>()
     let tm: RegExpExecArray | null
     while ((tm = tidRe.exec(html)) !== null) {
+      // 提取 tid 链接所在 <tr>...</tr> 范围，用于提取 postdate/replydate
+      const trStart = html.lastIndexOf('<tr', tm.index)
+      const trEnd = html.indexOf('</tr>', tm.index)
+      const rowHtml = trStart >= 0 && trEnd > trStart ? html.slice(trStart, trEnd + 6) : ''
+      if (rowHtml && !tidTimestamps.has(tm[1])) {
+        const ts = extractNgaTimestamps(rowHtml)
+        if (ts.publishedTs || ts.lastReplyTs) {
+          tidTimestamps.set(tm[1], ts)
+        }
+      }
       let text = stripHtmlTags(tm[2])
       let alt = ''
       if (!text) {
@@ -854,15 +1017,18 @@ async function searchNgaAnke(
       }
 
       const ts = extractTagsAndStatus(trimmed)
+      const ts2 = tidTimestamps.get(tid) || { publishedTs: 0, lastReplyTs: 0 }
+      const publishedAt = ts2.publishedTs ? unixToDate(ts2.publishedTs) : ''
+      const lastReplyAt = ts2.lastReplyTs ? unixToDate(ts2.lastReplyTs) : ''
       pageResults.push({
         title: ts.cleanTitle,
         author: '佚名',
         floorCount: '0',
         floorCountRaw: 0,
-        lastReplyAt: '',
-        lastReplyAtRaw: 0,
-        publishedAt: '',
-        publishedAtRaw: 0,
+        lastReplyAt,
+        lastReplyAtRaw: ts2.lastReplyTs,
+        publishedAt,
+        publishedAtRaw: ts2.publishedTs,
         url: `${baseUrl}/read.php?tid=${tid}`,
         tags: ts.tags,
         status: ts.status,
@@ -1015,18 +1181,10 @@ async function searchNgaAnke(
       0,
     )
 
-    // 保存原始 HTML 日志供排查
+    // 保存原始 HTML 日志供排查（统一到 data/logs/，不写 C 盘）
     let logPath = ''
     try {
-      let userData = ''
-      try {
-        userData = app.getPath('userData')
-      } catch {
-        userData = ''
-      }
-      const logDir = userData
-        ? path.join(userData, 'logs')
-        : path.join(process.env.APPDATA || process.env.HOME || process.cwd(), '.AnkeCreator', 'logs')
+      const logDir = path.join(getDataRoot(), 'logs')
       fs.mkdirSync(logDir, { recursive: true })
       logPath = path.join(logDir, `searchNgaAnke_${Date.now()}.html`)
       const rawHtml = allHtmlChunks.map((c) => c.html).join('\n')
