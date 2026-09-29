@@ -29,6 +29,10 @@ interface DiceHistoryState {
   archiveByStory: (storyId: string) => void;
   /** 按 storyId 过滤记录；找不到或 storyId 为空时返回空数组 */
   getRecordsByStory: (storyId: string) => DiceHistoryRecord[];
+  /** 当前作品（未归档）记录，按时间倒序 */
+  getActiveRecords: () => DiceHistoryRecord[];
+  /** 已删除作品（归档）记录，按时间倒序 */
+  getArchivedRecords: () => DiceHistoryRecord[];
 }
 
 function genId(): string {
@@ -72,6 +76,8 @@ export const useDiceHistoryStore = create<DiceHistoryState>()(
         if (!storyId) return [];
         return get().records.filter((r) => r.storyId === storyId);
       },
+      getActiveRecords: () => get().records.filter((r) => !r.isArchived),
+      getArchivedRecords: () => get().records.filter((r) => r.isArchived),
     }),
     {
       name: 'anke-creator-dice-history',

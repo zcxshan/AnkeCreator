@@ -108,6 +108,41 @@ describe('useDiceHistoryStore - archiveByStory (软删除归档)', () => {
   });
 });
 
+describe('useDiceHistoryStore - 归档分组 helper（当前作品/已删除作品）', () => {
+  beforeEach(() => {
+    useDiceHistoryStore.setState({ records: [] });
+  });
+
+  it('getActiveRecords / getArchivedRecords 按 isArchived 分组', () => {
+    const base = { timestamp: 1, storyId: 's1', sectionId: 's1', sectionTitle: 't', diceName: 'n', diceType: '1d6', result: 'D6=3', resultDetail: 'd', payloadSnapshot: '{}' };
+    useDiceHistoryStore.getState().addRecords([
+      { id: 'a', ...base },
+      { id: 'b', ...base, isArchived: true },
+      { id: 'c', ...base },
+    ]);
+    const s = useDiceHistoryStore.getState();
+    // 直接 filter 断言（UI 分组依赖的基础）
+    expect(s.records.filter((r) => r.isArchived)).toHaveLength(1);
+    expect(s.records.filter((r) => !r.isArchived)).toHaveLength(2);
+    // helper 方法断言
+    expect(s.getActiveRecords()).toHaveLength(2);
+    expect(s.getArchivedRecords()).toHaveLength(1);
+    expect(s.getArchivedRecords()[0].id).toBe('b');
+  });
+
+  it('getActiveRecords / getArchivedRecords 不影响原 records（返回过滤副本）', () => {
+    useDiceHistoryStore.setState({
+      records: [
+        { id: '1', timestamp: 1, storyId: 'story-1', sectionId: 's1', sectionTitle: 't', diceName: 'n', diceType: 't', result: 'r', resultDetail: 'd', payloadSnapshot: '{}', isArchived: true } as any,
+      ],
+    });
+    const s = useDiceHistoryStore.getState();
+    expect(s.getArchivedRecords()).toHaveLength(1);
+    expect(s.getActiveRecords()).toHaveLength(0);
+    expect(s.records).toHaveLength(1);
+  });
+});
+
 describe('useDiceHistoryStore - clearByStory', () => {
   beforeEach(() => {
     useDiceHistoryStore.setState({ records: [] });

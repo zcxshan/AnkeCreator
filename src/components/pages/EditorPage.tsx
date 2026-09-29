@@ -2798,26 +2798,28 @@ function DiceHistoryPanel({
 
   // 范围 + 搜索过滤 + 分组
   const groups = useMemo<DiceGroup[]>(() => {
-    // 1. 范围过滤：「作品」模式取全部；其他模式仅当前作品
-    let list = allRecords;
+    // 0. 归档记录（已删除作品的）单独分出：统一归入「已删除作品」组，不混入当前分组
+    const archived = allRecords.filter((r) => r.isArchived);
+    // 1. 范围过滤：「作品」模式取全部；其他模式仅当前作品（均不含归档记录）
+    let list = allRecords.filter((r) => !r.isArchived);
     if (groupMode !== 'story') {
       list = storyId ? list.filter((r) => r.storyId === storyId) : [];
     }
     // 2. 搜索过滤（大小写不敏感，用 deferredSearchQuery 防抖）
     const q = deferredSearchQuery.trim().toLowerCase();
+    const matches = (r: DiceHistoryRecord) =>
+      [r.diceName, r.diceType, r.result, r.resultDetail, r.sectionTitle]
+        .join(' ')
+        .toLowerCase()
+        .includes(q);
     if (q) {
-      list = list.filter((r) =>
-        [r.diceName, r.diceType, r.result, r.resultDetail, r.sectionTitle]
-          .join(' ')
-          .toLowerCase()
-          .includes(q),
-      );
+      list = list.filter(matches);
     }
-    // 3. 分组
+    // 3. 分组（当前/未归档记录）
+    const result: DiceGroup[] = [];
     if (groupMode === 'flat') {
-      return [{ key: 'all', title: '全部记录', records: list }];
-    }
-    if (groupMode === 'time') {
+      result.push({ key: 'all', title: '全部记录', records: list });
+    } else if (groupMode === 'time') {
       const now = new Date();
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
       const yesterdayStart = todayStart - 86400000;
@@ -2834,23 +2836,32 @@ function DiceHistoryPanel({
         else if (r.timestamp >= weekStart) buckets.week.records.push(r);
         else buckets.earlier.records.push(r);
       }
-      return (['today', 'yesterday', 'week', 'earlier'] as const)
-        .filter((k) => buckets[k].records.length > 0)
-        .map((k) => ({ key: k, title: buckets[k].title, records: buckets[k].records }));
+      for (const k of ['today', 'yesterday', 'week', 'earlier'] as const) {
+        if (buckets[k].records.length > 0) result.push({ key: k, title: buckets[k].title, records: buckets[k].records });
+      }
+    } else {
+      // story 分组
+      const byStory = new Map<string, DiceHistoryRecord[]>();
+      for (const r of list) {
+        const key = r.storyId || '__unknown__';
+        const arr = byStory.get(key) || [];
+        arr.push(r);
+        byStory.set(key, arr);
+      }
+      for (const [sid, recs] of byStory.entries()) {
+        result.push({
+          key: sid,
+          title: sid === '__unknown__' ? '未知作品' : (storyNameMap.get(sid) || '未知作品'),
+          records: recs,
+        });
+      }
     }
-    // story 分组
-    const byStory = new Map<string, DiceHistoryRecord[]>();
-    for (const r of list) {
-      const key = r.storyId || '__unknown__';
-      const arr = byStory.get(key) || [];
-      arr.push(r);
-      byStory.set(key, arr);
+    // 4. 「已删除作品」归档组（仅当搜索过滤后非空才显示）
+    const archivedFiltered = q ? archived.filter(matches) : archived;
+    if (archivedFiltered.length > 0) {
+      result.push({ key: '__archived__', title: '已删除作品', records: archivedFiltered });
     }
-    return Array.from(byStory.entries()).map(([sid, recs]) => ({
-      key: sid,
-      title: sid === '__unknown__' ? '未知作品' : (storyNameMap.get(sid) || '未知作品'),
-      records: recs,
-    }));
+    return result;
   }, [allRecords, storyId, groupMode, deferredSearchQuery, storyNameMap]);
 
   const toggleCollapse = (key: string) => {
@@ -2938,7 +2949,8 @@ function DiceHistoryPanel({
         <div className="flex-1 overflow-y-auto space-y-3 pr-1">
           {groups.map((g) => {
             const collapsed = collapsedGroups.has(g.key);
-            const showHeader = groupMode !== 'flat';
+            // 「已删除作品」归档组在任何分组模式下都显示标题，与当前作品记录区分
+            const showHeader = groupMode !== 'flat' || g.key === '__archived__';
             return (
               <div key={g.key}>
                 {showHeader && (
