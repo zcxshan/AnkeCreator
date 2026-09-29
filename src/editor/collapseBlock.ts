@@ -99,7 +99,40 @@ export function ensureDragHandle(block: HTMLElement): void {
   head.appendChild(handle);
 }
 
-/** 给编辑器挂载 collapse-block 交互：点击选中、Delete/Backspace 删除、点击 head 展开/折叠 */
+/**
+ * 折叠块状态统一管理（唯一数据源：block.dataset.collapsed）
+ *
+ * 历史问题：initCollapseBlockEvents 用闭包变量 expanded 记录折叠状态，
+ * attachCollapseBlockHandlers.onClick 用 dataset.collapsed —— 两套状态机不同步，
+ * 导致"点击无反应 / 显示错误 / 折叠状态无法序列化保存"。现统一收敛到
+ * dataset.collapsed，body display 与 toggle 文本都据此派生。
+ */
+
+/** 读取折叠块的折叠状态（兼容旧数据：无 data-collapsed 时看 body 的 display） */
+function isCollapseBlockCollapsed(block: HTMLElement): boolean {
+  const v = block.dataset.collapsed;
+  if (v === 'true') return true;
+  if (v === 'false') return false;
+  const body = block.querySelector<HTMLElement>('.collapse-body');
+  return body ? body.style.display === 'none' : false;
+}
+
+/** 设置折叠块展开/折叠，同步 body 显示 + toggle 文本 + data-collapsed */
+function setCollapseCollapsed(block: HTMLElement, collapsed: boolean): void {
+  const body = block.querySelector<HTMLElement>('.collapse-body');
+  const toggle = block.querySelector<HTMLElement>('.collapse-toggle');
+  block.dataset.collapsed = String(collapsed);
+  if (body) body.style.display = collapsed ? 'none' : 'block';
+  if (toggle) toggle.textContent = collapsed ? '+' : '−';
+}
+
+/** 切换折叠块状态并触发编辑器 input（供 head/toggle 点击共用） */
+function toggleCollapseBlock(block: HTMLElement, editor: HTMLElement): void {
+  setCollapseCollapsed(block, !isCollapseBlockCollapsed(block));
+  dispatchInput(editor);
+}
+
+/** 给编辑器挂载 collapse-block 交互：点击 head/toggle 展开/折叠、Delete/Backspace 删除 */
 export function attachCollapseBlockHandlers(
   editor: HTMLElement,
 ): () => void {
@@ -107,28 +140,13 @@ export function attachCollapseBlockHandlers(
   const existing = editor.querySelectorAll<HTMLElement>(COLLAPSE_BLOCK_SELECTOR);
   existing.forEach((el) => ensureDragHandle(el));
 
-  const onMouseDown = (e: MouseEvent) => {
-    const target = e.target as Node | null;
-    if (!target || !editor.contains(target)) return;
-    const targetEl = target as HTMLElement;
-    // 点击到 head/title 或其子元素不做选中，允许正常编辑标题
-    if (targetEl.classList?.contains('collapse-head')) return;
-    if (targetEl.classList?.contains('collapse-title')) return;
-    if (targetEl.closest?.('.collapse-head')) return;  // 含 toggle / drag-handle
-    const block = findCollapseBlockAncestor(target, editor);
-    if (block) {
-      // body 内的文本可正常选中，不再 selectCollapseBlock 干扰
-      clearCollapseSelection(editor);
-      return;
-    }
-    clearCollapseSelection(editor);
-  };
-
   /**
-   * 点击 .collapse-head 切换 body 展开/折叠。
-   * - 默认折叠（data-collapsed="true" + body display:none），点 + 展开
-   * - 再次点击 − 折叠回去
-   * - 触发展开/折叠后调 dispatchInput 让外部 onChangeContent 收到新 HTML
+   * 点击 .collapse-head / .collapse-toggle 切换 body 展开/折叠。
+   * - 折叠状态统一以 dataset.collapsed 为准（setCollapseCollapsed 同步 body display
+   *   与 toggle 文本），切换后 dispatchInput 让外部 onChangeContent 保存新 HTML。
+   * - 点击 .collapse-title 不折叠：标题是 .collapse-head 的子元素，直接点击应进入
+   *   编辑（否则框选/编辑标题中途块突然折叠 → 框选断裂、显示错误）。
+   * - 拖动把手不触发展开/折叠。
    */
   const onClick = (e: MouseEvent) => {
     const target = e.target as Node | null;
@@ -138,24 +156,13 @@ export function attachCollapseBlockHandlers(
     if (targetEl.classList?.contains('collapse-drag-handle') || targetEl.closest?.('.collapse-drag-handle')) {
       return;
     }
+    // 点击标题只编辑,不折叠
+    if (targetEl.closest?.('.collapse-title')) return;
     const head = targetEl.closest?.('.collapse-head') as HTMLElement | null;
     if (!head) return;
     const block = head.closest?.(COLLAPSE_BLOCK_SELECTOR) as HTMLElement | null;
     if (!block) return;
-    const body = block.querySelector<HTMLElement>('.collapse-body');
-    const toggle = block.querySelector<HTMLElement>('.collapse-toggle');
-    const isCollapsed = block.dataset.collapsed === 'true';
-    if (isCollapsed) {
-      if (body) body.style.display = 'block';
-      if (toggle) toggle.textContent = '−';
-      block.dataset.collapsed = 'false';
-    } else {
-      if (body) body.style.display = 'none';
-      if (toggle) toggle.textContent = '+';
-      block.dataset.collapsed = 'true';
-    }
-    // 触发编辑器更新事件（让外部 onChangeContent 拿到新 HTML，保存/历史记录同步）
-    dispatchInput(editor);
+    toggleCollapseBlock(block, editor);
     e.preventDefault();
   };
 
@@ -325,11 +332,9 @@ export function attachCollapseBlockHandlers(
     }
   };
 
-  editor.addEventListener('mousedown', onMouseDown, true);
   editor.addEventListener('click', onClick, true);
   editor.addEventListener('keydown', onKeyDown, true);
   return () => {
-    editor.removeEventListener('mousedown', onMouseDown, true);
     editor.removeEventListener('click', onClick, true);
     editor.removeEventListener('keydown', onKeyDown, true);
   };
@@ -656,22 +661,19 @@ export function insertCollapseBlock(editor: HTMLElement, title: string): void {
   pushAtomicHistory(editor.innerHTML);
 }
 
-/** 为折叠块初始化展开/折叠事件 */
+/**
+ * 为折叠块初始化折叠交互。
+ * 注意：展开/折叠统一由 attachCollapseBlockHandlers.onClick 处理（唯一状态源
+ * dataset.collapsed）。这里只做 toggle 的 mousedown 拦截（避免点击时抢走光标/焦点）
+ * 与标题编辑时的 data-title 同步，不再维护第二套闭包状态机（旧实现 expanded
+ * 闭包与 dataset.collapsed 不同步 → 显示错误、折叠状态无法保存）。
+ */
 function initCollapseBlockEvents(block: HTMLElement, title: string): void {
   block.dataset.collapseInit = '1';
   const toggle = block.querySelector<HTMLElement>('.collapse-toggle');
-  const body = block.querySelector<HTMLElement>('.collapse-body');
   const titleEl = block.querySelector<HTMLElement>('.collapse-title');
-  if (!toggle || !body) return;
+  if (!toggle) return;
 
-  let expanded = true;
-  toggle.addEventListener('click', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    expanded = !expanded;
-    body.style.display = expanded ? 'block' : 'none';
-    toggle.textContent = expanded ? '−' : '+';
-  });
   toggle.addEventListener('mousedown', (e) => {
     e.preventDefault();
   });
