@@ -758,9 +758,11 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
         tick('导入骰子记录...');
         const newRecords = (data as any).dice_history.map((r: any) => ({
           ...r,
-          id: '',
+          // 保留原 id：同一作品重复导入时可被 addRecords 按 id 去重
+          id: r.id || '',
           storyId: newStory.id,
-          sectionId: (r.sectionId && sectionIdMap[r.sectionId]) || '',
+          // sectionId 映射失败时保留原值而非清空,避免骰子记录丢失
+          sectionId: (r.sectionId && sectionIdMap[r.sectionId]) || r.sectionId || '',
         }));
         useDiceHistoryStore.getState().addRecords(newRecords);
       }

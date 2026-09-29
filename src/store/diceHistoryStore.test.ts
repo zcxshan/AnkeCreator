@@ -214,6 +214,17 @@ describe('useDiceHistoryStore - addRecords (批量导入)', () => {
     expect(useDiceHistoryStore.getState().records).toHaveLength(1);
     expect(useDiceHistoryStore.getState().records[0].id).toBe('old-1');
   });
+
+  it('addRecords 重复 id 不堆积（同一作品重复导入去重）', () => {
+    const base = { timestamp: 200, storyId: 'story-1', sectionId: 's1', sectionTitle: 't', diceName: 'n', diceType: 't', result: 'r', resultDetail: 'd', payloadSnapshot: '{}' };
+    useDiceHistoryStore.getState().addRecords([{ id: 'A', ...base }]);
+    useDiceHistoryStore.getState().addRecords([{ id: 'A', ...base }]);
+    useDiceHistoryStore.getState().addRecords([{ id: 'B', ...base }]);
+    const records = useDiceHistoryStore.getState().records;
+    expect(records.filter((r) => r.id === 'A')).toHaveLength(1);
+    expect(records.filter((r) => r.id === 'B')).toHaveLength(1);
+    expect(records).toHaveLength(2);
+  });
 });
 
 describe('buildDiceHistoryRecord - 含 storyId', () => {

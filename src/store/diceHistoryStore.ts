@@ -48,7 +48,12 @@ export const useDiceHistoryStore = create<DiceHistoryState>()(
       },
       addRecords: (incoming) => {
         if (!Array.isArray(incoming) || incoming.length === 0) return;
-        const normalized = incoming.map((r) => ({ ...r, id: r.id || genId() }));
+        // 按 id 去重：同一作品重复导入（保留原 id）时不堆积重复记录
+        const existingIds = new Set(get().records.map((r) => r.id));
+        const normalized = incoming
+          .map((r) => ({ ...r, id: r.id || genId() }))
+          .filter((r) => !existingIds.has(r.id));
+        if (normalized.length === 0) return;
         const next = [...normalized, ...get().records].slice(0, 200);
         set({ records: next });
       },
