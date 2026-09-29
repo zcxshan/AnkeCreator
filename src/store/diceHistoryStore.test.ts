@@ -62,6 +62,52 @@ describe('useDiceHistoryStore - 按 storyId 分组', () => {
   });
 });
 
+describe('useDiceHistoryStore - archiveByStory (软删除归档)', () => {
+  beforeEach(() => {
+    useDiceHistoryStore.setState({ records: [] });
+  });
+
+  it('archiveByStory 将某作品记录标记归档而非清除', () => {
+    useDiceHistoryStore.setState({
+      records: [
+        { id: '1', timestamp: 1, storyId: 'story-1', sectionId: 's1', sectionTitle: 't', diceName: 'n', diceType: 't', result: 'r', resultDetail: 'd', payloadSnapshot: '{}' } as any,
+        { id: '2', timestamp: 2, storyId: 'story-2', sectionId: 's1', sectionTitle: 't', diceName: 'n', diceType: 't', result: 'r', resultDetail: 'd', payloadSnapshot: '{}' } as any,
+        { id: '3', timestamp: 3, storyId: 'story-1', sectionId: 's1', sectionTitle: 't', diceName: 'n', diceType: 't', result: 'r', resultDetail: 'd', payloadSnapshot: '{}' } as any,
+      ],
+    });
+    useDiceHistoryStore.getState().archiveByStory('story-1');
+    const records = useDiceHistoryStore.getState().records;
+    // 记录仍保留
+    expect(records).toHaveLength(3);
+    // story-1 的记录全部标记归档
+    expect(records.filter((r) => r.storyId === 'story-1').every((r) => r.isArchived)).toBe(true);
+    // 其他 story 的记录不受影响
+    expect(records.filter((r) => r.storyId === 'story-2').every((r) => !r.isArchived)).toBe(true);
+  });
+
+  it('archiveByStory 不存在的 story 时记录不变', () => {
+    useDiceHistoryStore.setState({
+      records: [
+        { id: '1', timestamp: 1, storyId: 'story-1', sectionId: 's1', sectionTitle: 't', diceName: 'n', diceType: 't', result: 'r', resultDetail: 'd', payloadSnapshot: '{}' } as any,
+      ],
+    });
+    useDiceHistoryStore.getState().archiveByStory('non-existent');
+    const records = useDiceHistoryStore.getState().records;
+    expect(records).toHaveLength(1);
+    expect(records[0].isArchived).toBeUndefined();
+  });
+
+  it('clearByStory 仍物理清除（供主动清归档）', () => {
+    useDiceHistoryStore.setState({
+      records: [
+        { id: '1', timestamp: 1, storyId: 'story-1', sectionId: 's1', sectionTitle: 't', diceName: 'n', diceType: 't', result: 'r', resultDetail: 'd', payloadSnapshot: '{}' } as any,
+      ],
+    });
+    useDiceHistoryStore.getState().clearByStory('story-1');
+    expect(useDiceHistoryStore.getState().records).toHaveLength(0);
+  });
+});
+
 describe('useDiceHistoryStore - clearByStory', () => {
   beforeEach(() => {
     useDiceHistoryStore.setState({ records: [] });

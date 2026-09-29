@@ -297,9 +297,9 @@ export const useStoryStore = create<StoryState>((set, get) => ({
 
   permanentlyDeleteStory: async (id) => {
     await db.permanentlyDeleteStory(id);
-    // 级联清理骰子历史（#1）：diceHistory 存在 zustand localStorage，db 层不覆盖
-    const { clearByStory } = await import('./diceHistoryStore');
-    clearByStory(id);
+    // 软删除归档（#1）：作品永久删除后骰子记录保留为归档，供"已删除作品"分组查看
+    const { archiveByStory } = await import('./diceHistoryStore');
+    archiveByStory(id);
     set((state) => ({
       trashedStories: state.trashedStories.filter((s) => s.id !== id),
     }));

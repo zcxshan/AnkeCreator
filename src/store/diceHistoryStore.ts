@@ -12,6 +12,8 @@ export interface DiceHistoryRecord {
   sectionId: string;
   sectionTitle: string;
   payloadSnapshot: string;   // 掷骰后完整 data-payload JSON 字符串，供定位卡片
+  /** 作品被永久删除后标记为归档，记录保留以便查看 */
+  isArchived?: boolean;
 }
 
 interface DiceHistoryState {
@@ -23,6 +25,8 @@ interface DiceHistoryState {
   removeRecord: (id: string) => void;
   /** 删除指定 story 的所有记录（删除作品时级联清理） */
   clearByStory: (storyId: string) => void;
+  /** 软删除归档：把指定 story 的所有记录标记 isArchived（删除作品时保留记录） */
+  archiveByStory: (storyId: string) => void;
   /** 按 storyId 过滤记录；找不到或 storyId 为空时返回空数组 */
   getRecordsByStory: (storyId: string) => DiceHistoryRecord[];
 }
@@ -53,6 +57,12 @@ export const useDiceHistoryStore = create<DiceHistoryState>()(
         set({ records: get().records.filter((r) => r.id !== id) }),
       clearByStory: (storyId) =>
         set({ records: get().records.filter((r) => r.storyId !== storyId) }),
+      archiveByStory: (storyId) =>
+        set({
+          records: get().records.map((r) =>
+            r.storyId === storyId ? { ...r, isArchived: true } : r,
+          ),
+        }),
       getRecordsByStory: (storyId) => {
         if (!storyId) return [];
         return get().records.filter((r) => r.storyId === storyId);
