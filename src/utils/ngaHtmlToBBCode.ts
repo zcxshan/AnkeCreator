@@ -19,6 +19,15 @@ import {
   NGA_DEFAULT_FONT_SIZE,
 } from '../types';
 
+/**
+ * 骰子隔离哨兵：包裹 processDiceCard 输出的整段 BBCode。
+ * 清洗阶段（collapseBbCode）的跨行合并会把相邻独立块吞到一起
+ * （如 [b]正文\nROLL[/b] 骰子错位、相邻两个骰子 quote 合并成一个），
+ * 哨兵字符不属于 \s 也不是 [tag]，使跨块合并正则无法跨越骰子块。
+ * 在 htmlToNGABBCode 末尾剥离。
+ */
+const DICE_SENTINEL = '\u0001DICE\u0001';
+
 /** 公开入口：把 HTML 字符串转成 NGA BBCode */
 export function htmlToNGABBCode(html: string | null | undefined): string {
   if (!html) return '';
@@ -36,6 +45,8 @@ export function htmlToNGABBCode(html: string | null | undefined): string {
     let result = collapseBbCode(out + '\n');
     // 防御性兜底：工具栏不支持的 bbcode 标签当普通文本处理（转义 [ ] 为字面字符）
     result = escapeUnsupportedBbCode(result);
+    // 剥离骰子隔离哨兵（见 processDiceCard）
+    result = result.split(DICE_SENTINEL).join('');
     // dev 模式：输出原始 HTML 与转换结果，方便手动验证 NGA 导出正确性
     if (typeof import.meta !== 'undefined' && (import.meta as any).env?.DEV) {
       console.groupCollapsed('[NGA export] dev log');
@@ -226,6 +237,9 @@ function collapseBbCode(input: string): string {
   // 先把所有行拼回再合并
   let joined = lines.join('\n');
   // 跨行合并（无属性 + 有属性），多次迭代直到稳定
+  // 说明：跨块合并会把相邻独立块吞到一起（如 [b]正文\nROLL[/b] 骰子错位、
+  // 相邻两个骰子 quote 合并），因此骰子输出行在进入本清洗前已用
+  // DICE_SENTINEL 隔离（见 htmlToNGABBCode/processDiceCard），不会被误合并。
   let prev = '';
   let guard = 0;
   while (prev !== joined && guard++ < 20) {
@@ -860,7 +874,8 @@ function processDiceCard(el: HTMLElement): string[] {
     const payload = JSON.parse(payloadStr);
     const result = renderDiceBlock(payload, { mark_hit: true });
     if (!result) return [];
-    return [result];
+    // 用哨兵包裹骰子输出,防止清洗阶段的跨行合并把它与相邻正文块/骰子块误合并
+    return [`${DICE_SENTINEL}${result}${DICE_SENTINEL}`];
   } catch {
     return [];
   }
