@@ -59,4 +59,18 @@ describe('ngaHtmlToBBCode - 折叠块内含骰子/正文不丢失（roundtrip）
     expect(bb).toContain('选项甲');
     expect(bb).toContain('选项丁');
   });
+
+  it('骰子卡与正文块按 DOM 顺序输出,不错位', () => {
+    const html =
+      `<p>开头</p>` +
+      `<div data-type="dice-card" data-payload="{&quot;config&quot;:{&quot;kind&quot;:&quot;numeric&quot;,&quot;id&quot;:&quot;d1&quot;,&quot;count&quot;:1,&quot;numericFaces&quot;:6,&quot;modifier&quot;:0},&quot;lastResult&quot;:null}"></div>` +
+      `<p>结尾</p>`;
+    const bb = htmlToNGABBCode(html);
+    const idxStart = bb.indexOf('开头');
+    const idxDice = bb.indexOf('ROLL 1d6');
+    const idxEnd = bb.indexOf('结尾');
+    expect(idxStart).toBeGreaterThanOrEqual(0);
+    expect(idxDice).toBeGreaterThan(idxStart);
+    expect(idxEnd).toBeGreaterThan(idxDice);
+  });
 });
