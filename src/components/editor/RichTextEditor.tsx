@@ -24,6 +24,7 @@ import {
   insertStyledParagraphAfter,
   splitBlockAtCursor,
   insertQuoteBlock,
+  isWhitespaceOnly,
 } from '../../editor';
 import { useEditorStore } from '../../store/editorStore';
 import { useEditorHistoryStore } from '../../store/editorHistoryStore';
@@ -496,6 +497,9 @@ function RichTextEditorInner({
     const onBeforeInputNative = (e: InputEvent) => {
       const SUPPORTED_TYPES = new Set(['insertText', 'insertReplacementText']);
       if (!SUPPORTED_TYPES.has(e.inputType) || !e.data) return;
+      // 空白输入（空格/连续空格/制表符）永远放行,不接管、不 preventDefault（#空格 bug）
+      // 样式锁定状态下接管逻辑在原子块边缘等位置插入失败会把空格吞掉
+      if (isWhitespaceOnly(e.data)) return;
       const store = useEditorStore.getState();
       const active = store.activeStyles;
       // 仅在样式锁定状态下才接管输入（用户主动激活样式的意图）（#12）

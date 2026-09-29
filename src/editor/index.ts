@@ -10,3 +10,4 @@ export * from './inlineStyle';
 export * from './imageBlock';
 export * from './diceCard';
 export * from './collapseBlock';
+export * from './inputPolicy';
