@@ -36,6 +36,9 @@ interface EditorState {
   // 新一代富文本：JSON 字符串（TipTap doc JSON）
   sectionContent: string | null;
   sectionLoading: boolean;
+  // 正在加载的目标 sectionId：loadSection 期间不清空 sectionId，
+  // 仅用 loadingSectionId 标记"目标节"，避免防抖保存失效（race condition 修复）
+  loadingSectionId: string | null;
 
   // 活动样式：选区/光标位置上的样式 + 用户最近一次切换，下一次输入会延续
   activeStyles: ActiveEditorStyles;
@@ -138,6 +141,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   sectionId: null,
   sectionContent: null,
   sectionLoading: false,
+  loadingSectionId: null,
   activeStyles: {},
   cursorStyles: {},
   selectionStats: null,
@@ -153,14 +157,34 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       await db.setSectionContent(cur.sectionId, cur.sectionContent);
     }
     if (!sectionId) {
-      set({ sectionId: null, sectionContent: null, sectionLoading: false, activeStyles: {}, activeStylesLocked: false, selectionStats: null });
+      set({
+        sectionId: null,
+        sectionContent: null,
+        sectionLoading: false,
+        loadingSectionId: null,
+        activeStyles: {},
+        activeStylesLocked: false,
+        selectionStats: null,
+      });
       return;
     }
-    if (get().sectionId === sectionId) return;
-    // 保留旧 sectionContent 供 UI 过渡显示，避免字数跳变为 0
-    set({ sectionId: null, sectionLoading: true });
+    if (cur.sectionId === sectionId) return;
+    // 关键修复：不清空 sectionId，只用 loadingSectionId 标记加载中
+    // 这样 setSectionContent 的 if(sectionId) 检查仍能触发防抖保存
+    set({ loadingSectionId: sectionId, sectionLoading: true });
     const content = await db.getSectionContent(sectionId);
-    set({ sectionId, sectionContent: content, sectionLoading: false, activeStyles: {}, activeStylesLocked: false, selectionStats: null });
+    // 仅当仍是当前请求的 section 时才更新状态（防止快速切换覆盖）
+    if (get().loadingSectionId === sectionId) {
+      set({
+        sectionId,
+        sectionContent: content,
+        sectionLoading: false,
+        loadingSectionId: null,
+        activeStyles: {},
+        activeStylesLocked: false,
+        selectionStats: null,
+      });
+    }
   },
 
   loadSectionContent: async (sectionId) => {

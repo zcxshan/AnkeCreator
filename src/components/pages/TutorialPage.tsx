@@ -199,19 +199,6 @@ const TUTORIAL_TOPICS: TutorialTopic[] = [
     ],
   },
   {
-    id: 'section-parser',
-    icon: '📋',
-    title: '文本解析小节结构',
-    summary: '从纯文本快速生成章节小节（用于 NGA / 骨碌碌收集）',
-    steps: [
-      { title: '1. 入口位置', description: '在 NGA / 骨碌碌收集页打开「高级格式设置」面板，每个章节卡片标题旁有「📋 解析文本」按钮（与「+ 添加小节」并排）。点击后弹出文本输入对话框。' },
-      { title: '2. 输入格式', description: '每行一个区间，支持以下写法：<br>• 单独楼层：<code>10</code> 或 <code>第10楼</code><br>• 区间：<code>10-20</code>、<code>10到20</code>、<code>第10到第20楼</code><br>• 多个区间一行：<code>1-5, 8, 12-15</code>（生成多个 section）<br>• 起始省略：<code>-20</code> 自动从上一节结束楼层 +1 开始' },
-      { title: '3. 解析与覆盖', description: '点击「解析」后，解析器会按行拆分、容错（自动补全中英文标点差异、忽略空行、跳过注释 <code>#</code> 开头），生成对应数量的 section。<b>注意：解析会替换当前章节下的所有现有小节</b>，解析前可手动备份（导出当前章节）。' },
-      { title: '4. 错误提示与重试', description: '若某行无法解析（如楼层数 ≤ 0、起始 > 结束），会显示在错误提示框（红色文字）。修正后再次点击「解析」即可。' },
-      { title: '5. 适用场景', description: '从 NGA / 骨碌碌收集的整段帖子快速按楼层拆分到不同小节；导入预制的章节结构模板；批量重排已有小节。' },
-    ],
-  },
-  {
     id: 'resource-library-advanced',
     icon: '🖂️',
     title: '资源库子目录与批量上传',

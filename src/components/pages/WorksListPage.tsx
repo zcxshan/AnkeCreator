@@ -776,7 +776,8 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
 
       tick('完成，刷新列表...');
       await yieldUI();
-      await useStoryStore.getState().loadStories();
+      // 仅刷新列表,不自动选首作(避免误触 loadSection 链路造成并发写入)
+      await useStoryStore.getState().loadStoriesList();
       setImportProgress(null);
       showToast(`导入成功：${customTitle}`, 'success');
     } catch (err) {

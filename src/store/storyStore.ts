@@ -35,6 +35,8 @@ interface StoryState {
   expandedChapterIds: Record<string, boolean>;
 
   loadStories: () => Promise<void>;
+  /** 仅刷新 stories 列表,不自动选首作(用于导入后等场景,避免误触 loadSection 链路) */
+  loadStoriesList: () => Promise<void>;
   loadTrashedStories: () => Promise<void>;
   createStory: (title: string, description?: string, category?: string) => Promise<string>;
   renameStory: (id: string, title: string) => Promise<void>;
@@ -148,6 +150,13 @@ export const useStoryStore = create<StoryState>((set, get) => ({
       set({ activeStoryId: first.id });
       await loadStoryData(set, first.id);
     }
+  },
+
+  loadStoriesList: async () => {
+    // 仅刷新 stories 列表,不自动选首作
+    // 用于导入完成等场景,避免误触 loadSection 链路造成并发写入
+    const stories = await db.listStories();
+    set({ stories });
   },
 
   loadTrashedStories: async () => {
@@ -563,8 +572,14 @@ export const useStoryStore = create<StoryState>((set, get) => ({
 
   createSection: async (chapterId, title) => {
     const sec = await db.createSection({ chapter_id: chapterId, title });
+    // 强制从 DB 重拉该章 sections,确保 store 与文件一致
+    // 避免 v3.5.1 之前可能存在的 order_index 冲突数据造成渲染错位
+    const refreshed = await db.listSectionMetadata(chapterId);
     set((state) => ({
-      sections: [...state.sections, sec].sort((a, b) => a.order_index - b.order_index),
+      sections: [
+        ...state.sections.filter((s) => s.chapter_id !== chapterId),
+        ...refreshed,
+      ],
       activeChapterId: chapterId,
       activeSectionId: sec.id,
     }));

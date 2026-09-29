@@ -152,7 +152,13 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
       byCh[ch.id] = [];
     }
     [...sections]
-      .sort((a, b) => a.order_index - b.order_index)
+      .sort((a, b) => {
+        const ao = a.order_index || 0;
+        const bo = b.order_index || 0;
+        if (ao !== bo) return ao - bo;
+        // secondary key 用 id 兜底,保证同 order_index 时排序稳定
+        return a.id < b.id ? -1 : 1;
+      })
       .forEach((s) => {
         if (!byCh[s.chapter_id]) byCh[s.chapter_id] = [];
         byCh[s.chapter_id].push(s);
@@ -180,8 +186,11 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
 
   // 节行数据（虚拟列表用，把所有闭包变量打包传给 SectionRowView）
   // 用 useMemo 避免每次重渲染都创建新对象导致 FixedSizeList 全部 re-render
-  const sectionRowData = useMemo(() => ({
+  // 注意：chapterSections 这里给空数组占位，真正的值在 renderChapterGroup 内按章覆盖
+  // （SectionRowView 的拖拽逻辑用 sections 全局数组 find/filter，不需要 chapterSections）
+  const sectionRowData = useMemo<SectionRowData>(() => ({
     sections,
+    chapterSections: [],
     sectionStats,
     activeSectionId,
     dragSectionId,
@@ -210,6 +219,14 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
     const isExpanded = expandedChapterIds[ch.id];
     const chapterWordCount = ch.word_count || 0;
     const isChapterActive = activeChapterId === ch.id;
+
+    // 章内 itemData：把 chapterSecs 注入，让虚拟列表按 index 取章内节
+    // 修复跨章混排 bug：之前 VirtualSectionRow 用全局 sections[index]，
+    // 当章内节数 > VIRTUALIZE_THRESHOLD 时会取到其他章的节
+    const chapterRowData: SectionRowData = {
+      ...sectionRowData,
+      chapterSections: chapterSecs,
+    };
 
     return (
       <div key={ch.id} className="mb-0.5">
@@ -305,7 +322,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
             <span className="flex-1 font-medium truncate">{ch.title}</span>
           )}
           <span className="shrink-0 text-[10px]" style={{ color: 'var(--text-secondary)' }}>
-            {chapterWordCount > 0 ? `${chapterWordCount}字` : ''}
+            {`${chapterWordCount}字`}
           </span>
           <div
             className={[
@@ -376,7 +393,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
                 height={virtualHeight}
                 itemCount={chapterSecs.length}
                 itemSize={SECTION_ROW_HEIGHT}
-                itemData={sectionRowData}
+                itemData={chapterRowData}
                 width="100%"
                 overscanCount={10}
               >
@@ -543,7 +560,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
                     <span className="flex-1 font-semibold truncate">{v.title}</span>
                   )}
                   <span className="shrink-0 text-[10px]" style={{ color: 'var(--text-secondary)' }}>
-                    {vWordCount > 0 ? `${vWordCount}字` : ''}
+                    {`${vWordCount}字`}
                   </span>
                   <div
                     className={[
@@ -819,6 +836,9 @@ function ContextMenuItem({
 
 interface SectionRowData {
   sections: SectionMeta[];
+  // 章内过滤+排序后的节，供虚拟列表按 index 取（修复跨章混排 bug）
+  // sections 仍是全局数组，供 SectionRowView 的拖拽逻辑（find/filter）使用
+  chapterSections: SectionMeta[];
   sectionStats: Record<string, { words: number; dice: number }>;
   activeSectionId: string | null;
   dragSectionId: string | null;
@@ -942,7 +962,7 @@ const SectionRowView = memo(function SectionRowView({
         <span className="shrink-0 text-[9px] px-1 rounded" style={{ color: 'var(--accent)', background: 'var(--accent-soft)' }}>🎲{stats.dice}</span>
       )}
       <span className="shrink-0 text-[10px]" style={{ color: 'var(--text-secondary)' }}>
-        {stats.words > 0 ? `${stats.words}` : ''}
+        {`${stats.words}字`}
       </span>
     </div>
   );
@@ -963,14 +983,15 @@ const SectionRowView = memo(function SectionRowView({
   return true; // 跳过 re-render
 });
 
-// FixedSizeList 的 row 组件（接收 style + data，从 data.sections[index] 取节）
+// FixedSizeList 的 row 组件（接收 style + data，从 data.chapterSections[index] 取节）
+// 关键修复：使用章内 sections（chapterSections），不再使用全局 sections[index]
+// 否则当章内节数 > VIRTUALIZE_THRESHOLD 时会取到其他章的节，造成跨章混排
 const VirtualSectionRow = memo(function VirtualSectionRow({
   index,
   style,
   data,
-}: ListChildComponentProps<SectionRowData & { sections: SectionMeta[] }>) {
-  // 兼容调用方可能传 sections 在 data 顶层
-  const sec = data.sections[index];
+}: ListChildComponentProps<SectionRowData>) {
+  const sec = data.chapterSections[index];
   if (!sec) return null;
   return <SectionRowView sec={sec} data={data} style={style} />;
 });

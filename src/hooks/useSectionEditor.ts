@@ -31,6 +31,8 @@ export function useSectionEditor(activeSectionId: string | null): UseSectionEdit
 
   // ---- 1) 节切换时：保存旧节 + 加载新节 ----
   // 监听 activeSectionId 变化, 先 flush 防抖保存, 再调用 loadSection 完成旧→新切换
+  // 注意:loadSection 内部已 await db.setSectionContent 保存旧节,
+  //       这里不再重复 fire-and-forget 写入,避免并发 race 导致 lost-update
   useEffect(() => {
     // 同一个节无需切换
     if (activeSectionId === lastSectionIdRef.current) return;
@@ -38,13 +40,7 @@ export function useSectionEditor(activeSectionId: string | null): UseSectionEdit
     // 切换前：主动把挂起的防抖保存 flush 到数据库
     flushDebouncedSave();
 
-    // 再把当前节的内存内容写回数据库（兜底）
-    const cur = useEditorStore.getState();
-    if (cur.sectionId && cur.sectionContent != null) {
-      db.setSectionContent(cur.sectionId, cur.sectionContent).catch(() => {});
-    }
-
-    // 加载新节到 editorStore
+    // 加载新节到 editorStore(loadSection 内部会 await setSectionContent 保存旧节)
     loadSection(activeSectionId);
     lastSectionIdRef.current = activeSectionId;
   }, [activeSectionId, loadSection]);

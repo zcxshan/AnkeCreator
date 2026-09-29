@@ -33,7 +33,7 @@ import {
   getInlineStylesFromActive,
   insertStyledParagraphAfter,
   splitBlockAtCursor,
-} from './contenteditableUtils';
+} from '../../editor';
 import { useEditorHistoryStore } from '../../store/editorHistoryStore';
 
 describe('attachCollapseBlockHandlers - click toggle 展开/折叠', () => {

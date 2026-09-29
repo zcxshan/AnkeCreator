@@ -219,7 +219,14 @@ function parseExpression(tokens: Token[]): ExprNode {
 
     if (tok.type === 'dice') {
       consume();
-      return { type: 'dice', count: tok.count, faces: tok.faces };
+      return {
+        type: 'dice',
+        count: tok.count,
+        faces: tok.faces,
+        mode: tok.mode,
+        keep: tok.keep,
+        threshold: tok.threshold,
+      };
     }
 
     if (tok.type === 'lparen') {

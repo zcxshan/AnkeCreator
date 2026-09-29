@@ -24,7 +24,7 @@ import {
   insertStyledParagraphAfter,
   splitBlockAtCursor,
   insertQuoteBlock,
-} from './contenteditableUtils';
+} from '../../editor';
 import { useEditorStore } from '../../store/editorStore';
 import { useEditorHistoryStore } from '../../store/editorHistoryStore';
 import { useToastStore } from '../../store/toastStore';
@@ -1796,6 +1796,8 @@ function RichTextEditorInner({
           }}
           contentEditable={editable}
           suppressContentEditableWarning
+          // 性能优化：>50k 字符时关闭 spellcheck,避免大文档输入时阻塞主线程
+          spellCheck={editable && (content?.length ?? 0) <= 50000}
           onInput={handleInput}
           onCompositionEnd={handleCompositionEnd}
           onKeyDown={handleKeyDown}

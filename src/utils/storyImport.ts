@@ -145,6 +145,15 @@ export async function ensureDefaultVolumeAndChapter(
   let fallbackChapterId: string | null = null;
 
   if (chapters.length > 0) {
+    // 顶层 data.sections(老格式)与 chapters[].sections(新格式)并存时,
+    // 以嵌套式为准,避免跨章数据污染
+    // 实测某些导出文件(例如 23MB 的某音乐迷途之星)同时存在两种格式且内容完全一致
+    if (Array.isArray(data?.sections) && data.sections.length > 0) {
+      console.warn(
+        `[storyImport] 检测到顶层 data.sections(${data.sections.length} 条)与 chapters[].sections 并存,` +
+        `已忽略顶层以 chapters[].sections 为准。请检查导出端是否需要清理此冗余字段。`,
+      );
+    }
     if (bulkCreateChapters && bulkCreateSections) {
       // 收集所有 chapter rows
       const chRows = chapters.map((ch) => ({

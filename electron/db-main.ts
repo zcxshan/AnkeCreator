@@ -54,6 +54,27 @@ function nowISO(): string {
   return new Date().toISOString();
 }
 
+function nextOrderIndex(rows: { order_index?: number | null }[]): number {
+  if (rows.length === 0) return 0;
+  return Math.max(...rows.map((r) => Number(r.order_index) || 0)) + 1;
+}
+
+// —— per-story 写入锁(mutex)—— //
+// 同一 storyId 的所有写操作排队执行,避免并发 read-modify-write race
+// 原理:每个 storyId 维护一个 Promise 链,新的写操作通过 withStoryWriteLock 排到链尾
+// 注意:此锁为非重入锁,锁内不要再次调用同 storyId 的锁函数(会死锁)
+//       内部辅助函数(如 _recomputeStoryStatsUnlocked)不获取锁,供已持锁的函数调用
+const storyWriteLocks = new Map<string, Promise<void>>();
+
+function withStoryWriteLock<T>(storyId: string, fn: () => T): Promise<T> {
+  const prev = storyWriteLocks.get(storyId) || Promise.resolve();
+  // 无论前一个 Promise 成功或失败,都执行当前 fn
+  const next = prev.then(() => fn(), () => fn());
+  // 把锁标记为完成(无论 fn 成功或失败),释放给下一个等待者
+  storyWriteLocks.set(storyId, next.then(() => undefined, () => undefined));
+  return next as Promise<T>;
+}
+
 function parseJSON<T>(raw: any, fallback: T): T {
   if (raw == null) return fallback;
   try {
@@ -651,7 +672,8 @@ function deleteStoryStats(storyId: string): void {
   }
 }
 
-function recomputeStoryStats(storyId: string): void {
+/** 内部版本:不获取写锁(供已持锁的函数调用) */
+function _recomputeStoryStatsUnlocked(storyId: string): void {
   const bundle = readStoryFile(storyId);
   if (!bundle) return;
   const wordCount = bundle.sections.reduce((sum, s) => sum + (s.word_count || 0), 0);
@@ -665,6 +687,11 @@ function recomputeStoryStats(storyId: string): void {
   writeStoryFile(storyId, bundle);
   // 更新全局缓存
   writeStoryStats(storyId, newStats);
+}
+
+/** 公共版本:获取写锁(供外部调用) */
+export function recomputeStoryStats(storyId: string): Promise<void> {
+  return withStoryWriteLock(storyId, () => _recomputeStoryStatsUnlocked(storyId));
 }
 
 /** 重新计算指定章节的字数（所有节的 word_count 之和），并更新 bundle.chapters */
@@ -702,8 +729,9 @@ function recomputeChapterAndVolumeWordCount(bundle: StoryBundle, chapterId: stri
 /**
  * 重新计算指定 story 下所有 sections 的 word_count，并反向回填章/卷 word_count
  * 用于导入流程完成后校准字数缓存，确保进度条走完时所有字数都已正确落盘
+ * 内部版本:不获取写锁(供已持锁的函数调用)
  */
-export function recomputeStoryWordCounts(storyId: string): void {
+function _recomputeStoryWordCountsUnlocked(storyId: string): void {
   const bundle = readStoryFile(storyId);
   if (!bundle) return;
   // 对所有 sections 重新计算 word_count
@@ -721,7 +749,12 @@ export function recomputeStoryWordCounts(storyId: string): void {
   const now = nowISO();
   bundle.story.updated_at = now;
   writeStoryFile(storyId, bundle);
-  recomputeStoryStats(storyId);
+  _recomputeStoryStatsUnlocked(storyId);
+}
+
+/** 公共版本:获取写锁(供外部调用) */
+export function recomputeStoryWordCounts(storyId: string): Promise<void> {
+  return withStoryWriteLock(storyId, () => _recomputeStoryWordCountsUnlocked(storyId));
 }
 
 // —— Story —— //
@@ -892,7 +925,7 @@ export function createWorldSetting(data: Omit<WorldSettingRow, 'id' | 'created_a
   const bundle = readStoryFile(data.story_id);
   if (!bundle) throw new Error('story not found: ' + data.story_id);
   const existing = bundle.world_settings;
-  const order = typeof data.order_index === 'number' ? data.order_index : existing.length;
+  const order = typeof data.order_index === 'number' ? data.order_index : nextOrderIndex(existing);
   const now = nowISO();
   const row: WorldSettingRow = {
     id: uuid4(),
@@ -976,7 +1009,7 @@ export function createCharacter(data: {
   const bundle = readStoryFile(data.story_id);
   if (!bundle) throw new Error('story not found: ' + data.story_id);
   const existing = bundle.characters;
-  const order = typeof data.order_index === 'number' ? data.order_index : existing.length;
+  const order = typeof data.order_index === 'number' ? data.order_index : nextOrderIndex(existing);
   const now = nowISO();
   const row: CharacterRow = {
     id: uuid4(),
@@ -1209,7 +1242,7 @@ export function createCharacterRelation(data: { story_id: string; source_id: str
   const bundle = readStoryFile(data.story_id);
   if (!bundle) throw new Error('story not found: ' + data.story_id);
   const existing = bundle.character_relations;
-  const order = typeof data.order_index === 'number' ? data.order_index : existing.length;
+  const order = typeof data.order_index === 'number' ? data.order_index : nextOrderIndex(existing);
   const now = nowISO();
   const row: RelationRow = {
     id: uuid4(),
@@ -1262,7 +1295,7 @@ export function createOutline(data: { story_id: string; content: string; order_i
   const bundle = readStoryFile(data.story_id);
   if (!bundle) throw new Error('story not found: ' + data.story_id);
   const existing = bundle.outlines;
-  const order = typeof data.order_index === 'number' ? data.order_index : existing.length;
+  const order = typeof data.order_index === 'number' ? data.order_index : nextOrderIndex(existing);
   const now = nowISO();
   const row: OutlineRow = {
     id: uuid4(),
@@ -1308,66 +1341,74 @@ export function listVolumes(storyId: string): VolumeRow[] {
     .sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
 }
 
-export function createVolume(data: { story_id: string; title: string; order_index?: number }): VolumeRow {
-  const bundle = readStoryFile(data.story_id);
-  if (!bundle) throw new Error('story not found: ' + data.story_id);
-  const existing = bundle.volumes;
-  const order = typeof data.order_index === 'number' ? data.order_index : existing.length;
-  const now = nowISO();
-  const row: VolumeRow = {
-    id: uuid4(),
-    story_id: data.story_id,
-    title: data.title,
-    order_index: order,
-    created_at: now,
-    updated_at: now,
-  };
-  bundle.volumes.push(row);
-  bundle.story.updated_at = now;
-  writeStoryFile(data.story_id, bundle);
-  return row;
+export function createVolume(data: { story_id: string; title: string; order_index?: number }): Promise<VolumeRow> {
+  return withStoryWriteLock(data.story_id, () => {
+    const bundle = readStoryFile(data.story_id);
+    if (!bundle) throw new Error('story not found: ' + data.story_id);
+    const existing = bundle.volumes;
+    const order = typeof data.order_index === 'number' ? data.order_index : nextOrderIndex(existing);
+    const now = nowISO();
+    const row: VolumeRow = {
+      id: uuid4(),
+      story_id: data.story_id,
+      title: data.title,
+      order_index: order,
+      created_at: now,
+      updated_at: now,
+    };
+    bundle.volumes.push(row);
+    bundle.story.updated_at = now;
+    writeStoryFile(data.story_id, bundle);
+    return row;
+  });
 }
 
-export function updateVolume(id: string, patch: Partial<VolumeRow>): VolumeRow | undefined {
+export function updateVolume(id: string, patch: Partial<VolumeRow>): Promise<VolumeRow | undefined> {
   const storyId = findStoryIdByEntityId(id, 'volumes');
-  if (!storyId) return undefined;
-  const bundle = readStoryFile(storyId);
-  if (!bundle) return undefined;
-  const idx = bundle.volumes.findIndex((r) => r.id === id);
-  if (idx < 0) return undefined;
-  bundle.volumes[idx] = { ...bundle.volumes[idx], ...patch, updated_at: nowISO() };
-  bundle.story.updated_at = nowISO();
-  writeStoryFile(storyId, bundle);
-  return bundle.volumes[idx];
+  if (!storyId) return Promise.resolve(undefined);
+  return withStoryWriteLock(storyId, () => {
+    const bundle = readStoryFile(storyId);
+    if (!bundle) return undefined;
+    const idx = bundle.volumes.findIndex((r) => r.id === id);
+    if (idx < 0) return undefined;
+    bundle.volumes[idx] = { ...bundle.volumes[idx], ...patch, updated_at: nowISO() };
+    bundle.story.updated_at = nowISO();
+    writeStoryFile(storyId, bundle);
+    return bundle.volumes[idx];
+  });
 }
 
-export function deleteVolume(id: string): void {
+export function deleteVolume(id: string): Promise<void> {
   const storyId = findStoryIdByEntityId(id, 'volumes');
-  if (!storyId) return;
-  const bundle = readStoryFile(storyId);
-  if (!bundle) return;
-  // 级联删除该卷下的章和节
-  const chaptersToDel = bundle.chapters.filter((c) => c.volume_id === id);
-  for (const ch of chaptersToDel) {
-    bundle.sections = bundle.sections.filter((s) => s.chapter_id !== ch.id);
-  }
-  bundle.chapters = bundle.chapters.filter((c) => c.volume_id !== id);
-  bundle.volumes = bundle.volumes.filter((r) => r.id !== id);
-  bundle.story.updated_at = nowISO();
-  writeStoryFile(storyId, bundle);
-  recomputeStoryStats(storyId);
+  if (!storyId) return Promise.resolve();
+  return withStoryWriteLock(storyId, () => {
+    const bundle = readStoryFile(storyId);
+    if (!bundle) return;
+    // 级联删除该卷下的章和节
+    const chaptersToDel = bundle.chapters.filter((c) => c.volume_id === id);
+    for (const ch of chaptersToDel) {
+      bundle.sections = bundle.sections.filter((s) => s.chapter_id !== ch.id);
+    }
+    bundle.chapters = bundle.chapters.filter((c) => c.volume_id !== id);
+    bundle.volumes = bundle.volumes.filter((r) => r.id !== id);
+    bundle.story.updated_at = nowISO();
+    writeStoryFile(storyId, bundle);
+    _recomputeStoryStatsUnlocked(storyId);
+  });
 }
 
-export function reorderVolumes(storyId: string, orderedIds: string[]): void {
-  const bundle = readStoryFile(storyId);
-  if (!bundle) return;
-  const orderMap: Record<string, number> = {};
-  orderedIds.forEach((id, i) => (orderMap[id] = i));
-  bundle.volumes = bundle.volumes
-    .map((r) => ({ ...r, order_index: orderMap[r.id] ?? r.order_index }))
-    .sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
-  bundle.story.updated_at = nowISO();
-  writeStoryFile(storyId, bundle);
+export function reorderVolumes(storyId: string, orderedIds: string[]): Promise<void> {
+  return withStoryWriteLock(storyId, () => {
+    const bundle = readStoryFile(storyId);
+    if (!bundle) return;
+    const orderMap: Record<string, number> = {};
+    orderedIds.forEach((id, i) => (orderMap[id] = i));
+    bundle.volumes = bundle.volumes
+      .map((r) => ({ ...r, order_index: orderMap[r.id] ?? r.order_index }))
+      .sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
+    bundle.story.updated_at = nowISO();
+    writeStoryFile(storyId, bundle);
+  });
 }
 
 // —— Chapter —— //
@@ -1394,98 +1435,110 @@ export function listChaptersByVolume(volumeId: string): ChapterRow[] {
   return [];
 }
 
-export function createChapter(data: { story_id: string; volume_id?: string | null; title: string; order_index?: number }): ChapterRow {
-  const bundle = readStoryFile(data.story_id);
-  if (!bundle) throw new Error('story not found: ' + data.story_id);
-  const existing = bundle.chapters;
-  const order = typeof data.order_index === 'number' ? data.order_index : existing.length;
-  const now = nowISO();
-  const row: ChapterRow = {
-    id: uuid4(),
-    story_id: data.story_id,
-    volume_id: data.volume_id ?? null,
-    title: data.title,
-    order_index: order,
-    created_at: now,
-    updated_at: now,
-  };
-  bundle.chapters.push(row);
-  bundle.story.updated_at = now;
-  writeStoryFile(data.story_id, bundle);
-  recomputeStoryStats(data.story_id);
-  return row;
+export function createChapter(data: { story_id: string; volume_id?: string | null; title: string; order_index?: number }): Promise<ChapterRow> {
+  return withStoryWriteLock(data.story_id, () => {
+    const bundle = readStoryFile(data.story_id);
+    if (!bundle) throw new Error('story not found: ' + data.story_id);
+    const existing = bundle.chapters;
+    const order = typeof data.order_index === 'number' ? data.order_index : nextOrderIndex(existing);
+    const now = nowISO();
+    const row: ChapterRow = {
+      id: uuid4(),
+      story_id: data.story_id,
+      volume_id: data.volume_id ?? null,
+      title: data.title,
+      order_index: order,
+      created_at: now,
+      updated_at: now,
+    };
+    bundle.chapters.push(row);
+    bundle.story.updated_at = now;
+    writeStoryFile(data.story_id, bundle);
+    // 内部调用不获取锁(已持锁),避免死锁
+    _recomputeStoryStatsUnlocked(data.story_id);
+    return row;
+  });
 }
 
-export function updateChapter(id: string, patch: Partial<ChapterRow>): ChapterRow | undefined {
+export function updateChapter(id: string, patch: Partial<ChapterRow>): Promise<ChapterRow | undefined> {
   const storyId = findStoryIdByEntityId(id, 'chapters');
-  if (!storyId) return undefined;
-  const bundle = readStoryFile(storyId);
-  if (!bundle) return undefined;
-  const idx = bundle.chapters.findIndex((r) => r.id === id);
-  if (idx < 0) return undefined;
-  bundle.chapters[idx] = { ...bundle.chapters[idx], ...patch, updated_at: nowISO() };
-  bundle.story.updated_at = nowISO();
-  writeStoryFile(storyId, bundle);
-  return bundle.chapters[idx];
+  if (!storyId) return Promise.resolve(undefined);
+  return withStoryWriteLock(storyId, () => {
+    const bundle = readStoryFile(storyId);
+    if (!bundle) return undefined;
+    const idx = bundle.chapters.findIndex((r) => r.id === id);
+    if (idx < 0) return undefined;
+    bundle.chapters[idx] = { ...bundle.chapters[idx], ...patch, updated_at: nowISO() };
+    bundle.story.updated_at = nowISO();
+    writeStoryFile(storyId, bundle);
+    return bundle.chapters[idx];
+  });
 }
 
-export function deleteChapter(id: string): void {
+export function deleteChapter(id: string): Promise<void> {
   const storyId = findStoryIdByEntityId(id, 'chapters');
-  if (!storyId) return;
-  const bundle = readStoryFile(storyId);
-  if (!bundle) return;
-  // 记录章所属的卷，用于删除后重算卷字数
-  const ch = bundle.chapters.find((r) => r.id === id);
-  const volId = ch?.volume_id;
-  // 级联删除该章下的节
-  bundle.sections = bundle.sections.filter((s) => s.chapter_id !== id);
-  bundle.chapters = bundle.chapters.filter((r) => r.id !== id);
-  // 重算所属卷的字数
-  if (volId) recomputeVolumeWordCount(bundle, volId);
-  bundle.story.updated_at = nowISO();
-  writeStoryFile(storyId, bundle);
-  recomputeStoryStats(storyId);
+  if (!storyId) return Promise.resolve();
+  return withStoryWriteLock(storyId, () => {
+    const bundle = readStoryFile(storyId);
+    if (!bundle) return;
+    // 记录章所属的卷，用于删除后重算卷字数
+    const ch = bundle.chapters.find((r) => r.id === id);
+    const volId = ch?.volume_id;
+    // 级联删除该章下的节
+    bundle.sections = bundle.sections.filter((s) => s.chapter_id !== id);
+    bundle.chapters = bundle.chapters.filter((r) => r.id !== id);
+    // 重算所属卷的字数
+    if (volId) recomputeVolumeWordCount(bundle, volId);
+    bundle.story.updated_at = nowISO();
+    writeStoryFile(storyId, bundle);
+    // 内部调用不获取锁(已持锁),避免死锁
+    _recomputeStoryStatsUnlocked(storyId);
+  });
 }
 
-export function reorderChapters(storyId: string, orderedIds: string[]): void {
-  const bundle = readStoryFile(storyId);
-  if (!bundle) return;
-  const orderMap: Record<string, number> = {};
-  orderedIds.forEach((id, i) => (orderMap[id] = i));
-  bundle.chapters = bundle.chapters
-    .map((r) => ({ ...r, order_index: orderMap[r.id] ?? r.order_index }))
-    .sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
-  writeStoryFile(storyId, bundle);
+export function reorderChapters(storyId: string, orderedIds: string[]): Promise<void> {
+  return withStoryWriteLock(storyId, () => {
+    const bundle = readStoryFile(storyId);
+    if (!bundle) return;
+    const orderMap: Record<string, number> = {};
+    orderedIds.forEach((id, i) => (orderMap[id] = i));
+    bundle.chapters = bundle.chapters
+      .map((r) => ({ ...r, order_index: orderMap[r.id] ?? r.order_index }))
+      .sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
+    writeStoryFile(storyId, bundle);
+  });
 }
 
 export function moveChapters(
   storyId: string,
   targetVolumeId: string | null,
   orderedIds: string[],
-): void {
-  const bundle = readStoryFile(storyId);
-  if (!bundle) return;
-  // 记录受影响的卷（源卷 + 目标卷）
-  const affectedVolumeIds = new Set<string>();
-  for (const ch of bundle.chapters) {
-    if (orderedIds.includes(ch.id) && ch.volume_id) {
-      affectedVolumeIds.add(ch.volume_id);
+): Promise<void> {
+  return withStoryWriteLock(storyId, () => {
+    const bundle = readStoryFile(storyId);
+    if (!bundle) return;
+    // 记录受影响的卷（源卷 + 目标卷）
+    const affectedVolumeIds = new Set<string>();
+    for (const ch of bundle.chapters) {
+      if (orderedIds.includes(ch.id) && ch.volume_id) {
+        affectedVolumeIds.add(ch.volume_id);
+      }
     }
-  }
-  if (targetVolumeId) affectedVolumeIds.add(targetVolumeId);
-  const orderMap: Record<string, number> = {};
-  orderedIds.forEach((id, i) => (orderMap[id] = i));
-  bundle.chapters = bundle.chapters.map((r) =>
-    orderedIds.includes(r.id)
-      ? { ...r, volume_id: targetVolumeId, order_index: orderMap[r.id], updated_at: nowISO() }
-      : r,
-  );
-  // 重算受影响卷的字数
-  for (const volId of affectedVolumeIds) {
-    recomputeVolumeWordCount(bundle, volId);
-  }
-  bundle.story.updated_at = nowISO();
-  writeStoryFile(storyId, bundle);
+    if (targetVolumeId) affectedVolumeIds.add(targetVolumeId);
+    const orderMap: Record<string, number> = {};
+    orderedIds.forEach((id, i) => (orderMap[id] = i));
+    bundle.chapters = bundle.chapters.map((r) =>
+      orderedIds.includes(r.id)
+        ? { ...r, volume_id: targetVolumeId, order_index: orderMap[r.id], updated_at: nowISO() }
+        : r,
+    );
+    // 重算受影响卷的字数
+    for (const volId of affectedVolumeIds) {
+      recomputeVolumeWordCount(bundle, volId);
+    }
+    bundle.story.updated_at = nowISO();
+    writeStoryFile(storyId, bundle);
+  });
 }
 
 // —— Section —— //
@@ -1498,7 +1551,13 @@ export function listSections(chapterId: string): SectionRow[] {
     if (!bundle) continue;
     const sections = bundle.sections
       .filter((r) => r.chapter_id === chapterId)
-      .sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
+      .sort((a, b) => {
+        const ao = a.order_index || 0;
+        const bo = b.order_index || 0;
+        if (ao !== bo) return ao - bo;
+        // secondary key 用 id 保证同 order_index 时排序稳定
+        return a.id < b.id ? -1 : 1;
+      });
     if (sections.length > 0) return sections;
   }
   return [];
@@ -1516,69 +1575,76 @@ export function listSectionMetadata(chapterId: string) {
   }));
 }
 
-export function createSection(data: { chapter_id: string; title: string; content?: string | null; bbcode?: string | null; order_index?: number }): SectionRow {
-  // 通过 chapter_id 反查 storyId
+export function createSection(data: { chapter_id: string; title: string; content?: string | null; bbcode?: string | null; order_index?: number }): Promise<SectionRow> {
+  // 通过 chapter_id 反查 storyId(在锁外做查找)
   const storyId = findStoryIdByChapterId(data.chapter_id);
   if (!storyId) throw new Error('chapter not found: ' + data.chapter_id);
-  const bundle = readStoryFile(storyId);
-  if (!bundle) throw new Error('story not found: ' + storyId);
-  const existing = bundle.sections.filter((s) => s.chapter_id === data.chapter_id);
-  const order = typeof data.order_index === 'number' ? data.order_index : existing.length;
-  const wc = countWordsInHtml(data.content ?? null);
-  const now = nowISO();
-  const row: SectionRow = {
-    id: uuid4(),
-    chapter_id: data.chapter_id,
-    title: data.title,
-    content: data.content ?? null,
-    bbcode: data.bbcode ?? null,
-    word_count: wc,
-    order_index: order,
-    created_at: now,
-    updated_at: now,
-  };
-  bundle.sections.push(row);
-  recomputeChapterAndVolumeWordCount(bundle, data.chapter_id);
-  bundle.story.updated_at = now;
-  writeStoryFile(storyId, bundle);
-  recomputeStoryStats(storyId);
-  return row;
+  return withStoryWriteLock(storyId, () => {
+    const bundle = readStoryFile(storyId);
+    if (!bundle) throw new Error('story not found: ' + storyId);
+    const existing = bundle.sections.filter((s) => s.chapter_id === data.chapter_id);
+    const order = typeof data.order_index === 'number' ? data.order_index : nextOrderIndex(existing);
+    const wc = countWordsInHtml(data.content ?? null);
+    const now = nowISO();
+    const row: SectionRow = {
+      id: uuid4(),
+      chapter_id: data.chapter_id,
+      title: data.title,
+      content: data.content ?? null,
+      bbcode: data.bbcode ?? null,
+      word_count: wc,
+      order_index: order,
+      created_at: now,
+      updated_at: now,
+    };
+    bundle.sections.push(row);
+    recomputeChapterAndVolumeWordCount(bundle, data.chapter_id);
+    bundle.story.updated_at = now;
+    writeStoryFile(storyId, bundle);
+    // 内部调用不获取锁(已持锁),避免死锁
+    _recomputeStoryStatsUnlocked(storyId);
+    return row;
+  });
 }
 
-export function updateSection(id: string, patch: Partial<SectionRow>): SectionRow | undefined {
+export function updateSection(id: string, patch: Partial<SectionRow>): Promise<SectionRow | undefined> {
   const storyId = findStoryIdByEntityId(id, 'sections');
-  if (!storyId) return undefined;
-  const bundle = readStoryFile(storyId);
-  if (!bundle) return undefined;
-  const idx = bundle.sections.findIndex((r) => r.id === id);
-  if (idx < 0) return undefined;
-  const chId = bundle.sections[idx].chapter_id;
-  bundle.sections[idx] = { ...bundle.sections[idx], ...patch, updated_at: nowISO() };
-  if (patch.content !== undefined && chId) recomputeChapterAndVolumeWordCount(bundle, chId);
-  bundle.story.updated_at = nowISO();
-  writeStoryFile(storyId, bundle);
-  if (patch.content !== undefined) recomputeStoryStats(storyId);
-  return bundle.sections[idx];
+  if (!storyId) return Promise.resolve(undefined);
+  return withStoryWriteLock(storyId, () => {
+    const bundle = readStoryFile(storyId);
+    if (!bundle) return undefined;
+    const idx = bundle.sections.findIndex((r) => r.id === id);
+    if (idx < 0) return undefined;
+    const chId = bundle.sections[idx].chapter_id;
+    bundle.sections[idx] = { ...bundle.sections[idx], ...patch, updated_at: nowISO() };
+    if (patch.content !== undefined && chId) recomputeChapterAndVolumeWordCount(bundle, chId);
+    bundle.story.updated_at = nowISO();
+    writeStoryFile(storyId, bundle);
+    if (patch.content !== undefined) _recomputeStoryStatsUnlocked(storyId);
+    return bundle.sections[idx];
+  });
 }
 
-export function deleteSection(id: string): void {
+export function deleteSection(id: string): Promise<void> {
   const storyId = findStoryIdByEntityId(id, 'sections');
-  if (!storyId) return;
-  const bundle = readStoryFile(storyId);
-  if (!bundle) return;
-  const sec = bundle.sections.find((r) => r.id === id);
-  const chId = sec?.chapter_id;
-  bundle.sections = bundle.sections.filter((r) => r.id !== id);
-  if (chId) recomputeChapterAndVolumeWordCount(bundle, chId);
-  bundle.story.updated_at = nowISO();
-  writeStoryFile(storyId, bundle);
-  recomputeStoryStats(storyId);
+  if (!storyId) return Promise.resolve();
+  return withStoryWriteLock(storyId, () => {
+    const bundle = readStoryFile(storyId);
+    if (!bundle) return;
+    const sec = bundle.sections.find((r) => r.id === id);
+    const chId = sec?.chapter_id;
+    bundle.sections = bundle.sections.filter((r) => r.id !== id);
+    if (chId) recomputeChapterAndVolumeWordCount(bundle, chId);
+    bundle.story.updated_at = nowISO();
+    writeStoryFile(storyId, bundle);
+    _recomputeStoryStatsUnlocked(storyId);
+  });
 }
 
 // —— Bulk Create (导入加速) —— //
 
-export function bulkCreateVolumes(rows: Array<{ story_id: string; title: string; order_index?: number; _oldId?: string }>): Array<{ id: string; _oldId?: string }> {
-  // 按 story_id 分组，每个 story 只读写一次文件
+export async function bulkCreateVolumes(rows: Array<{ story_id: string; title: string; order_index?: number; _oldId?: string }>): Promise<Array<{ id: string; _oldId?: string }>> {
+  // 按 story_id 分组，每个 story 单独加锁
   const byStory: Record<string, Array<{ story_id: string; title: string; order_index?: number; _oldId?: string }>> = {};
   for (const r of rows) {
     if (!byStory[r.story_id]) byStory[r.story_id] = [];
@@ -1587,29 +1653,34 @@ export function bulkCreateVolumes(rows: Array<{ story_id: string; title: string;
   const result: Array<{ id: string; _oldId?: string }> = [];
   const now = nowISO();
   for (const storyId of Object.keys(byStory)) {
-    const bundle = readStoryFile(storyId);
-    if (!bundle) continue;
-    for (const r of byStory[storyId]) {
-      const id = uuid4();
-      const order = typeof r.order_index === 'number' ? r.order_index : bundle.volumes.length;
-      bundle.volumes.push({
-        id,
-        story_id: storyId,
-        title: r.title,
-        order_index: order,
-        word_count: 0,
-        created_at: now,
-        updated_at: now,
-      });
-      result.push({ id, _oldId: r._oldId });
-    }
-    bundle.story.updated_at = now;
-    writeStoryFile(storyId, bundle);
+    // 每个 story 单独加锁,避免与其他写操作 race
+    await withStoryWriteLock(storyId, () => {
+      const bundle = readStoryFile(storyId);
+      if (!bundle) return;
+      for (const r of byStory[storyId]) {
+        const id = uuid4();
+        const order = typeof r.order_index === 'number' ? r.order_index : nextOrderIndex(bundle.volumes);
+        bundle.volumes.push({
+          id,
+          story_id: storyId,
+          title: r.title,
+          order_index: order,
+          word_count: 0,
+          created_at: now,
+          updated_at: now,
+        });
+        result.push({ id, _oldId: r._oldId });
+      }
+      bundle.story.updated_at = now;
+      writeStoryFile(storyId, bundle);
+      // 内部调用不获取锁(已持锁),避免死锁
+      _recomputeStoryStatsUnlocked(storyId);
+    });
   }
   return result;
 }
 
-export function bulkCreateChapters(rows: Array<{ story_id: string; volume_id?: string | null; title: string; order_index?: number; _oldId?: string }>): Array<{ id: string; _oldId?: string }> {
+export async function bulkCreateChapters(rows: Array<{ story_id: string; volume_id?: string | null; title: string; order_index?: number; _oldId?: string }>): Promise<Array<{ id: string; _oldId?: string }>> {
   const byStory: Record<string, typeof rows> = {};
   for (const r of rows) {
     if (!byStory[r.story_id]) byStory[r.story_id] = [];
@@ -1618,31 +1689,35 @@ export function bulkCreateChapters(rows: Array<{ story_id: string; volume_id?: s
   const result: Array<{ id: string; _oldId?: string }> = [];
   const now = nowISO();
   for (const storyId of Object.keys(byStory)) {
-    const bundle = readStoryFile(storyId);
-    if (!bundle) continue;
-    for (const r of byStory[storyId]) {
-      const id = uuid4();
-      const order = typeof r.order_index === 'number' ? r.order_index : bundle.chapters.length;
-      bundle.chapters.push({
-        id,
-        story_id: storyId,
-        volume_id: r.volume_id ?? null,
-        title: r.title,
-        order_index: order,
-        word_count: 0,
-        created_at: now,
-        updated_at: now,
-      });
-      result.push({ id, _oldId: r._oldId });
-    }
-    bundle.story.updated_at = now;
-    writeStoryFile(storyId, bundle);
-    recomputeStoryStats(storyId);
+    // 每个 story 单独加锁,避免与其他写操作 race
+    await withStoryWriteLock(storyId, () => {
+      const bundle = readStoryFile(storyId);
+      if (!bundle) return;
+      for (const r of byStory[storyId]) {
+        const id = uuid4();
+        const order = typeof r.order_index === 'number' ? r.order_index : nextOrderIndex(bundle.chapters);
+        bundle.chapters.push({
+          id,
+          story_id: storyId,
+          volume_id: r.volume_id ?? null,
+          title: r.title,
+          order_index: order,
+          word_count: 0,
+          created_at: now,
+          updated_at: now,
+        });
+        result.push({ id, _oldId: r._oldId });
+      }
+      bundle.story.updated_at = now;
+      writeStoryFile(storyId, bundle);
+      // 内部调用不获取锁(已持锁),避免死锁
+      _recomputeStoryStatsUnlocked(storyId);
+    });
   }
   return result;
 }
 
-export function bulkCreateSections(rows: Array<{ chapter_id: string; title: string; content?: string | null; bbcode?: string | null; order_index?: number; _oldId?: string }>): Array<{ id: string; _oldId?: string }> {
+export async function bulkCreateSections(rows: Array<{ chapter_id: string; title: string; content?: string | null; bbcode?: string | null; order_index?: number; _oldId?: string }>): Promise<Array<{ id: string; _oldId?: string }>> {
   // 通过 chapter_id 反查 storyId，按 story 分组
   const byStory: Record<string, typeof rows> = {};
   const chapterToStory: Record<string, string> = {};
@@ -1664,33 +1739,54 @@ export function bulkCreateSections(rows: Array<{ chapter_id: string; title: stri
   const result: Array<{ id: string; _oldId?: string }> = [];
   const now = nowISO();
   for (const storyId of Object.keys(byStory)) {
-    const bundle = readStoryFile(storyId);
-    if (!bundle) continue;
-    for (const r of byStory[storyId]) {
-      const id = uuid4();
-      const order = typeof r.order_index === 'number' ? r.order_index : bundle.sections.filter((s) => s.chapter_id === r.chapter_id).length;
-      const wc = countWordsInHtml(r.content ?? null);
-      bundle.sections.push({
-        id,
-        chapter_id: r.chapter_id,
-        title: r.title,
-        content: r.content ?? null,
-        bbcode: r.bbcode ?? null,
-        word_count: wc,
-        order_index: order,
-        created_at: now,
-        updated_at: now,
-      });
-      result.push({ id, _oldId: r._oldId });
-    }
-    // 重新计算受影响章/卷的字数缓存
-    const affectedChapterIds = new Set(byStory[storyId].map((r) => r.chapter_id));
-    for (const chId of affectedChapterIds) {
-      recomputeChapterAndVolumeWordCount(bundle, chId);
-    }
-    bundle.story.updated_at = now;
-    writeStoryFile(storyId, bundle);
-    recomputeStoryStats(storyId);
+    // 每个 story 单独加锁,避免与其他写操作 race
+    await withStoryWriteLock(storyId, () => {
+      const bundle = readStoryFile(storyId);
+      if (!bundle) return;
+      // === 归一化 order_index 防御 ===
+      // 按 chapter_id 分组,每组按原 order_index 升序排,然后重写为 0..N-1
+      // 防止 import 数据中同 order_index 重复/跳号/负数造成落库冲突
+      const groupedByChapter: Record<string, Array<{ row: typeof rows[number]; normOrder: number }>> = {};
+      for (const r of byStory[storyId]) {
+        if (!groupedByChapter[r.chapter_id]) groupedByChapter[r.chapter_id] = [];
+        groupedByChapter[r.chapter_id].push({ row: r, normOrder: r.order_index ?? 0 });
+      }
+      for (const chId of Object.keys(groupedByChapter)) {
+        groupedByChapter[chId].sort((a, b) => a.normOrder - b.normOrder);
+        groupedByChapter[chId].forEach((item, idx) => {
+          item.normOrder = idx;
+        });
+      }
+      // 写库阶段使用归一化后的 order_index
+      for (const chId of Object.keys(groupedByChapter)) {
+        for (const item of groupedByChapter[chId]) {
+          const r = item.row;
+          const id = uuid4();
+          const wc = countWordsInHtml(r.content ?? null);
+          bundle.sections.push({
+            id,
+            chapter_id: r.chapter_id,
+            title: r.title,
+            content: r.content ?? null,
+            bbcode: r.bbcode ?? null,
+            word_count: wc,
+            order_index: item.normOrder,
+            created_at: now,
+            updated_at: now,
+          });
+          result.push({ id, _oldId: r._oldId });
+        }
+      }
+      // 重新计算受影响章/卷的字数缓存
+      const affectedChapterIds = new Set(byStory[storyId].map((r) => r.chapter_id));
+      for (const chId of affectedChapterIds) {
+        recomputeChapterAndVolumeWordCount(bundle, chId);
+      }
+      bundle.story.updated_at = now;
+      writeStoryFile(storyId, bundle);
+      // 内部调用不获取锁(已持锁),避免死锁
+      _recomputeStoryStatsUnlocked(storyId);
+    });
   }
   return result;
 }
@@ -1704,127 +1800,179 @@ export function getSectionContent(id: string): string | null {
   return sec ? sec.content : null;
 }
 
-export function setSectionContent(id: string, content: string | null): void {
+/**
+ * 设置节内容(富文本 HTML)
+ * 单次 read-modify-write 原子操作,配合 withStoryWriteLock 串行化,避免并发 lost-update
+ * 内部一次性更新:content / word_count / chapter&volume word_count / story stats / stats 缓存
+ */
+export function setSectionContent(id: string, content: string | null): Promise<void> {
   const storyId = findStoryIdByEntityId(id, 'sections');
-  if (!storyId) return;
-  const bundle = readStoryFile(storyId);
-  if (!bundle) return;
-  const idx = bundle.sections.findIndex((s) => s.id === id);
-  if (idx < 0) return;
-  const oldWc = bundle.sections[idx].word_count || 0;
-  const wc = countWordsInHtml(content);
-  bundle.sections[idx] = { ...bundle.sections[idx], content, word_count: wc, updated_at: nowISO() };
-  const chId = bundle.sections[idx].chapter_id;
-  if (chId) recomputeChapterAndVolumeWordCount(bundle, chId);
-  bundle.story.updated_at = nowISO();
-  writeStoryFile(storyId, bundle);
-  // 增量更新 stats 缓存
-  const stats = readStoryStats(storyId);
-  if (stats) {
-    writeStoryStats(storyId, {
-      word_count: Math.max(0, stats.word_count + (wc - oldWc)),
-      section_count: stats.section_count,
-      chapter_count: stats.chapter_count,
-    });
-  } else {
-    recomputeStoryStats(storyId);
-  }
-  // 同步更新 per-story 文件中的 stats
-  const updatedBundle = readStoryFile(storyId);
-  if (updatedBundle) {
-    updatedBundle.stats = {
-      word_count: stats ? Math.max(0, stats.word_count + (wc - oldWc)) : wc,
-      section_count: updatedBundle.sections.length,
-      chapter_count: updatedBundle.chapters.length,
+  if (!storyId) return Promise.resolve();
+  return withStoryWriteLock(storyId, () => {
+    const bundle = readStoryFile(storyId);
+    if (!bundle) return;
+    const idx = bundle.sections.findIndex((s) => s.id === id);
+    if (idx < 0) return;
+    const oldWc = bundle.sections[idx].word_count || 0;
+    const wc = countWordsInHtml(content);
+    bundle.sections[idx] = { ...bundle.sections[idx], content, word_count: wc, updated_at: nowISO() };
+    const chId = bundle.sections[idx].chapter_id;
+    if (chId) recomputeChapterAndVolumeWordCount(bundle, chId);
+    // 单次写入:同时更新 per-story 文件中的 stats 字段
+    bundle.stats = {
+      word_count: Math.max(0, (bundle.stats?.word_count || 0) + (wc - oldWc)),
+      section_count: bundle.sections.length,
+      chapter_count: bundle.chapters.length,
     };
-    updatedBundle.story.updated_at = nowISO();
-    writeStoryFile(storyId, updatedBundle);
-  }
+    bundle.story.updated_at = nowISO();
+    writeStoryFile(storyId, bundle);
+    // 同步更新全局 stats 缓存文件
+    writeStoryStats(storyId, bundle.stats);
+  });
 }
 
-export function setSectionBBCode(id: string, bbcode: string | null): void {
-  updateSection(id, { bbcode });
+export function setSectionBBCode(id: string, bbcode: string | null): Promise<void> {
+  return updateSection(id, { bbcode }).then(() => undefined);
 }
 
-export function reorderSections(chapterId: string, orderedIds: string[]): void {
+export function reorderSections(chapterId: string, orderedIds: string[]): Promise<void> {
   const storyId = findStoryIdByChapterId(chapterId);
-  if (!storyId) return;
-  const bundle = readStoryFile(storyId);
-  if (!bundle) return;
-  const orderMap: Record<string, number> = {};
-  orderedIds.forEach((id, i) => (orderMap[id] = i));
-  bundle.sections = bundle.sections.map((r) =>
-    r.chapter_id === chapterId
-      ? { ...r, order_index: orderMap[r.id] ?? r.order_index, updated_at: nowISO() }
-      : r,
-  );
-  bundle.story.updated_at = nowISO();
-  writeStoryFile(storyId, bundle);
+  if (!storyId) return Promise.resolve();
+  return withStoryWriteLock(storyId, () => {
+    const bundle = readStoryFile(storyId);
+    if (!bundle) return;
+    const orderMap: Record<string, number> = {};
+    orderedIds.forEach((id, i) => (orderMap[id] = i));
+    bundle.sections = bundle.sections.map((r) =>
+      r.chapter_id === chapterId
+        ? { ...r, order_index: orderMap[r.id] ?? r.order_index, updated_at: nowISO() }
+        : r,
+    );
+    bundle.story.updated_at = nowISO();
+    writeStoryFile(storyId, bundle);
+  });
 }
 
-export function moveSections(
+export async function moveSections(
   targetChapterId: string | null,
   orderedIds: string[],
-): void {
-  // 可能跨 story，按 story 分组处理
-  const storyIds = listStoryIds();
-  const bundles = new Map<string, StoryBundle>();
-  for (const sid of storyIds) {
+): Promise<void> {
+  // 可能跨 story,需先扫描找出所有受影响的 storyId
+  const allStoryIds = listStoryIds();
+  // 先找出目标 chapter 所属的 story
+  let targetStoryId: string | null = null;
+  const orderedIdSet = new Set(orderedIds);
+  // 找出所有源 story(包含被移动 section 的 story)
+  const sourceStoryIds = new Set<string>();
+  for (const sid of allStoryIds) {
     const bundle = readStoryFile(sid);
-    if (bundle) bundles.set(sid, bundle);
+    if (!bundle) continue;
+    if (targetChapterId && !targetStoryId && bundle.chapters.some((c) => c.id === targetChapterId)) {
+      targetStoryId = sid;
+    }
+    if (bundle.sections.some((s) => orderedIdSet.has(s.id))) {
+      sourceStoryIds.add(sid);
+    }
   }
+  // 受影响的所有 storyId(去重排序,避免死锁)
+  const affectedStoryIds = Array.from(new Set([...sourceStoryIds, ...(targetStoryId ? [targetStoryId] : [])])).sort();
+  if (affectedStoryIds.length === 0) return;
+
   const orderMap: Record<string, number> = {};
   orderedIds.forEach((id, i) => (orderMap[id] = i));
-  // 找到目标 chapter 所属的 story
-  let targetStoryId: string | null = null;
-  if (targetChapterId) {
-    for (const [sid, bundle] of bundles) {
-      if (bundle.chapters.some((c) => c.id === targetChapterId)) {
-        targetStoryId = sid;
-        break;
-      }
-    }
-  }
-  // 从所有 bundles 中移除 orderedIds 中的 sections
+  const now = nowISO();
+
+  // 第一阶段:从源 stories 中移除被移动的 sections(每个 story 单独加锁)
   const movedSections: SectionRow[] = [];
-  for (const [sid, bundle] of bundles) {
-    const remaining: SectionRow[] = [];
-    for (const s of bundle.sections) {
-      if (orderedIds.includes(s.id)) {
-        movedSections.push(s);
-      } else {
-        remaining.push(s);
+  for (const sid of affectedStoryIds) {
+    if (!sourceStoryIds.has(sid)) continue;
+    // 跳过目标 story(目标 story 在第二阶段统一处理:先移除再加入)
+    if (sid === targetStoryId) continue;
+    await withStoryWriteLock(sid, () => {
+      const bundle = readStoryFile(sid);
+      if (!bundle) return;
+      const remaining: SectionRow[] = [];
+      for (const s of bundle.sections) {
+        if (orderedIdSet.has(s.id)) {
+          movedSections.push(s);
+        } else {
+          remaining.push(s);
+        }
       }
-    }
-    bundle.sections = remaining;
-  }
-  // 把移除的 sections 加到目标 bundle
-  if (targetStoryId) {
-    const targetBundle = bundles.get(targetStoryId)!;
-    for (const s of movedSections) {
-      targetBundle.sections.push({
-        ...s,
-        chapter_id: targetChapterId,
-        order_index: orderMap[s.id] ?? s.order_index,
-        updated_at: nowISO(),
-      });
-    }
-  }
-  // 收集所有受影响的 chapter_id（源章 + 目标章）
-  const affectedChapterIds = new Set<string>();
-  for (const s of movedSections) {
-    if (s.chapter_id) affectedChapterIds.add(s.chapter_id);
-  }
-  if (targetChapterId) affectedChapterIds.add(targetChapterId);
-  // 写回所有修改过的 bundles，并重算受影响的章/卷字数
-  for (const [sid, bundle] of bundles) {
-    for (const chId of affectedChapterIds) {
-      if (bundle.chapters.some((c) => c.id === chId)) {
+      if (movedSections.length === 0) return;
+      bundle.sections = remaining;
+      // 重算受影响章/卷字数
+      const affectedChapterIds = new Set<string>();
+      for (const s of movedSections) {
+        if (s.chapter_id) affectedChapterIds.add(s.chapter_id);
+      }
+      for (const chId of affectedChapterIds) {
         recomputeChapterAndVolumeWordCount(bundle, chId);
       }
-    }
-    bundle.story.updated_at = nowISO();
-    writeStoryFile(sid, bundle);
+      bundle.story.updated_at = now;
+      writeStoryFile(sid, bundle);
+    });
+  }
+
+  // 如果目标 story 也是源 story(同 story 内移动),先在锁内收集被移动的 sections
+  if (targetStoryId && sourceStoryIds.has(targetStoryId)) {
+    await withStoryWriteLock(targetStoryId, () => {
+      const bundle = readStoryFile(targetStoryId!);
+      if (!bundle) return;
+      const remaining: SectionRow[] = [];
+      for (const s of bundle.sections) {
+        if (orderedIdSet.has(s.id)) {
+          movedSections.push(s);
+        } else {
+          remaining.push(s);
+        }
+      }
+      bundle.sections = remaining;
+      // 先暂存,后面再加回来(下面再次获取锁会死锁,所以同 story 内一次性完成)
+      // 重新加入目标章
+      for (const s of movedSections) {
+        bundle.sections.push({
+          ...s,
+          chapter_id: targetChapterId,
+          order_index: orderMap[s.id] ?? s.order_index,
+          updated_at: now,
+        });
+      }
+      // 重算所有受影响章/卷字数
+      const affectedChapterIds = new Set<string>();
+      for (const s of movedSections) {
+        if (s.chapter_id) affectedChapterIds.add(s.chapter_id);
+      }
+      if (targetChapterId) affectedChapterIds.add(targetChapterId);
+      for (const chId of affectedChapterIds) {
+        recomputeChapterAndVolumeWordCount(bundle, chId);
+      }
+      bundle.story.updated_at = now;
+      writeStoryFile(targetStoryId!, bundle);
+    });
+    return;
+  }
+
+  // 第二阶段:把移除的 sections 加到目标 story(目标 story 不是源 story 的情况)
+  if (targetStoryId && movedSections.length > 0) {
+    await withStoryWriteLock(targetStoryId, () => {
+      const bundle = readStoryFile(targetStoryId!);
+      if (!bundle) return;
+      for (const s of movedSections) {
+        bundle.sections.push({
+          ...s,
+          chapter_id: targetChapterId,
+          order_index: orderMap[s.id] ?? s.order_index,
+          updated_at: now,
+        });
+      }
+      // 重算目标章/卷字数
+      if (targetChapterId) {
+        recomputeChapterAndVolumeWordCount(bundle, targetChapterId);
+      }
+      bundle.story.updated_at = now;
+      writeStoryFile(targetStoryId!, bundle);
+    });
   }
 }
 

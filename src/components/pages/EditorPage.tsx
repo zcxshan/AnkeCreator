@@ -18,7 +18,7 @@ import { DiceConfigDialog } from '../dice/DiceConfigDialog';
 import { WorldSettingPanel } from '../common/WorldSettingPanel';
 import { CharacterPanel } from '../character/CharacterEditor';
 import { RichTextEditor, type RichTextEditorCommands } from '../editor/RichTextEditor';
-import { isDiceCardInEditor } from '../editor/contenteditableUtils';
+import { isDiceCardInEditor } from '../../editor';
 import { createDiceId, rollExpression } from '../../utils/diceEngine';
 import { playDiceRollSound } from '../../utils/diceSound';
 import { RelationshipPanel } from '../editor/RelationshipPanel';
@@ -1254,10 +1254,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                       createChapter(activeStoryId, `第${chapCount}章`, volumeId);
                     }
                   }}
-                  onCreateSection={(chapterId) => {
-                    const chapterSections = sections.filter((s) => s.chapter_id === chapterId);
-                    createSection(chapterId, `第${chapterSections.length + 1}节`);
-                  }}
+                  onCreateSection={(chapterId) => createSection(chapterId, '新的节')}
                   onCreateVolumeAt={(anchorId, position) => {
                     if (activeStoryId) {
                       const volCount = volumes.length + 1;
@@ -1270,10 +1267,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                       createChapterAt(activeStoryId, `第${chapCount}章`, volumeId, anchorId, position);
                     }
                   }}
-                  onCreateSectionAt={(chapterId, anchorId, position) => {
-                    const chapterSections = sections.filter((s) => s.chapter_id === chapterId);
-                    createSectionAt(chapterId, `第${chapterSections.length + 1}节`, anchorId, position);
-                  }}
+                  onCreateSectionAt={(chapterId, anchorId, position) => createSectionAt(chapterId, '新的节', anchorId, position)}
                   onRenameVolume={renameVolume}
                   onRenameChapter={renameChapter}
                   onRenameSection={renameSection}
@@ -1389,7 +1383,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                       onEditDiceBlock={handleEditDiceBlock}
                       onImageSelected={(info) => setSelectedImage(info)}
                       commandsRef={richTextEditorCommandsRef}
-                      editable={true}
+                      editable={!sectionLoading}
                       onShowToast={(msg) => setToast(msg)}
                       canUndo={canUndo}
                       canRedo={canRedo}
@@ -1821,10 +1815,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                         createChapter(activeStoryId, `第${chapCount}章`, volumeId);
                       }
                     }}
-                    onCreateSection={(chapterId) => {
-                      const chapterSections = sections.filter((s) => s.chapter_id === chapterId);
-                      createSection(chapterId, `第${chapterSections.length + 1}节`);
-                    }}
+                    onCreateSection={(chapterId) => createSection(chapterId, '新的节')}
                     onCreateVolumeAt={(anchorId, position) => {
                       if (activeStoryId) {
                         const volCount = volumes.length + 1;
@@ -1837,10 +1828,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                         createChapterAt(activeStoryId, `第${chapCount}章`, volumeId, anchorId, position);
                       }
                     }}
-                    onCreateSectionAt={(chapterId, anchorId, position) => {
-                      const chapterSections = sections.filter((s) => s.chapter_id === chapterId);
-                      createSectionAt(chapterId, `第${chapterSections.length + 1}节`, anchorId, position);
-                    }}
+                    onCreateSectionAt={(chapterId, anchorId, position) => createSectionAt(chapterId, '新的节', anchorId, position)}
                     onRenameVolume={renameVolume}
                     onRenameChapter={renameChapter}
                     onRenameSection={renameSection}
@@ -2008,7 +1996,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                 onEditDiceBlock={handleEditDiceBlock}
                 onImageSelected={(info) => setSelectedImage(info)}
                 commandsRef={richTextEditorCommandsRef}
-                editable={true}
+                editable={!sectionLoading}
                 onShowToast={(msg) => setToast(msg)}
                 canUndo={canUndo}
                 canRedo={canRedo}
@@ -4488,7 +4476,8 @@ interface BottomStatusBarProps {
 }
 
 // ========== 节编辑区上方面包屑（卷·章·节路径） ==========
-function EditorBreadcrumb({
+// 性能优化:memo 包裹,避免父组件 re-render 时无谓刷新
+const EditorBreadcrumb = memo(function EditorBreadcrumb({
   volumeIdx,
   volumeTitle,
   chapterIdx,
@@ -4523,7 +4512,7 @@ function EditorBreadcrumb({
       </span>
     </div>
   );
-}
+});
 
 function BottomStatusBar({
   editorMode,

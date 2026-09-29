@@ -51,7 +51,7 @@ import {
   getCurrentStyles,
   getInsertionPoint,
   dispatchInput,
-} from './contenteditableUtils';
+} from '../../editor';
 import { useEditorStore } from '../../store/editorStore';
 import { useSettingStore } from '../../store/settingStore';
 import { useToastStore } from '../../store/toastStore';

@@ -18,7 +18,6 @@ import { LocalImageWarningDialog } from './components/common/LocalImageWarningDi
 import { MobileBottomNav } from './components/common/MobileBottomNav';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { useStoryStore } from './store/storyStore';
-import { useEditorStore } from './store/editorStore';
 import { useMetaStore } from './store/metaStore';
 import { initDatabase } from './db/index';
 import { isCapacitor, isElectron } from './utils/platform';
@@ -28,8 +27,7 @@ import './index.css';
 type Route = 'home' | 'works' | 'editor' | 'reader' | 'resource-library' | 'tutorial' | 'anjia-collect' | 'anke-collect' | 'find-anke' | 'dice-playground' | 'creation-log' | 'wheel-playground';
 
 function App() {
-  const { activeSectionId, activeStoryId } = useStoryStore();
-  const loadSection = useEditorStore((s) => s.loadSection);
+  const { activeStoryId } = useStoryStore();
   const loadMetaForStory = useMetaStore((s) => s.loadMetaForStory);
   const setActiveStory = useStoryStore((s) => s.setActiveStory);
   const [showAuthor, setShowAuthor] = useState(false);
@@ -95,11 +93,8 @@ function App() {
     })
   }, []);
 
-  useEffect(() => {
-    if (route === 'editor' && activeSectionId) {
-      loadSection(activeSectionId);
-    }
-  }, [activeSectionId, loadSection, route]);
+  // 注意:节加载由 EditorPage 内的 useSectionEditor 负责,这里不再重复触发
+  // (旧 useEffect 会与 useSectionEditor 同时触发 loadSection,导致节内容被加载两次)
 
   useEffect(() => {
     if (route === 'editor') {
