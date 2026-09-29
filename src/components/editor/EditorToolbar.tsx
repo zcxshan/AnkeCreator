@@ -1,5 +1,27 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
+  Bold,
+  Italic,
+  Underline,
+  Strikethrough,
+  Superscript,
+  Subscript,
+  Dices,
+  Image as ImageIcon,
+  Import,
+  Smile,
+  Quote,
+  ChevronDown,
+  Table,
+  Code,
+  Link,
+  Unlink,
+  Undo2,
+  Redo2,
+  Minus,
+  Eraser,
+} from 'lucide-react';
+import {
   NGA_FONTS,
   NGA_COLORS,
   NGA_IMAGE_SIZES,
@@ -910,9 +932,8 @@ export function EditorToolbar({
               }
             }}
             active={activeBold}
-            style={{ fontWeight: 700, fontSize: 13 }}
           >
-            B
+            <Bold size={14} />
           </ToolbarBtn>
           <ToolbarBtn
             btnRef={italicBtnRef}
@@ -967,9 +988,8 @@ export function EditorToolbar({
               }
             }}
             active={activeItalic}
-            style={{ fontStyle: 'italic', fontSize: 13 }}
           >
-            I
+            <Italic size={14} />
           </ToolbarBtn>
           <ToolbarBtn
             btnRef={underlineBtnRef}
@@ -1028,9 +1048,8 @@ export function EditorToolbar({
               }
             }}
             active={activeUnderline}
-            style={{ textDecoration: 'underline', fontSize: 13 }}
           >
-            U
+            <Underline size={14} />
           </ToolbarBtn>
           <ToolbarBtn
             btnRef={strikeBtnRef}
@@ -1090,9 +1109,8 @@ export function EditorToolbar({
               }
             }}
             active={activeStrike}
-            style={{ textDecoration: 'line-through' }}
           >
-            S
+            <Strikethrough size={14} />
           </ToolbarBtn>
           <ToolbarBtn
             title={isCollapsedSelection() ? '请先选中文本' : '上标 [sup]…[/sup]'}
@@ -1110,9 +1128,8 @@ export function EditorToolbar({
                 });
               }
             }}
-            style={{ fontSize: 11 }}
           >
-            X²
+            <Superscript size={14} />
           </ToolbarBtn>
           <ToolbarBtn
             title={isCollapsedSelection() ? '请先选中文本' : '下标 [sub]…[/sub]'}
@@ -1129,9 +1146,8 @@ export function EditorToolbar({
                 });
               }
             }}
-            style={{ fontSize: 11 }}
           >
-            X₂
+            <Subscript size={14} />
           </ToolbarBtn>
         </div>
 
@@ -1387,7 +1403,7 @@ export function EditorToolbar({
             onClick={() => setImageSizeOpen((v) => !v)}
             active={imageSizeOpen}
           >
-            🖼 <span className="tb-label">图片</span>
+            <ImageIcon size={14} /> <span className="tb-label">图片</span>
           </ToolbarBtn>
           {imageSizeOpen && (
             <div style={{ ...popoverPanel, top: 30, left: 0, minWidth: 220 }}>
@@ -1470,14 +1486,14 @@ export function EditorToolbar({
         </div>
 
         <ToolbarBtn title="插入骰子 (Ctrl+Shift+D)" onClick={onInsertDice}>
-          🎲 <span className="tb-label">骰子</span>
+          <Dices size={14} /> <span className="tb-label">骰子</span>
         </ToolbarBtn>
 
         <ToolbarBtn
           title="从 NGA 文本导入选项（粘贴收集的安价文本，自动生成选项骰子）"
           onClick={() => setShowNGAImport(true)}
         >
-          📥 <span className="tb-label">导入安价</span>
+          <Import size={14} /> <span className="tb-label">导入安价</span>
         </ToolbarBtn>
 
         <GroupDivider />
@@ -1489,7 +1505,7 @@ export function EditorToolbar({
             onClick={() => setSmileyOpen((v) => !v)}
             active={smileyOpen}
           >
-            😄 <span className="tb-label">表情</span>
+            <Smile size={14} /> <span className="tb-label">表情</span>
           </ToolbarBtn>
           {smileyOpen && (
             <div style={{ ...popoverPanel, top: 30, left: 0 }}>
@@ -1525,7 +1541,7 @@ export function EditorToolbar({
           title="引用 (Ctrl+Shift+Q)"
           onClick={() => withEditor(insertQuoteBlock)}
         >
-          ❝ <span className="tb-label">引用</span>
+          <Quote size={14} /> <span className="tb-label">引用</span>
         </ToolbarBtn>
 
         {/* 折叠 */}
@@ -1536,7 +1552,7 @@ export function EditorToolbar({
             onClick={() => setCollapseOpen((v) => !v)}
             active={collapseOpen}
           >
-            ▾ <span className="tb-label">折叠</span>
+            <ChevronDown size={14} /> <span className="tb-label">折叠</span>
           </ToolbarBtn>
           {collapseOpen && (
             <div style={{ ...popoverPanel, top: 30, left: 0 }}>
@@ -1568,7 +1584,7 @@ export function EditorToolbar({
             onClick={() => setTableOpen((v) => !v)}
             active={tableOpen}
           >
-            ▦ <span className="tb-label">表格</span>
+            <Table size={14} /> <span className="tb-label">表格</span>
           </ToolbarBtn>
           {tableOpen && (
             <div style={{ ...popoverPanel, top: 30, left: 0, minWidth: 220 }}>
@@ -1616,7 +1632,7 @@ export function EditorToolbar({
           title="代码块 [code]…[/code]（#f1f1f1）"
           onClick={() => withEditor((ed) => insertCodeBlock(ed, ''))}
         >
-          ⟨/⟩ <span className="tb-label">代码</span>
+          <Code size={14} /> <span className="tb-label">代码</span>
         </ToolbarBtn>
 
         {/* 链接 */}
@@ -1626,7 +1642,7 @@ export function EditorToolbar({
             onClick={() => setLinkOpen((v) => !v)}
             active={linkOpen}
           >
-            🌐 <span className="tb-label">链接</span>
+            <Link size={14} /> <span className="tb-label">链接</span>
           </ToolbarBtn>
           {linkOpen && (
             <div style={{ ...popoverPanel, top: 30, left: 0 }}>
@@ -1660,7 +1676,7 @@ export function EditorToolbar({
           title="取消链接"
           onClick={() => withEditor(removeLinkAtCursor)}
         >
-          ⛔ <span className="tb-label">取消链接</span>
+          <Unlink size={14} /> <span className="tb-label">取消链接</span>
         </ToolbarBtn>
 
         <GroupDivider />
@@ -1671,14 +1687,14 @@ export function EditorToolbar({
             disabled={!canUndo}
             onClick={() => onUndo?.()}
           >
-            ↶ <span className="tb-label">撤销</span>
+            <Undo2 size={14} /> <span className="tb-label">撤销</span>
           </ToolbarBtn>
           <ToolbarBtn
             title="重做 (Ctrl+Y)"
             disabled={!canRedo}
             onClick={() => onRedo?.()}
           >
-            ↷ <span className="tb-label">重做</span>
+            <Redo2 size={14} /> <span className="tb-label">重做</span>
           </ToolbarBtn>
         </div>
 
@@ -1689,7 +1705,7 @@ export function EditorToolbar({
             title="分割线 [h][/h]"
             onClick={() => withEditor(insertHorizontalRuleNGA)}
           >
-            — <span className="tb-label">分割线</span>
+            <Minus size={14} /> <span className="tb-label">分割线</span>
           </ToolbarBtn>
           <ToolbarBtn
             title="清除格式"
@@ -1713,7 +1729,7 @@ export function EditorToolbar({
               }
             }}
           >
-            ⌫ <span className="tb-label">清格式</span>
+            <Eraser size={14} /> <span className="tb-label">清格式</span>
           </ToolbarBtn>
         </div>
 

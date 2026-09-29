@@ -52,11 +52,11 @@ describe('折叠块交互修复', () => {
 
     // 不应折叠
     expect(body.style.display).not.toBe('none');
-    expect(toggle.textContent).toBe('−');
+    expect(toggle.dataset.collapsed).toBeUndefined();
     expect(block.dataset.collapsed).not.toBe('true');
   });
 
-  it('insertCollapseBlock 后点击 toggle 折叠:data-collapsed=true + body display:none + toggle 变 +,再点展开', () => {
+  it('insertCollapseBlock 后点击 toggle 折叠:data-collapsed=true + body display:none + toggle 状态同步,再点展开', () => {
     const textNode = editor.querySelector('p')!.firstChild as Text;
     const r = document.createRange();
     r.setStart(textNode, textNode.textContent!.length);
@@ -75,22 +75,23 @@ describe('折叠块交互修复', () => {
     const body = block.querySelector('.collapse-body') as HTMLElement;
     const toggle = block.querySelector('.collapse-toggle') as HTMLElement;
 
-    // 初始：展开
+    // 初始：展开，toggle 为 ChevronRight 图标
     expect(block.dataset.collapsed).toBeUndefined();
     expect(body.style.display).toBe('block');
-    expect(toggle.textContent).toBe('−');
+    expect(toggle.querySelector('svg')).not.toBeNull();
+    expect(toggle.dataset.collapsed).toBeUndefined();
 
     // 点击 toggle → 折叠（data-collapsed 同步,供序列化保存）
     fireEvent.click(toggle);
     expect(block.dataset.collapsed).toBe('true');
     expect(body.style.display).toBe('none');
-    expect(toggle.textContent).toBe('+');
+    expect(toggle.dataset.collapsed).toBe('true');
 
     // 再点 toggle → 展开
     fireEvent.click(toggle);
     expect(block.dataset.collapsed).toBe('false');
     expect(body.style.display).toBe('block');
-    expect(toggle.textContent).toBe('−');
+    expect(toggle.dataset.collapsed).toBe('false');
 
     // 折叠状态变化需触发 input,让外部 onChangeContent 保存到 HTML
     expect(inputSpy).toHaveBeenCalled();
@@ -119,6 +120,6 @@ describe('折叠块交互修复', () => {
     fireEvent.click(head);
     expect(body.style.display).toBe('block');
     expect(block.dataset.collapsed).toBe('false');
-    expect(toggle.textContent).toBe('−');
+    expect(toggle.dataset.collapsed).toBe('false');
   });
 });

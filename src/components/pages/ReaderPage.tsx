@@ -302,11 +302,11 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
           const isCollapsed = block.dataset.collapsed === 'true';
           if (isCollapsed) {
             if (body) body.style.display = 'block';
-            if (toggle) toggle.textContent = '−';
+            if (toggle) toggle.dataset.collapsed = 'false';
             block.dataset.collapsed = 'false';
           } else {
             if (body) body.style.display = 'none';
-            if (toggle) toggle.textContent = '+';
+            if (toggle) toggle.dataset.collapsed = 'true';
             block.dataset.collapsed = 'true';
           }
           e.preventDefault();

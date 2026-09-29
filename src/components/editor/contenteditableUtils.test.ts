@@ -57,7 +57,7 @@ describe('attachCollapseBlockHandlers - click toggle 展开/折叠', () => {
     cleanup = attachCollapseBlockHandlers(editor);
   });
 
-  it('点击 .collapse-head 展开 body：display 变 block，toggle 文本变 −，data-collapsed 变 false', () => {
+  it('点击 .collapse-head 展开 body：display 变 block，toggle 状态变 false，data-collapsed 变 false', () => {
     const head = editor.querySelector('.collapse-head') as HTMLElement;
     const body = editor.querySelector('.collapse-body') as HTMLElement;
     const toggle = editor.querySelector('.collapse-toggle') as HTMLElement;
@@ -65,7 +65,7 @@ describe('attachCollapseBlockHandlers - click toggle 展开/折叠', () => {
 
     // 初始：折叠
     expect(body.style.display).toBe('none');
-    expect(toggle.textContent).toBe('+');
+    expect(toggle.dataset.collapsed).toBeUndefined();
     expect(block.dataset.collapsed).toBe('true');
 
     // 点击 head
@@ -73,11 +73,11 @@ describe('attachCollapseBlockHandlers - click toggle 展开/折叠', () => {
 
     // 展开
     expect(body.style.display).toBe('block');
-    expect(toggle.textContent).toBe('−');
+    expect(toggle.dataset.collapsed).toBe('false');
     expect(block.dataset.collapsed).toBe('false');
   });
 
-  it('再次点击 .collapse-head 收起 body：display 变 none，toggle 文本变 +，data-collapsed 变 true', () => {
+  it('再次点击 .collapse-head 收起 body：display 变 none，toggle 状态变 true，data-collapsed 变 true', () => {
     const head = editor.querySelector('.collapse-head') as HTMLElement;
     const body = editor.querySelector('.collapse-body') as HTMLElement;
     const toggle = editor.querySelector('.collapse-toggle') as HTMLElement;
@@ -91,7 +91,7 @@ describe('attachCollapseBlockHandlers - click toggle 展开/折叠', () => {
     // 第二次：折叠回去
     fireEvent.click(head);
     expect(body.style.display).toBe('none');
-    expect(toggle.textContent).toBe('+');
+    expect(toggle.dataset.collapsed).toBe('true');
     expect(block.dataset.collapsed).toBe('true');
   });
 

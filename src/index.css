@@ -53,6 +53,20 @@
 
   --shadow: rgba(0, 0, 0, 0.08);
 
+  /* === 设计 tokens（UI 升级统一）=== */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 999px;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.12);
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+
   --scrollbar-track: transparent;
   --scrollbar-thumb: #c5c5c5;
   --scrollbar-thumb-hover: #a5a5a5;
@@ -146,6 +160,11 @@
   --error-bg: #3a1d1d;
 
   --shadow: rgba(0, 0, 0, 0.4);
+
+  /* 设计 tokens 暗色校对：阴影加深（圆角/间距沿用亮色） */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
 
   --scrollbar-track: transparent;
   --scrollbar-thumb: #424242;
@@ -847,21 +866,49 @@ html.capacitor-platform-ios body.keyboard-open .mobile-bottom-nav {
 /* 折叠块：覆盖内联 style 的回退样式 */
 .anke-editor-content div[data-type="collapse-block"] {
   border-left: 3px solid var(--quote-border);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   padding: 0;
   margin: 6px 0;
+  box-shadow: var(--shadow-sm);
 }
 .anke-editor-content div[data-type="collapse-block"] .collapse-head {
   background: var(--collapse-head-bg);
   padding: 6px 10px;
   cursor: pointer;
   user-select: none;
-  border-radius: 4px 4px 0 0;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
 }
 .anke-editor-content div[data-type="collapse-block"] .collapse-body {
   background: var(--collapse-body-bg);
   padding: 8px 12px;
-  border-radius: 0 0 4px 4px;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+
+/* 折叠 toggle 图标：ChevronRight，折叠→指向右、展开→指向下（CSS 依据 data-collapsed 旋转） */
+.anke-editor-content .collapse-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.anke-editor-content .collapse-toggle svg,
+.reader-content .collapse-toggle svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+  transition: transform 0.15s ease;
+}
+.anke-editor-content div[data-type="collapse-block"][data-collapsed="true"] .collapse-toggle svg,
+.reader-content div[data-type="collapse-block"][data-collapsed="true"] .collapse-toggle svg {
+  transform: rotate(0deg);
+}
+.anke-editor-content div[data-type="collapse-block"][data-collapsed="false"] .collapse-toggle svg,
+.anke-editor-content div[data-type="collapse-block"]:not([data-collapsed]) .collapse-toggle svg,
+.reader-content div[data-type="collapse-block"][data-collapsed="false"] .collapse-toggle svg,
+.reader-content div[data-type="collapse-block"]:not([data-collapsed]) .collapse-toggle svg {
+  transform: rotate(90deg);
 }
 
 /* 暗模式：文字色强制白色（保证白字在深色背景上清晰） */
@@ -905,10 +952,12 @@ html.capacitor-platform-ios body.keyboard-open .mobile-bottom-nav {
 }
 
 .reader-content .collapse-toggle {
-  font-weight: bold;
-  font-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 20px;
-  text-align: center;
+  height: 20px;
+  flex-shrink: 0;
 }
 
 .reader-content .collapse-title {

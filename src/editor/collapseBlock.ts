@@ -117,13 +117,27 @@ function isCollapseBlockCollapsed(block: HTMLElement): boolean {
   return body ? body.style.display === 'none' : false;
 }
 
-/** 设置折叠块展开/折叠，同步 body 显示 + toggle 文本 + data-collapsed */
+/**
+ * 折叠 toggle 的 ChevronRight 内联 SVG（lucide chevron-right path）。
+ * 方向由 CSS 依据 block[data-collapsed] 旋转：展开指向下、折叠指向右。
+ */
+function createToggleIcon(): HTMLSpanElement {
+  const icon = document.createElement('span');
+  icon.className = 'collapse-toggle-icon';
+  icon.setAttribute('aria-hidden', 'true');
+  icon.innerHTML =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>';
+  return icon;
+}
+
+/** 设置折叠块展开/折叠，同步 body 显示 + toggle 状态 + data-collapsed */
 function setCollapseCollapsed(block: HTMLElement, collapsed: boolean): void {
   const body = block.querySelector<HTMLElement>('.collapse-body');
   const toggle = block.querySelector<HTMLElement>('.collapse-toggle');
   block.dataset.collapsed = String(collapsed);
   if (body) body.style.display = collapsed ? 'none' : 'block';
-  if (toggle) toggle.textContent = collapsed ? '+' : '−';
+  // toggle 图标方向由 CSS 按 block[data-collapsed] 旋转，无需改 innerHTML
+  if (toggle) toggle.dataset.collapsed = String(collapsed);
 }
 
 /** 切换折叠块状态并触发编辑器 input（供 head/toggle 点击共用） */
@@ -618,7 +632,10 @@ export function insertCollapseBlock(editor: HTMLElement, title: string): void {
   toggle.style.cursor = 'pointer';
   toggle.style.userSelect = 'none';
   toggle.style.flexShrink = '0';
-  toggle.textContent = '−';
+  toggle.style.display = 'inline-flex';
+  toggle.style.alignItems = 'center';
+  toggle.style.justifyContent = 'center';
+  toggle.appendChild(createToggleIcon());
 
   const titleEl = document.createElement('span');
   titleEl.className = 'collapse-title';
