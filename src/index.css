@@ -34,8 +34,8 @@
 
   --quote-bg: #f2eddf;
   --quote-border: #c8b88a;
-  --collapse-head-bg: #ead5bc;
-  --collapse-body-bg: #fff7d9;
+  --collapse-head-bg: #f1e7d3;
+  --collapse-body-bg: #faf6e9;
 
   --border-color: #e0e0e0;
   --border-light: #eeeeee;
@@ -99,7 +99,7 @@
   --amber-border: #e5c97d;
   --amber-ink: #7a5100;
 
-  --dice-card-bg: linear-gradient(135deg, #eef2ff 0%, #f5f3ff 100%);
+  --dice-card-bg: #eef2ff;
   --dice-card-border: #c7d2fe;
   --dice-card-ink: #1e293b;
   --dice-card-accent: #6366f1;
@@ -142,7 +142,7 @@
 
   --quote-bg: #3e4c5b;
   --quote-border: #2a3645;
-  --collapse-head-bg: #2a3645;
+  --collapse-head-bg: #333f4f;
   --collapse-body-bg: #3e4c5b;
 
   --border-color: #3c3c3c;
@@ -198,7 +198,7 @@
   --amber-border: #5a4320;
   --amber-ink: #f5d885;
 
-  --dice-card-bg: linear-gradient(135deg, #1e293b 0%, #312e81 100%);
+  --dice-card-bg: #2b2740;
   --dice-card-border: #4c1d95;
   --dice-card-ink: #e2e8f0;
   --dice-card-accent: #a78bfa;
@@ -910,32 +910,42 @@ html.capacitor-platform-ios body.keyboard-open .mobile-bottom-nav {
    - 注意选择器只用 .anke-editor-content（项目用的是 contenteditable，不用 ProseMirror）
    ================================ */
 
-/* 引用块：覆盖 contenteditableUtils 里设置的硬编码内联 style 的回退样式 */
+/* 引用块：色条(4px) + 浅底色 + 统一圆角（覆盖无内联样式的回退场景） */
 .anke-editor-content blockquote[data-type="quote-block"] {
-  border-left: 3px solid var(--quote-border);
-  border-radius: 4px;
-  padding: 8px 12px;
-  margin: 6px 0;
+  border-left: 4px solid var(--quote-border);
+  border-radius: var(--radius-md);
+  background: var(--quote-bg);
+  padding: 10px 14px;
+  margin: 8px 0;
 }
 
-/* 折叠块：覆盖内联 style 的回退样式 */
+/* 折叠块：左侧色条贯穿 + 浅底色 + 统一圆角 */
 .anke-editor-content div[data-type="collapse-block"] {
-  border-left: 3px solid var(--quote-border);
+  border-left: 4px solid var(--quote-border);
   border-radius: var(--radius-md);
   padding: 0;
-  margin: 6px 0;
+  margin: 8px 0;
   box-shadow: var(--shadow-sm);
 }
 .anke-editor-content div[data-type="collapse-block"] .collapse-head {
   background: var(--collapse-head-bg);
-  padding: 6px 10px;
+  padding: 8px 12px;
   cursor: pointer;
   user-select: none;
   border-radius: var(--radius-md) var(--radius-md) 0 0;
+  font-weight: 600;
+  transition: filter 0.15s ease;
+}
+/* 头部 hover 高亮（用 filter 避免被行内 background 覆盖） */
+.anke-editor-content div[data-type="collapse-block"] .collapse-head:hover {
+  filter: brightness(0.96);
+}
+[data-theme='dark'] .anke-editor-content div[data-type="collapse-block"] .collapse-head:hover {
+  filter: brightness(1.14);
 }
 .anke-editor-content div[data-type="collapse-block"] .collapse-body {
   background: var(--collapse-body-bg);
-  padding: 8px 12px;
+  padding: 10px 14px;
   border-radius: 0 0 var(--radius-md) var(--radius-md);
 }
 

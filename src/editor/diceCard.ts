@@ -117,7 +117,7 @@ export function renderDiceCard(block: HTMLElement): void {
     block.style.display = 'block';
     block.style.margin = '12px 0';
     block.style.padding = '12px 14px';
-    block.style.borderRadius = '10px';
+    block.style.borderRadius = 'var(--radius-lg)';
     block.style.background = 'var(--dice-card-bg)';
     block.style.border = '1px solid var(--dice-card-border)';
     block.style.fontSize = '13px';
@@ -284,14 +284,14 @@ export function renderDiceCard(block: HTMLElement): void {
     options.style.gap = '4px';
     block.appendChild(options);
 
-    // 结果区
+    // 结果区：浅底 + 左侧色条（与引用块视觉呼应）
     const result = document.createElement('div');
     result.setAttribute('data-slot', 'result');
     result.style.marginTop = '10px';
-    result.style.padding = '8px 10px';
+    result.style.padding = '10px 12px';
     result.style.background = 'var(--dice-card-kind-bg)';
-    result.style.border = '1px dashed var(--dice-card-border)';
-    result.style.borderRadius = '8px';
+    result.style.borderLeft = '3px solid var(--dice-card-accent)';
+    result.style.borderRadius = 'var(--radius-sm)';
     result.style.color = 'var(--dice-card-kind-fg)';
     result.style.fontSize = '12px';
     result.style.display = 'none';
@@ -373,6 +373,9 @@ export function renderDiceCard(block: HTMLElement): void {
   // 填值：结果
   const finalResultEl = block.querySelector<HTMLElement>('[data-slot="result"]');
   if (finalResultEl) {
+    // 幂等重设结果区样式：旧卡片（由旧版本创建）在下次渲染时升级到新色条样式
+    finalResultEl.style.borderLeft = '3px solid var(--dice-card-accent)';
+    finalResultEl.style.borderRadius = 'var(--radius-sm)';
     if (!lastResult) {
       finalResultEl.style.display = 'none';
       finalResultEl.textContent = '';
@@ -635,10 +638,11 @@ function rollDicePure(cfg: any): any {
   return rollDice(cfg as any);
 }
 
-/** 给编辑器挂载 dice-card 交互：点击选中、Delete/Backspace 删除、掷骰按钮；并对所有已有 dice-card 重渲染 */
-export function attachDiceCardHandlers(editor: HTMLElement): () => void {
-  // 首次挂载：对已有的 dice-card（从 innerHTML 恢复出来）重渲染以确保内部结构
-  // 注意：已初始化的（data-initialized=1）只刷新内容，不再清空重建，避免 rollBtn 引用变化导致 hover/click 状态丢失
+/** 重渲染编辑器内所有骰子卡片：补 data-block-id + 刷新内部结构/样式。
+ *  - 幂等：已初始化的只刷新内容，未初始化的由 renderDiceCard 补齐基础样式
+ *  - 供 attach 与内容加载（innerHTML 写入后）共用，让旧卡片升级到最新样式
+ */
+export function rerenderDiceCards(editor: HTMLElement): void {
   const existing = editor.querySelectorAll<HTMLElement>(DICE_CARD_SELECTOR);
   existing.forEach((el) => {
     // 需求4:补全 data-block-id(从 innerHTML 恢复的 dice-card 可能没有)
@@ -646,13 +650,15 @@ export function attachDiceCardHandlers(editor: HTMLElement): () => void {
       const { payload } = getDicePayload(el);
       el.setAttribute('data-block-id', payload?.config?.id || Math.random().toString(36).slice(2, 10));
     }
-    if (el.dataset.initialized) {
-      renderDiceCard(el);
-    } else {
-      el.innerHTML = '';
-      renderDiceCard(el);
-    }
+    renderDiceCard(el);
   });
+}
+
+/** 给编辑器挂载 dice-card 交互：点击选中、Delete/Backspace 删除、掷骰按钮；并对所有已有 dice-card 重渲染 */
+export function attachDiceCardHandlers(editor: HTMLElement): () => void {
+  // 首次挂载：对已有的 dice-card（从 innerHTML 恢复出来）重渲染以确保内部结构
+  // 注意：已初始化的（data-initialized=1）只刷新内容，不再清空重建，避免 rollBtn 引用变化导致 hover/click 状态丢失
+  rerenderDiceCards(editor);
 
   const onMouseDown = (e: MouseEvent) => {
     const target = e.target as Node | null;

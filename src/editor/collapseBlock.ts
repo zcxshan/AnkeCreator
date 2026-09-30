@@ -535,7 +535,8 @@ export function insertQuoteBlock(editor: HTMLElement): void {
   }
 
   // 使用 CSS 变量，让亮/暗模式自动适配（暗模式文字继承 --text-primary 白色）
-  const blockquoteStyle = `background:var(--quote-bg);color:inherit;padding:8px 12px;border-left:3px solid var(--quote-border, #c8b88a);border-radius:4px;margin:6px 0;`;
+  // 美化：色条 4px + 浅底 + 统一圆角 token
+  const blockquoteStyle = `background:var(--quote-bg);color:inherit;padding:10px 14px;border-left:4px solid var(--quote-border, #c8b88a);border-radius:var(--radius-md);margin:8px 0;`;
 
   if (range.collapsed) {
     // 2) 折叠光标：插入空 blockquote + trailing <br>（让光标能逃出引用块，#10）
@@ -611,8 +612,8 @@ export function insertCollapseBlock(editor: HTMLElement, title: string): void {
   block.setAttribute('data-title', safeTitle);
   block.setAttribute('tabindex', '-1');
   block.style.display = 'block';
-  block.style.margin = '6px 0';
-  block.style.borderRadius = '4px';
+  block.style.margin = '8px 0';
+  block.style.borderRadius = 'var(--radius-md)';
   block.style.overflow = 'hidden';
   block.style.outline = 'none';
   block.style.userSelect = 'auto';
@@ -620,7 +621,7 @@ export function insertCollapseBlock(editor: HTMLElement, title: string): void {
   const head = document.createElement('div');
   head.className = 'collapse-head';
   head.style.background = 'var(--collapse-head-bg)';
-  head.style.padding = '6px 10px';
+  head.style.padding = '8px 12px';
   head.style.fontWeight = '600';
   head.style.display = 'flex';
   head.style.alignItems = 'center';
@@ -652,7 +653,7 @@ export function insertCollapseBlock(editor: HTMLElement, title: string): void {
   body.className = 'collapse-body';
   body.setAttribute('contenteditable', 'true');
   body.style.background = 'var(--collapse-body-bg)';
-  body.style.padding = '8px 12px';
+  body.style.padding = '10px 14px';
   body.style.display = 'block';
   body.style.whiteSpace = 'normal';
   body.innerHTML = bodyContent;

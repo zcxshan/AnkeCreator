@@ -15,9 +15,7 @@ interface Props {
   bbcodeTextareaRef: React.RefObject<HTMLTextAreaElement | null>;
   visualEditorRef: React.RefObject<HTMLDivElement | null>;
   bbcodeValue: string;
-  visualValue: string;
   onBBCodeChange: (v: string) => void;
-  onVisualChange: (v: string) => void;
   /** 来自跨节搜索（GlobalSearchPanel）跳转的初始 query；非空时自动 doFind 第一个匹配 */
   initialQuery?: string;
   /** initialQuery 被消费后的回调（父组件借此清空 pendingSearchQuery） */
@@ -29,9 +27,7 @@ export function SearchPanel({
   bbcodeTextareaRef,
   visualEditorRef,
   bbcodeValue,
-  visualValue,
   onBBCodeChange,
-  onVisualChange,
   initialQuery = '',
   onInitialQueryConsumed,
 }: Props) {
