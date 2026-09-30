@@ -11,4 +11,10 @@ describe('Icon', () => {
     const { container } = render(<Icon name={'nonexistent' as any} />)
     expect(container.querySelector('svg')).not.toBeNull()
   })
+  it('渲染新增名称（alert/menu/settings/globe）', () => {
+    for (const name of ['alert', 'menu', 'settings', 'globe'] as const) {
+      const { container } = render(<Icon name={name} />)
+      expect(container.querySelector('svg')).not.toBeNull()
+    }
+  })
 })
