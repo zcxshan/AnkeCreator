@@ -543,7 +543,7 @@ function Modal({
             onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)' }}
             aria-label="关闭"
           >
-            ✕
+            <Icon name="x" size={14} />
           </button>
         </div>
         {children}

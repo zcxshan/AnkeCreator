@@ -1103,7 +1103,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
           }}
           title="返回"
         >
-          ←
+          <Icon name="back" size={14} />
         </button>
 
         {onOpenReader && (
