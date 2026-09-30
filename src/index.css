@@ -615,6 +615,61 @@ textarea {
 }
 
 /* ================================
+   全局 UI 工具类（设计系统统一）
+   ================================ */
+.anke-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.anke-card:hover {
+  box-shadow: var(--shadow-sm);
+}
+.anke-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.anke-btn:hover { background: var(--bg-active); }
+.anke-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.anke-btn-primary {
+  background: var(--accent-bg);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.anke-btn-primary:hover { background: var(--accent); color: var(--text-on-accent); }
+.anke-btn-danger { color: var(--danger); }
+.anke-input {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 14px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+.anke-input:focus { border-color: var(--accent); }
+.anke-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+/* ================================
    骰子掷骰动画（一次性，投后按钮消失）
    - ankeDiceShake：卡片摇一摇（点击掷骰瞬间）
    - ankeDiceBtnPress：按钮按压缩放
