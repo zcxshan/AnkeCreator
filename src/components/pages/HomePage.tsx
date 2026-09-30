@@ -3,6 +3,7 @@ import { useStoryStore } from '../../store/storyStore';
 import { useDiceHistoryStore } from '../../store/diceHistoryStore';
 import * as db from '../../db/index';
 import { isCapacitor } from '../../utils/platform';
+import { Icon, type IconName } from '../../components/common/Icon';
 
 interface HomePageProps {
   onOpenStory: (storyId: string) => void;
@@ -19,7 +20,7 @@ interface HomePageProps {
 }
 
 interface StatItem {
-  icon: string;
+  icon: IconName;
   label: string;
   value: string;
 }
@@ -65,9 +66,9 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
 
   // 统计数据：所有作品的字数、骰点数、作品数（基于富文本 content 字段）
   const [stats, setStats] = useState<StatItem[]>([
-    { icon: '📝', label: '累计创作字数', value: '0' },
-    { icon: '🎲', label: '骰点总次数', value: '0' },
-    { icon: '📚', label: '安科作品数', value: '0' },
+    { icon: 'pen', label: '累计创作字数', value: '0' },
+    { icon: 'dices', label: '骰点总次数', value: '0' },
+    { icon: 'book', label: '安科作品数', value: '0' },
   ]);
 
   useEffect(() => {
@@ -89,10 +90,16 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
 
       if (!cancelled) {
         setStats([
-          { icon: '📝', label: '累计创作字数', value: totalWords.toLocaleString() },
-          { icon: '🎲', label: '骰点总次数', value: totalDice.toLocaleString() },
-          { icon: '📚', label: '安科作品数', value: storyCount.toLocaleString() },
+          { icon: 'pen', label: '累计创作字数', value: totalWords.toLocaleString() },
+          { icon: 'dices', label: '骰点总次数', value: totalDice.toLocaleString() },
+          { icon: 'book', label: '安科作品数', value: storyCount.toLocaleString() },
         ]);
+      }
+
+      // 预建骰子记录 → 作品 ID 计数索引，避免为每个作品重复 filter 遍历
+      const diceCountByStory = new Map<string, number>();
+      for (const r of diceRecords) {
+        diceCountByStory.set(r.storyId, (diceCountByStory.get(r.storyId) ?? 0) + 1);
       }
 
       // 最近编辑的作品摘要（最多 3 个），复用已聚合的统计字段
@@ -106,7 +113,7 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
         description: story.description || '',
         updatedAt: formatDate(story.updated_at),
         sectionCount: story.sectionCount || 0,
-        diceCount: diceRecords.filter((r) => r.storyId === story.id).length,
+        diceCount: diceCountByStory.get(story.id) ?? 0,
         wordCount: story.wordCount || 0,
       }));
 
@@ -165,7 +172,7 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent)'; e.currentTarget.style.color = 'var(--text-on-accent)' }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--accent-bg)'; e.currentTarget.style.color = 'var(--accent)' }}
             >
-              <span className={isCapacitor ? 'text-sm leading-none' : 'text-lg leading-none'}>+</span>
+              <Icon name="fileText" size={isCapacitor ? 14 : 16} />
               新建安科
             </button>
             {onShowResourceLibrary && (
@@ -178,7 +185,7 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
               >
-                <span>🗂️</span> 资源库
+                <Icon name="folder" size={isCapacitor ? 14 : 16} /> 资源库
               </button>
             )}
             {onShowTutorial && (
@@ -191,7 +198,7 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
               >
-                <span>📚</span> 使用教程
+                <Icon name="bookText" size={isCapacitor ? 14 : 16} /> 使用教程
               </button>
             )}
             {onShowAnjiaCollect && !isCapacitor && (
@@ -204,7 +211,7 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
               >
-                <span>📜</span> 收集安价
+                <Icon name="scroll" size={isCapacitor ? 14 : 16} /> 收集安价
               </button>
             )}
             {onShowAnkeCollect && !isCapacitor && (
@@ -217,7 +224,7 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
               >
-                <span>📖</span> 收集安科
+                <Icon name="book" size={isCapacitor ? 14 : 16} /> 收集安科
               </button>
             )}
             {onShowFindAnke && !isCapacitor && (
@@ -230,7 +237,7 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
               >
-                <span>🔍</span> 寻找安科
+                <Icon name="search" size={isCapacitor ? 14 : 16} /> 寻找安科
               </button>
             )}
             {onShowDicePlayground && (
@@ -243,7 +250,7 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
               >
-                <span>🎲</span> 玩骰子
+                <Icon name="dices" size={isCapacitor ? 14 : 16} /> 玩骰子
               </button>
             )}
             {onShowWheelPlayground && (
@@ -256,7 +263,7 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
               >
-                <span>🎡</span> 玩转盘
+                <Icon name="wheel" size={isCapacitor ? 14 : 16} /> 玩转盘
               </button>
             )}
             {onShowCreationLog && (
@@ -278,7 +285,7 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
               >
-                <span>📝</span> 创作日志
+                <Icon name="pen" size={isCapacitor ? 14 : 16} /> 创作日志
               </button>
             )}
           </div>
@@ -298,9 +305,7 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
                 style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
               >
                 <div className="flex items-start justify-between">
-                  <span className="text-2xl" aria-hidden="true">
-                    {stat.icon}
-                  </span>
+                  <Icon name={stat.icon} size={24} />
                   <span className="text-[10px] font-medium tracking-widest uppercase" style={{ color: 'var(--text-muted)' }}>
                     TOTAL
                   </span>
@@ -333,7 +338,9 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
 
           {recentStories.length === 0 ? (
             <div className="rounded-2xl p-12 text-center" style={{ background: 'var(--bg-card)', border: '1px dashed var(--border-color)' }}>
-              <div className="text-4xl mb-3">✒️</div>
+              <div className="text-4xl mb-3">
+                <Icon name="pen" size={24} />
+              </div>
               <p className="font-medium" style={{ color: 'var(--text-primary)' }}>还没有作品，开始你的第一个安科吧</p>
               <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>点击上方「新建安科」按钮创建</p>
             </div>
@@ -369,19 +376,19 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
                       </p>
                       <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-[var(--text-secondary)]">
                         <span className="inline-flex items-center gap-1">
-                          <span>🕒</span>
+                          <Icon name="clock" size={12} />
                           <span>{story.updatedAt}</span>
                         </span>
                         <span className="inline-flex items-center gap-1">
-                          <span>📖</span>
+                          <Icon name="bookText" size={12} />
                           <span>{story.sectionCount} 章节</span>
                         </span>
                         <span className="inline-flex items-center gap-1">
-                          <span>🎲</span>
+                          <Icon name="dices" size={12} />
                           <span>{story.diceCount} 骰点</span>
                         </span>
                         <span className="inline-flex items-center gap-1">
-                          <span>✏️</span>
+                          <Icon name="pen" size={12} />
                           <span>{story.wordCount.toLocaleString()} 字</span>
                         </span>
                       </div>
