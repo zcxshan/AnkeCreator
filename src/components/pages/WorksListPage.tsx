@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStoryStore } from '../../store/storyStore';
 import { useToastStore } from '../../store/toastStore';
 import * as db from '../../db/index';
+import { Icon } from '../common/Icon';
 import { WorkCard, type WorkSummary } from '../common/WorkCard';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { InputDialog } from '../common/InputDialog';
@@ -170,7 +171,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
   const categories: Category[] = useMemo(() => {
     const favCats: Category[] = favorites.map((f) => ({
       key: `fav:${f.id}`,
-      label: `📁 ${f.name}`,
+      label: f.name,
       count: 0, // 占位，渲染时按需替换为收藏夹内作品数
     }));
     return [
@@ -822,7 +823,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
             }}
             title="返回"
           >
-            ←
+            <Icon name="back" size={16} />
           </button>
           <div className="flex items-baseline gap-3 min-w-0">
             <h1 className="text-xl font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>我的安科作品</h1>
@@ -860,7 +861,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
                         onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
                         onMouseLeave={(e) => { e.currentTarget.style.background = ''; e.currentTarget.style.color = 'var(--text-secondary)'; }}
                       >
-                        <span>👤</span>
+                        <Icon name="bot" size={14} />
                         <span>关于作者</span>
                       </button>
                     )}
@@ -871,7 +872,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
                       onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
                       onMouseLeave={(e) => { e.currentTarget.style.background = ''; e.currentTarget.style.color = 'var(--text-secondary)'; }}
                     >
-                      <span>🗑️</span>
+                      <Icon name="trash" size={14} />
                       <span>回收站{trashedStories.length > 0 ? `(${trashedStories.length})` : ''}</span>
                     </button>
                     <button
@@ -891,7 +892,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
                       onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
                       onMouseLeave={(e) => { e.currentTarget.style.background = ''; }}
                     >
-                      <span>📥</span>
+                      <Icon name="download" size={14} />
                       <span>导入作品</span>
                     </button>
                     <button
@@ -911,7 +912,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
                         className="w-full px-4 py-2.5 text-left text-xs font-medium transition-colors inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                         style={{ color: 'var(--text-on-accent)', background: 'var(--accent)' }}
                       >
-                        <span>📤</span>
+                        <Icon name="upload" size={14} />
                         <span>导出选中 ({selectedIds.size})</span>
                       </button>
                     )}
@@ -942,7 +943,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
                   onMouseLeave={(e) => e.currentTarget.style.background = ''}
                   title="回收站"
                 >
-                  <span>🗑️</span>
+                  <Icon name="trash" size={14} />
                   <span>回收站{trashedStories.length > 0 ? `(${trashedStories.length})` : ''}</span>
                 </button>
                 <button
@@ -962,7 +963,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
                   onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.background = 'var(--bg-hover)'; }}
                   onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.background = 'var(--bg-card)'; }}
                 >
-                  <span>📥</span>
+                  <Icon name="download" size={14} />
                   <span>导入作品</span>
                 </button>
                 <button
@@ -984,7 +985,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
                     onMouseEnter={(e) => { if (selectedIds.size > 0) e.currentTarget.style.opacity = '0.9'; }}
                     onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
                   >
-                    <span>📤</span>
+                    <Icon name="upload" size={14} />
                     <span>导出选中 ({selectedIds.size})</span>
                   </button>
                 )}
@@ -1026,6 +1027,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
                       if (!active) e.currentTarget.style.color = 'var(--text-secondary)';
                     }}
                   >
+                    {isFavorite && <Icon name="folder" size={12} />}
                     <span>{cat.label}</span>
                     <span
                       className="text-[10px] px-1.5 py-0.5 rounded-full"
@@ -1053,7 +1055,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
                           setFavoriteMenuOpenId(null);
                         }}
                       >
-                        ✏️ 重命名
+                        <Icon name="pen" size={12} /> 重命名
                       </button>
                       <button
                         className="w-full px-3 py-1.5 text-left text-xs hover:bg-[var(--bg-hover)]"
@@ -1064,7 +1066,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
                           setFavoriteMenuOpenId(null);
                         }}
                       >
-                        🗑 删除（仅空）
+                        <Icon name="trash" size={12} /> 删除（仅空）
                       </button>
                     </div>
                   )}
@@ -1097,7 +1099,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
 
           <div className="relative shrink-0">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs" style={{ color: 'var(--text-secondary)' }}>
-              🔍
+              <Icon name="search" size={12} />
             </span>
             <input
               type="text"
@@ -1120,7 +1122,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
         {activeFilter === 'trash' ? (
           <>
             <div className="flex items-center gap-3 mb-6">
-              <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>🗑️ 回收站</h2>
+              <h2 className="text-lg font-semibold inline-flex items-center gap-2" style={{ color: 'var(--text-primary)' }}><Icon name="trash" size={16} /> 回收站</h2>
               <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{trashedStories.length} 个作品</span>
               {trashedStories.length > 0 && (
                 <button
@@ -1159,7 +1161,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
           <EmptyState />
         ) : filteredWorks.length === 0 ? (
           <div className="text-center py-20 text-sm" style={{ color: 'var(--text-secondary)' }}>
-            <div className="text-4xl mb-3">🔍</div>
+            <div className="text-4xl mb-3"><Icon name="search" size={36} /></div>
             没有找到匹配的作品，换个关键词试试吧
           </div>
         ) : (
@@ -1587,17 +1589,16 @@ function EmptyState() {
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center">
       <div className="relative mb-6">
-        <div
-          className="w-32 h-32 rounded-full flex items-center justify-center"
+        <div className="w-32 h-32 rounded-full flex items-center justify-center"
           style={{ background: 'linear-gradient(135deg, var(--accent-soft) 0%, var(--accent-bg) 100%)' }}
         >
-          <div className="text-6xl">🎲</div>
+          <Icon name="dices" size={56} />
         </div>
         <div className="absolute -top-2 -right-2 w-10 h-10 rounded-full flex items-center justify-center text-2xl" style={{ background: 'var(--accent-bg)' }}>
           ✨
         </div>
         <div className="absolute -bottom-1 -left-3 w-8 h-8 rounded-full flex items-center justify-center text-lg" style={{ background: 'var(--accent-soft)' }}>
-          📖
+          <Icon name="bookText" size={14} />
         </div>
       </div>
       <h2 className="text-lg font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
@@ -1733,10 +1734,9 @@ export function countWordsAndDice(json: any): { words: number; dice: number } {
 function TrashCard({ work, onRestore, onPermanentDelete }: { work: WorkSummary; onRestore: () => void; onPermanentDelete: () => void }) {
   return (
     <div
-      className="flex items-center gap-4 px-4 py-3 rounded-xl border"
-      style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)' }}
+      className="anke-card flex items-center gap-4 px-4 py-3"
     >
-      <span className="text-2xl">📖</span>
+      <Icon name="bookText" size={24} />
       <div className="flex-1 min-w-0">
         <div className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{work.title}</div>
       </div>
