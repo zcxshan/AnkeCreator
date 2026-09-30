@@ -633,7 +633,7 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
                             检测中
                           </>
                         ) : (
-                          <Icon name="search" size={14} /> 自动检测
+                          <><Icon name="search" size={14} /> 自动检测</>
                         )}
                       </button>
                     </div>
