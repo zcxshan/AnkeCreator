@@ -7,6 +7,7 @@
 // ============================================================
 
 import { useState, useRef, useEffect } from 'react';
+import { Icon } from '../common/Icon';
 import { rollExpression } from '../../utils/diceEngine';
 import { useToastStore } from '../../store/toastStore';
 import { useSettingStore } from '../../store/settingStore';
@@ -137,10 +138,10 @@ export function DicePlaygroundPage({ onBack }: DicePlaygroundPageProps) {
           onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-card)')}
           onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--bg-hover)')}
         >
-          ← 返回
+          <Icon name="back" size={16} /> 返回
         </button>
         <div className="flex items-center gap-2">
-          <span style={{ fontSize: '20px' }}>🎲</span>
+          <Icon name="dices" size={20} />
           <h1 className="text-lg font-semibold m-0">玩骰子</h1>
         </div>
       </div>
@@ -187,7 +188,7 @@ export function DicePlaygroundPage({ onBack }: DicePlaygroundPageProps) {
                 onMouseEnter={(e) => { if (!isRolling) e.currentTarget.style.opacity = '0.85'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
               >
-                🎲 投掷
+                <Icon name="dices" size={16} /> 投掷
               </button>
             </div>
 
@@ -246,9 +247,9 @@ export function DicePlaygroundPage({ onBack }: DicePlaygroundPageProps) {
                 <span>最近一次投掷</span>
                 <span
                   className={isRolling ? 'anke-dice-playground-spin' : ''}
-                  style={{ fontSize: 16, display: 'inline-block' }}
+                  style={{ fontSize: 16, display: 'inline-flex' }}
                 >
-                  🎲
+                  <Icon name="dices" size={16} />
                 </span>
               </div>
               <div className="flex items-baseline gap-3">
@@ -359,7 +360,8 @@ export function DicePlaygroundPage({ onBack }: DicePlaygroundPageProps) {
               className="rounded-2xl p-12 text-center"
               style={{ background: 'var(--bg-card)', border: '1px dashed var(--border-color)' }}
             >
-              <div className="text-4xl mb-3">🎲</div>
+              <div className="text-4xl mb-3"><Icon name="dices" size={48} />
+              </div>
               <p className="font-medium" style={{ color: 'var(--text-primary)' }}>
                 输入骰子表达式开始投掷
               </p>

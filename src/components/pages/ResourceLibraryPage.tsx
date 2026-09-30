@@ -10,6 +10,7 @@
 // ============================================================
 
 import { useState } from 'react';
+import { Icon, type IconName } from '../common/Icon';
 import { ImageLibraryPanel } from './ImageLibraryPage';
 import { TemplatesPanel } from './TemplatesPage';
 import { FindMaterialPanel } from './FindMaterialPanel';
@@ -22,10 +23,10 @@ interface ResourceLibraryPageProps {
 type ResourceTab = 'image' | 'template' | 'material';
 type TemplateSubTab = 'world' | 'character';
 
-const TABS: { key: ResourceTab; label: string; icon: string }[] = [
-  { key: 'image', label: '图片', icon: '🖼️' },
-  { key: 'template', label: '模板', icon: '📋' },
-  { key: 'material', label: '寻找素材', icon: '🔍' },
+const TABS: { key: ResourceTab; label: string; icon: IconName }[] = [
+  { key: 'image', label: '图片', icon: 'bookText' },
+  { key: 'template', label: '模板', icon: 'copy' },
+  { key: 'material', label: '寻找素材', icon: 'search' },
 ];
 
 export function ResourceLibraryPage({ onBack, onShowAuthor }: ResourceLibraryPageProps) {
@@ -56,13 +57,13 @@ export function ResourceLibraryPage({ onBack, onShowAuthor }: ResourceLibraryPag
             e.currentTarget.style.color = 'var(--text-secondary)';
           }}
         >
-          ← 返回
+          <Icon name="back" size={16} /> 返回
         </button>
         <h1
           className="text-lg font-semibold flex items-center gap-2"
           style={{ color: 'var(--text-primary)' }}
         >
-          <span>🗂️</span> 资源库
+          <Icon name="folder" size={20} /> 资源库
         </h1>
         <div className="flex-1" />
       </div>
@@ -99,7 +100,7 @@ export function ResourceLibraryPage({ onBack, onShowAuthor }: ResourceLibraryPag
                 }
               }}
             >
-              <span style={{ fontSize: 15 }}>{t.icon}</span>
+              <Icon name={t.icon} size={15} />
               {t.label}
             </button>
           );

@@ -9,6 +9,7 @@
 // - 骨碌碌 Tab：复用 GululuCollectPanel 组件
 // ============================================================
 import { useState } from 'react';
+import { Icon } from '../common/Icon';
 import {
   collectAnkeToWorkJson,
   type SectionMode,
@@ -325,15 +326,15 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
             onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
           >
-            ← 返回
+            <Icon name="back" size={16} /> 返回
           </button>
           <h1 className="text-lg font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-            <span>📖</span> 收集安科
+            <Icon name="bookText" size={20} /> 收集安科
           </h1>
         </div>
         <div className="flex-1 flex items-center justify-center p-8">
           <div className="text-center max-w-sm">
-            <div className="text-4xl mb-3">📱</div>
+            <div className="text-4xl mb-3"><Icon name="bot" size={48} /></div>
             <p className="font-medium" style={{ color: 'var(--text-primary)' }}>移动端暂不支持收集安科</p>
             <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>请在桌面端（Electron）使用此功能</p>
           </div>
@@ -365,13 +366,13 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
             e.currentTarget.style.color = 'var(--text-secondary)';
           }}
         >
-          ← 返回
+          <Icon name="back" size={16} /> 返回
         </button>
         <h1
           className="text-lg font-semibold flex items-center gap-2"
           style={{ color: 'var(--text-primary)' }}
         >
-          <span>📖</span> 收集安科
+          <Icon name="bookText" size={20} /> 收集安科
         </h1>
         {/* Tab 切换：NGA / 骨碌碌 */}
         <div
@@ -390,7 +391,7 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
               fontWeight: tab === 'nga' ? 600 : 400,
             }}
           >
-            📖 NGA 安科
+            <Icon name="bookText" size={14} /> NGA 安科
           </button>
           <button
             onClick={() => setTab('gululu')}
@@ -471,7 +472,7 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
                         检测中
                       </>
                     ) : (
-                      <>🔍 自动检测</>
+                      <><Icon name="search" size={14} /> 自动检测</>
                     )}
                   </button>
                 </div>
@@ -485,7 +486,7 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
                     }}
                     title="仅收集该用户的回复"
                   >
-                    <span>🎯</span>
+                    <Icon name="target" size={14} />
                     <span>仅收集用户 uid={parsedAuthorid} 的回复</span>
                     <button
                       onClick={clearAuthorid}
@@ -635,7 +636,7 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
                       {paused ? '已暂停' : (progressMsg || '处理中…')}
                     </>
                   ) : (
-                    <>📥 确认收集</>
+                    <><Icon name="download" size={14} /> 确认收集</>
                   )}
                 </button>
                 {running && (

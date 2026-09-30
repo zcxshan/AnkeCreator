@@ -21,6 +21,7 @@ import {
   type AnjiaHistoryEntry,
 } from '../../utils/anjiaHistory';
 import { isCapacitor } from '../../utils/platform';
+import { Icon } from '../common/Icon';
 import { CollectDecisionDialog } from '../common/CollectDecisionDialog';
 import { useNgaCollectCommon } from '../../hooks/useNgaCollectCommon';
 
@@ -395,13 +396,13 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
             e.currentTarget.style.color = 'var(--text-secondary)';
           }}
         >
-          ← 返回
+          <Icon name="back" size={16} /> 返回
         </button>
         <h1
           className="text-lg font-semibold flex items-center gap-2"
           style={{ color: 'var(--text-primary)' }}
         >
-          <span>📜</span> 收集安价
+          <Icon name="scroll" size={20} /> 收集安价
         </h1>
         <div className="ml-auto flex items-center gap-2 relative">
           {/* 历史按钮 */}
@@ -424,7 +425,7 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
               e.currentTarget.style.color = 'var(--text-secondary)';
             }}
           >
-            📂 历史{history.length > 0 ? ` (${history.length})` : ''}
+            <Icon name="clock" size={14} /> 历史{history.length > 0 ? ` (${history.length})` : ''}
           </button>
           <div
             className="text-xs"
@@ -512,7 +513,7 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
                             }}
                             title="删除此历史"
                           >
-                            🗑
+                            <Icon name="trash" size={14} />
                           </button>
                         </div>
                       </div>
@@ -632,7 +633,7 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
                             检测中
                           </>
                         ) : (
-                          <>🔍 自动检测</>
+                          <Icon name="search" size={14} /> 自动检测
                         )}
                       </button>
                     </div>
@@ -647,7 +648,7 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
                         }}
                         title="仅收集该用户的回复"
                       >
-                        <span>🎯</span>
+                        <Icon name="target" size={14} />
                         <span>仅收集用户 uid={parsedAuthorid} 的回复</span>
                         <button
                           onClick={clearAuthorid}
@@ -1176,7 +1177,7 @@ function ResultsList({
             }}
             title={saved ? '已保存' : '保存到抓取历史'}
           >
-            {saved ? '✓ 已保存' : '💾 保存到历史'}
+            {saved ? '✓ 已保存' : <><Icon name="save" size={14} /> 保存到历史</>}
           </button>
           <button
             onClick={onCopyNGA}
@@ -1196,7 +1197,7 @@ function ResultsList({
             }}
             title="复制为 NGA BBCode 格式（标题加粗，可直接贴到 NGA 编辑器）"
           >
-            📋 复制 NGA 格式
+            <Icon name="copy" size={14} /> 复制 NGA 格式
           </button>
           <button
             onClick={onCopyAll}
@@ -1215,7 +1216,7 @@ function ResultsList({
               e.currentTarget.style.color = 'var(--accent)';
             }}
           >
-            📋 复制全部
+            <Icon name="copy" size={14} /> 复制全部
           </button>
         </div>
       </div>
@@ -1292,7 +1293,7 @@ function ResultItem({
             }}
             title={`复制 ${item.floor}楼 到剪贴板`}
           >
-            📋 复制
+            <Icon name="copy" size={14} /> 复制
           </button>
           <button
             onClick={() => onDelete(item, index)}
@@ -1309,7 +1310,7 @@ function ResultItem({
             }}
             title={`删除 ${item.floor}楼（可撤销）`}
           >
-            🗑 删除
+            <Icon name="trash" size={14} /> 删除
           </button>
         </div>
       </div>

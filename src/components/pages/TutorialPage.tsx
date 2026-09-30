@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Icon, type IconName } from '../common/Icon';
 
 interface TutorialPageProps {
   onBack: () => void;
@@ -251,6 +252,22 @@ const TUTORIAL_TOPICS: TutorialTopic[] = [
   },
 ];
 
+const EMOJI_ICON: Record<string, IconName> = {
+  '🎲': 'dices',
+  '📖': 'bookText',
+  '🔍': 'search',
+  '💾': 'save',
+  '🎡': 'wheel',
+  '📋': 'copy',
+  '📤': 'upload',
+};
+
+function TopicIcon({ emoji }: { emoji: string }) {
+  const name = EMOJI_ICON[emoji];
+  if (!name) return <span className="text-xl">{emoji}</span>;
+  return <Icon name={name} size={20} />;
+}
+
 export function TutorialPage({ onBack, onShowAuthor }: TutorialPageProps) {
   const [expandedId, setExpandedId] = useState<string | null>('basics');
 
@@ -269,9 +286,9 @@ export function TutorialPage({ onBack, onShowAuthor }: TutorialPageProps) {
             onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
           >
-            ← 返回首页
+            <Icon name="back" size={16} /> 返回首页
           </button>
-          <h1 className="text-2xl font-bold">📘 安科创作教程</h1>
+          <h1 className="text-2xl font-bold"><Icon name="bookText" size={24} /> 安科创作教程</h1>
           {onShowAuthor && (
             <button
               onClick={onShowAuthor}
@@ -318,7 +335,7 @@ export function TutorialPage({ onBack, onShowAuthor }: TutorialPageProps) {
                   onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                 >
-                  <span className="text-xl">{topic.icon}</span>
+                  <TopicIcon emoji={topic.icon} />
                   <div className="flex-1 text-left">
                     <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
                       {topic.title}

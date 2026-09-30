@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react';
+import { Icon } from '../common/Icon';
 import { useStoryStore } from '../../store/storyStore';
 import { useToastStore } from '../../store/toastStore';
 import * as db from '../../db/index';
@@ -343,7 +344,7 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
   if (!story) {
     return (
       <div style={{ padding: 48, textAlign: 'center', color: THEME_COLORS.light.textSecondary }}>
-        <div style={{ fontSize: 48, marginBottom: 16 }}>📖</div>
+        <div style={{ fontSize: 48, marginBottom: 16 }}><Icon name="bookText" size={48} /></div>
         <div>未选择作品，请先从作品列表打开一个作品</div>
         <button onClick={onBack} style={{ marginTop: 16, padding: '8px 16px', cursor: 'pointer' }}>返回</button>
       </div>
@@ -368,7 +369,7 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
     >
       {/* 全宽顶栏（正常文档流，不悬浮，避免与 overflow:hidden 父容器冲突） */}
       <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', background: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
-        <button onClick={onBack} title="返回" style={toolbarBtnStyle(colors)}>← 返回</button>
+        <button onClick={onBack} title="返回" style={{ ...toolbarBtnStyle(colors), display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="back" size={14} /> 返回</button>
         <span style={{ fontWeight: 600 }}>{story.title}</span>
       </div>
       {/* 左右分栏 */}
@@ -502,23 +503,23 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
           overflowX: 'auto',
           position: 'relative',
         }}>
-          <button onClick={() => setLeftDrawerOpen(!leftDrawerOpen)} title="目录" style={toolbarBtnStyle(colors)}>☰</button>
+          <button onClick={() => setLeftDrawerOpen(!leftDrawerOpen)} title="目录" style={{ ...toolbarBtnStyle(colors), display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="folder" size={14} /> 目录</button>
 
           <button
             onClick={goToPrev}
             disabled={!canGoPrev}
             title="上一节 (←)"
-            style={{ ...toolbarBtnStyle(colors), opacity: canGoPrev ? 1 : 0.4, cursor: canGoPrev ? 'pointer' : 'not-allowed' }}
+            style={{ ...toolbarBtnStyle(colors), opacity: canGoPrev ? 1 : 0.4, cursor: canGoPrev ? 'pointer' : 'not-allowed', display: 'inline-flex', alignItems: 'center', gap: 4 }}
           >
-            ◀ 上一节
+            <Icon name="back" size={14} /> 上一节
           </button>
           <button
             onClick={goToNext}
             disabled={!canGoNext}
             title="下一节 (→)"
-            style={{ ...toolbarBtnStyle(colors), opacity: canGoNext ? 1 : 0.4, cursor: canGoNext ? 'pointer' : 'not-allowed' }}
+            style={{ ...toolbarBtnStyle(colors), opacity: canGoNext ? 1 : 0.4, cursor: canGoNext ? 'pointer' : 'not-allowed', display: 'inline-flex', alignItems: 'center', gap: 4 }}
           >
-            下一节 ▶
+            下一节 <Icon name="forward" size={14} />
           </button>
 
           {!isCapacitor && currentIndex >= 0 && (
@@ -723,7 +724,7 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
               </>
             ) : (
               <div style={{ textAlign: 'center', color: colors.textSecondary, padding: 48 }}>
-                <div style={{ fontSize: 48, marginBottom: 16 }}>📖</div>
+                <div style={{ fontSize: 48, marginBottom: 16 }}><Icon name="bookText" size={48} /></div>
                 <div>请从左侧目录选择一个小节开始阅读</div>
               </div>
             )}
@@ -748,9 +749,12 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
               cursor: canGoPrev ? 'pointer' : 'not-allowed',
               padding: '10px 20px',
               fontSize: 14,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
             }}
           >
-            ◀ 上一节
+            <Icon name="back" size={14} /> 上一节
           </button>
 
           {currentIndex >= 0 && flatSections.length > 0 && (
@@ -768,9 +772,12 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
               cursor: canGoNext ? 'pointer' : 'not-allowed',
               padding: '10px 20px',
               fontSize: 14,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
             }}
           >
-            下一节 ▶
+            下一节 <Icon name="forward" size={14} />
           </button>
         </div>
       </div>

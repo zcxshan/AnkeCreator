@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { Icon, type IconName } from './Icon';
 import type { Story } from '../../types';
 
 export interface WorkSummary extends Story {
@@ -96,7 +97,7 @@ export function WorkCard({
       <div className="group relative rounded-2xl border p-5 shadow-sm flex flex-col items-center justify-center min-h-[280px] text-center"
         style={{ background: 'var(--bg-card)', borderColor: 'var(--danger)' }}
       >
-        <div className="text-3xl mb-2">🗑️</div>
+        <div className="text-3xl mb-2"><Icon name="trash" size={24} /></div>
         <div className="text-sm font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>确认删除？</div>
         <div className="text-xs mb-4 px-2" style={{ color: 'var(--text-secondary)' }}>该操作不可撤销</div>
         <div className="flex gap-2">
@@ -254,7 +255,7 @@ export function WorkCard({
               e.currentTarget.style.borderColor = 'var(--border-color)';
             }}
           >
-            📁 收藏到
+                      <Icon name="folder" size={14} /> 收藏到
           </button>
         )}
         {/* 删除按钮（始终可见，醒目颜色） */}
@@ -294,14 +295,14 @@ export function WorkCard({
         </div>
         {/* 主图标 */}
         <div className="relative z-10 flex flex-col items-center">
-          <div className="text-4xl opacity-80 drop-shadow-sm">📖</div>
+          <Icon name="bookText" size={36} />
           <div className="text-[10px] mt-1 font-medium" style={{ color: 'var(--text-secondary)' }}>安科作品</div>
         </div>
         {/* 安科骰点标记 */}
         <div className="absolute bottom-2 left-3 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full backdrop-blur-sm border text-[10px] font-medium shadow-sm"
           style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)', color: 'var(--accent)' }}
         >
-          <span>🎲</span>
+          <Icon name="dices" size={12} />
           <span>安科</span>
         </div>
         {/* 章节计数 */}
@@ -329,7 +330,7 @@ export function WorkCard({
             <span className="tabular-nums">{work.wordCount.toLocaleString()} 字</span>
           </span>
           <span className="inline-flex items-center gap-1">
-            <span>🎲</span>
+            <Icon name="dices" size={12} />
             <span className="tabular-nums">{work.diceCount}</span>
           </span>
           <span className="ml-auto">{formattedDate}</span>
@@ -350,25 +351,25 @@ export function WorkCard({
           }}
           onClick={(e) => e.stopPropagation()}
         >
-          <MenuItem icon="✏️" label="重命名" onClick={() => { onRename(work.id); setMenuOpen(false); }} />
+          <MenuItem icon="pen" label="重命名" onClick={() => { onRename(work.id); setMenuOpen(false); }} />
           {onEditDescription && (
             <MenuItem
-              icon="📝"
+              icon="fileText"
               label="修改简介"
               onClick={() => { onEditDescription(work.id); setMenuOpen(false); }}
             />
           )}
           {onReader && (
             <MenuItem
-              icon="📖"
+              icon="bookText"
               label="进入阅读模式"
               onClick={() => { onReader(work.id); setMenuOpen(false); }}
             />
           )}
-          <MenuItem icon="💾" label="导出为安科文件" onClick={() => { onExport(work.id); setMenuOpen(false); }} />
+          <MenuItem icon="save" label="导出为安科文件" onClick={() => { onExport(work.id); setMenuOpen(false); }} />
           {onExportEpub && (
             <MenuItem
-              icon="📚"
+              icon="book"
               label="导出为 epub 电子书"
               onClick={() => { onExportEpub(work.id); setMenuOpen(false); }}
             />
@@ -386,7 +387,7 @@ function MenuItem({
   onClick,
   danger,
 }: {
-  icon: string;
+  icon: IconName;
   label: string;
   onClick: () => void;
   danger?: boolean;
@@ -405,7 +406,7 @@ function MenuItem({
         e.currentTarget.style.background = 'transparent';
       }}
     >
-      <span className="w-4 text-center">{icon}</span>
+      <span className="w-4 text-center"><Icon name={icon} size={14} /></span>
       <span>{label}</span>
     </button>
   );
