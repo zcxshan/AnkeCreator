@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { Icon } from '../common/Icon';
 import { useStoryStore } from '../../store/storyStore';
 import type { OutlinePayload } from '../../types';
 import { parseOutlineContent } from '../../types';
@@ -210,7 +211,7 @@ export function OutlineTree({ onJumpToChapter }: OutlineTreeProps) {
                     className="flex-1 min-w-0 flex items-center gap-1.5 text-left"
                     onClick={() => handleSelect(v.outline.id, v.payload)}
                   >
-                    <span className="shrink-0 text-sm">📑</span>
+                    <span className="shrink-0"><Icon name="bookText" size={14} /></span>
                     {editingId === v.outline.id ? (
                       <input
                         autoFocus
@@ -235,10 +236,10 @@ export function OutlineTree({ onJumpToChapter }: OutlineTreeProps) {
                       </div>
                     )}
                     {vHasBody && editingId !== v.outline.id && (
-                      <span className="shrink-0 text-[10px]" style={{ color: 'var(--accent)' }}>✓</span>
+                      <span className="shrink-0" style={{ color: 'var(--accent)' }}><Icon name="check" size={10} /></span>
                     )}
                     {vLinked && editingId !== v.outline.id && (
-                      <span className="shrink-0 text-[9px]" style={{ color: 'var(--border-color)' }}>🔗</span>
+                      <span className="shrink-0" style={{ color: 'var(--border-color)' }}><Icon name="link" size={10} /></span>
                     )}
                   </button>
 
@@ -318,7 +319,7 @@ export function OutlineTree({ onJumpToChapter }: OutlineTreeProps) {
                             className="flex-1 min-w-0 flex items-center gap-1.5 text-left"
                             onClick={() => handleSelect(c.outline.id, c.payload)}
                           >
-                            <span className="shrink-0 text-sm">📄</span>
+                            <span className="shrink-0"><Icon name="fileText" size={13} /></span>
                             {editingId === c.outline.id ? (
                               <input
                                 autoFocus
@@ -343,10 +344,10 @@ export function OutlineTree({ onJumpToChapter }: OutlineTreeProps) {
                               </div>
                             )}
                             {cHasBody && editingId !== c.outline.id && (
-                              <span className="shrink-0 text-[10px]" style={{ color: 'var(--accent)' }}>✓</span>
+                              <span className="shrink-0" style={{ color: 'var(--accent)' }}><Icon name="check" size={10} /></span>
                             )}
                             {cLinked && editingId !== c.outline.id && (
-                              <span className="shrink-0 text-[9px]" style={{ color: 'var(--border-color)' }}>🔗</span>
+                              <span className="shrink-0" style={{ color: 'var(--border-color)' }}><Icon name="link" size={10} /></span>
                             )}
                           </button>
 
@@ -408,7 +409,7 @@ export function OutlineTree({ onJumpToChapter }: OutlineTreeProps) {
                         : 'text-slate-600 hover:bg-slate-50',
                     ].join(' ')}
                   >
-                    <span>📄</span>
+                    <span><Icon name="fileText" size={12} /></span>
                     <button
                       className="flex-1 min-w-0 text-xs text-left truncate"
                       onClick={() => handleSelect(c.outline.id, c.payload)}

@@ -7,6 +7,7 @@
 // ============================================================
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Icon } from '../common/Icon';
 import type { DiceBlockPayloadV2, DiceConfig, DiceKind, DiceTextStyle } from '../../types';
 import { NGA_COLORS, NGA_FONTS, percentToCssFontSize } from '../../types';
 import {
@@ -174,7 +175,7 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
           style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)' }}
         >
           <div className="flex items-center gap-2">
-            <span className="text-lg">🎲</span>
+            <Icon name="dices" size={18} />
             <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
               {targetBlockId ? '编辑骰子配置' : '新建骰子'}
             </span>
@@ -184,7 +185,7 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
             className="w-7 h-7 rounded-md flex items-center justify-center text-sm"
             style={{ color: 'var(--text-secondary)' }}
           >
-            ✕
+            <Icon name="x" size={16} />
           </button>
         </div>
 
@@ -231,7 +232,7 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
                   className="px-3 py-2 text-xs cursor-pointer select-none font-medium"
                   style={{ color: 'var(--text-secondary)' }}
                 >
-                  📋 通过 NGA 文本添加选项
+                  <span className="inline-flex items-center gap-1"><Icon name="clipboard" size={12} /> 通过 NGA 文本添加选项</span>
                 </summary>
                 <div className="px-3 pb-3 space-y-2">
                   <textarea
@@ -258,7 +259,7 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
                         color: 'var(--text-primary)',
                       }}
                     >
-                      🔍 解析
+                      <span className="inline-flex items-center gap-1"><Icon name="search" size={12} /> 解析</span>
                     </button>
                     <button
                       onClick={handleConfirmImport}
@@ -266,7 +267,7 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
                       className="px-2.5 py-1 text-xs font-medium rounded-md transition-colors disabled:opacity-50"
                       style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
                     >
-                      ✓ 导入到选项
+                      <span className="inline-flex items-center gap-1"><Icon name="check" size={12} /> 导入到选项</span>
                     </button>
                     <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
                       {ngaParsed.length > 0
@@ -325,11 +326,10 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
             </div>
           )}
           {isOption && coverage && coverage.ok && (
-            <div
-              className="text-xs rounded-md px-3 py-2"
+            <div className="flex items-center gap-1 text-xs rounded-md px-3 py-2"
               style={{ background: 'var(--accent-soft)', color: 'var(--accent)', border: '1px solid var(--accent-soft)' }}
             >
-              ✓ 覆盖校验通过：1~{faces} 全部命中且无重复
+              <Icon name="check" size={12} /> 覆盖校验通过：1~{faces} 全部命中且无重复
             </div>
           )}
 
@@ -546,7 +546,7 @@ function DiceStyleEditor({
                 onClick={() => onChange({ color: undefined })}
                 title="清除颜色"
               >
-                ✕
+                <Icon name="x" size={12} />
               </button>
             )}
           </div>
@@ -791,7 +791,7 @@ function OptionEditor({
               style={{ color: 'var(--text-secondary)' }}
               title="删除此选项"
             >
-              ✕
+              <Icon name="x" size={12} />
             </button>
           </div>
         ))}
@@ -919,11 +919,10 @@ function NumericEditor({
             />
           </Field>
           {exprValidation && exprValidation.ok && (
-            <div
-              className="text-xs rounded-md px-3 py-2"
+            <div className="flex items-center gap-1 text-xs rounded-md px-3 py-2"
               style={{ background: 'var(--accent-soft)', color: 'var(--accent)', border: '1px solid var(--accent-soft)' }}
             >
-              ✓ 解析成功：{exprValidation.preview}
+              <Icon name="check" size={12} /> 解析成功：{exprValidation.preview}
             </div>
           )}
           {exprValidation && !exprValidation.ok && expression && (
@@ -942,7 +941,7 @@ function NumericEditor({
               className="cursor-pointer select-none font-medium"
               style={{ color: 'var(--text-primary)' }}
             >
-              📖 表达式语法说明（点击展开）
+              <span className="inline-flex items-center gap-1"><Icon name="book" size={14} /> 表达式语法说明（点击展开）</span>
             </summary>
             <div className="mt-2 space-y-2 leading-relaxed">
               <div>

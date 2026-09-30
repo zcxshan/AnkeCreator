@@ -1,4 +1,5 @@
 import type { Character } from '../../types';
+import { Icon } from '../common/Icon';
 
 export function CharacterCard({
   character,
@@ -130,7 +131,7 @@ export function CharacterCard({
           />
         ) : (
             <span style={{ color: isActive ? 'var(--text-on-accent)' : 'var(--text-secondary)' }}>
-              {character.name?.slice(0, 1) || '👤'}
+              {character.name?.slice(0, 1) || <Icon name="user" size={16} />}
             </span>
           )}
       </div>
@@ -184,7 +185,7 @@ export function CharacterCard({
               }}
               title="编辑"
             >
-              ✎
+              <Icon name="pen" size={12} />
             </button>
           )}
           {onDelete && (
@@ -201,7 +202,7 @@ export function CharacterCard({
               }}
               title="删除"
             >
-              ✕
+              <Icon name="x" size={12} />
             </button>
           )}
         </div>

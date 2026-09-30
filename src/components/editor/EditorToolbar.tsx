@@ -20,6 +20,7 @@ import {
   Redo2,
   Minus,
   Eraser,
+  ArrowRight,
 } from 'lucide-react';
 import {
   NGA_FONTS,
@@ -1380,7 +1381,7 @@ export function EditorToolbar({
             onClick={() => withEditor((ed) => setBlockAlign(ed, 'right'))}
             active={activeAlign === 'right'}
           >
-            ➡
+            <ArrowRight size={14} />
           </ToolbarBtn>
         </div>
         <ToolbarBtn
@@ -1460,7 +1461,7 @@ export function EditorToolbar({
                     onClick={() => withEditor((ed) => setImageBlockAlign(ed, 'right'))}
                     title="右对齐"
                   >
-                    ➡
+                    <ArrowRight size={14} />
                   </ToolbarBtn>
                 </div>
               </div>

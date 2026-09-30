@@ -13,6 +13,7 @@
 // ============================================================
 
 import { useEffect, useState } from 'react';
+import { Icon } from '../common/Icon';
 
 export interface DiceNGAOption {
   displayValue: string;
@@ -124,7 +125,7 @@ export function DiceNGAImportDialog({
             className="text-base font-semibold flex items-center gap-2"
             style={{ color: 'var(--text-primary)' }}
           >
-            <span>📥</span> 从 NGA 文本导入选项
+            <span className="inline-flex items-center"><Icon name="download" size={14} /></span> 从 NGA 文本导入选项
           </h2>
           <p
             className="text-xs mt-1"
@@ -205,7 +206,7 @@ export function DiceNGAImportDialog({
                   e.currentTarget.style.color = 'var(--text-primary)';
                 }}
               >
-                🔍 解析
+                <span className="inline-flex items-center gap-1"><Icon name="search" size={12} /> 解析</span>
               </button>
               <span
                 className="text-xs"

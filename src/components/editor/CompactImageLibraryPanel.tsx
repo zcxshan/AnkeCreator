@@ -11,6 +11,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import type { ImageLibraryFolder, ImageLibraryItem } from '../../types';
+import { Icon } from '../common/Icon';
 import {
   listImageLibraryFolders,
   listImageLibraryItems,
@@ -135,7 +136,7 @@ export function CompactImageLibraryPanel({ onInsertImage }: CompactImageLibraryP
           </div>
         ) : folders.length === 0 && items.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-16 text-xs" style={{ color: 'var(--text-secondary)' }}>
-            <span className="text-xl mb-1">📭</span>
+            <span className="flex justify-center text-xl mb-1"><Icon name="inbox" size={24} /></span>
             空
           </div>
         ) : (
@@ -153,7 +154,7 @@ export function CompactImageLibraryPanel({ onInsertImage }: CompactImageLibraryP
                       onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-bg)'; }}
                       onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
                     >
-                      📁 {f.name}
+                      <span className="inline-flex items-center gap-1"><Icon name="folder" size={12} /> {f.name}</span>
                     </button>
                   ))}
                 </div>
@@ -194,7 +195,7 @@ export function CompactImageLibraryPanel({ onInsertImage }: CompactImageLibraryP
                         }
                         img.style.display = 'none';
                         const parent = img.parentElement;
-                        if (parent) parent.innerHTML = '<span style="font-size:16px">🖼️</span>';
+                        if (parent) parent.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin:auto"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path></svg>';
                       }}
                     />
                     <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-0 group-hover:bg-opacity-40 transition-all">

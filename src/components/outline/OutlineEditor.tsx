@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
+import { Icon } from '../common/Icon';
 import { useStoryStore } from '../../store/storyStore';
 import { parseOutlineContent } from '../../types';
 
@@ -105,7 +106,7 @@ export function OutlineEditor() {
         className="flex-1 flex flex-col items-center justify-center p-8"
         style={{ background: 'var(--bg-page)' }}
       >
-        <div className="text-6xl mb-4 opacity-30">📝</div>
+        <div className="mb-4 opacity-30 flex justify-center"><Icon name="pen" size={56} /></div>
         <div className="text-sm font-medium text-slate-600">选择左侧目录开始编写大纲</div>
         <div className="text-xs text-slate-400 mt-1">点击卷或章即可编辑对应的大纲描述</div>
       </div>
@@ -122,8 +123,8 @@ export function OutlineEditor() {
         className="shrink-0 flex items-center gap-3 px-6 py-4 border-b"
         style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)' }}
       >
-        <span className="shrink-0 text-lg">
-          {payload.target_type === 'volume' ? '📑' : '📄'}
+        <span className="shrink-0">
+          <Icon name={payload.target_type === 'volume' ? 'bookText' : 'fileText'} size={18} />
         </span>
         <div className="flex-1 min-w-0">
           <div className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{displayTitle}</div>

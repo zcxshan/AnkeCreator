@@ -8,6 +8,7 @@ import { AttributeTable } from './AttributeTable';
 import type { RichTextEditorCommands } from '../editor/RichTextEditor';
 import { NGA_DEFAULT_IMAGE_SIZE } from '../../types';
 import { ConfirmDialog } from '../common/ConfirmDialog';
+import { Icon } from '../common/Icon';
 import { InputDialog } from '../common/InputDialog';
 import { UploadProgressDialog } from '../common/UploadProgressDialog';
 import { useToastStore } from '../../store/toastStore';
@@ -106,7 +107,7 @@ export function CharacterPanel({
         className="flex items-center justify-between px-4 py-2"
         style={{ background: 'var(--bg-sidebar)', borderBottom: '1px solid var(--border-color)' }}
       >
-        <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>👤 人物角色</div>
+        <div className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--text-primary)' }}><Icon name="user" size={14} /> 人物角色</div>
         <div className="flex items-center gap-1">
           {selectedIds.size > 0 ? (
             <>
@@ -124,7 +125,7 @@ export function CharacterPanel({
                 style={{ background: 'var(--danger)', color: '#fff' }}
                 title="删除所选"
               >
-                🗑 批量删除
+                <span className="inline-flex items-center gap-1"><Icon name="trash" size={12} /> 批量删除</span>
               </button>
               <button
                 onClick={clearSelection}
@@ -331,8 +332,8 @@ function ImportCharacterTemplateButton() {
             {(t.name || '?').slice(0, 1)}
           </div>
         )}
-        <span className="truncate font-bold" style={{ fontSize: 12 }}>
-          🗂️ {t.name}
+        <span className="inline-flex items-center gap-1 truncate font-bold" style={{ fontSize: 12 }}>
+          <Icon name="folder" size={12} /> {t.name}
         </span>
       </div>
       {t.personality && (
@@ -381,12 +382,12 @@ function ImportCharacterTemplateButton() {
       </div>
       {templates.length === 0 ? (
         <div className="px-3 py-6 text-center" style={{ color: 'var(--text-secondary)' }}>
-          <div className="text-2xl mb-2 opacity-40">🗂️</div>
+          <div className="text-2xl mb-2 opacity-40 flex justify-center"><Icon name="folder" size={28} /></div>
           <div className="text-xs">暂无模板，先到首页的「模板库」创建</div>
         </div>
       ) : filtered.length === 0 ? (
         <div className="px-3 py-6 text-center" style={{ color: 'var(--text-secondary)' }}>
-          <div className="text-2xl mb-2 opacity-40">🔍</div>
+          <div className="text-2xl mb-2 opacity-40 flex justify-center"><Icon name="search" size={28} /></div>
           <div className="text-xs">没有找到匹配的模板</div>
         </div>
       ) : (
@@ -754,7 +755,7 @@ function CharacterEditorModal({
           style={{ borderBottom: '1px solid var(--border-color)' }}
         >
           <div className="flex items-center gap-3">
-            <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>✎ 编辑角色</div>
+            <div className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--text-primary)' }}><Icon name="pen" size={13} /> 编辑角色</div>
           </div>
           <button
             onClick={onClose}
@@ -764,7 +765,7 @@ function CharacterEditorModal({
             onMouseLeave={(e) => (e.currentTarget.style.color = labelColor)}
             title="关闭"
           >
-            ✕
+            <Icon name="x" size={16} />
           </button>
         </div>
 
@@ -785,7 +786,7 @@ function CharacterEditorModal({
                     }}
                   />
                 ) : (
-                  <span style={{ color: 'var(--text-secondary)' }}>{name?.slice(0, 1) || '👤'}</span>
+                  <span style={{ color: 'var(--text-secondary)' }}>{name?.slice(0, 1) || <Icon name="user" size={40} />}</span>
                 )}
               </div>
 
@@ -1034,7 +1035,7 @@ function CharacterEditorModal({
                     style={{ background: 'var(--danger-soft)', color: 'var(--danger)' }}
                     title="删除"
                   >
-                    ✕
+                    <Icon name="x" size={12} />
                   </button>
                 </div>
               ))}
@@ -1083,7 +1084,7 @@ function CharacterEditorModal({
                 }}
                 title={isLocalUploadDisabled ? localUploadDisabledReason : '从本地上传'}
               >
-                📁 上传
+                <span className="inline-flex items-center gap-1"><Icon name="upload" size={12} /> 上传</span>
               </button>
               <button
                 onClick={() => {
@@ -1104,7 +1105,7 @@ function CharacterEditorModal({
                 }}
                 title={isLocalUploadDisabled ? localUploadDisabledReason : '批量上传差分（最多50张）'}
               >
-                📂 批量上传
+                <span className="inline-flex items-center gap-1"><Icon name="folder" size={12} /> 批量上传</span>
               </button>
               <input
                 ref={newVariantFileRef}

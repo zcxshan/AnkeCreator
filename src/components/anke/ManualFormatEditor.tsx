@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
+import { Icon } from '../common/Icon';
 import type {
   ManualFormatConfig,
   ManualVolumeConfig,
@@ -246,7 +247,7 @@ export function ManualFormatEditor({ value, onChange, maxFloor }: ManualFormatEd
                       onClick={() => openParseModal(vi, ci)}
                       title="按文本批量生成节结构（替换现有节）"
                     >
-                      📋 解析文本
+                      <span className="inline-flex items-center gap-1"><Icon name="clipboard" size={12} /> 解析文本</span>
                     </button>
                   </div>
                 </div>

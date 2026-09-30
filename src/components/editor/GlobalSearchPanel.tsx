@@ -10,6 +10,7 @@
 // ============================================================
 
 import { useEffect, useRef, useState } from 'react';
+import { Icon } from '../common/Icon';
 import * as db from '../../db';
 import type { Story, Chapter, Section } from '../../types';
 
@@ -179,8 +180,8 @@ export function GlobalSearchPanel({ onNavigate, currentStoryId }: GlobalSearchPa
 
   return (
     <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>
-        🌐 全作品搜索 · 扫描所有作品的所有节
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
+        <Icon name="globe" size={12} /> 全作品搜索 · 扫描所有作品的所有节
       </div>
 
       {/* 搜索框 */}

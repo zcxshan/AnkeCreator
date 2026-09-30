@@ -8,6 +8,7 @@
 // ============================================================
 
 import React, { useEffect, useRef, useState } from 'react';
+import { Icon } from '../common/Icon';
 
 interface Props {
   editorMode: 'visual' | 'bbcode';
@@ -470,8 +471,9 @@ export function SearchPanel({
   return (
     <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
       {/* 模式提示 */}
-      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>
-        {editorMode === 'bbcode' ? '📝 BBCode 视图' : '🖊️ 可视化视图'} · 按 Ctrl+F 快速打开
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
+        <Icon name={editorMode === 'bbcode' ? 'scroll' : 'pen'} size={12} />
+        {editorMode === 'bbcode' ? 'BBCode 视图' : '可视化视图'} · 按 Ctrl+F 快速打开
       </div>
 
       {/* 查找行 */}

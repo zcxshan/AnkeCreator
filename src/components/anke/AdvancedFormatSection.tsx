@@ -4,6 +4,7 @@
 // 低耦合：与 NGA / 骨碌碌 / 安价 等收集源无关，可被任意 collect 页面复用
 // ============================================================
 import type { ManualFormatConfig } from '../../utils/ankeCollect';
+import { Icon } from '../common/Icon';
 import { ManualFormatEditor } from './ManualFormatEditor';
 
 interface AdvancedFormatSectionProps {
@@ -43,7 +44,7 @@ export function AdvancedFormatSection({
           gap: 6,
         }}
       >
-        ⚙ 高级格式设置（可选，自定义卷/章/节结构 + 楼号范围）
+        <span className="inline-flex items-center gap-1.5"><Icon name="settings" size={12} /> 高级格式设置（可选，自定义卷/章/节结构 + 楼号范围）</span>
       </summary>
       <div style={{ padding: '8px 0 12px', display: 'grid', gap: 10 }}>
         <label

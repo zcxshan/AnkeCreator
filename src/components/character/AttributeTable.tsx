@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Icon } from '../common/Icon';
 
 export interface AttributeRow {
   id: string;
@@ -153,7 +154,7 @@ export function AttributeTable({ attributes, onChange }: AttributeTableProps) {
                 className="text-[var(--text-secondary)] hover:text-[var(--danger)] text-xs"
                 title="删除此属性"
               >
-                🗑
+                <Icon name="trash" size={12} />
               </button>
             </div>
           </div>
