@@ -13,6 +13,7 @@ import { useToastStore } from '../../store/toastStore';
 import { useSettingStore } from '../../store/settingStore';
 import { uploadImagesWithProgress, ensureLocalWarning, type UploadProgressEvent } from '../../utils/uploadImage';
 import { addImageLibraryItem, ensureCharacterFolder } from '../../db/imageLibrary';
+import { Icon } from '../common/Icon';
 
 interface TemplatesPanelProps {
   onShowAuthor?: () => void;
@@ -135,7 +136,7 @@ export function TemplatesPanel({ onShowAuthor, initialTab = 'world', onTabChange
             onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.color = 'var(--text-primary)' }}
             title="先勾选模板，再点击导出"
           >
-            📥 导出模板
+            <span className="inline-flex items-center gap-1"><Icon name="download" size={13} /> 导出模板</span>
           </button>
           <button
             onClick={handleImportClick}
@@ -145,7 +146,7 @@ export function TemplatesPanel({ onShowAuthor, initialTab = 'world', onTabChange
             onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.color = 'var(--text-primary)' }}
             title="从 JSON 文件导入模板"
           >
-            📤 导入模板
+            <span className="inline-flex items-center gap-1"><Icon name="upload" size={13} /> 导入模板</span>
           </button>
           <input
             ref={importFileRef}
@@ -165,8 +166,8 @@ export function TemplatesPanel({ onShowAuthor, initialTab = 'world', onTabChange
         className="flex items-center gap-1 px-6 py-2"
         style={{ borderBottom: '1px solid var(--border-color)' }}
       >
-        <TabBtn label="🌐 世界观模板" active={tab === 'world'} onClick={() => handleTabChange('world')} />
-        <TabBtn label="🧑 人物模板" active={tab === 'character'} onClick={() => handleTabChange('character')} />
+        <TabBtn label={<span className="inline-flex items-center gap-1"><Icon name="globe" size={13} /> 世界观模板</span>} active={tab === 'world'} onClick={() => handleTabChange('world')} />
+        <TabBtn label={<span className="inline-flex items-center gap-1"><Icon name="user" size={13} /> 人物模板</span>} active={tab === 'character'} onClick={() => handleTabChange('character')} />
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-5">
@@ -180,7 +181,7 @@ export function TemplatesPanel({ onShowAuthor, initialTab = 'world', onTabChange
   );
 }
 
-function TabBtn({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+function TabBtn({ label, active, onClick }: { label: React.ReactNode; active: boolean; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
@@ -1187,7 +1188,7 @@ function CharacterTemplateEditor({
           style={{ borderBottom: '1px solid var(--border-color)' }}
         >
           <div className="flex items-center gap-3">
-            <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>✎ 编辑人物模板</div>
+            <div className="text-sm font-semibold inline-flex items-center gap-1.5" style={{ color: 'var(--text-primary)' }}><Icon name="pen" size={14} /> 编辑人物模板</div>
           </div>
           <button
             onClick={onClose}
@@ -1197,7 +1198,7 @@ function CharacterTemplateEditor({
             onMouseLeave={(e) => (e.currentTarget.style.color = labelColor)}
             title="关闭"
           >
-            ✕
+            <Icon name="x" size={16} />
           </button>
         </div>
 
@@ -1218,7 +1219,7 @@ function CharacterTemplateEditor({
                     }}
                   />
                 ) : (
-                  <span style={{ color: 'var(--text-secondary)' }}>{name?.slice(0, 1) || '👤'}</span>
+                  <span className="flex items-center justify-center" style={{ color: 'var(--text-secondary)' }}>{name?.slice(0, 1) || <Icon name="user" size={36} />}</span>
                 )}
               </div>
 
@@ -1370,7 +1371,7 @@ function CharacterTemplateEditor({
                   }}
                   title={isLocalUploadDisabled ? localUploadDisabledReason : '从本机选择多张图片批量上传到 sm.ms，差分名取文件名'}
                 >
-                  📂 批量上传
+                  <span className="inline-flex items-center gap-1"><Icon name="folder" size={13} /> 批量上传</span>
                 </button>
                 <input
                   ref={batchUploadRef}
@@ -1457,7 +1458,7 @@ function CharacterTemplateEditor({
                     style={{ background: 'var(--danger-soft)', color: 'var(--danger)' }}
                     title="删除"
                   >
-                    ✕
+                    <Icon name="x" size={13} />
                   </button>
                 </div>
               ))}
@@ -1506,7 +1507,7 @@ function CharacterTemplateEditor({
                 }}
                 title={isLocalUploadDisabled ? localUploadDisabledReason : '从本地上传'}
               >
-                📁 上传
+                <span className="inline-flex items-center gap-1"><Icon name="folder" size={13} /> 上传</span>
               </button>
               <input
                 ref={newVariantFileRef}
@@ -1673,7 +1674,7 @@ function EmptyHint({ title, desc }: { title: string; desc: string }) {
       className="rounded-2xl p-12 text-center"
       style={{ background: 'var(--bg-card)', border: '1px dashed var(--border-color)' }}
     >
-      <div className="text-3xl mb-3">📦</div>
+      <div className="flex justify-center mb-3"><Icon name="box" size={36} /></div>
       <p className="font-medium" style={{ color: 'var(--text-primary)' }}>{title}</p>
       <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>{desc}</p>
     </div>
@@ -1707,7 +1708,7 @@ function Modal({
             className="w-7 h-7 flex items-center justify-center rounded-md"
             style={{ color: 'var(--text-secondary)' }}
           >
-            ✕
+            <Icon name="x" size={16} />
           </button>
         </div>
         {children}

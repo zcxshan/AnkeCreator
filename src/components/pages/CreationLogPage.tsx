@@ -10,6 +10,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback } from 'react';
+import { Icon } from '../common/Icon';
 import type { CreationLogStats } from '../../types';
 import { computeCreationLogStats } from '../../services/creationLogStats';
 import * as db from '../../db/index';
@@ -37,8 +38,10 @@ function WordCountBarChart({ today, thisWeek, thisMonth, thisYear, total }: {
   const svgWidth = data.length * (barWidth + gap) - gap;
 
   return (
-    <div style={{ marginTop: 16, padding: '12px 16px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 8 }}>
-      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>📊 时段字数对比</div>
+    <div className="anke-card" style={{ marginTop: 16, padding: 16 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>
+        <span className="inline-flex items-center gap-1"><Icon name="chartBar" size={14} />时段字数对比</span>
+      </div>
       <svg width={svgWidth} height={chartHeight + 24} style={{ display: 'block', margin: '0 auto', maxWidth: '100%' }}>
         {data.map((d, i) => {
           const h = max > 0 ? Math.max(2, (d.value / max) * chartHeight) : 2;
@@ -73,8 +76,10 @@ function DailyTrendChart({ dailyStats }: { dailyStats: { date: string; wordCount
 
   if (!hasData) {
     return (
-      <div style={{ marginTop: 16, padding: '12px 16px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 8 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>📈 近 14 日字数趋势</div>
+      <div className="anke-card" style={{ marginTop: 16, padding: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>
+          <span className="inline-flex items-center gap-1"><Icon name="trendingUp" size={14} />近 14 日字数趋势</span>
+        </div>
         <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted, #999)', fontSize: 12 }}>
           暂无数据
         </div>
@@ -105,8 +110,10 @@ function DailyTrendChart({ dailyStats }: { dailyStats: { date: string; wordCount
   const baseY = padTop + innerH;
 
   return (
-    <div style={{ marginTop: 16, padding: '12px 16px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 8 }}>
-      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>📈 近 14 日字数趋势</div>
+    <div className="anke-card" style={{ marginTop: 16, padding: 16 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>
+        <span className="inline-flex items-center gap-1"><Icon name="trendingUp" size={14} />近 14 日字数趋势</span>
+      </div>
       <svg
         width="100%"
         viewBox={`0 0 ${width} ${height}`}
@@ -215,7 +222,10 @@ export function CreationLogPage({ storyId, onBack }: CreationLogPageProps) {
           className="text-lg font-semibold flex items-center gap-2"
           style={{ color: 'var(--text-primary)' }}
         >
-          <span>📝</span> 创作日志{storyTitle ? ` - ${storyTitle}` : ''}
+          <span className="inline-flex items-center gap-1">
+            <Icon name="pen" size={14} />
+            创作日志{storyTitle ? ` - ${storyTitle}` : ''}
+          </span>
         </h1>
         <div className="flex-1" />
       </div>
@@ -239,17 +249,15 @@ export function CreationLogPage({ storyId, onBack }: CreationLogPageProps) {
             {/* 统计区 */}
             {stats && (
               <section className="mb-8">
-                <h2 className="text-sm font-semibold tracking-wide uppercase mb-4" style={{ color: 'var(--text-primary)' }}>
-                  📊 创作统计
+                <h2 className="mb-4" style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                  <span className="inline-flex items-center gap-1"><Icon name="chartBar" size={14} />创作统计</span>
                 </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
                   {statRows.map((row, idx) => (
                     <div
                       key={row.label}
-                      className="rounded-lg p-4"
+                      className="anke-card p-4"
                       style={{
-                        background: 'var(--bg-card)',
-                        border: '1px solid var(--border-color)',
                         borderLeft: `3px solid ${row.color}`,
                         transition: 'transform 0.15s, box-shadow 0.15s',
                       }}

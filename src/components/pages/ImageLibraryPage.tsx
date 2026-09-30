@@ -27,6 +27,7 @@ import {
   reorderImageLibraryItems,
 } from '../../db/imageLibrary';
 import { stripImageFilenameExtension } from '../../utils/imageFilename';
+import { Icon } from '../common/Icon';
 
 interface Breadcrumb {
   id: string | null;
@@ -524,7 +525,7 @@ export function ImageLibraryPanel() {
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="🔍 搜索图片名"
+          placeholder="搜索图片名"
           className="px-3 py-1.5 rounded-lg text-sm w-48"
           style={{
             background: 'var(--bg-base)',
@@ -540,7 +541,7 @@ export function ImageLibraryPanel() {
           onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
           onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; }}
         >
-          📁 新建文件夹
+          <span className="inline-flex items-center gap-1.5"><Icon name="folder" size={14} /> 新建文件夹</span>
         </button>
         <button
           onClick={handleLocalUpload}
@@ -549,7 +550,7 @@ export function ImageLibraryPanel() {
           onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
           onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; }}
         >
-          📷 本地上传
+          <span className="inline-flex items-center gap-1.5"><Icon name="camera" size={14} /> 本地上传</span>
         </button>
         <button
           onClick={() => setShowUrlUploadModal(true)}
@@ -558,7 +559,7 @@ export function ImageLibraryPanel() {
           onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
           onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; }}
         >
-          🔗 URL 上传
+          <span className="inline-flex items-center gap-1.5"><Icon name="link" size={14} /> URL 上传</span>
         </button>
       </div>
 
@@ -598,7 +599,7 @@ export function ImageLibraryPanel() {
           onDrop={handleRootDrop}
           title="点击返回根目录，或拖动图片到此处移回根目录"
         >
-          <span>📁</span>
+          <Icon name="folder" size={16} />
           <span>拖动图片到此处移回根目录（点击返回根目录）</span>
         </div>
       )}
@@ -619,7 +620,7 @@ export function ImageLibraryPanel() {
           </div>
         ) : folders.length === 0 && items.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-32 text-sm" style={{ color: 'var(--text-secondary)' }}>
-            <span className="text-3xl mb-2">📭</span>
+            <Icon name="inbox" size={32} className="mb-2" />
             空文件夹，点击上方按钮上传图片或新建子文件夹
           </div>
         ) : (
@@ -652,7 +653,7 @@ export function ImageLibraryPanel() {
                       onDragLeave={handleFolderDragLeave}
                       onDrop={(e) => handleFolderDrop(e, f.id)}
                     >
-                      <div className="text-2xl mb-1">📁</div>
+                      <div className="flex justify-center mb-1"><Icon name="folder" size={28} /></div>
                       <div className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>{f.name}</div>
                       <div className="absolute top-1 right-1 flex gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
                         <button
@@ -660,14 +661,14 @@ export function ImageLibraryPanel() {
                           className="px-1.5 py-0.5 text-xs rounded"
                           style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}
                         >
-                          ✏️
+                          <Icon name="pen" size={14} />
                         </button>
                         <button
                           onClick={(e) => { e.stopPropagation(); setDeleteTarget({ type: 'folder', id: f.id, name: f.name }); }}
                           className="px-1.5 py-0.5 text-xs rounded"
                           style={{ background: 'var(--bg-hover)', color: 'var(--danger, #e53e3e)' }}
                         >
-                          🗑️
+                          <Icon name="trash" size={14} />
                         </button>
                       </div>
                     </div>
@@ -730,7 +731,7 @@ export function ImageLibraryPanel() {
                             }
                             img.style.display = 'none';
                             const parent = img.parentElement;
-                            if (parent) parent.innerHTML = '<span style="font-size:24px">🖼️</span>';
+                            if (parent) parent.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>';
                           }}
                         />
                       </div>
@@ -748,7 +749,7 @@ export function ImageLibraryPanel() {
                           style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}
                           title="重命名"
                         >
-                          ✏️
+                          <Icon name="pen" size={14} />
                         </button>
                         <button
                           onClick={(e) => { e.stopPropagation(); setDeleteTarget({ type: 'item', id: item.id, name: item.filename }); }}
@@ -756,7 +757,7 @@ export function ImageLibraryPanel() {
                           style={{ background: 'var(--bg-hover)', color: 'var(--danger, #e53e3e)' }}
                           title="删除"
                         >
-                          🗑️
+                          <Icon name="trash" size={14} />
                         </button>
                       </div>
                       <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white text-xs text-center py-0.5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">

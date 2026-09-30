@@ -14,6 +14,7 @@ import * as db from '../../db/index';
 import { useMetaStore } from '../../store/metaStore';
 import { useSectionEditor } from '../../hooks/useSectionEditor';
 import { DirectoryTree } from '../common/DirectoryTree';
+import { Icon, type IconName } from '../common/Icon';
 import { DiceConfigDialog } from '../dice/DiceConfigDialog';
 import { WorldSettingPanel } from '../common/WorldSettingPanel';
 import { CharacterPanel } from '../character/CharacterEditor';
@@ -984,7 +985,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
               style={{ color: 'var(--text-secondary)' }}
               title="打开目录"
             >
-              ☰
+              <Icon name="menu" size={16} />
             </button>
             <button
               onClick={onBack}
@@ -1051,7 +1052,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                 style={{ color: 'var(--text-secondary)' }}
                 title="阅读模式"
               >
-                📖
+                <Icon name="bookText" size={14} />
               </button>
             )}
           </header>
@@ -1062,7 +1063,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
           >
             {(['世界观', '目录', '大纲', '人物'] as const).map((label, idx) => {
               const key: EditorView = ['info', 'directory', 'outline', 'character'][idx] as EditorView;
-              const icons = ['🌍', '📑', '📝', '🎭'];
+              const icons: IconName[] = ['globe', 'scroll', 'pen', 'theater'];
               const active = view === key;
               return (
                 <button
@@ -1074,7 +1075,9 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                     background: active ? 'var(--accent-soft)' : 'transparent',
                   }}
                 >
-                  <span className="text-base leading-none mb-0.5">{icons[idx]}</span>
+                  <span className="text-base leading-none mb-0.5 flex items-center justify-center">
+                    <Icon name={icons[idx]} size={16} />
+                  </span>
                   <span>{label}</span>
                 </button>
               );
@@ -1121,7 +1124,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
             }}
             title="阅读模式"
           >
-            <span>📖</span>
+            <Icon name="bookText" size={14} />
             <span className="hidden md:inline">阅读</span>
           </button>
         )}
@@ -1162,7 +1165,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
         <nav className="flex-1 flex items-center justify-center gap-0.5 md:gap-1">
           {(['世界观', '目录编辑', '大纲', '人物角色'] as const).map((label, idx) => {
             const key: EditorView = ['info', 'directory', 'outline', 'character'][idx] as EditorView;
-            const icons = ['🌍', '📑', '📝', '🎭'];
+            const icons: IconName[] = ['globe', 'scroll', 'pen', 'theater'];
             const active = view === key;
             return (
               <button
@@ -1188,8 +1191,10 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                   }
                 }}
               >
-                <span className="mr-1">{icons[idx]}</span>
-                <span>{label}</span>
+                <span className="inline-flex items-center gap-1">
+                  <Icon name={icons[idx]} size={16} />
+                  <span>{label}</span>
+                </span>
                 {active && (
                   <span
                     className="absolute bottom-0 left-1/2 -translate-x-1/2 w-6 h-0.5 rounded-full"
@@ -1347,31 +1352,25 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                             setSyncConfirmKind('visual-to-bbcode');
                             setSyncConfirmOpen(true);
                           }}
-                          className="px-2 py-1 rounded text-xs"
-                          style={{
-                            background: 'var(--bg-hover)',
-                            color: 'var(--text-primary)',
-                            border: '1px solid var(--border-color)',
-                            cursor: 'pointer',
-                          }}
+                          className="px-2 py-1 rounded text-xs ancke-btn"
                           title="把当前可视化内容同步到 BBCode 字段（覆盖当前 BBCode）"
                         >
-                          🔄 同步到BBCode
+                          <span className="inline-flex items-center gap-1">
+                            <Icon name="refresh" size={14} />
+                            同步到BBCode
+                          </span>
                         </button>
                         <button
                           type="button"
                           onClick={handleExportSectionAsImage}
-                          className="px-2 py-1 rounded text-xs"
-                          style={{
-                            background: 'var(--bg-hover)',
-                            color: 'var(--text-primary)',
-                            border: '1px solid var(--border-color)',
-                            cursor: 'pointer',
-                          }}
+                          className="px-2 py-1 rounded text-xs ancke-btn"
                           title="把当前节导出为图片"
                           disabled={exportingImage}
                         >
-                          {exportingImage ? '⏳ 导出中...' : '📷 导出图片'}
+                          <span className="inline-flex items-center gap-1">
+                            <Icon name={exportingImage ? 'hourglass' : 'camera'} size={14} />
+                            {exportingImage ? '导出中...' : '导出图片'}
+                          </span>
                         </button>
                       </div>
                     )}
@@ -1417,16 +1416,13 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                             setSyncConfirmKind('bbcode-to-visual');
                             setSyncConfirmOpen(true);
                           }}
-                          className="px-2 py-1 rounded text-xs"
-                          style={{
-                            background: 'var(--bg-hover)',
-                            color: 'var(--text-primary)',
-                            border: '1px solid var(--border-color)',
-                            cursor: 'pointer',
-                          }}
+                          className="px-2 py-1 rounded text-xs ancke-btn"
                           title="把当前 BBCode 同步到可视化视图（覆盖当前 visual 编辑）"
                         >
-                          🔄 同步到可视化
+                          <span className="inline-flex items-center gap-1">
+                            <Icon name="refresh" size={14} />
+                            同步到可视化
+                          </span>
                         </button>
                       </div>
                     )}
@@ -1467,8 +1463,8 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                           onClick={() => setBbcodeErrorsExpanded(prev => !prev)}
                           style={{ padding: '6px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
                         >
-                          <span style={{ color: '#dc2626', fontSize: 12, userSelect: 'none' }}>
-                            {bbcodeErrorsExpanded ? '▼' : '▶'} BBCode 语法错误（{bbcodeErrors.length} 个）
+                          <span style={{ color: '#dc2626', fontSize: 12, userSelect: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            <Icon name={bbcodeErrorsExpanded ? 'chevronDown' : 'chevronRight'} size={12} /> BBCode 语法错误（{bbcodeErrors.length} 个）
                           </span>
                         </div>
                         {/* v35: 最大高度 + 滚动条 + 点击跳转 */}
@@ -1537,11 +1533,11 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
               <div className="shrink-0 flex items-center border-b" style={{ borderColor: 'var(--border-color)' }}>
                 <div className="flex-1 grid grid-cols-5">
                   {([
-                    { key: 'properties', label: '⚙️' },
-                    { key: 'world', label: '🌏' },
-                    { key: 'character', label: '👤' },
-                    { key: 'dice', label: '🎲' },
-                    { key: 'gallery', label: '🖼️' },
+                    { key: 'properties', icon: 'settings' },
+                    { key: 'world', icon: 'globe' },
+                    { key: 'character', icon: 'user' },
+                    { key: 'dice', icon: 'dices' },
+                    { key: 'gallery', icon: 'image' },
                   ] as const).map((t) => {
                     const active = rightPanelTab === t.key;
                     return (
@@ -1551,13 +1547,13 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                           setRightPanelTab(t.key);
                           if (!mobilePanelOpen) setMobilePanelOpen(true);
                         }}
-                        className="flex items-center justify-center py-2 text-base"
+                        className="flex items-center justify-center py-2.5"
                         style={{
                           color: active ? 'var(--accent)' : 'var(--text-secondary)',
                           background: active ? 'var(--accent-soft)' : 'transparent',
                         }}
                       >
-                        {t.label}
+                        <Icon name={t.icon} size={16} />
                       </button>
                     );
                   })}
@@ -1565,7 +1561,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                 {/* 独立展开/折叠按钮 */}
                 <button
                   onClick={() => setMobilePanelOpen(!mobilePanelOpen)}
-                  className="shrink-0 w-10 flex items-center justify-center py-2"
+                  className="shrink-0 w-10 flex items-center justify-center py-2.5"
                   style={{
                     color: 'var(--text-secondary)',
                     borderLeft: '1px solid var(--border-color)',
@@ -1788,8 +1784,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                     className="w-11 h-11 flex items-center justify-center rounded-lg"
                     style={{ color: 'var(--text-secondary)' }}
                   >
-                    ✕
-                  </button>
+                    <Icon name="x" size={14} />                  </button>
                 </div>
                 <div className="flex-1 overflow-hidden">
                   <DirectoryTree
@@ -1883,7 +1878,10 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                 onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--accent-soft)')}
                 onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--bg-card)')}
               >
-                📋 同步大纲到目录
+                <span className="inline-flex items-center gap-1">
+                  <Icon name="copy" size={14} />
+                  同步大纲到目录
+                </span>
               </button>
               <button
                 onClick={() => handleOpenSyncDialog('directory')}
@@ -1892,7 +1890,10 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                 onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hover)')}
                 onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--bg-card)')}
               >
-                📋 同步目录到大纲
+                <span className="inline-flex items-center gap-1">
+                  <Icon name="copy" size={14} />
+                  同步目录到大纲
+                </span>
               </button>
             </div>
             <OutlineEditor />
@@ -1983,7 +1984,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
               style={{ color: 'var(--text-secondary)' }}
               title="退出全屏"
             >
-              ✕
+              <Icon name="x" size={14} />
             </button>
           </header>
           <div className="flex-1 flex flex-col overflow-hidden min-h-0">
@@ -2134,12 +2135,13 @@ function RightPanel({
   const tabs: {
     key: 'properties' | 'world' | 'character' | 'dice' | 'gallery';
     label: string;
+    icon: IconName;
   }[] = [
-    { key: 'properties', label: '⚙️属性' },
-    { key: 'world', label: '🌏世界观' },
-    { key: 'character', label: '👤人物' },
-    { key: 'dice', label: '🎲骰点' },
-    { key: 'gallery', label: '🖼️图库' },
+    { key: 'properties', label: '属性', icon: 'settings' },
+    { key: 'world', label: '世界观', icon: 'globe' },
+    { key: 'character', label: '人物', icon: 'user' },
+    { key: 'dice', label: '骰点', icon: 'dices' },
+    { key: 'gallery', label: '图库', icon: 'image' },
   ];
 
   return (
@@ -2160,14 +2162,17 @@ function RightPanel({
             <button
               key={t.key}
               onClick={() => setActiveTab(t.key)}
-              className="flex-1 flex items-center justify-center px-2 py-2 text-xs font-medium transition-colors shrink-0 whitespace-nowrap"
+              className="flex-1 flex items-center justify-center px-2 h-9 text-xs font-medium transition-colors shrink-0 whitespace-nowrap"
               style={{
                 color: active ? 'var(--accent)' : 'var(--text-secondary)',
                 background: active ? 'var(--accent-soft)' : 'var(--bg-card)',
                 borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
               }}
             >
-              <span>{t.label}</span>
+              <span className="inline-flex items-center gap-1">
+                <Icon name={t.icon} size={16} />
+                <span>{t.label}</span>
+              </span>
             </button>
           );
         })}
@@ -2175,7 +2180,7 @@ function RightPanel({
           <button
             onClick={onCollapse}
             title="折叠右侧面板"
-            className="shrink-0 flex items-center justify-center w-7 text-xs transition-colors"
+            className="shrink-0 flex items-center justify-center w-7 h-9 text-xs transition-colors"
             style={{
               color: 'var(--text-secondary)',
               background: 'var(--bg-card)',
@@ -2189,7 +2194,7 @@ function RightPanel({
               e.currentTarget.style.color = 'var(--text-secondary)';
             }}
           >
-            ▶
+            <Icon name="chevronRight" size={14} />
           </button>
         )}
       </div>
@@ -2228,7 +2233,10 @@ function RightPanel({
             {selectedImage && (
               <div className="pt-4 border-t" style={{ borderColor: 'var(--border-color)' }}>
                 <div className="text-[11px] font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>
-                  🖼️ 图片属性
+                  <span className="inline-flex items-center gap-1">
+                    <Icon name="image" size={14} />
+                    图片属性
+                  </span>
                 </div>
                 {/* NGA 尺寸选择 */}
                 <div className="mb-3">
@@ -2320,7 +2328,12 @@ function RightPanel({
                         cursor: 'pointer',
                       }}
                     >
-                      {mode === 'current' ? '当前节' : '🌐 全作品'}
+                      {mode === 'current' ? '当前节' : (
+                        <span className="inline-flex items-center gap-1">
+                          <Icon name="globe" size={14} />
+                          全作品
+                        </span>
+                      )}
                     </button>
                   );
                 })}
@@ -2350,37 +2363,34 @@ function RightPanel({
                 className="text-[11px] font-semibold mb-3"
                 style={{ color: 'var(--text-primary)' }}
               >
-                🚀 快速跳转
+                <span className="inline-flex items-center gap-1">
+                  <Icon name="rocket" size={14} />
+                  快速跳转
+                </span>
               </div>
               <div className="flex gap-2">
                 <button
-                  className="flex-1 px-2 py-2 text-xs rounded-md transition-colors"
-                  style={{
-                    background: 'var(--bg-hover)',
-                    color: 'var(--text-primary)',
-                    border: '1px solid var(--border-color)',
-                  }}
+                  className="flex-1 px-2 py-2 text-xs rounded-md transition-colors ancke-btn"
                   onClick={() => richTextEditorCommandsRef.current?.scrollToTop()}
                 >
-                  ⬆ 顶部
+                  <span className="inline-flex items-center gap-1">
+                    <Icon name="arrowUp" size={14} />
+                    顶部
+                  </span>
                 </button>
                 <button
-                  className="flex-1 px-2 py-2 text-xs rounded-md transition-colors"
-                  style={{
-                    background: 'var(--bg-hover)',
-                    color: 'var(--text-primary)',
-                    border: '1px solid var(--border-color)',
-                  }}
+                  className="flex-1 px-2 py-2 text-xs rounded-md transition-colors ancke-btn"
                   onClick={() => richTextEditorCommandsRef.current?.scrollToBottom()}
                 >
-                  ⬇ 底部
+                  <span className="inline-flex items-center gap-1">
+                    <Icon name="arrowDown" size={14} />
+                    底部
+                  </span>
                 </button>
                 <button
-                  className="flex-1 px-2 py-2 text-xs rounded-md transition-colors"
+                  className="flex-1 px-2 py-2 text-xs rounded-md transition-colors ancke-btn"
                   style={{
-                    background: 'var(--bg-hover)',
                     color: hasLastPosition ? 'var(--text-primary)' : 'var(--text-muted)',
-                    border: '1px solid var(--border-color)',
                     opacity: hasLastPosition ? 1 : 0.5,
                     cursor: hasLastPosition ? 'pointer' : 'not-allowed',
                   }}
@@ -2391,7 +2401,10 @@ function RightPanel({
                     }
                   }}
                 >
-                  📍 上次位置
+                  <span className="inline-flex items-center gap-1">
+                    <Icon name="pin" size={14} />
+                    上次位置
+                  </span>
                 </button>
               </div>
             </div>
@@ -2524,8 +2537,9 @@ function QuickDicePanel() {
       className="rounded-lg border p-3"
       style={{ borderColor: 'var(--border-color)', background: 'var(--bg-base)' }}
     >
-      <div className="text-xs font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
-        🎲 快速骰子
+      <div className="text-xs font-semibold mb-2 flex items-center gap-1" style={{ color: 'var(--text-primary)' }}>
+        <Icon name="dices" size={14} />
+        快速骰子
       </div>
       <div className="flex gap-2 mb-2">
         <input
@@ -2585,10 +2599,10 @@ function QuickDicePanel() {
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-baseline gap-1 min-w-0">
             <span
-              className={isRolling ? 'anke-dice-playground-spin' : ''}
-              style={{ fontSize: 14, display: 'inline-block' }}
+              className={`inline-flex items-center ${isRolling ? 'anke-dice-playground-spin' : ''}`}
+              style={{ display: 'inline-flex' }}
             >
-              🎲
+              <Icon name="dices" size={16} />
             </span>
             <span
               className="text-[10px] font-mono truncate"
@@ -2618,7 +2632,10 @@ function QuickDicePanel() {
               }}
               title="复制骰点文本"
             >
-              📋 复制
+              <span className="inline-flex items-center gap-1">
+                <Icon name="copy" size={12} />
+                复制
+              </span>
             </button>
           )}
         </div>
@@ -2959,7 +2976,7 @@ function DiceHistoryPanel({
                     className="flex items-center gap-1 px-1 py-1 cursor-pointer text-[11px] font-semibold select-none"
                     style={{ color: 'var(--text-primary)' }}
                   >
-                    <span style={{ display: 'inline-block', width: 12 }}>{collapsed ? '▶' : '▼'}</span>
+                    <Icon name={collapsed ? 'chevronRight' : 'chevronDown'} size={12} />
                     <span>{g.title}</span>
                     <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>({g.records.length})</span>
                   </div>
@@ -3068,11 +3085,13 @@ function CompactWorldSettingPanel({
                 const names = filtered.filter((w) => selectedIds.includes(w.id)).map((w) => w.title || '未命名');
                 setPendingBatchDelete({ ids: [...selectedIds], names });
               }}
-              className="text-[10px] px-2 py-1 rounded transition-colors"
-              style={{ background: 'var(--danger)', color: '#fff' }}
+              className="text-[10px] px-2 py-1 rounded transition-colors ancke-btn ancke-btn-danger"
               title="删除所选"
             >
-              🗑 批量删除
+              <span className="inline-flex items-center gap-1">
+                <Icon name="trash" size={12} />
+                批量删除
+              </span>
             </button>
             <button
               onClick={clearSelection}
@@ -3160,10 +3179,12 @@ function CompactWorldSettingPanel({
         {editing ? (
           <WorldSettingEditorInline setting={editing} onShowToast={onShowToast} />
         ) : (
-          <div className="p-6 text-center">
-            <div className="text-3xl mb-3 opacity-40">📜</div>
-            <div className="text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>选择或新建一个世界观条目</div>
-            <div className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>点击上方列表中的条目进行编辑</div>
+          <div className="p-6">
+            <div className="anke-card flex flex-col items-center gap-2 px-6 py-10 text-center" style={{ borderStyle: 'dashed' }}>
+              <Icon name="scroll" size={48} className="opacity-40" />
+              <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>选择或新建一个世界观条目</div>
+              <div className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>点击上方列表中的条目进行编辑</div>
+            </div>
           </div>
         )}
       </div>
@@ -3296,9 +3317,9 @@ function CompactCharacterPanel({
         style={{ borderColor: 'var(--border-color)', background: 'var(--bg-toolbar)' }}
       >
         {[
-          { key: 'by-character', label: '👤 按人物' },
-          { key: 'by-variant', label: '🎴 按差分' },
-          { key: 'relation', label: '🔗 关系' },
+          { key: 'by-character', label: '按人物', icon: 'user' as IconName },
+          { key: 'by-variant', label: '按差分', icon: 'layoutGrid' as IconName },
+          { key: 'relation', label: '关系', icon: 'link' as IconName },
         ].map((t) => {
           const active = panelTab === t.key;
           return (
@@ -3312,7 +3333,10 @@ function CompactCharacterPanel({
                 borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
               }}
             >
-              {t.label}
+              <span className="inline-flex items-center gap-1">
+                <Icon name={t.icon} size={16} />
+                <span>{t.label}</span>
+              </span>
             </button>
           );
         })}
@@ -3415,11 +3439,13 @@ function ByCharacterContent({
                 const names = filtered.filter((c) => selectedIds.includes(c.id)).map((c) => c.name || '未命名');
                 setPendingBatchDelete({ ids: [...selectedIds], names });
               }}
-              className="text-[10px] px-2 py-1 rounded transition-colors"
-              style={{ background: 'var(--danger)', color: '#fff' }}
+              className="text-[10px] px-2 py-1 rounded transition-colors ancke-btn ancke-btn-danger"
               title="删除所选"
             >
-              🗑 批量删除
+              <span className="inline-flex items-center gap-1">
+                <Icon name="trash" size={12} />
+                批量删除
+              </span>
             </button>
             <button
               onClick={clearSelection}
@@ -3516,10 +3542,10 @@ function ByCharacterContent({
                         />
                       ) : (
                         <div
-                          className="w-9 h-9 rounded-full shrink-0 flex items-center justify-center text-sm"
+                          className="w-9 h-9 rounded-full shrink-0 flex items-center justify-center"
                           style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
                         >
-                          🧑
+                          <Icon name="user" size={16} />
                         </div>
                       )}
                       <div className="flex-1 min-w-0">
@@ -3593,10 +3619,12 @@ function ByCharacterContent({
         {editing ? (
           <CharacterEditorInline character={editing} onShowToast={onShowToast} richTextEditorCommandsRef={richTextEditorCommandsRef} />
         ) : (
-          <div className="p-6 text-center">
-            <div className="text-3xl mb-3 opacity-40">🧑‍🎨</div>
-            <div className="text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>选择或新建一个角色</div>
-            <div className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>点击上方列表中的角色进行编辑</div>
+          <div className="p-6">
+            <div className="anke-card flex flex-col items-center gap-2 px-6 py-10 text-center" style={{ borderStyle: 'dashed' }}>
+              <Icon name="palette" size={48} className="opacity-40" />
+              <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>选择或新建一个角色</div>
+              <div className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>点击上方列表中的角色进行编辑</div>
+            </div>
           </div>
         )}
       </div>
@@ -4116,7 +4144,9 @@ function CharacterEditorInline({
               }}
             />
           ) : (
-            <span style={{ color: 'var(--text-secondary)' }}>🧑</span>
+            <span className="inline-flex items-center justify-center" style={{ color: 'var(--text-secondary)' }}>
+              <Icon name="user" size={14} />
+            </span>
           )}
         </div>
         <input
@@ -4316,7 +4346,7 @@ function CharacterEditorInline({
                 style={{ background: 'var(--danger-soft)', color: 'var(--danger)' }}
                 title="删除"
               >
-                ✕
+                <Icon name="x" size={14} />
               </button>
             </div>
           ))}
@@ -4356,7 +4386,7 @@ function CharacterEditorInline({
             }}
             title={isLocalUploadDisabled ? localUploadDisabledReason : '上传'}
           >
-            📁
+            <Icon name="folder" size={14} />
           </button>
           <input
             ref={variantFileRef}
@@ -4395,7 +4425,10 @@ function CharacterEditorInline({
             e.currentTarget.style.color = 'var(--danger)';
           }}
         >
-          🗑 删除角色
+          <span className="inline-flex items-center gap-1">
+            <Icon name="trash" size={14} />
+            删除角色
+          </span>
         </button>
         <button
           onClick={handleSave}
@@ -4410,7 +4443,10 @@ function CharacterEditorInline({
             e.currentTarget.style.color = 'var(--accent)';
           }}
         >
-          ✓ 保存
+          <span className="inline-flex items-center gap-1">
+            <Icon name="check" size={14} />
+            保存
+          </span>
         </button>
       </div>
 
@@ -4601,7 +4637,10 @@ function BottomStatusBar({
             }
           }}
         >
-          🎨 可视化编辑
+          <span className="inline-flex items-center gap-1">
+            <Icon name="palette" size={14} />
+            可视化编辑
+          </span>
         </button>
         <button
           onClick={() => onSwitchMode('bbcode')}
@@ -4617,7 +4656,10 @@ function BottomStatusBar({
             }
           }}
         >
-          📝 BBcode编辑
+          <span className="inline-flex items-center gap-1">
+            <Icon name="pen" size={14} />
+            BBcode编辑
+          </span>
         </button>
       </div>
 
@@ -4653,9 +4695,17 @@ function BottomStatusBar({
           </span>
         )}
         <span className="hidden md:inline">
-          {editorMode === 'visual'
-            ? '💡 可直接使用工具栏富文本编辑'
-            : '💡 可直接 Ctrl+V 粘贴 BBCode；编辑后切回可视化查看效果'}
+          {editorMode === 'visual' ? (
+            <span className="inline-flex items-center gap-1">
+              <Icon name="lightbulb" size={14} />
+              可直接使用工具栏富文本编辑
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1">
+              <Icon name="lightbulb" size={14} />
+              可直接 Ctrl+V 粘贴 BBCode；编辑后切回可视化查看效果
+            </span>
+          )}
         </span>
       </div>
     </footer>

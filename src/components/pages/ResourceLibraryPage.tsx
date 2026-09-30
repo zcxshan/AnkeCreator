@@ -41,31 +41,32 @@ export function ResourceLibraryPage({ onBack, onShowAuthor }: ResourceLibraryPag
     >
       {/* 顶栏（非 sticky，随 body 滚动） */}
       <div
-        className="flex items-center gap-3 px-6 py-4 border-b"
+        className="flex items-center justify-between gap-3 px-6 py-4 border-b"
         style={{ borderColor: 'var(--border-color)', background: 'var(--bg-base)' }}
       >
-        <button
-          onClick={onBack}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors"
-          style={{ color: 'var(--text-secondary)' }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'var(--bg-hover)';
-            e.currentTarget.style.color = 'var(--text-primary)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'transparent';
-            e.currentTarget.style.color = 'var(--text-secondary)';
-          }}
-        >
-          <Icon name="back" size={16} /> 返回
-        </button>
-        <h1
-          className="text-lg font-semibold flex items-center gap-2"
-          style={{ color: 'var(--text-primary)' }}
-        >
-          <Icon name="folder" size={20} /> 资源库
-        </h1>
-        <div className="flex-1" />
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors"
+            style={{ color: 'var(--text-secondary)' }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--bg-hover)';
+              e.currentTarget.style.color = 'var(--text-primary)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.color = 'var(--text-secondary)';
+            }}
+          >
+            <Icon name="back" size={16} /> 返回
+          </button>
+          <h1
+            className="text-lg font-semibold flex items-center gap-2"
+            style={{ color: 'var(--text-primary)' }}
+          >
+            <Icon name="folder" size={20} /> 资源库
+          </h1>
+        </div>
       </div>
 
       {/* 顶部主 Tab 切换（2 个：图片 / 模板） */}
@@ -79,7 +80,7 @@ export function ResourceLibraryPage({ onBack, onShowAuthor }: ResourceLibraryPag
             <button
               key={t.key}
               onClick={() => setActiveTab(t.key)}
-              className="px-5 py-2 text-sm rounded-lg transition-all flex items-center gap-2"
+              className="px-5 h-10 text-sm rounded-lg transition-all flex items-center gap-2"
               style={{
                 background: active ? 'var(--accent-bg)' : 'transparent',
                 color: active ? 'var(--accent)' : 'var(--text-secondary)',
@@ -100,7 +101,7 @@ export function ResourceLibraryPage({ onBack, onShowAuthor }: ResourceLibraryPag
                 }
               }}
             >
-              <Icon name={t.icon} size={15} />
+              <Icon name={t.icon} size={16} />
               {t.label}
             </button>
           );
@@ -108,16 +109,18 @@ export function ResourceLibraryPage({ onBack, onShowAuthor }: ResourceLibraryPag
       </div>
 
       {/* 内容区 */}
-      <div className="flex-1 overflow-hidden">
-        {activeTab === 'image' && <ImageLibraryPanel />}
-        {activeTab === 'template' && (
-          <TemplatesPanel
-            initialTab={templateSubTab}
-            onTabChange={(sub) => setTemplateSubTab(sub)}
-            onShowAuthor={onShowAuthor}
-          />
-        )}
-        {activeTab === 'material' && <FindMaterialPanel />}
+      <div className="flex-1 overflow-hidden p-4">
+        <div className="anke-card h-full w-full overflow-hidden">
+          {activeTab === 'image' && <ImageLibraryPanel />}
+          {activeTab === 'template' && (
+            <TemplatesPanel
+              initialTab={templateSubTab}
+              onTabChange={(sub) => setTemplateSubTab(sub)}
+              onShowAuthor={onShowAuthor}
+            />
+          )}
+          {activeTab === 'material' && <FindMaterialPanel />}
+        </div>
       </div>
     </div>
   );

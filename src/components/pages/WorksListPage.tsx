@@ -808,7 +808,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
         className="sticky top-8 z-40 backdrop-blur"
         style={{ background: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)' }}
       >
-        <div className="max-w-6xl mx-auto px-6 sm:px-8 py-4 flex items-center gap-4">
+        <div className="max-w-6xl mx-auto px-6 sm:px-8 py-4 flex items-center gap-2">
           <button
             onClick={onBack}
             className="w-9 h-9 flex items-center justify-center rounded-lg transition-colors"
@@ -825,8 +825,8 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
           >
             <Icon name="back" size={16} />
           </button>
-          <div className="flex items-baseline gap-3 min-w-0">
-            <h1 className="text-xl font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>我的安科作品</h1>
+          <div className="flex items-center gap-2 min-w-0">
+            <h1 className="text-base font-semibold tracking-tight" style={{ color: 'var(--text-primary)' }}>我的安科作品</h1>
             <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>共 {works.length} 部</span>
           </div>
 
@@ -839,7 +839,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
                 style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
                 title="操作"
               >
-                <span>☰</span>
+                <Icon name="menu" size={20} />
                 <span>操作</span>
               </button>
               {actionMenuOpen && (
@@ -856,7 +856,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
                     {onShowAuthor && (
                       <button
                         onClick={() => { setActionMenuOpen(false); onShowAuthor(); }}
-                        className="w-full px-4 py-2.5 text-left text-xs transition-colors inline-flex items-center gap-2"
+                        className="w-full px-4 py-2.5 text-left text-[13px] transition-colors inline-flex items-center gap-2"
                         style={{ color: 'var(--text-secondary)' }}
                         onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
                         onMouseLeave={(e) => { e.currentTarget.style.background = ''; e.currentTarget.style.color = 'var(--text-secondary)'; }}
@@ -867,7 +867,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
                     )}
                     <button
                       onClick={() => { setActionMenuOpen(false); setActiveFilter('trash'); }}
-                      className="w-full px-4 py-2.5 text-left text-xs transition-colors inline-flex items-center gap-2"
+                      className="w-full px-4 py-2.5 text-left text-[13px] transition-colors inline-flex items-center gap-2"
                       style={{ color: 'var(--text-secondary)' }}
                       onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
                       onMouseLeave={(e) => { e.currentTarget.style.background = ''; e.currentTarget.style.color = 'var(--text-secondary)'; }}
@@ -877,7 +877,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
                     </button>
                     <button
                       onClick={() => { setActionMenuOpen(false); setShowNewModal(true); }}
-                      className="w-full px-4 py-2.5 text-left text-xs font-medium transition-colors inline-flex items-center gap-2"
+                      className="w-full px-4 py-2.5 text-left text-[13px] font-medium transition-colors inline-flex items-center gap-2"
                       style={{ color: 'var(--accent)' }}
                       onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
                       onMouseLeave={(e) => { e.currentTarget.style.background = ''; }}
@@ -887,7 +887,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
                     </button>
                     <button
                       onClick={() => { setActionMenuOpen(false); handleImportStory(); }}
-                      className="w-full px-4 py-2.5 text-left text-xs transition-colors inline-flex items-center gap-2"
+                      className="w-full px-4 py-2.5 text-left text-[13px] transition-colors inline-flex items-center gap-2"
                       style={{ color: 'var(--text-primary)' }}
                       onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
                       onMouseLeave={(e) => { e.currentTarget.style.background = ''; }}
@@ -897,19 +897,19 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
                     </button>
                     <button
                       onClick={() => { setActionMenuOpen(false); setBatchMode(!batchMode); setSelectedIds(new Set()); }}
-                      className="w-full px-4 py-2.5 text-left text-xs transition-colors inline-flex items-center gap-2"
+                      className="w-full px-4 py-2.5 text-left text-[13px] transition-colors inline-flex items-center gap-2"
                       style={{ color: 'var(--text-primary)', background: batchMode ? 'var(--accent-soft)' : 'transparent' }}
                       onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
                       onMouseLeave={(e) => { e.currentTarget.style.background = batchMode ? 'var(--accent-soft)' : ''; }}
                     >
-                      <span>📦</span>
+                      <Icon name="box" size={14} />
                       <span>{batchMode ? '取消批量' : '批量导出'}</span>
                     </button>
                     {batchMode && (
                       <button
                         onClick={() => { setActionMenuOpen(false); handleBatchExport(); }}
                         disabled={selectedIds.size === 0}
-                        className="w-full px-4 py-2.5 text-left text-xs font-medium transition-colors inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-full px-4 py-2.5 text-left text-[13px] font-medium transition-colors inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                         style={{ color: 'var(--text-on-accent)', background: 'var(--accent)' }}
                       >
                         <Icon name="upload" size={14} />
@@ -934,7 +934,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
                 </button>
               )}
 
-              <div className="ml-auto flex items-center gap-2 flex-wrap">
+              <div className="anke-card ml-auto flex items-center gap-2 flex-wrap px-3 py-2">
                 <button
                   onClick={() => setActiveFilter('trash')}
                   className="px-3 py-2 text-xs rounded-lg transition-colors inline-flex items-center gap-1.5"
@@ -968,12 +968,10 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
                 </button>
                 <button
                   onClick={() => { setBatchMode(!batchMode); setSelectedIds(new Set()); }}
-                  className="px-4 py-2 text-xs rounded-lg font-medium transition-colors inline-flex items-center gap-1.5"
-                  style={{ background: batchMode ? 'var(--accent-soft)' : 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.background = 'var(--bg-hover)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.background = batchMode ? 'var(--accent-soft)' : 'var(--bg-card)'; }}
+                  className="anke-btn"
+                  style={{ background: batchMode ? 'var(--accent-soft)' : undefined, color: batchMode ? 'var(--accent)' : undefined, borderColor: batchMode ? 'var(--accent)' : undefined }}
                 >
-                  <span>📦</span>
+                  <Icon name="box" size={14} />
                   <span>{batchMode ? '取消批量' : '批量导出'}</span>
                 </button>
                 {batchMode && (
@@ -1047,7 +1045,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
                       onClick={(e) => e.stopPropagation()}
                     >
                       <button
-                        className="w-full px-3 py-1.5 text-left text-xs hover:bg-[var(--bg-hover)]"
+                        className="w-full px-3 py-1.5 text-left text-[13px] hover:bg-[var(--bg-hover)]"
                         style={{ color: 'var(--text-primary)' }}
                         onClick={() => {
                           const f = favorites.find((x) => x.id === favId);
@@ -1055,10 +1053,13 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
                           setFavoriteMenuOpenId(null);
                         }}
                       >
-                        <Icon name="pen" size={12} /> 重命名
+                        <span className="inline-flex items-center gap-1">
+                          <Icon name="pen" size={14} />
+                          <span>重命名</span>
+                        </span>
                       </button>
                       <button
-                        className="w-full px-3 py-1.5 text-left text-xs hover:bg-[var(--bg-hover)]"
+                        className="w-full px-3 py-1.5 text-left text-[13px] hover:bg-[var(--bg-hover)]"
                         style={{ color: 'var(--danger)' }}
                         onClick={() => {
                           const f = favorites.find((x) => x.id === favId);
@@ -1066,7 +1067,10 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
                           setFavoriteMenuOpenId(null);
                         }}
                       >
-                        <Icon name="trash" size={12} /> 删除（仅空）
+                        <span className="inline-flex items-center gap-1">
+                          <Icon name="trash" size={14} />
+                          <span>删除（仅空）</span>
+                        </span>
                       </button>
                     </div>
                   )}
@@ -1122,7 +1126,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
         {activeFilter === 'trash' ? (
           <>
             <div className="flex items-center gap-3 mb-6">
-              <h2 className="text-lg font-semibold inline-flex items-center gap-2" style={{ color: 'var(--text-primary)' }}><Icon name="trash" size={16} /> 回收站</h2>
+              <h2 className="text-lg font-semibold inline-flex items-center gap-2" style={{ color: 'var(--text-primary)' }}><Icon name="trash" size={16} /><span>回收站</span></h2>
               <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{trashedStories.length} 个作品</span>
               {trashedStories.length > 0 && (
                 <button
@@ -1594,8 +1598,8 @@ function EmptyState() {
         >
           <Icon name="dices" size={56} />
         </div>
-        <div className="absolute -top-2 -right-2 w-10 h-10 rounded-full flex items-center justify-center text-2xl" style={{ background: 'var(--accent-bg)' }}>
-          ✨
+        <div className="absolute -top-2 -right-2 w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'var(--accent-bg)' }}>
+          <Icon name="sparkles" size={14} />
         </div>
         <div className="absolute -bottom-1 -left-3 w-8 h-8 rounded-full flex items-center justify-center text-lg" style={{ background: 'var(--accent-soft)' }}>
           <Icon name="bookText" size={14} />
@@ -1648,7 +1652,7 @@ function Modal({
             }}
             aria-label="关闭"
           >
-            ✕
+            <Icon name="x" size={14} />
           </button>
         </div>
         {children}

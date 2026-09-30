@@ -17,6 +17,7 @@ import { useState, useCallback, useMemo, useEffect } from 'react'
 import { useToastStore } from '../../store/toastStore'
 import { matchText, type MatchMode } from '../../utils/textMatch'
 import { formatRelativeTime } from '../../utils/relativeTime'
+import { Icon, type IconName } from '../common/Icon'
 
 interface SortOption {
   value: string
@@ -45,8 +46,8 @@ interface SearchResult {
 export interface SearchSiteSectionProps<T> {
   /** 站点标识（用于 class 命名等） */
   siteKey: 'gululu' | 'nga'
-  /** 板块图标 emoji */
-  icon: string
+  /** 板块图标（Lucide IconName） */
+  icon: IconName
   /** 板块标题 */
   title: string
   /** 站点信息（如 "gululu.world · 安科轻小说站"） */
@@ -382,7 +383,7 @@ export function SearchSiteSection<T extends SiteResultItem>({
         className="flex items-center gap-3 px-4 py-3 shrink-0"
         style={{ borderBottom: '1px solid var(--border-color)', background: 'var(--bg-sidebar)' }}
       >
-        <span style={{ fontSize: '20px' }}>{icon}</span>
+        <Icon name={icon} size={20} />
         <div className="flex-1 min-w-0">
           <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
             {title}
@@ -414,7 +415,7 @@ export function SearchSiteSection<T extends SiteResultItem>({
                 e.currentTarget.style.color = 'var(--text-secondary)'
               }}
             >
-              📥 导出
+              <span className="inline-flex items-center gap-1"><Icon name="download" size={13} /> 导出</span>
             </button>
             <span
               className="text-[11px] px-1.5 py-0.5 rounded-full font-medium"
@@ -551,15 +552,12 @@ export function SearchSiteSection<T extends SiteResultItem>({
 
       {/* 去重提示 */}
       {isCached && (
-        <div
-          className="px-4 py-1.5 text-[11px] shrink-0"
-          style={{
-            color: 'var(--text-tertiary, #888)',
-            borderTop: '1px solid var(--border-light)',
-            borderBottom: '1px solid var(--border-light)',
-          }}
-        >
-          💡 关键字未变，点击「重新筛选」会基于已下载结果筛选，不会重新爬取
+        <div className="px-4 py-1.5 text-[11px] shrink-0 inline-flex items-center gap-1.5" style={{
+          color: 'var(--text-tertiary, #888)',
+          borderTop: '1px solid var(--border-light)',
+          borderBottom: '1px solid var(--border-light)',
+        }}>
+          <Icon name="lightbulb" size={12} /> 关键字未变，点击「重新筛选」会基于已下载结果筛选，不会重新爬取
         </div>
       )}
 
@@ -697,16 +695,16 @@ export function SearchSiteSection<T extends SiteResultItem>({
             className="text-center py-8 px-4 rounded-md"
             style={{ color: 'var(--error)', background: 'var(--error-bg)' }}
           >
-            ❌ {error}
+            <span className="inline-flex items-center gap-1"><Icon name="alert" size={14} /> {error}</span>
           </div>
         ) : loading && !hasResults ? (
           <div className="text-center py-12">
-            <div style={{ fontSize: '48px', marginBottom: '10px' }}>⏳</div>
+            <div style={{ marginBottom: '10px' }}><Icon name="hourglass" size={48} /></div>
             <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>正在抓取…</div>
           </div>
         ) : !hasResults && lastKeyword === '' && !error ? (
           <div className="text-center py-12">
-            <div style={{ fontSize: '48px', marginBottom: '10px' }}>🔍</div>
+            <div style={{ marginBottom: '10px' }}><Icon name="search" size={48} /></div>
             <div className="text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
               {placeholder.replace(/[（）()]/g, '').split('，')[0]}
             </div>
@@ -714,7 +712,7 @@ export function SearchSiteSection<T extends SiteResultItem>({
           </div>
         ) : !hasResults && lastKeyword !== '' && !error ? (
           <div className="text-center py-12">
-            <div style={{ fontSize: '48px', marginBottom: '10px' }}>📭</div>
+            <div style={{ marginBottom: '10px' }}><Icon name="inbox" size={48} /></div>
             <div className="text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>未找到相关结果</div>
             <div className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
               关键词"{lastKeyword}"未匹配到任何内容
@@ -821,7 +819,7 @@ export function GululuCard({ item, onOpen }: { item: GululuResult; onOpen: (url:
           fontSize: '36px',
         }}
       >
-        📖
+        <span className="inline-flex items-center"><Icon name="book" size={36} /></span>
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-start gap-2 mb-1.5">
@@ -871,11 +869,11 @@ export function GululuCard({ item, onOpen }: { item: GululuResult; onOpen: (url:
           className="flex flex-wrap gap-x-3 gap-y-1 text-xs"
           style={{ color: 'var(--text-secondary)' }}
         >
-          <span>👤 {item.author}</span>
-          <span>📝 {item.wordCount}</span>
-          <span>👁 {item.viewCount}</span>
-          {updatedRelative && <span>🔄 {updatedRelative}更新</span>}
-          {publishedDate && <span>📅 发布于 {publishedDate}</span>}
+          <span className="inline-flex items-center gap-1"><Icon name="user" size={12} /> {item.author}</span>
+          <span className="inline-flex items-center gap-1"><Icon name="pen" size={12} /> {item.wordCount}</span>
+          <span className="inline-flex items-center gap-1"><Icon name="eye" size={12} /> {item.viewCount}</span>
+          {updatedRelative && <span className="inline-flex items-center gap-1"><Icon name="refresh" size={12} /> {updatedRelative}更新</span>}
+          {publishedDate && <span className="inline-flex items-center gap-1"><Icon name="calendar" size={12} /> 发布于 {publishedDate}</span>}
         </div>
       </div>
     </div>
@@ -954,10 +952,10 @@ export function NgaCard({ item, onOpen }: { item: NgaResult; onOpen: (url: strin
         className="flex flex-wrap gap-x-3 gap-y-1 text-xs"
         style={{ color: 'var(--text-secondary)' }}
       >
-        <span>👤 {item.author}</span>
-        <span>🔢 {item.floorCount} 楼</span>
-        {item.lastReplyAt && <span>💬 最后回复 {item.lastReplyAt}</span>}
-        {item.publishedAt && <span>📅 发布于 {item.publishedAt}</span>}
+        <span className="inline-flex items-center gap-1"><Icon name="user" size={12} /> {item.author}</span>
+        <span className="inline-flex items-center gap-1"><Icon name="hash" size={12} /> {item.floorCount} 楼</span>
+        {item.lastReplyAt && <span className="inline-flex items-center gap-1"><Icon name="message" size={12} /> 最后回复 {item.lastReplyAt}</span>}
+        {item.publishedAt && <span className="inline-flex items-center gap-1"><Icon name="calendar" size={12} /> 发布于 {item.publishedAt}</span>}
       </div>
     </div>
   )

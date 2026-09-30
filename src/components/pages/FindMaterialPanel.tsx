@@ -19,6 +19,7 @@ import {
 } from '../../db';
 import { MATERIAL_CATEGORIES, type MaterialSite, type MaterialCategory } from '../../types';
 import { useToastStore } from '../../store/toastStore';
+import { Icon } from '../common/Icon';
 
 interface EditState {
   open: boolean;
@@ -181,7 +182,7 @@ export function FindMaterialPanel() {
         style={{ borderColor: 'var(--border-color)' }}
       >
         <h2 className="text-base font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-          <span>🔍</span> 寻找素材
+          <Icon name="search" size={16} /> 寻找素材
         </h2>
         <div className="flex items-center gap-1.5 flex-wrap flex-1">
           {filterChips.map((chip) => {
@@ -219,7 +220,7 @@ export function FindMaterialPanel() {
             e.currentTarget.style.opacity = '1';
           }}
         >
-          ➕ 添加
+          <Icon name="plus" size={14} /> 添加
         </button>
       </div>
 
@@ -236,7 +237,7 @@ export function FindMaterialPanel() {
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-2">
-            <span style={{ fontSize: 32, opacity: 0.5 }}>📭</span>
+            <Icon name="inbox" size={32} className="opacity-50" />
             <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>
               {filter === 'all' ? '暂无素材，点击右上角添加' : `该分类下暂无素材`}
             </div>
@@ -319,7 +320,7 @@ export function FindMaterialPanel() {
                       e.currentTarget.style.color = 'var(--accent)';
                     }}
                   >
-                    🌐 打开
+                    <span className="inline-flex items-center gap-1"><Icon name="globe" size={13} /> 打开</span>
                   </button>
                   <button
                     onClick={() => openEdit(site)}
@@ -338,7 +339,7 @@ export function FindMaterialPanel() {
                       e.currentTarget.style.color = 'var(--text-secondary)';
                     }}
                   >
-                    ✏️
+                    <Icon name="pen" size={13} />
                   </button>
                   <button
                     onClick={() => handleDelete(site.id, site.name)}
@@ -359,7 +360,7 @@ export function FindMaterialPanel() {
                       e.currentTarget.style.borderColor = 'var(--border-color)';
                     }}
                   >
-                    🗑️
+                    <Icon name="trash" size={13} />
                   </button>
                 </div>
               </div>

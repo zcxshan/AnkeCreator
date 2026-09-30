@@ -16,6 +16,7 @@
 import { useState, useCallback } from 'react'
 import { isCapacitor } from '../../utils/platform'
 import { SearchSiteSection, GululuCard, NgaCard } from './SearchSiteSection'
+import { Icon } from '../common/Icon'
 import { useSettingStore } from '../../store/settingStore'
 import type { GululuResult, NgaResult } from '../../../electron/searchAnke'
 
@@ -79,15 +80,15 @@ export function FindAnkePage({ onBack }: FindAnkePageProps) {
           className="flex items-center gap-3 px-4 py-3 shrink-0 sticky top-8 z-40"
           style={{ borderBottom: '1px solid var(--border-color)', background: 'var(--bg-primary)' }}
         >
+          <Icon name="search" size={18} />
+          <h1 className="text-lg font-semibold m-0">寻找安科</h1>
           <button
             onClick={onBack}
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium"
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium ml-auto"
             style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
           >
             ← 返回
           </button>
-          <span style={{ fontSize: '20px' }}>🔍</span>
-          <h1 className="text-lg font-semibold m-0">寻找安科</h1>
         </div>
         <div className="flex-1 flex items-center justify-center p-8">
           <div
@@ -97,7 +98,7 @@ export function FindAnkePage({ onBack }: FindAnkePageProps) {
               border: '1px dashed var(--border-color)',
             }}
           >
-            <div className="text-5xl mb-4">💻</div>
+            <div className="mb-4"><Icon name="laptop" size={48} /></div>
             <h2
               className="text-xl font-semibold mb-2"
               style={{ color: 'var(--text-primary)' }}
@@ -126,19 +127,19 @@ export function FindAnkePage({ onBack }: FindAnkePageProps) {
         className="flex items-center gap-3 px-4 py-3 shrink-0"
         style={{ borderBottom: '1px solid var(--border-color)' }}
       >
+        <div className="flex items-center gap-2">
+          <Icon name="search" size={18} />
+          <h1 className="text-lg font-semibold m-0">寻找安科</h1>
+        </div>
         <button
           onClick={onBack}
-          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors"
+          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ml-auto"
           style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
           onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-card)')}
           onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--bg-hover)')}
         >
           ← 返回
         </button>
-        <div className="flex items-center gap-2">
-          <span style={{ fontSize: '20px' }}>🔍</span>
-          <h1 className="text-lg font-semibold m-0">寻找安科</h1>
-        </div>
       </div>
 
       {/* Tab 切换栏 */}
@@ -154,7 +155,10 @@ export function FindAnkePage({ onBack }: FindAnkePageProps) {
             color: tab === 'gululu' ? 'var(--text-on-accent)' : 'var(--text-secondary)',
           }}
         >
-          🌐 骨碌碌
+          <span className="inline-flex items-center gap-1">
+            <Icon name="globe" size={14} />
+            骨碌碌
+          </span>
         </button>
         <button
           onClick={() => setTab('nga')}
@@ -164,7 +168,10 @@ export function FindAnkePage({ onBack }: FindAnkePageProps) {
             color: tab === 'nga' ? 'var(--text-on-accent)' : 'var(--text-secondary)',
           }}
         >
-          🎮 NGA 安科
+          <span className="inline-flex items-center gap-1">
+            <Icon name="gamepad" size={14} />
+            NGA 安科
+          </span>
         </button>
       </div>
 
@@ -172,50 +179,54 @@ export function FindAnkePage({ onBack }: FindAnkePageProps) {
       <div className="flex-1 overflow-hidden">
         {tab === 'gululu' && (
           <div className="h-full overflow-y-auto p-4">
-            <div className="max-w-4xl mx-auto">
-              <SearchSiteSection<GululuResult>
-                siteKey="gululu"
-                icon="🌐"
-                title="骨碌碌安科搜索"
-                subtitle="gululu.world · 安科轻小说站"
-                placeholder="搜索骨碌碌安科（试试「mygo」「安价」）"
-                searchFn={gululuSearchFn}
-                renderCard={(item, onOpen) => <GululuCard item={item} onOpen={onOpen} />}
-                filterConfig={{
-                  numericRangeField: 'wordCount',
-                  numericRangeLabel: '字数(万)',
-                  numericRangeMultiplier: 10000,
-                  sortOptions: [
-                    { value: 'default', label: '默认排序' },
-                    { value: 'word-desc', label: '字数 ↓' },
-                    { value: 'view-desc', label: '浏览 ↓' },
-                    { value: 'time-desc', label: '更新 ↓' },
-                  ],
-                  defaultSort: 'default',
-                }}
-                onOpenUrl={openUrl}
-                autoLoadOnMount={false}
-                flatLayout
-                matchFieldSwitchable={true}
-                defaultMatchField="all"
-                defaultSearchCount={20}
-              />
+            <div className="max-w-4xl mx-auto flex flex-col gap-3">
+              <div className="anke-card p-4">
+                <SearchSiteSection<GululuResult>
+                  siteKey="gululu"
+                  icon="globe"
+                  title="骨碌碌安科搜索"
+                  subtitle="gululu.world · 安科轻小说站"
+                  placeholder="搜索骨碌碌安科（试试「mygo」「安价」）"
+                  searchFn={gululuSearchFn}
+                  renderCard={(item, onOpen) => <GululuCard item={item} onOpen={onOpen} />}
+                  filterConfig={{
+                    numericRangeField: 'wordCount',
+                    numericRangeLabel: '字数(万)',
+                    numericRangeMultiplier: 10000,
+                    sortOptions: [
+                      { value: 'default', label: '默认排序' },
+                      { value: 'word-desc', label: '字数 ↓' },
+                      { value: 'view-desc', label: '浏览 ↓' },
+                      { value: 'time-desc', label: '更新 ↓' },
+                    ],
+                    defaultSort: 'default',
+                  }}
+                  onOpenUrl={openUrl}
+                  autoLoadOnMount={false}
+                  flatLayout
+                  matchFieldSwitchable={true}
+                  defaultMatchField="all"
+                  defaultSearchCount={20}
+                />
+              </div>
             </div>
           </div>
         )}
         {tab === 'nga' && (
           <div className="h-full overflow-y-auto p-4">
-            <div className="max-w-4xl mx-auto">
+            <div className="max-w-4xl mx-auto flex flex-col gap-3">
               {!ngaCookies && (
                 <div
-                  className="mb-3 p-3 rounded-lg flex items-start gap-2 text-xs"
+                  className="p-3 rounded-lg flex items-start gap-2 text-xs"
                   style={{
                     background: 'rgba(245, 158, 11, 0.1)',
                     border: '1px solid rgba(245, 158, 11, 0.3)',
                     color: 'var(--text-primary)',
                   }}
                 >
-                  <span style={{ fontSize: 14 }}>⚠️</span>
+                  <span className="shrink-0" style={{ color: '#f59e0b' }}>
+                    <Icon name="alert" size={14} />
+                  </span>
                   <div className="flex-1">
                     <div className="font-medium mb-0.5">未配置 NGA Cookie</div>
                     <div style={{ color: 'var(--text-secondary)' }}>
@@ -225,35 +236,37 @@ export function FindAnkePage({ onBack }: FindAnkePageProps) {
                   </div>
                 </div>
               )}
-              <SearchSiteSection<NgaResult>
-                siteKey="nga"
-                icon="🎮"
-                title="NGA 安科搜索"
-                subtitle={
-                  ngaCookies
-                    ? 'ngabbs.com/fid=784 · 已配置 Cookie'
-                    : 'ngabbs.com/fid=784 · 二次元跑团'
-                }
-                placeholder="搜索 NGA 安科（试试「mygo」「跑团」）"
-                searchFn={ngaSearchFn}
-                renderCard={(item, onOpen) => <NgaCard item={item} onOpen={onOpen} />}
-                filterConfig={{
-                  numericRangeField: 'floorCount',
-                  numericRangeLabel: '楼数',
-                  numericRangeMultiplier: 1,
-                  sortOptions: [
-                    { value: 'default', label: '默认排序' },
-                    { value: 'floor-desc', label: '楼层数 ↓' },
-                    { value: 'reply-desc', label: '回复时间 ↓' },
-                  ],
-                  defaultSort: 'default',
-                }}
-                onOpenUrl={openUrl}
-                autoLoadOnMount={false}
-                flatLayout
-                matchFieldSwitchable={true}
-                defaultSearchCount={60}
-              />
+              <div className="anke-card p-4">
+                <SearchSiteSection<NgaResult>
+                  siteKey="nga"
+                  icon="gamepad"
+                  title="NGA 安科搜索"
+                  subtitle={
+                    ngaCookies
+                      ? 'ngabbs.com/fid=784 · 已配置 Cookie'
+                      : 'ngabbs.com/fid=784 · 二次元跑团'
+                  }
+                  placeholder="搜索 NGA 安科（试试「mygo」「跑团」）"
+                  searchFn={ngaSearchFn}
+                  renderCard={(item, onOpen) => <NgaCard item={item} onOpen={onOpen} />}
+                  filterConfig={{
+                    numericRangeField: 'floorCount',
+                    numericRangeLabel: '楼数',
+                    numericRangeMultiplier: 1,
+                    sortOptions: [
+                      { value: 'default', label: '默认排序' },
+                      { value: 'floor-desc', label: '楼层数 ↓' },
+                      { value: 'reply-desc', label: '回复时间 ↓' },
+                    ],
+                    defaultSort: 'default',
+                  }}
+                  onOpenUrl={openUrl}
+                  autoLoadOnMount={false}
+                  flatLayout
+                  matchFieldSwitchable={true}
+                  defaultSearchCount={60}
+                />
+              </div>
             </div>
           </div>
         )}

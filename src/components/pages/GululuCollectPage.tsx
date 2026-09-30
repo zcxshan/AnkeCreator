@@ -16,6 +16,7 @@ import { AdvancedFormatSection } from '../anke/AdvancedFormatSection';
 import { AnkeProgressBar } from './AnkeProgressBar';
 import { webSaveStoryAsFile } from '../../utils/storyFileIO';
 import { isElectron } from '../../utils/platform';
+import { Icon } from '../common/Icon';
 
 interface GululuCollectPanelProps {
   /** 可选关闭回调：传入时面板顶部右侧显示"✕ 关闭"按钮（用于在父级中关闭该面板） */
@@ -177,7 +178,7 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
         }
         showToast(`已保存：${res.filePath}`, 'success');
         setResultMsg(
-          `已保存 ${stats.totalFloors} 节（${stats.sectionCount} 节）到：${res.filePath}\n请到「我的作品 → 📥 导入作品」选此 JSON 还原。`,
+          `已保存 ${stats.totalFloors} 节（${stats.sectionCount} 节）到：${res.filePath}\n请到「我的作品 → 导入作品」选此 JSON 还原。`,
         );
       } else {
         const res = await webSaveStoryAsFile(result.jsonData, result.fileName);
@@ -189,7 +190,7 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
         }
         showToast(`已下载：${res.fileName}`, 'success');
         setResultMsg(
-          `已下载 ${stats.totalFloors} 节（${stats.sectionCount} 节）：${res.fileName}\n请到「我的作品 → 📥 导入作品」选此 JSON 还原。`,
+          `已下载 ${stats.totalFloors} 节（${stats.sectionCount} 节）：${res.fileName}\n请到「我的作品 → 导入作品」选此 JSON 还原。`,
         );
       }
     } catch (e) {
@@ -247,7 +248,7 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
         );
         if (res && !res.canceled && (res.filePath || res.fileName)) {
           setResultMsg(
-            `已重试并保存 ${stats.totalFloors} 节（${stats.sectionCount} 节）：${res.filePath || res.fileName}\n请到「我的作品 → 📥 导入作品」选此 JSON 还原。`,
+            `已重试并保存 ${stats.totalFloors} 节（${stats.sectionCount} 节）：${res.filePath || res.fileName}\n请到「我的作品 → 导入作品」选此 JSON 还原。`,
           );
         }
       }
@@ -292,7 +293,7 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
         style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}
       >
         <div className="text-center max-w-sm">
-          <div className="text-4xl mb-3">📱</div>
+          <div className="flex justify-center mb-3"><Icon name="smartphone" size={40} /></div>
           <p className="font-medium" style={{ color: 'var(--text-primary)' }}>移动端暂不支持收集骨碌碌安科</p>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>请在桌面端（Electron）使用此功能</p>
         </div>
@@ -325,7 +326,7 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
             }}
             title="关闭骨碌碌面板"
           >
-            ✕ 关闭
+            <Icon name="x" size={13} /> 关闭
           </button>
         </div>
       )}
@@ -391,7 +392,7 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
                         检测中
                       </>
                     ) : (
-                      <>🔍 自动检测</>
+                      <span className="inline-flex items-center gap-1"><Icon name="search" size={13} /> 自动检测</span>
                     )}
                   </button>
                 </div>
@@ -486,10 +487,10 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
                 className="text-xs flex items-start gap-1.5"
                 style={{ color: 'var(--text-muted)' }}
               >
-                <span>💡</span>
+                <Icon name="lightbulb" size={14} className="mt-0.5 shrink-0" />
                 <div>
                   收集完成后会下载一个 <code>.anke.json</code> 文件。
-                  到「我的作品」页面点「📥 导入作品」选这个 JSON 即可还原为安科作品。
+                  到「我的作品」页面点「导入作品」选这个 JSON 即可还原为安科作品。
                 </div>
               </div>
 
@@ -525,7 +526,7 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
                       {progressMsg || '处理中…'}
                     </>
                   ) : (
-                    <>📥 确认收集</>
+                    <span className="inline-flex items-center gap-1.5"><Icon name="download" size={14} /> 确认收集</span>
                   )}
                 </button>
                 {running && (
@@ -568,7 +569,9 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
                 className="text-sm font-semibold mb-2"
                 style={{ color: 'var(--accent)' }}
               >
-                ✅ 收集完成
+                <span className="inline-flex items-center gap-1.5" style={{ color: 'var(--accent)' }}>
+                  <Icon name="check" size={14} /> 收集完成
+                </span>
               </div>
               <div
                 className="text-sm whitespace-pre-wrap"
@@ -589,7 +592,7 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
               }}
             >
               <div className="flex items-start gap-2 mb-3">
-                <span style={{ color: '#f59e0b', fontSize: 20, lineHeight: 1 }}>⚠</span>
+                <span style={{ color: '#f59e0b' }}><Icon name="alert" size={20} className="block" /></span>
                 <div className="flex-1">
                   <div className="text-sm font-semibold" style={{ color: '#f59e0b' }}>
                     {failedFloors.length} 个楼层抓取失败
@@ -616,7 +619,11 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
                     border: '1px solid #f59e0b',
                   }}
                 >
-                  {retrying ? `重试中…（${failedFloors.length} 层）` : `⚠ 重试 ${failedFloors.length} 个失败楼层（建议操作）`}
+                  <span className="inline-flex items-center gap-1">
+                    {retrying
+                      ? `重试中…（${failedFloors.length} 层）`
+                      : <><Icon name="alert" size={14} /> 重试 {failedFloors.length} 个失败楼层（建议操作）</>}
+                  </span>
                 </button>
                 <button
                   onClick={handleSkipFailed}
