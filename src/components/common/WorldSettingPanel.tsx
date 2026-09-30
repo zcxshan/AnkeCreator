@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { Icon } from './Icon';
 import type { WorldSetting, WorldSettingTemplate, TextStyles } from '../../types';
 import { useMetaStore } from '../../store/metaStore';
 import { useStoryStore } from '../../store/storyStore';
@@ -106,7 +107,7 @@ export function WorldSettingPanel() {
           className="flex items-center justify-between px-3 py-2 gap-1"
           style={{ borderBottom: '1px solid var(--border-color)', background: 'var(--bg-sidebar-header)' }}
         >
-          <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>🌍 世界观设定</div>
+          <div className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--text-primary)' }}><Icon name="globe" size={14} /> 世界观设定</div>
           <div className="flex items-center gap-1">
             {selectedIds.size > 0 ? (
               <>
@@ -119,7 +120,7 @@ export function WorldSettingPanel() {
                   style={{ background: 'var(--danger)', color: '#fff' }}
                   title="删除所选"
                 >
-                  🗑 批量删除
+                  <span className="inline-flex items-center gap-1"><Icon name="trash" size={12} /> 批量删除</span>
                 </button>
                 <button
                   onClick={clearSelection}
@@ -218,7 +219,7 @@ export function WorldSettingPanel() {
 function EmptyHint({ storyId, onCreate }: { storyId: string | null; onCreate: () => void }) {
   return (
     <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
-      <div className="text-5xl mb-4 opacity-40">📜</div>
+      <div className="mb-4 opacity-40 flex justify-center"><Icon name="scroll" size={48} /></div>
       <div className="text-lg mb-2" style={{ color: 'var(--text-primary)' }}>世界观设定</div>
       <div className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
         {storyId ? '左侧选择条目，或点击下方按钮新建一条设定' : '请先选择一个故事'}
@@ -658,7 +659,7 @@ function ImportTemplateButton() {
         </div>
       ) : filtered.length === 0 ? (
         <div className="px-3 py-4 text-xs flex flex-col items-center gap-2" style={{ color: 'var(--text-secondary)' }}>
-          <span style={{ fontSize: 28 }}>🔍</span>
+          <span className="flex justify-center" style={{ fontSize: 28 }}><Icon name="search" size={28} /></span>
           <span>没有找到匹配的模板</span>
         </div>
       ) : (
@@ -672,7 +673,7 @@ function ImportTemplateButton() {
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-bg)' }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
             >
-              <div className="truncate font-bold" style={{ fontSize: 12 }}>📚 {t.title}</div>
+              <div className="inline-flex items-center gap-1 truncate font-bold" style={{ fontSize: 12 }}><Icon name="book" size={12} /> {t.title}</div>
               <div
                 style={{
                   fontSize: 11,

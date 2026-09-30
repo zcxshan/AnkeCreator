@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Favorite } from '../../types/story';
+import { Icon } from './Icon';
 
 export type AddToFavoriteMode = 'multi' | 'single';
 
@@ -149,7 +150,7 @@ export function AddToFavoriteDialog({
               fontSize: 13,
             }}
           >
-            <div style={{ fontSize: 32, marginBottom: 8 }}>📁</div>
+            <div className="flex justify-center mb-2"><Icon name="folder" size={32} /></div>
             <div style={{ marginBottom: 12 }}>还没有收藏夹</div>
             {onCreateNew && (
               <button

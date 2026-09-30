@@ -164,6 +164,9 @@ ios/
 /preload.js
 *.main.js
 *.preload.js
+# vite.config.ts 的 esbuild 编译产物
+/vite.config.js
+/vite.config.d.ts
 
 # ============================================================
 # 调试残留（手测 / debug-* 文件 / 临时截图）

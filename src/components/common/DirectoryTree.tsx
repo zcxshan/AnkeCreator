@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, memo } from 'react';
 import { FixedSizeList, type ListChildComponentProps } from 'react-window';
 import type { Chapter, SectionMeta, Volume } from '../../types';
 import { ConfirmDialog } from './ConfirmDialog';
+import { Icon, type IconName } from './Icon';
 import { useToastStore } from '../../store/toastStore';
 
 // 节行高度（与原 renderSectionRow 的 py-1.5 + 文字行高一致）
@@ -301,9 +302,9 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
           }}
         >
           <span className="w-4 h-4 flex items-center justify-center text-[10px] shrink-0" style={{ color: 'var(--text-secondary)' }}>
-            {isExpanded ? '▼' : '▶'}
+            {isExpanded ? <Icon name="chevronDown" size={12} /> : <Icon name="chevronRight" size={12} />}
           </span>
-          <span className="shrink-0">📖</span>
+          <span className="shrink-0"><Icon name="book" size={13} /></span>
           {editingId === ch.id ? (
             <input
               ref={editingRef}
@@ -362,7 +363,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
               onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = ''; }}
               title="重命名"
             >
-              ✎
+              <Icon name="pen" size={11} />
             </button>
           </div>
         </div>
@@ -539,9 +540,9 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
                   onClick={() => onToggleVolume(v.id)}
                 >
                   <span className="w-4 h-4 flex items-center justify-center text-[10px] shrink-0" style={{ color: 'var(--text-secondary)' }}>
-                    {vExpanded ? '▼' : '▶'}
+                    {vExpanded ? <Icon name="chevronDown" size={12} /> : <Icon name="chevronRight" size={12} />}
                   </span>
-                  <span className="shrink-0">📚</span>
+                  <span className="shrink-0"><Icon name="book" size={13} /></span>
                   {editingId === v.id ? (
                     <input
                       ref={editingRef}
@@ -597,7 +598,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
                       onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = ''; }}
                       title="重命名"
                     >
-                      ✎
+                      <Icon name="pen" size={11} />
                     </button>
                   </div>
                 </div>
@@ -642,7 +643,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
             background: 'var(--bg-card)',
           }}
         >
-          <div className="mb-1" style={{ fontSize: 14 }}>💡</div>
+          <div className="mb-1 flex justify-center" style={{ fontSize: 14 }}><Icon name="lightbulb" size={16} /></div>
           <div>目录已显示所有内容</div>
           <div className="mt-1 text-[10px]">可在右侧编辑区开始写作</div>
         </div>
@@ -657,7 +658,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
         >
           {contextMenu.type === 'blank' ? (
             <ContextMenuItem
-              icon="+"
+              icon="plus"
               label="添加卷"
               onClick={() => {
                 onCreateVolume();
@@ -666,7 +667,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
             />
           ) : (
             <ContextMenuItem
-              icon="✎"
+              icon="pen"
               label="重命名"
               onClick={() => {
                 setEditingId(contextMenu.id);
@@ -679,7 +680,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
           {contextMenu.type === 'volume' && (
             <>
               <ContextMenuItem
-                icon="+"
+                icon="plus"
                 label="新增章"
                 onClick={() => {
                   onCreateChapter(contextMenu.id);
@@ -689,7 +690,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
               {onCreateVolumeAt && (
                 <>
                   <ContextMenuItem
-                    icon="↑"
+                    icon="arrowUp"
                     label="在此卷前添加卷"
                     onClick={() => {
                       onCreateVolumeAt(contextMenu.id, 'before');
@@ -697,7 +698,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
                     }}
                   />
                   <ContextMenuItem
-                    icon="↓"
+                    icon="arrowDown"
                     label="在此卷后添加卷"
                     onClick={() => {
                       onCreateVolumeAt(contextMenu.id, 'after');
@@ -711,7 +712,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
           {contextMenu.type === 'chapter' && (
             <>
               <ContextMenuItem
-                icon="+"
+                icon="plus"
                 label="新增节"
                 onClick={() => {
                   onSelectChapter(contextMenu.id);
@@ -722,7 +723,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
               {onCreateChapterAt && (
                 <>
                   <ContextMenuItem
-                    icon="↑"
+                    icon="arrowUp"
                     label="在此章前添加章"
                     onClick={() => {
                       onCreateChapterAt(contextMenu.volumeId ?? null, contextMenu.id, 'before');
@@ -730,7 +731,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
                     }}
                   />
                   <ContextMenuItem
-                    icon="↓"
+                    icon="arrowDown"
                     label="在此章后添加章"
                     onClick={() => {
                       onCreateChapterAt(contextMenu.volumeId ?? null, contextMenu.id, 'after');
@@ -744,7 +745,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
           {contextMenu.type === 'section' && onCreateSectionAt && (
             <>
               <ContextMenuItem
-                icon="↑"
+                icon="arrowUp"
                 label="在此节前添加节"
                 onClick={() => {
                   onCreateSectionAt(contextMenu.chapterId ?? contextMenu.id, contextMenu.id, 'before');
@@ -752,7 +753,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
                 }}
               />
               <ContextMenuItem
-                icon="↓"
+                icon="arrowDown"
                 label="在此节后添加节"
                 onClick={() => {
                   onCreateSectionAt(contextMenu.chapterId ?? contextMenu.id, contextMenu.id, 'after');
@@ -765,7 +766,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
             <>
               <div className="my-1 border-t" style={{ borderColor: 'var(--border-color)' }} />
               <ContextMenuItem
-                icon="🗑"
+                icon="trash"
                 label="删除"
                 danger
                 onClick={() => {
@@ -811,7 +812,7 @@ function ContextMenuItem({
   onClick,
   danger,
 }: {
-  icon: string;
+  icon: IconName;
   label: string;
   onClick: () => void;
   danger?: boolean;
@@ -824,7 +825,7 @@ function ContextMenuItem({
       onMouseEnter={(e) => { e.currentTarget.style.background = danger ? 'var(--danger-soft, rgba(239,68,68,0.08))' : 'var(--bg-hover)'; }}
       onMouseLeave={(e) => { e.currentTarget.style.background = ''; }}
     >
-      <span className="w-4 text-center">{icon}</span>
+      <span className="w-4 flex justify-center"><Icon name={icon} size={12} /></span>
       <span>{label}</span>
     </button>
   );
@@ -940,7 +941,7 @@ const SectionRowView = memo(function SectionRowView({
       {isSecActive && (
         <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded-r-full" style={{ background: 'var(--accent)' }} />
       )}
-      <span className="shrink-0 text-[10px]">📄</span>
+      <span className="shrink-0"><Icon name="fileText" size={11} /></span>
       {data.editingId === sec.id ? (
         <input
           ref={data.editingRef}
@@ -959,7 +960,7 @@ const SectionRowView = memo(function SectionRowView({
         <span className={`flex-1 truncate ${isSecActive ? 'font-medium' : ''}`}>{sec.title}</span>
       )}
       {stats.dice > 0 && (
-        <span className="shrink-0 text-[9px] px-1 rounded" style={{ color: 'var(--accent)', background: 'var(--accent-soft)' }}>🎲{stats.dice}</span>
+        <span className="shrink-0 text-[9px] px-1 rounded inline-flex items-center gap-0.5" style={{ color: 'var(--accent)', background: 'var(--accent-soft)' }}><Icon name="dices" size={9} />{stats.dice}</span>
       )}
       <span className="shrink-0 text-[10px]" style={{ color: 'var(--text-secondary)' }}>
         {`${stats.words}字`}

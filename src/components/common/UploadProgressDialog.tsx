@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useSettingStore } from '../../store/settingStore';
 import type { UploadProgressEvent } from '../../utils/uploadImage';
+import { Icon } from './Icon';
 
 interface UploadProgressDialogProps {
   open: boolean;
@@ -299,7 +300,7 @@ function TaskItem({ task }: { task: UploadProgressEvent }) {
           fontSize: 14,
         }}
       >
-        {isSuccess ? '✓' : isFailed ? '✕' : '⏳'}
+        {isSuccess ? <Icon name="check" size={16} /> : isFailed ? <Icon name="x" size={16} /> : <Icon name="hourglass" size={16} />}
       </div>
 
       {/* 文件名 + 进度条 + 状态 */}

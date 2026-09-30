@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { DiffItem, SyncSource } from '../../utils/structureSync';
+import { Icon, type IconName } from './Icon';
 
 interface SyncDialogProps {
   open: boolean;
@@ -238,8 +239,8 @@ interface DiffRowProps {
 }
 
 function DiffRow({ item, sourceLabel, destLabel, onToggleSelected, onSetKeep }: DiffRowProps) {
-  const iconKind =
-    item.kind === 'add' ? '+' : item.kind === 'remove' ? '−' : '⚠';
+  const iconKind: IconName =
+    item.kind === 'add' ? 'plus' : item.kind === 'remove' ? 'x' : 'alert';
   const kindLabel =
     item.kind === 'add'
       ? `新增到${destLabel}`
@@ -271,7 +272,7 @@ function DiffRow({ item, sourceLabel, destLabel, onToggleSelected, onSetKeep }: 
         className="shrink-0 w-5 h-5 flex items-center justify-center rounded text-[11px] font-bold"
         style={{ background: 'var(--success-bg)', color: kindColor }}
       >
-        {iconKind}
+        {iconKind && <Icon name={iconKind} size={12} />}
       </div>
       <div className="flex-1 min-w-0">
         <div className="text-xs truncate" style={{ color: 'var(--text-primary)' }}>{item.title}</div>

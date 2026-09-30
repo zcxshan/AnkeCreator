@@ -10,6 +10,7 @@
 // ============================================================
 
 import { useEffect, useState } from 'react'
+import { Icon } from './Icon'
 
 export interface EpubExportOptions {
   embedImages: boolean
@@ -81,7 +82,7 @@ export function EpubExportOptionsDialog({
           style={{ borderBottom: '1px solid var(--border-color)' }}
         >
           <div className="flex items-center gap-2.5">
-            <span style={{ fontSize: 22 }}>📚</span>
+            <span className="flex items-center"><Icon name="book" size={20} /></span>
             <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
               导出 EPUB 电子书
             </h3>
@@ -173,7 +174,7 @@ export function EpubExportOptionsDialog({
             className="flex items-start gap-2 text-xs p-3 rounded-lg"
             style={{ background: 'rgba(245,158,11,0.08)', color: 'var(--text-secondary)' }}
           >
-            <span style={{ flexShrink: 0 }}>💡</span>
+            <Icon name="lightbulb" size={14} className="shrink-0 mt-0.5" />
             <span className="leading-relaxed">
               同一张 NGA 图在正文里被多次引用时，会自动按规范化 URL 去重，不会重复下载。NGA 图床的签名 token 也会被自动剥离。
             </span>

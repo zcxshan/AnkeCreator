@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useSettingStore } from '../../store/settingStore';
+import { Icon } from './Icon';
 
 /**
  * 编辑区顶部常驻警告横幅
@@ -37,19 +38,19 @@ export function LocalModeBanner() {
         flexShrink: 0,
       }}
     >
-      <span style={{ fontSize: 16, lineHeight: 1.6 }}>⚠️</span>
+      <Icon name="alert" size={16} className="shrink-0 mt-0.5" />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 600, marginBottom: 2 }}>本地保存模式已开启</div>
         <div style={{ opacity: 0.95 }}>
-          ⚠️ 本应用免费图片托管平台
+          本应用免费图片托管平台
           <b>限时</b>
           ，远端 URL 可能在数月后失效
           <br />
-          ⚠️ 本地保存的图片（路径）
+          本地保存的图片（路径）
           <b>无法被 NGA 论坛识别</b>
           ，导出时自动替换为占位符
           <br />
-          💡 <b>最推荐：</b>切到「远端图床」或手动上传 NGA 后复制链接
+          <b>最推荐：</b>切到「远端图床」或手动上传 NGA 后复制链接
         </div>
       </div>
       <button
@@ -67,7 +68,7 @@ export function LocalModeBanner() {
           flexShrink: 0,
         }}
       >
-        ✕
+        <Icon name="x" size={16} />
       </button>
     </div>
   );

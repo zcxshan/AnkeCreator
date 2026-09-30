@@ -17,6 +17,7 @@
 // ============================================================
 
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { Icon } from './Icon';
 
 interface Props {
   children: ReactNode;
@@ -75,7 +76,7 @@ export class ErrorBoundary extends Component<Props, State> {
               color: '#fee2e2',
             }}
           >
-            ⚠️ 界面崩溃
+            <span className="inline-flex items-center gap-2"><Icon name="alert" size={18} /> 界面崩溃</span>
           </div>
           <div
             style={{

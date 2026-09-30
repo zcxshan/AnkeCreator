@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { isCapacitor } from '../../utils/platform';
 import { useThemeStore } from '../../store/themeStore';
+import { Icon, type IconName } from './Icon';
 import { SettingsDialog } from './SettingsDialog';
 
 type Route = 'home' | 'works' | 'editor' | 'reader' | 'resource-library' | 'tutorial' | 'anjia-collect' | 'anke-collect' | 'find-anke' | 'dice-playground';
@@ -23,32 +24,32 @@ interface MobileBottomNavProps {
 interface TabItem {
   key: Route | 'more';
   label: string;
-  icon: string;
+  icon: IconName;
 }
 
 const TABS: TabItem[] = [
-  { key: 'home', label: '首页', icon: '🏠' },
-  { key: 'works', label: '作品', icon: '📚' },
-  { key: 'resource-library', label: '资源', icon: '🗂️' },
-  { key: 'more', label: '更多', icon: '⋯' },
+  { key: 'home', label: '首页', icon: 'home' },
+  { key: 'works', label: '作品', icon: 'book' },
+  { key: 'resource-library', label: '资源', icon: 'folder' },
+  { key: 'more', label: '更多', icon: 'menu' },
 ];
 
 type MoreItemKey = 'anjia-collect' | 'anke-collect' | 'find-anke' | 'tutorial' | 'author' | 'settings';
 type ThemeChoice = 'light' | 'dark' | 'system';
 
-const MORE_ITEMS: Array<{ key: MoreItemKey; label: string; icon: string }> = [
-  { key: 'anjia-collect', label: '收集安价', icon: '📜' },
-  { key: 'anke-collect', label: '收集安科', icon: '📖' },
-  { key: 'find-anke', label: '寻找安科', icon: '🔍' },
-  { key: 'tutorial', label: '使用教程', icon: '📖' },
-  { key: 'author', label: '关于作者', icon: '👤' },
-  { key: 'settings', label: '设置', icon: '⚙️' },
+const MORE_ITEMS: Array<{ key: MoreItemKey; label: string; icon: IconName }> = [
+  { key: 'anjia-collect', label: '收集安价', icon: 'scroll' },
+  { key: 'anke-collect', label: '收集安科', icon: 'download' },
+  { key: 'find-anke', label: '寻找安科', icon: 'search' },
+  { key: 'tutorial', label: '使用教程', icon: 'book' },
+  { key: 'author', label: '关于作者', icon: 'user' },
+  { key: 'settings', label: '设置', icon: 'settings' },
 ];
 
-const THEME_OPTIONS: Array<{ key: ThemeChoice; label: string; icon: string }> = [
-  { key: 'light', label: '亮色', icon: '☀️' },
-  { key: 'dark', label: '暗色', icon: '🌙' },
-  { key: 'system', label: '跟随系统', icon: '🖥️' },
+const THEME_OPTIONS: Array<{ key: ThemeChoice; label: string; icon: IconName }> = [
+  { key: 'light', label: '亮色', icon: 'sun' },
+  { key: 'dark', label: '暗色', icon: 'moon' },
+  { key: 'system', label: '跟随系统', icon: 'monitor' },
 ];
 
 // 记录用户的主题选择意图（与 themeStore 的 'anke:theme-mode' 分开存）
@@ -183,7 +184,7 @@ export function MobileBottomNav({ route, onChangeRoute, onShowAuthor, hasActiveS
                   className="flex flex-col items-center gap-1 py-3 rounded-lg active:opacity-70"
                   style={{ background: 'var(--bg-input)' }}
                 >
-                  <span className="text-2xl">{item.icon}</span>
+                  <span className="flex justify-center"><Icon name={item.icon} size={24} /></span>
                   <span className="text-xs" style={{ color: 'var(--text-primary)' }}>
                     {item.label}
                   </span>
@@ -214,7 +215,7 @@ export function MobileBottomNav({ route, onChangeRoute, onShowAuthor, hasActiveS
                           : '1px solid transparent',
                       }}
                     >
-                      <span className="text-xl">{opt.icon}</span>
+                      <span className="flex justify-center"><Icon name={opt.icon} size={20} /></span>
                       <span
                         className="text-[11px]"
                         style={{
@@ -257,7 +258,7 @@ export function MobileBottomNav({ route, onChangeRoute, onShowAuthor, hasActiveS
                 borderTop: active ? '2px solid var(--accent-color)' : '2px solid transparent',
               }}
             >
-              <span className="text-xl leading-none">{tab.icon}</span>
+              <span className="flex justify-center"><Icon name={tab.icon} size={20} /></span>
               <span className="text-[10px] leading-none">{tab.label}</span>
             </button>
           );

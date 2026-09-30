@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useImageWarningStore } from '../../store/imageWarningStore';
+import { Icon } from './Icon';
 
 const DISMISSED_KEY = 'anke-creator-image-warning-dismissed';
 
@@ -79,7 +80,7 @@ export function LocalImageWarningDialog() {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-          <span style={{ fontSize: 20 }}>💡</span>
+          <Icon name="lightbulb" size={20} />
           <h3
             style={{
               margin: 0,
@@ -104,15 +105,15 @@ export function LocalImageWarningDialog() {
             border: '1px solid var(--border-color, #e5e7eb)',
           }}
         >
-          ⚠️ 本应用使用的免费图片托管平台是
+          本应用使用的免费图片托管平台是
           <b style={{ color: 'var(--danger, #dc2626)' }}>限时的</b>
           ，图片可能在数月/数年后失效
           <br />
-          ⚠️ 本地保存的图片（路径）在 NGA 论坛
+          本地保存的图片（路径）在 NGA 论坛
           <b style={{ color: 'var(--danger, #dc2626)' }}>无法被识别</b>
           ，导出时自动替换为占位符
           <br />
-          💡 <b>最推荐：</b>把图片上传到 NGA 后，复制 NGA 的图片 URL 直接粘贴到编辑器
+          <b>最推荐：</b>把图片上传到 NGA 后，复制 NGA 的图片 URL 直接粘贴到编辑器
         </div>
 
         <label

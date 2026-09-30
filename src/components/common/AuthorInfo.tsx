@@ -1,3 +1,5 @@
+import { Icon } from './Icon';
+
 interface AuthorInfoProps {
   onClose: () => void;
 }
@@ -35,7 +37,7 @@ export function AuthorInfo({ onClose }: AuthorInfoProps) {
               e.currentTarget.style.background = 'transparent';
             }}
           >
-            ✕
+            <Icon name="x" size={14} />
           </button>
         </div>
 

@@ -197,7 +197,7 @@ function WorkCardInner({
           aria-label="更多操作"
           aria-expanded={menuOpen}
         >
-          {isPinned && <span>📌</span>}
+          {isPinned && <Icon name="pin" size={12} />}
           <span>更多</span>
         </button>
       </div>
@@ -309,7 +309,7 @@ function WorkCardInner({
         <div className="absolute bottom-2 right-3 inline-flex items-center gap-1 px-2 py-0.5 rounded-full backdrop-blur-sm border text-[10px] font-medium shadow-sm"
           style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}
         >
-          <span>📑</span>
+          <span><Icon name="bookText" size={11} /></span>
           <span>{work.chapterCount}章·{work.sectionCount}节</span>
         </div>
       </div>
@@ -326,7 +326,7 @@ function WorkCardInner({
         </h3>
         <div className="mt-1.5 flex items-center gap-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
           <span className="inline-flex items-center gap-1">
-            <span>📝</span>
+            <span><Icon name="pen" size={12} /></span>
             <span className="tabular-nums">{work.wordCount.toLocaleString()} 字</span>
           </span>
           <span className="inline-flex items-center gap-1">

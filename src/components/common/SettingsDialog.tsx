@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useSettingStore, type ImageStoreMode } from '../../store/settingStore';
 import { useToastStore } from '../../store/toastStore';
 import { isElectron } from '../../utils/platform';
+import { Icon } from './Icon';
 
 interface SettingsDialogProps {
   open: boolean;
@@ -239,7 +240,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
             }}
           >
             <ToggleSwitch
-              label="📁 启用本地上传"
+              label="启用本地上传"
               checked={localUploadEnabled}
               onChange={setLocalUploadEnabled}
             />
@@ -278,15 +279,15 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 color: 'var(--text-muted, #999)',
               }}
             >
-              ⚠️ 本地模式保存的图片（local:// 协议）在 NGA 论坛
+              本地模式保存的图片（local:// 协议）在 NGA 论坛
               <b style={{ color: 'var(--danger, #dc2626)' }}>无法被识别</b>
               ，导出时自动替换为占位符
               <br />
-              ⚠️ 远端图床（uguu.se 等）有
+              远端图床（uguu.se 等）有
               <b style={{ color: 'var(--danger, #dc2626)' }}>时限限制</b>
               ，图片可能在数月/数年后失效
               <br />
-              💡 推荐：把图片上传到 NGA 后，复制 NGA 的图片 URL 直接粘贴到编辑器
+              推荐：把图片上传到 NGA 后，复制 NGA 的图片 URL 直接粘贴到编辑器
             </div>
           )}
           {/* 重置图片警告标记（用户曾勾「不再提示」时可恢复） */}
@@ -311,7 +312,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 }}
                 title="清除 anke-creator-image-warning-dismissed 标记，下次本地上传重新弹警告"
               >
-                🔄 重置图片警告
+                <span className="inline-flex items-center gap-1"><Icon name="refresh" size={13} /> 重置图片警告</span>
               </SettingsBtn>
               <span className="text-[10px]" style={{ color: 'var(--text-muted, #999)' }}>
                 如果之前勾过「不再提示」，点此恢复
@@ -400,7 +401,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
               disabled={!isElectron}
               title={isElectron ? '选择本地 mp3 文件上传' : '上传音效仅在桌面端支持'}
             >
-              📤 上传 mp3
+              <span className="inline-flex items-center gap-1"><Icon name="upload" size={13} /> 上传 mp3</span>
             </SettingsBtn>
             {diceSoundName.toLowerCase() !== 'dice-roll.mp3' && (
               <SettingsBtn
@@ -408,7 +409,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 onClick={() => handleDeleteSound(diceSoundName)}
                 title="删除当前选中的音效"
               >
-                🗑 删除当前
+                <span className="inline-flex items-center gap-1"><Icon name="trash" size={13} /> 删除当前</span>
               </SettingsBtn>
             )}
             <input
@@ -435,7 +436,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                   marginBottom: 4,
                 }}
               >
-                已加载 {availableDiceSounds.length} 个音效（点击切换，右侧🗑删除用户上传的）
+                已加载 {availableDiceSounds.length} 个音效（点击切换，右侧删除用户上传的）
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 {availableDiceSounds.map((name) => {
@@ -472,7 +473,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                           whiteSpace: 'nowrap',
                         }}
                       >
-                        {isSelected ? '▶ ' : '  '}{name}
+                        {isSelected ? <Icon name="play" size={10} className="inline-block align-[-1px] mr-1" /> : <span className="inline-block w-[10px] mr-1" />}{name}
                         {isBuiltin && <span style={{ color: 'var(--text-muted)', fontSize: 10, marginLeft: 4 }}>(内置)</span>}
                       </button>
                       {!isBuiltin && (
@@ -489,7 +490,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                             color: 'var(--danger, #dc2626)',
                           }}
                         >
-                          🗑
+                          <Icon name="trash" size={13} />
                         </button>
                       )}
                     </div>
@@ -506,9 +507,9 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
               lineHeight: 1.6,
             }}
           >
-            💡 上传的 mp3 存于本地数据目录 <code style={{ background: 'var(--bg-hover)', padding: '0 4px', borderRadius: 3 }}>sounds/</code> 子目录，重启应用后保留。
+            上传的 mp3 存于本地数据目录 <code style={{ background: 'var(--bg-hover)', padding: '0 4px', borderRadius: 3 }}>sounds/</code> 子目录，重启应用后保留。
             <br />
-            💡 仅支持 .mp3 格式，文件 ≤ 5MB，内置 dice-roll.mp3 不可覆盖/删除。
+            仅支持 .mp3 格式，文件 ≤ 5MB，内置 dice-roll.mp3 不可覆盖/删除。
           </div>
         </Section>
 
@@ -526,7 +527,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
             <br />
             <b>更新行为：</b>覆盖安装（更新版本）时，所有数据自动保留在原位置，无需重新导出。
             <br />
-            💡 主动清空所有本地数据的功能（设置按钮）已移除。如需清空，请到安装目录下手动删除 <code style={{ background: 'var(--bg-input)', padding: '0 4px', borderRadius: 3 }}>data/</code> 文件夹。
+            主动清空所有本地数据的功能（设置按钮）已移除。如需清空，请到安装目录下手动删除 <code style={{ background: 'var(--bg-input)', padding: '0 4px', borderRadius: 3 }}>data/</code> 文件夹。
           </div>
         </Section>
 

@@ -8,6 +8,7 @@
 // ============================================================
 
 import { useEffect, useState, useCallback } from 'react'
+import { Icon, type IconName } from './Icon'
 
 type EpubPhase = 'scanning' | 'downloading-images' | 'building-html' | 'packaging' | 'done' | 'error' | 'canceled'
 
@@ -35,14 +36,14 @@ const PHASE_LABEL: Record<EpubPhase, string> = {
   canceled: '已取消导出',
 }
 
-const PHASE_ICON: Record<EpubPhase, string> = {
-  scanning: '🔍',
-  'downloading-images': '🖼️',
-  'building-html': '📝',
-  packaging: '📦',
-  done: '✅',
-  error: '❌',
-  canceled: '🚫',
+const PHASE_ICON: Record<EpubPhase, IconName> = {
+  scanning: 'search',
+  'downloading-images': 'image',
+  'building-html': 'pen',
+  packaging: 'box',
+  done: 'check',
+  error: 'alert',
+  canceled: 'x',
 }
 
 export function EpubExportProgressDialog({ open, onClose, onRetry }: EpubExportProgressDialogProps) {
@@ -179,7 +180,7 @@ export function EpubExportProgressDialog({ open, onClose, onRetry }: EpubExportP
                   : 'var(--accent-soft)',
               }}
             >
-              {paused && isRunning ? '⏸️' : PHASE_ICON[phase]}
+              {paused && isRunning ? <Icon name="clock" size={22} /> : <Icon name={PHASE_ICON[phase]} size={22} />}
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
@@ -271,7 +272,7 @@ export function EpubExportProgressDialog({ open, onClose, onRetry }: EpubExportP
               className="text-sm mt-2 mb-4 p-3.5 rounded-xl flex items-start gap-2.5"
               style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)' }}
             >
-              <span className="text-base">📁</span>
+              <span className="shrink-0"><Icon name="folder" size={16} /></span>
               <span className="flex-1 break-all" style={{ color: 'var(--text-secondary)' }}>
                 {message}
               </span>
@@ -284,7 +285,7 @@ export function EpubExportProgressDialog({ open, onClose, onRetry }: EpubExportP
               className="text-sm mt-2 mb-4 p-3.5 rounded-xl flex items-start gap-2.5"
               style={{ background: 'rgba(107,114,128,0.08)', border: '1px solid rgba(107,114,128,0.2)' }}
             >
-              <span className="text-base">🚫</span>
+              <span className="shrink-0"><Icon name="ban" size={16} /></span>
               <span className="flex-1" style={{ color: 'var(--text-secondary)' }}>
                 {message || '导出已取消'}
               </span>
@@ -297,7 +298,7 @@ export function EpubExportProgressDialog({ open, onClose, onRetry }: EpubExportP
               className="text-sm mt-2 mb-4 p-3.5 rounded-xl flex items-start gap-2.5"
               style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}
             >
-              <span className="text-base">⚠️</span>
+              <span className="shrink-0"><Icon name="alert" size={16} /></span>
               <span className="flex-1 break-all" style={{ color: 'var(--error, #ef4444)' }}>
                 {message}
               </span>
@@ -343,7 +344,7 @@ export function EpubExportProgressDialog({ open, onClose, onRetry }: EpubExportP
                     onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.85' }}
                     onMouseLeave={(e) => { e.currentTarget.style.opacity = '1' }}
                   >
-                    ▶ 继续
+                    <span className="inline-flex items-center gap-1"><Icon name="play" size={14} /> 继续</span>
                   </button>
                 ) : (
                   <button
@@ -358,7 +359,7 @@ export function EpubExportProgressDialog({ open, onClose, onRetry }: EpubExportP
                     onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(245,158,11,0.2)' }}
                     onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(245,158,11,0.12)' }}
                   >
-                    ⏸ 暂停
+                    <span className="inline-flex items-center gap-1"><Icon name="pause" size={14} /> 暂停</span>
                   </button>
                 )}
               </>
@@ -379,7 +380,7 @@ export function EpubExportProgressDialog({ open, onClose, onRetry }: EpubExportP
                     onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(245,158,11,0.12)' }}
                     title={`重新导出以重试 ${progress.imageProgress.failed} 张失败图片`}
                   >
-                    🔄 重试失败图片
+                    <span className="inline-flex items-center gap-1"><Icon name="refresh" size={14} /> 重试失败图片</span>
                   </button>
                 )}
                 <button
