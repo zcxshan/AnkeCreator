@@ -8,6 +8,7 @@ import {
   reattachImageErrorHandlers,
   insertDiceCard,
   attachDiceCardHandlers,
+  rerenderDiceCards,
   scrollToDiceCard,
   updateDiceBlock,
   getSelectedImageBlock,
@@ -20,11 +21,13 @@ import {
   applyActiveStylesToInsertion,
   applyActiveStylesToRange,
   setLastEditorRange,
-  getInlineStylesFromAncestors,
+  getInlineStylesFromActive,
+  collectInlineStyleFromAncestors,
   insertStyledParagraphAfter,
   splitBlockAtCursor,
   insertQuoteBlock,
   isWhitespaceOnly,
+  domShowsContent,
 } from '../../editor';
 import { useEditorStore } from '../../store/editorStore';
 import { useEditorHistoryStore } from '../../store/editorHistoryStore';
@@ -263,7 +266,10 @@ function RichTextEditorInner({
     // 实际写入的 HTML：空内容时插入 <br> 占位，让 contenteditable 能显示光标
     // （contenteditable div 为空时浏览器不显示光标）
     const displayHTML = safeContent === '' ? '<br>' : safeContent;
-    if (el.innerHTML === displayHTML) return;
+    // 守卫：DOM 已显示等价内容则跳过（浏览器 innerHTML 序列化非幂等，
+    // 撤销/重做写回后读出的字符串可能与原始快照不一致，不能简单 === 比较，
+    // 否则会误把 undo/redo 当作"外部加载"而 reset() 清空撤销/重做栈）
+    if (domShowsContent(el, content)) return;
 
     const apply = () => {
       el.innerHTML = displayHTML;
@@ -271,6 +277,9 @@ function RichTextEditorInner({
       // 确保章节切换/视图切换后图片仍有 base64 兜底能力
       // (addEventListener 注册的 listener 不被 innerHTML 序列化,新 img 元素需要重新挂载)
       reattachImageErrorHandlers(el);
+      // 内容从 innerHTML 恢复后重渲染骰子卡片（attach 在空闲写入前已运行，
+      // 这里补齐让旧卡片升级到最新内部样式，如结果区色条）
+      rerenderDiceCards(el);
       lastContentRef.current = safeContent;
       // 内容从外部加载（切章节/导入等），重置历史栈
       useEditorHistoryStore.getState().reset(safeContent);
@@ -552,8 +561,16 @@ function RichTextEditorInner({
     if (!el) return;
     applyingHistoryRef.current = true;
     try {
-      el.innerHTML = restored;
-      lastContentRef.current = restored;
+      // 空内容写 <br> 占位（与 content effect 的 displayHTML 一致，避免守卫失效）
+      el.innerHTML = restored === '' ? '<br>' : restored;
+      // 浏览器 innerHTML 序列化非幂等（空段落补 <br>、表格补 <tbody> 等），
+      // 写回后读出的字符串可能与原始快照不一致。若直接把原始快照作为 content 传给
+      // onChangeContent，content effect 的守卫会失效，进而误调 reset() 清空撤销/重做栈。
+      // 修复：以写回后的规范化序列化作为权威内容，同步 lastContentRef / store.current /
+      // onChangeContent，保证后续守卫与历史比较都基于同一序列化。
+      const normalized = el.innerHTML;
+      lastContentRef.current = normalized;
+      useEditorHistoryStore.setState({ current: normalized });
       // 重置光标到内容末尾，避免光标停留在无效位置
       const range = document.createRange();
       range.selectNodeContents(el);
@@ -562,7 +579,7 @@ function RichTextEditorInner({
       sel?.removeAllRanges();
       sel?.addRange(range);
       // 直接通知内容变化（不走 dispatchInput，否则 handleInput 会因 lastContentRef 相同而跳过）
-      onChangeContent(restored);
+      onChangeContent(normalized);
     } finally {
       applyingHistoryRef.current = false;
     }
@@ -1555,9 +1572,12 @@ function RichTextEditorInner({
       const range = doc.caretRangeFromPoint(x, y);
       if (range && editor.contains(range.startContainer)) return range;
     }
-    // 回退到 caretPositionFromPoint（Firefox）
-    if (typeof doc.caretPositionFromPoint === 'function') {
-      const pos = doc.caretPositionFromPoint(x, y);
+    // 回退到 caretPositionFromPoint（Firefox，TS lib 无此类型定义，做类型收窄）
+    const docWithCaret = doc as Document & {
+      caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+    };
+    if (typeof docWithCaret.caretPositionFromPoint === 'function') {
+      const pos = docWithCaret.caretPositionFromPoint(x, y);
       if (pos) {
         const range = doc.createRange();
         range.setStart(pos.offsetNode, pos.offset);
@@ -1932,6 +1952,38 @@ function RichTextEditorInner({
   );
 }
 
+// 自定义比较器：打字时 content 与 DOM 已一致（内容由 contenteditable 原生更新，
+// 只是经 store 回传了一圈），视为相等跳过重渲染，避免每次按键都重渲染工具栏/编辑区
+// （大内容下卡顿主因之一）。外部加载（切节/撤销/同步/导入）时 content 与 DOM 不一致
+// → 正常重渲染并写入。其余 props 仍按引用比较，变化时（如 canUndo/editable）照常重渲染。
+function areEditorPropsEqual(
+  prev: RichTextEditorProps,
+  next: RichTextEditorProps,
+): boolean {
+  if (prev.content !== next.content) {
+    const el = next.editorRef?.current as HTMLElement | null | undefined;
+    if (!el || !domShowsContent(el, next.content ?? '')) return false;
+  }
+  return (
+    prev.onChangeContent === next.onChangeContent &&
+    prev.onInsertDiceRequest === next.onInsertDiceRequest &&
+    prev.onDiceRolled === next.onDiceRolled &&
+    prev.onEditDiceBlock === next.onEditDiceBlock &&
+    prev.onImageSelected === next.onImageSelected &&
+    prev.editable === next.editable &&
+    prev.className === next.className &&
+    prev.style === next.style &&
+    prev.commandsRef === next.commandsRef &&
+    prev.onShowToast === next.onShowToast &&
+    prev.onUndo === next.onUndo &&
+    prev.onRedo === next.onRedo &&
+    prev.canUndo === next.canUndo &&
+    prev.canRedo === next.canRedo &&
+    prev.editorRef === next.editorRef &&
+    prev.onSearchOpen === next.onSearchOpen
+  );
+}
+
 // React.memo 包裹：避免父组件重渲染时（如 sectionStats 更新）触发编辑器不必要重渲染
 // 注意：父组件传入的回调 props 应保持引用稳定（useCallback），否则 memo 会失效
-export const RichTextEditor = React.memo(RichTextEditorInner);
+export const RichTextEditor = React.memo(RichTextEditorInner, areEditorPropsEqual);

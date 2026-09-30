@@ -29,10 +29,17 @@ const sectionState = {
   getSectionScrollPosition: vi.fn(() => undefined),
 };
 
-vi.mock('../../store/editorStore', () => ({
-  useEditorStore: (selector?: any) => (typeof selector === 'function' ? selector(sectionState) : sectionState),
-  flushDebouncedSave: vi.fn(),
-}));
+vi.mock('../../store/editorStore', () => {
+  // zustand 风格的 store：既是 hook 又有 .getState() 静态方法
+  // （EditorPage 现在用 useEditorStore.getState() 读取 content，避免订阅整页重渲染）
+  const storeFn = (selector?: any) =>
+    typeof selector === 'function' ? selector(sectionState) : sectionState;
+  storeFn.getState = () => sectionState;
+  return {
+    useEditorStore: storeFn,
+    flushDebouncedSave: vi.fn(),
+  };
+});
 
 const storyState = {
   stories: [{ id: 'story-1', title: 'Test Story' }],

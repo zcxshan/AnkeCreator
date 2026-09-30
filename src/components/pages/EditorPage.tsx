@@ -18,7 +18,9 @@ import { Icon, type IconName } from '../common/Icon';
 import { DiceConfigDialog } from '../dice/DiceConfigDialog';
 import { WorldSettingPanel } from '../common/WorldSettingPanel';
 import { CharacterPanel } from '../character/CharacterEditor';
-import { RichTextEditor, type RichTextEditorCommands } from '../editor/RichTextEditor';
+import { type RichTextEditorCommands } from '../editor/RichTextEditor';
+import { VisualEditorPane } from '../editor/VisualEditorPane';
+import { WordCount, computeSectionWordCount } from '../editor/WordCount';
 import { isDiceCardInEditor } from '../../editor';
 import { createDiceId, rollExpression } from '../../utils/diceEngine';
 import { playDiceRollSound } from '../../utils/diceSound';
@@ -207,18 +209,11 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
     updateOutline,
   } = useStoryStore();
 
-  const {
-    sectionContent,
-    sectionLoading,
-    setSectionContent,
-    flushSectionContent,
-  } = useEditorStore();
+  // 用 selector 订阅，避免每次 store 更新都触发整个 EditorPage 重渲染。
+  // sectionContent / canUndo / canRedo 已下沉到 VisualEditorPane（编辑器独立订阅）。
+  const sectionLoading = useEditorStore((s) => s.sectionLoading);
+  const setSectionContent = useEditorStore((s) => s.setSectionContent);
 
-  // 订阅撤销/重做可用状态（用 selector 避免不必要重渲染）
-  const canUndo = useEditorHistoryStore((s) => s.canUndo());
-  const canRedo = useEditorHistoryStore((s) => s.canRedo());
-
-  const diceStore = useDiceStore();
   const [view, setView] = useState<EditorView>('directory');
   const [rightPanelTab, setRightPanelTab] = useState<
     'properties' | 'world' | 'character' | 'dice' | 'gallery'
@@ -542,6 +537,93 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
   const story = stories.find((s) => s.id === activeStoryId);
   const section = sections.find((s) => s.id === activeSectionId);
 
+  // ===== 稳定回调（useCallback）=====
+  // 传给 VisualEditorPane / RightPanel 的回调必须保持引用稳定，
+  // 否则会破坏 React.memo 自定义比较器，导致打字时整页重渲染。
+  const handleRenameSection = useCallback(
+    (newTitle: string) => {
+      if (section) renameSection(section.id, newTitle);
+    },
+    [section, renameSection],
+  );
+
+  const handleCollapseRightPanel = useCallback(() => {
+    setRightSidebarCollapsed(true);
+  }, []);
+
+  const handleOpenSearchPanel = useCallback(() => {
+    // 搜索面板在属性 tab 内常驻显示：保证切到属性 tab
+    setRightPanelTab('properties');
+  }, []);
+
+  const handleJumpToDice = useCallback(
+    (sectionId: string, payloadSnapshot: string) => {
+      if (sectionId !== activeSectionId) {
+        useStoryStore.getState().setActiveSection(sectionId);
+      }
+      // 等下一个 tick，编辑器内容被重新渲染后再滚动
+      window.setTimeout(() => {
+        richTextEditorCommandsRef.current?.scrollToDiceCard(payloadSnapshot);
+      }, 80);
+    },
+    [activeSectionId],
+  );
+
+  const handleRestoreDice = useCallback(
+    (sectionId: string, payloadSnapshot: string) => {
+      // 跳到目标节
+      if (sectionId !== activeSectionId) {
+        useStoryStore.getState().setActiveSection(sectionId);
+      }
+      window.setTimeout(() => {
+        try {
+          const payload = JSON.parse(payloadSnapshot);
+          // 给恢复的骰子换新 id（顶层 + config.id），与原骰子完全独立
+          // 注意：isDiceCardInEditor 比对的是 config.id，必须更新此字段
+          payload.config = { ...payload.config, id: createDiceId() };
+          payload.id = `dice-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+          // 标记为"已恢复"结果
+          payload.restored = true;
+          richTextEditorCommandsRef.current?.insertDice(payload);
+          setToast('已恢复骰子到编辑区');
+        } catch (e) {
+          setToast('恢复失败：骰子数据格式错误');
+        }
+      }, 80);
+    },
+    [activeSectionId],
+  );
+
+  const handleInsertUnrolledDice = useCallback((_: string, payloadSnapshot: string) => {
+    try {
+      const payload = JSON.parse(payloadSnapshot);
+      // 生成全新 config.id，让插入的骰子与原骰子完全独立
+      payload.config = { ...payload.config, id: createDiceId() };
+      payload.id = `dice-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      payload.history = [];
+      payload.lastResult = null;
+      payload.restored = false;
+      richTextEditorCommandsRef.current?.insertDice(payload);
+      setToast('已插入未掷骰的骰子');
+    } catch (e) {
+      setToast('插入失败：骰子数据格式错误');
+    }
+  }, []);
+
+  const handleCheckDiceExists = useCallback(
+    (sectionId: string, payloadSnapshot: string) => {
+      if (sectionId !== activeSectionId) return false;
+      const el = visualEditorRef.current;
+      if (!el) return false;
+      return isDiceCardInEditor(el, payloadSnapshot);
+    },
+    [activeSectionId],
+  );
+
+  const handleSetImageSize = useCallback((size: string) => {
+    richTextEditorCommandsRef.current?.setSelectedImageSize(size);
+  }, []);
+
   // section 切换时重置 bbcodeDraft（mode 切换不动；只在 section.id 实际变化时刷新）
   useEffect(() => {
     if (editorMode !== 'bbcode') return;
@@ -559,7 +641,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
     const el = visualEditorRef.current;
     const html = (el && el.innerHTML && el.innerHTML !== '<br>')
       ? el.innerHTML
-      : (sectionContent ?? '');
+      : (useEditorStore.getState().sectionContent ?? '');
     try {
       const bb = htmlToNGABBCode(html);
       setBbcodeDraft(bb);
@@ -902,27 +984,6 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
 
   const [sectionStats, setSectionStats] = useState<Record<string, { words: number; dice: number }>>({});
 
-  // useDeferredValue: 延迟字数计算，避免每次按键都触发昂贵的 HTML 解析
-  // 输入时 UI 立即响应，字数显示在浏览器空闲时更新（避免长文档输入卡顿）
-  const deferredContent = useDeferredValue(sectionContent);
-  const sectionWordCount = useMemo(() => {
-    if (!deferredContent) return 0;
-    try {
-      const json = JSON.parse(deferredContent);
-      if (json && typeof json === 'object') {
-        return countWordsAndDice(json).words;
-      }
-    } catch {
-      // fallthrough
-    }
-    return countWordsFromHtml(deferredContent).words;
-  }, [deferredContent]);
-
-  // 显示用字数：加载中保留旧值（从 sectionStats 读取），避免切换节时字数跳变为 0
-  const displayWordCount = sectionLoading
-    ? (section?.id ? (sectionStats[section.id]?.words || 0) : 0)
-    : sectionWordCount;
-
   // 初始统计：直接从 SectionMeta.word_count 获取字数，无需加载 content
   useEffect(() => {
     const stats: Record<string, { words: number; dice: number }> = {};
@@ -932,16 +993,36 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
     setSectionStats(stats);
   }, [sections]);
 
-  // 当前编辑节：实时更新字数（基于 sectionContent）
+  // 当前编辑节字数：改用 800ms 轮询读取 store（不订阅），避免每次按键触发 EditorPage 重渲染。
+  // 输入时 UI 立即响应，字数显示低频更新，长文档输入不卡顿。
   useEffect(() => {
     if (!section) return;
-    const words = sectionWordCount;
-    setSectionStats((prev) => {
-      const prevStat = prev[section.id] || { words: 0, dice: 0 };
-      if (prevStat.words === words) return prev;
-      return { ...prev, [section.id]: { ...prevStat, words } };
-    });
-  }, [sectionWordCount, section?.id]);
+    const timer = window.setInterval(() => {
+      if (useEditorStore.getState().sectionLoading) return; // 切节加载中跳过，防旧内容写入新节 stats
+      const content = useEditorStore.getState().sectionContent;
+      if (!content) return;
+      let words = 0;
+      try {
+        const json = JSON.parse(content);
+        if (json && typeof json === 'object') {
+          words = countWordsAndDice(json).words;
+        } else {
+          words = countWordsFromHtml(content).words;
+        }
+      } catch {
+        words = countWordsFromHtml(content).words;
+      }
+      setSectionStats((prev) => {
+        const prevStat = prev[section.id] || { words: 0, dice: 0 };
+        if (prevStat.words === words) return prev;
+        return { ...prev, [section.id]: { ...prevStat, words } };
+      });
+    }, 800);
+    return () => window.clearInterval(timer);
+  }, [section?.id]);
+
+  // 显示用字数：从 sectionStats 读取，切换节/加载中自动保留旧值避免跳变为 0
+  const displayWordCount = section?.id ? (sectionStats[section.id]?.words || 0) : 0;
 
   const handleTitleEditCommit = () => {
     const trimmed = titleInput.trim();
@@ -1033,7 +1114,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                 className="w-1.5 h-1.5 rounded-full"
                 style={{ background: 'var(--accent)' }}
               />
-              {displayWordCount > 999 ? `${(displayWordCount/1000).toFixed(1)}k` : displayWordCount}
+              <WordCount variant="compact" />
             </span>
             {section && view === 'directory' && (
               <button
@@ -1215,8 +1296,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
               className="w-1.5 h-1.5 rounded-full"
               style={{ background: 'var(--accent)' }}
             />
-            <span className="hidden sm:inline">{displayWordCount.toLocaleString()} 字</span>
-            <span className="sm:hidden">{displayWordCount > 999 ? `${(displayWordCount/1000).toFixed(1)}k` : displayWordCount}</span>
+            <WordCount />
           </span>
         </div>
       </header>
@@ -1343,7 +1423,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                             const el = visualEditorRef.current;
                             const html = (el && el.innerHTML && el.innerHTML !== '<br>')
                               ? el.innerHTML
-                              : (sectionContent ?? '');
+                              : (useEditorStore.getState().sectionContent ?? '');
                             if (!html.trim() || html === '<br>') {
                               useToastStore.getState().showToast('当前节没有可视化内容可同步', 'info');
                               return;
@@ -1374,23 +1454,14 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                         </button>
                       </div>
                     )}
-                    <RichTextEditor
-                      content={sectionContent ?? ''}
-                      onChangeContent={setSectionContent}
-                      onInsertDiceRequest={() => diceStore.openDialog()}
+                    <VisualEditorPane
+                      commandsRef={richTextEditorCommandsRef}
+                      editorRef={visualEditorRef}
                       onDiceRolled={handleDiceRolled}
                       onEditDiceBlock={handleEditDiceBlock}
-                      onImageSelected={(info) => setSelectedImage(info)}
-                      commandsRef={richTextEditorCommandsRef}
-                      editable={!sectionLoading}
-                      onShowToast={(msg) => setToast(msg)}
-                      canUndo={canUndo}
-                      canRedo={canRedo}
-                      editorRef={visualEditorRef}
-                      onSearchOpen={() => {
-                        // 搜索面板在属性 tab 内常驻显示：保证切到属性 tab
-                        setRightPanelTab('properties');
-                      }}
+                      onImageSelected={setSelectedImage}
+                      onShowToast={setToast}
+                      onSearchOpen={handleOpenSearchPanel}
                     />
                   </div>
                 ) : (
@@ -1578,56 +1649,13 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                     activeTab={rightPanelTab}
                     setActiveTab={setRightPanelTab}
                     section={section}
-                    onRenameSection={(t) => section && renameSection(section.id, t)}
-                    onJumpToDice={(sectionId, payloadSnapshot) => {
-                      if (sectionId !== activeSectionId) {
-                        useStoryStore.getState().setActiveSection(sectionId);
-                      }
-                      window.setTimeout(() => {
-                        richTextEditorCommandsRef.current?.scrollToDiceCard(payloadSnapshot);
-                      }, 80);
-                    }}
-                    onRestoreDice={(sectionId, payloadSnapshot) => {
-                      if (sectionId !== activeSectionId) {
-                        useStoryStore.getState().setActiveSection(sectionId);
-                      }
-                      window.setTimeout(() => {
-                        try {
-                          const payload = JSON.parse(payloadSnapshot);
-                          // 给恢复的骰子换新 id（顶层 + config.id），与原骰子完全独立
-                          payload.config = { ...payload.config, id: createDiceId() };
-                          payload.id = `dice-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-                          payload.restored = true;
-                          richTextEditorCommandsRef.current?.insertDice(payload);
-                          setToast('已恢复骰子到编辑区');
-                        } catch (e) {
-                          setToast('恢复失败：骰子数据格式错误');
-                        }
-                      }, 80);
-                    }}
-                    onInsertUnrolledDice={(_, payloadSnapshot) => {
-                      try {
-                        const payload = JSON.parse(payloadSnapshot);
-                        // 生成全新 config.id，让插入的骰子与原骰子完全独立
-                        payload.config = { ...payload.config, id: createDiceId() };
-                        payload.id = `dice-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-                        payload.history = [];
-                        payload.lastResult = null;
-                        payload.restored = false;
-                        richTextEditorCommandsRef.current?.insertDice(payload);
-                        setToast('已插入未掷骰的骰子');
-                      } catch (e) {
-                        setToast('插入失败：骰子数据格式错误');
-                      }
-                    }}
-                    onCheckDiceExists={(sectionId, payloadSnapshot) => {
-                      if (sectionId !== activeSectionId) return false;
-                      const el = visualEditorRef.current;
-                      if (!el) return false;
-                      return isDiceCardInEditor(el, payloadSnapshot);
-                    }}
+                    onRenameSection={handleRenameSection}
+                    onJumpToDice={handleJumpToDice}
+                    onRestoreDice={handleRestoreDice}
+                    onInsertUnrolledDice={handleInsertUnrolledDice}
+                    onCheckDiceExists={handleCheckDiceExists}
                     selectedImage={selectedImage}
-                    onSetImageSize={(size) => richTextEditorCommandsRef.current?.setSelectedImageSize(size)}
+                    onSetImageSize={handleSetImageSize}
                     richTextEditorCommandsRef={richTextEditorCommandsRef}
                     onShowToast={(msg) => setToast(msg)}
                     width={undefined}
@@ -1635,9 +1663,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                     bbcodeTextareaRef={bbcodeTextareaRef}
                     visualEditorRef={visualEditorRef}
                     bbcodeValue={bbcodeDraft}
-                    visualValue={sectionContent ?? ''}
                     onBBCodeChange={setBbcodeDraft}
-                    onVisualChange={setSectionContent}
                     hideHeader
                   />
                 </div>
@@ -1660,69 +1686,14 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                 activeTab={rightPanelTab}
                 setActiveTab={setRightPanelTab}
                 section={section}
-                onCollapse={() => setRightSidebarCollapsed(true)}
-                onRenameSection={(t) => section && renameSection(section.id, t)}
-                onJumpToDice={(sectionId, payloadSnapshot) => {
-                  if (sectionId !== activeSectionId) {
-                    const setActive = useStoryStore.getState().setActiveSection;
-                    setActive(sectionId);
-                  }
-                  // 等下一个 tick，编辑器内容被重新渲染后再滚动
-                  window.setTimeout(() => {
-                    richTextEditorCommandsRef.current?.scrollToDiceCard(payloadSnapshot);
-                  }, 80);
-                }}
-                onRestoreDice={(sectionId, payloadSnapshot) => {
-                  // 跳到目标节
-                  if (sectionId !== activeSectionId) {
-                    const setActive = useStoryStore.getState().setActiveSection;
-                    setActive(sectionId);
-                  }
-                  window.setTimeout(() => {
-                    try {
-                      const payload = JSON.parse(payloadSnapshot);
-                      // 给恢复的骰子换新 id（顶层 + config.id），与原骰子完全独立
-                      // 注意：isDiceCardInEditor 比对的是 config.id，必须更新此字段
-                      payload.config = { ...payload.config, id: createDiceId() };
-                      payload.id = `dice-${Date.now().toString(36)}-${Math.random()
-                        .toString(36)
-                        .slice(2, 8)}`;
-                      // 标记为"已恢复"结果
-                      payload.restored = true;
-                      richTextEditorCommandsRef.current?.insertDice(payload);
-                      setToast('已恢复骰子到编辑区');
-                    } catch (e) {
-                      setToast('恢复失败：骰子数据格式错误');
-                    }
-                  }, 80);
-                }}
-                onInsertUnrolledDice={(_, payloadSnapshot) => {
-                  try {
-                    const payload = JSON.parse(payloadSnapshot);
-                    // 生成全新 config.id，让插入的骰子与原骰子完全独立
-                    payload.config = { ...payload.config, id: createDiceId() };
-                    payload.id = `dice-${Date.now().toString(36)}-${Math.random()
-                      .toString(36)
-                      .slice(2, 8)}`;
-                    payload.history = [];
-                    payload.lastResult = null;
-                    payload.restored = false;
-                    richTextEditorCommandsRef.current?.insertDice(payload);
-                    setToast('已插入未掷骰的骰子');
-                  } catch (e) {
-                    setToast('插入失败：骰子数据格式错误');
-                  }
-                }}
-                onCheckDiceExists={(sectionId, payloadSnapshot) => {
-                  if (sectionId !== activeSectionId) return false;
-                  const el = visualEditorRef.current;
-                  if (!el) return false;
-                  return isDiceCardInEditor(el, payloadSnapshot);
-                }}
+                onCollapse={handleCollapseRightPanel}
+                onRenameSection={handleRenameSection}
+                onJumpToDice={handleJumpToDice}
+                onRestoreDice={handleRestoreDice}
+                onInsertUnrolledDice={handleInsertUnrolledDice}
+                onCheckDiceExists={handleCheckDiceExists}
                 selectedImage={selectedImage}
-                onSetImageSize={(size) => {
-                  richTextEditorCommandsRef.current?.setSelectedImageSize(size);
-                }}
+                onSetImageSize={handleSetImageSize}
                 richTextEditorCommandsRef={richTextEditorCommandsRef}
                 onShowToast={(msg) => setToast(msg)}
                 width={rightSidebarWidth}
@@ -1730,9 +1701,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                 bbcodeTextareaRef={bbcodeTextareaRef}
                 visualEditorRef={visualEditorRef}
                 bbcodeValue={bbcodeDraft}
-                visualValue={sectionContent ?? ''}
                 onBBCodeChange={setBbcodeDraft}
-                onVisualChange={setSectionContent}
               />
             </>
           )}
@@ -1989,22 +1958,14 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
           </header>
           <div className="flex-1 flex flex-col overflow-hidden min-h-0">
             {editorMode === 'visual' ? (
-              <RichTextEditor
-                content={sectionContent ?? ''}
-                onChangeContent={setSectionContent}
-                onInsertDiceRequest={() => diceStore.openDialog()}
+              <VisualEditorPane
+                commandsRef={richTextEditorCommandsRef}
+                editorRef={visualEditorRef}
                 onDiceRolled={handleDiceRolled}
                 onEditDiceBlock={handleEditDiceBlock}
-                onImageSelected={(info) => setSelectedImage(info)}
-                commandsRef={richTextEditorCommandsRef}
-                editable={!sectionLoading}
-                onShowToast={(msg) => setToast(msg)}
-                canUndo={canUndo}
-                canRedo={canRedo}
-                editorRef={visualEditorRef}
-                onSearchOpen={() => {
-                  setRightPanelTab('properties');
-                }}
+                onImageSelected={setSelectedImage}
+                onShowToast={setToast}
+                onSearchOpen={handleOpenSearchPanel}
               />
             ) : (
               <BBCodeEditor
@@ -2041,8 +2002,9 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
 }
 
 // ========== 右侧栏：属性 / 世界观 / 人物 / 骰点记录 四 Tab 切换 ==========
+// memo 包裹：EditorPage 重渲染时跳过（其 props 均为稳定引用 / 内部自行订阅 store）
 
-function RightPanel({
+const RightPanel = memo(function RightPanel({
   activeTab,
   setActiveTab,
   section,
@@ -2060,9 +2022,7 @@ function RightPanel({
   bbcodeTextareaRef,
   visualEditorRef,
   bbcodeValue,
-  visualValue,
   onBBCodeChange,
-  onVisualChange,
   hideHeader,
   onCollapse,
 }: {
@@ -2083,9 +2043,7 @@ function RightPanel({
   bbcodeTextareaRef: React.RefObject<HTMLTextAreaElement | null>;
   visualEditorRef: React.RefObject<HTMLDivElement | null>;
   bbcodeValue: string;
-  visualValue: string;
   onBBCodeChange: (v: string) => void;
-  onVisualChange: (v: string) => void;
   hideHeader?: boolean;
   onCollapse?: () => void;
 }) {
@@ -2344,9 +2302,7 @@ function RightPanel({
                   bbcodeTextareaRef={bbcodeTextareaRef}
                   visualEditorRef={visualEditorRef}
                   bbcodeValue={bbcodeValue}
-                  visualValue={visualValue}
                   onBBCodeChange={onBBCodeChange}
-                  onVisualChange={onVisualChange}
                   initialQuery={pendingSearchQuery}
                   onInitialQueryConsumed={() => setPendingSearchQuery('')}
                 />
@@ -2424,7 +2380,6 @@ function RightPanel({
               onRestoreDice={onRestoreDice}
               onInsertUnrolledDice={onInsertUnrolledDice}
               onCheckDiceExists={onCheckDiceExists}
-              sectionContent={visualValue}
             />
           )}
         {activeTab === 'gallery' && (
@@ -2442,7 +2397,7 @@ function RightPanel({
       </div>
     </aside>
   );
-}
+});
 
 // ========== 快速骰子面板（properties tab 顶部） ==========
 
@@ -2768,19 +2723,19 @@ function DiceHistoryPanel({
   onRestoreDice,
   onInsertUnrolledDice,
   onCheckDiceExists,
-  sectionContent,
 }: {
   storyId?: string | null;
   onJumpToDice: (sectionId: string, payloadSnapshot: string) => void;
   onRestoreDice: (sectionId: string, payloadSnapshot: string) => void;
   onInsertUnrolledDice: (sectionId: string, payloadSnapshot: string) => void;
   onCheckDiceExists: (sectionId: string, payloadSnapshot: string) => boolean;
-  sectionContent?: string;
 }) {
   const allRecords = useDiceHistoryStore((s) => s.records);
   const clearAll = useDiceHistoryStore((s) => s.clearAll);
   const removeRecord = useDiceHistoryStore((s) => s.removeRecord);
   const stories = useStoryStore((s) => s.stories);
+  // 独立订阅 sectionContent（不再经父组件透传），右栏在内容写入时也不随整页重渲染
+  const sectionContent = useEditorStore((s) => s.sectionContent);
   const [pendingClearDice, setPendingClearDice] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   // useDeferredValue: 搜索防抖，避免每次按键都触发 groups useMemo 重算（200+ 条记录时卡顿）
