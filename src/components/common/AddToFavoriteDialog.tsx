@@ -234,7 +234,7 @@ export function AddToFavoriteDialog({
                     }}
                     aria-hidden="true"
                   >
-                    {inFav ? (isSingle ? '●' : '✓') : ''}
+                    {inFav ? <Icon name="check" size={12} /> : ''}
                   </span>
                   <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {fav.name}

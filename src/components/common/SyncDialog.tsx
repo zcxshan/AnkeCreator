@@ -86,14 +86,14 @@ export function SyncDialog({
             }}
             onClick={onClose}
           >
-            ✕
+            <Icon name="x" size={14} />
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
           {volDiffs.length === 0 && chDiffs.length === 0 ? (
             <div className="py-8 text-center text-sm" style={{ color: 'var(--text-secondary)' }}>
-              ✓ 两边结构完全一致，没有差异
+              <span className="inline-flex items-center gap-1 justify-center"><Icon name="check" size={13} /> 两边结构完全一致，没有差异</span>
             </div>
           ) : (
             <>

@@ -708,7 +708,7 @@ export function TutorialPage({ onBack, onShowAuthor }: TutorialPageProps) {
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
             >
-              ℹ️ 关于作者
+              <span className="inline-flex items-center gap-1.5"><Icon name="info" size={14} /> 关于作者</span>
             </button>
           )}
         </div>

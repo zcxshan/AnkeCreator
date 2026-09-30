@@ -732,7 +732,7 @@ export function SearchSiteSection<T extends SiteResultItem>({
           </div>
         ) : displayedList.length === 0 ? (
           <div className="text-center py-10">
-            <div style={{ fontSize: '36px', marginBottom: '6px' }}>🤷</div>
+            <div style={{ marginBottom: '10px' }}><Icon name="searchX" size={48} /></div>
             <div style={{ color: 'var(--text-muted)' }}>没有符合筛选条件的结果</div>
             <button
               onClick={clearAllFilters}

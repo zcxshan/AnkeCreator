@@ -1,17 +1,19 @@
 import {
-  AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Ban, BarChart3,
+  AlertTriangle, ArrowDown, ArrowLeft, ArrowLeftRight, ArrowRight, ArrowUp, Ban, BarChart3,
   Bot, BookOpen, BookOpenText, Calendar, Camera, Check, ChevronDown, ChevronRight, Clipboard, Clock, Copy, Dices,
   Download, Eye, FerrisWheel, FileText, FolderOpen, Gamepad2, Globe, Hash, Home, Hourglass,
-  Image, Inbox, Laptop, LayoutGrid, Lightbulb, Link2, MapPin, Menu, MessageSquare, Monitor,
-  Moon, Package, Palette, PartyPopper, Pause, PenLine, Play, Plus, Quote, Rocket, RotateCcw, Save,
-  ScrollText, Search, Settings, Smartphone, Sparkles, Sun, Table2, Target, Theater, Trash2,
-  TrendingUp, Upload, User, X,
+  Image, Inbox, Info, Laptop, LayoutGrid, Lightbulb, Link2, MapPin, Menu, MessageSquare, Monitor,
+  Moon, Music, Package, Palette, PartyPopper, Pause, PenLine, Play, Plus, Quote, Rocket, RotateCcw, Save,
+  ScrollText, Search, SearchX, Settings, Smartphone, Sparkles, Sun, Table2, Target, Theater, Trash2,
+  TrendingUp, Upload, User, Volume2, X,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 const MAP = {
   alert: AlertTriangle,
   arrowDown: ArrowDown,
+  arrowLeft: ArrowLeft,
+  arrowLeftRight: ArrowLeftRight,
   arrowUp: ArrowUp,
   back: ArrowLeft,
   ban: Ban,
@@ -42,6 +44,7 @@ const MAP = {
   home: Home, // 🏠
   image: Image,
   inbox: Inbox, // 📭
+  info: Info,
   laptop: Laptop,
   layoutGrid: LayoutGrid,
   lightbulb: Lightbulb,
@@ -50,6 +53,7 @@ const MAP = {
   message: MessageSquare,
   monitor: Monitor, // 🖥️
   moon: Moon, // 🌙
+  music: Music,
   palette: Palette,
   party: PartyPopper,
   pause: Pause,
@@ -63,6 +67,7 @@ const MAP = {
   save: Save,
   scroll: ScrollText,
   search: Search,
+  searchX: SearchX,
   settings: Settings,
   smartphone: Smartphone,
   sparkles: Sparkles,
@@ -74,6 +79,7 @@ const MAP = {
   trendingUp: TrendingUp,
   upload: Upload,
   user: User,
+  volume: Volume2,
   x: X,
 } as const
 

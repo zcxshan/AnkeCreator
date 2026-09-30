@@ -342,7 +342,9 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
             className="px-4 py-2 cursor-pointer text-sm font-medium"
             style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
           >
-            🎨 样式设置(可选)
+            <span className="inline-flex items-center gap-1.5">
+              <Icon name="palette" size={14} /> 样式设置(可选)
+            </span>
           </summary>
           <div className="p-4 space-y-4">
             <DiceStyleEditor

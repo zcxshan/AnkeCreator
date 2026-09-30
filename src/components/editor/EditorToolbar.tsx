@@ -20,6 +20,8 @@ import {
   Redo2,
   Minus,
   Eraser,
+  ArrowLeft,
+  ArrowLeftRight,
   ArrowRight,
 } from 'lucide-react';
 import {
@@ -1367,14 +1369,14 @@ export function EditorToolbar({
             onClick={() => withEditor((ed) => setBlockAlign(ed, 'left'))}
             active={activeAlign === 'left'}
           >
-            ⬅
+            <ArrowLeft size={14} />
           </ToolbarBtn>
           <ToolbarBtn
             title="居中"
             onClick={() => withEditor((ed) => setBlockAlign(ed, 'center'))}
             active={activeAlign === 'center'}
           >
-            ↔
+            <ArrowLeftRight size={14} />
           </ToolbarBtn>
           <ToolbarBtn
             title="右对齐"
@@ -1449,13 +1451,13 @@ export function EditorToolbar({
                     onClick={() => withEditor((ed) => setImageBlockAlign(ed, 'left'))}
                     title="左对齐"
                   >
-                    ⬅
+                    <ArrowLeft size={14} />
                   </ToolbarBtn>
                   <ToolbarBtn
                     onClick={() => withEditor((ed) => setImageBlockAlign(ed, 'center'))}
                     title="居中"
                   >
-                    ↔
+                    <ArrowLeftRight size={14} />
                   </ToolbarBtn>
                   <ToolbarBtn
                     onClick={() => withEditor((ed) => setImageBlockAlign(ed, 'right'))}

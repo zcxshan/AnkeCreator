@@ -220,7 +220,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
             }}
             title="关闭"
           >
-            ✕
+            <Icon name="x" size={14} />
           </button>
         </div>
 
@@ -334,7 +334,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
             }}
           >
             <ToggleSwitch
-              label="🔊 启用掷骰音效"
+              label={<span className="inline-flex items-center gap-1.5"><Icon name="volume" size={14} /> 启用掷骰音效</span>}
               checked={soundEnabled}
               onChange={setSoundEnabled}
             />
@@ -374,7 +374,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 color: 'var(--text-primary, #111)',
               }}
             >
-              🎵 音效选择
+              <span className="inline-flex items-center gap-1.5"><Icon name="music" size={14} /> 音效选择</span>
             </span>
             <select
               value={diceSoundName}
@@ -612,7 +612,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                     color: 'var(--success, #10b981)',
                   }}
                 >
-                  ✓ 已配置
+                  <span className="inline-flex items-center gap-1"><Icon name="check" size={13} /> 已配置</span>
                 </span>
               )}
             </div>
@@ -790,7 +790,7 @@ function SettingsBtn({ variant = 'ghost', onClick, children, title, style, disab
 function ToggleSwitch({ checked, onChange, label }: {
   checked: boolean;
   onChange: (v: boolean) => void;
-  label: string;
+  label: React.ReactNode;
 }) {
   return (
     <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>

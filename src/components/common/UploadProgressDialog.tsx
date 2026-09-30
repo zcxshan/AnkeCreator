@@ -132,7 +132,7 @@ export function UploadProgressDialog({
             }}
             title="关闭"
           >
-            ✕
+            <Icon name="x" size={14} />
           </button>
         </div>
 
