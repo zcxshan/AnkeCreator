@@ -15,6 +15,8 @@
 // ============================================================
 
 import { useCallback, useMemo } from 'react'
+import { ChevronUp, ChevronDown } from 'lucide-react'
+import { Icon } from '../common/Icon'
 import type { WheelScheme, WheelStage, WheelOption } from '../../types/wheel'
 
 export interface SchemeEditorProps {
@@ -85,12 +87,7 @@ function OptionRow({ option, index, onChange, onRemove }: OptionRowProps) {
         value={option.text}
         onChange={(e) => onChange({ ...option, text: e.target.value })}
         placeholder="选项文本"
-        className="flex-1 px-2 py-1 text-sm rounded"
-        style={{
-          background: 'var(--bg-base)',
-          color: 'var(--text-primary)',
-          border: '1px solid var(--border-color)',
-        }}
+        className="anke-input flex-1 px-2 py-1 text-sm"
       />
       <label
         className="shrink-0 flex items-center gap-1 text-xs"
@@ -107,13 +104,8 @@ function OptionRow({ option, index, onChange, onRemove }: OptionRowProps) {
             const v = parseFloat(e.target.value)
             onChange({ ...option, weight: isNaN(v) ? 0 : Math.max(0, v) })
           }}
-          className="w-16 px-2 py-1 text-sm rounded"
-          style={{
-            background: 'var(--bg-base)',
-            color: 'var(--text-primary)',
-            border: '1px solid var(--border-color)',
-          }}
-        />
+          className="anke-input w-16 px-2 py-1 text-sm"
+          />
       </label>
       <button
         type="button"
@@ -203,12 +195,7 @@ function StageCard({
           value={stage.name}
           onChange={(e) => onChange({ ...stage, name: e.target.value })}
           placeholder="阶段名（如：性别 / 性格 / 特长）"
-          className="flex-1 px-2 py-1 text-sm font-medium rounded"
-          style={{
-            background: 'var(--bg-base)',
-            color: 'var(--text-primary)',
-            border: '1px solid var(--border-color)',
-          }}
+          className="anke-input flex-1 px-2 py-1 text-sm font-medium"
         />
         <button
           type="button"
@@ -222,7 +209,7 @@ function StageCard({
           }}
           title="上移阶段"
         >
-          ↑
+          <ChevronUp size={16} />
         </button>
         <button
           type="button"
@@ -236,7 +223,7 @@ function StageCard({
           }}
           title="下移阶段"
         >
-          ↓
+          <ChevronDown size={16} />
         </button>
         <button
           type="button"
@@ -249,7 +236,7 @@ function StageCard({
           }}
           title="删除阶段"
         >
-          🗑
+          <Icon name="trash" size={16} />
         </button>
       </div>
 
@@ -270,13 +257,8 @@ function StageCard({
               const v = parseInt(e.target.value, 10)
               onChange({ ...stage, drawCount: isNaN(v) ? 1 : Math.max(1, v) })
             }}
-            className="w-16 px-2 py-1 rounded"
-            style={{
-              background: 'var(--bg-base)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border-color)',
-            }}
-          />
+            className="anke-input w-16 px-2 py-1"
+            />
         </label>
         <label
           className="flex items-center gap-1"
@@ -354,12 +336,7 @@ function StageCard({
                 onChange({ ...stage, outputVariable: e.target.value || undefined })
               }
               placeholder="如 gender（后续阶段可用 {gender} 引用）"
-              className="mt-1 w-full px-2 py-1 text-sm rounded"
-              style={{
-                background: 'var(--bg-base)',
-                color: 'var(--text-primary)',
-                border: '1px solid var(--border-color)',
-              }}
+              className="anke-input mt-1 w-full text-sm"
             />
           </label>
           <label
@@ -374,12 +351,7 @@ function StageCard({
                 onChange({ ...stage, condition: e.target.value || undefined })
               }
               placeholder="如 gender == '女'"
-              className="mt-1 w-full px-2 py-1 text-sm rounded font-mono"
-              style={{
-                background: 'var(--bg-base)',
-                color: 'var(--text-primary)',
-                border: '1px solid var(--border-color)',
-              }}
+              className="anke-input mt-1 w-full text-sm font-mono"
             />
           </label>
         </div>
@@ -406,12 +378,7 @@ function StageCard({
                 onChange({ ...stage, formula: e.target.value || undefined })
               }
               placeholder="如 1d6+{gender_bonus}（支持骰子表达式 + 变量占位符）"
-              className="mt-1 w-full px-2 py-1 text-sm rounded font-mono"
-              style={{
-                background: 'var(--bg-base)',
-                color: 'var(--text-primary)',
-                border: '1px solid var(--border-color)',
-              }}
+              className="anke-input mt-1 w-full text-sm font-mono"
             />
           </label>
         </div>
@@ -503,12 +470,7 @@ export function SchemeEditor({
             value={scheme.name}
             onChange={(e) => updateField('name', e.target.value)}
             placeholder="如：角色生成器 / 剧情分支选择器"
-            className="mt-1 w-full px-3 py-2 text-sm rounded"
-            style={{
-              background: 'var(--bg-base)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border-color)',
-            }}
+            className="anke-input mt-1 w-full"
           />
         </label>
         <label
@@ -521,12 +483,7 @@ export function SchemeEditor({
             onChange={(e) => updateField('description', e.target.value || undefined)}
             placeholder="简单描述这个方案的用途"
             rows={2}
-            className="mt-1 w-full px-3 py-2 text-sm rounded resize-none"
-            style={{
-              background: 'var(--bg-base)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border-color)',
-            }}
+            className="anke-input mt-1 w-full resize-none"
           />
         </label>
         <div
@@ -607,12 +564,7 @@ export function SchemeEditor({
               '（{variable} 引用变量值，{{stageName}} 引用整阶段结果）'
             }
             rows={4}
-            className="w-full px-3 py-2 text-sm rounded resize-none font-mono"
-            style={{
-              background: 'var(--bg-base)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border-color)',
-            }}
+            className="anke-input w-full resize-none font-mono"
           />
         </div>
       </details>
@@ -649,7 +601,7 @@ export function SchemeEditor({
             border: '1px solid var(--accent)',
           }}
         >
-          {saving ? '保存中...' : '💾 保存方案'}
+          {saving ? '保存中...' : <><Icon name="save" size={16} /> 保存方案</>}
         </button>
       </div>
     </div>

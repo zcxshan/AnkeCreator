@@ -9,7 +9,7 @@
 //
 // 设计：
 //   - 用 SVG 而非 Canvas，便于交互和样式
-//   - 扇区颜色用预设调色板循环
+//   - 扇区颜色用中性灰阶弱交替，中奖扇区用 --accent 高亮
 //   - 文本沿扇区中线绘制，超长自动截断
 // ============================================================
 
@@ -29,21 +29,8 @@ export interface WheelCanvasProps {
   spinning?: boolean
 }
 
-// 预设扇区颜色（暖色 + 冷色交替，避免相邻同色）
-const SECTOR_COLORS = [
-  '#f59e0b', // amber-500
-  '#10b981', // emerald-500
-  '#3b82f6', // blue-500
-  '#ec4899', // pink-500
-  '#8b5cf6', // violet-500
-  '#ef4444', // red-500
-  '#14b8a6', // teal-500
-  '#f97316', // orange-500
-  '#06b6d4', // cyan-500
-  '#84cc16', // lime-500
-  '#a855f7', // purple-500
-  '#eab308', // yellow-500
-]
+// 扁平极简:中性灰阶弱交替,中奖扇区用 --accent 高亮
+const SECTOR_COLORS = ['#6b7280', '#9ca3af', '#4b5563', '#d1d5db', '#374151']
 
 /**
  * 计算每个扇区的起止角度和颜色
@@ -169,7 +156,6 @@ export function WheelCanvas({
           borderRight: '10px solid transparent',
           borderTop: '18px solid var(--accent, #ef4444)',
           zIndex: 10,
-          filter: 'drop-shadow(0 2px 2px rgba(0,0,0,0.2))',
         }}
       />
       <svg
@@ -208,9 +194,8 @@ export function WheelCanvas({
               <path
                 d={path}
                 fill={s.color}
-                fillOpacity={isHighlighted ? 1 : 0.85}
-                stroke="#fff"
-                strokeWidth={isHighlighted ? 3 : 1}
+                stroke={isHighlighted ? 'var(--accent)' : 'var(--bg-card)'}
+                strokeWidth={isHighlighted ? 4 : 1}
               />
               <text
                 x={textPos.x}

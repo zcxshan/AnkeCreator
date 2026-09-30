@@ -12,6 +12,7 @@
 // ============================================================
 
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
+import { Icon } from '../common/Icon'
 import { WheelCanvas } from './WheelCanvas'
 import type { WheelScheme, WheelStage, DrawResult, VariableScope } from '../../types/wheel'
 import {
@@ -331,7 +332,7 @@ export function WheelPlayground({ scheme, onClose, onComplete }: WheelPlayground
   if (stages.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16">
-        <div className="text-4xl mb-4">🎡</div>
+        <div className="flex justify-center mb-4"><Icon name="wheel" size={48} /></div>
         <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
           这个方案还没有阶段，请先编辑方案添加阶段
         </p>
@@ -407,7 +408,7 @@ export function WheelPlayground({ scheme, onClose, onComplete }: WheelPlayground
               border: '1px solid var(--accent)',
             }}
           >
-            {spinning ? '旋转中...' : stageSkipped ? '已跳过' : '🎲 旋转抽取'}
+            {spinning ? '旋转中...' : stageSkipped ? '已跳过' : <><Icon name="dices" size={16} /> 旋转抽取</>}
           </button>
 
           {/* 阶段配置摘要 */}
@@ -425,7 +426,7 @@ export function WheelPlayground({ scheme, onClose, onComplete }: WheelPlayground
       {finished && (
         <>
           <div className="text-center">
-            <div className="text-4xl mb-2">🎉</div>
+            <div className="flex justify-center mb-2"><Icon name="party" size={48} /></div>
             <div className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>
               抽取完成
             </div>
@@ -433,8 +434,8 @@ export function WheelPlayground({ scheme, onClose, onComplete }: WheelPlayground
 
           {/* 结果列表 */}
           <div
-            className="w-full max-w-2xl rounded-xl p-5"
-            style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
+            className="anke-card w-full max-w-2xl p-5"
+            style={{ border: '1px solid var(--border-color)' }}
           >
             <div className="text-sm font-medium mb-3" style={{ color: 'var(--text-primary)' }}>
               抽取结果
@@ -460,21 +461,21 @@ export function WheelPlayground({ scheme, onClose, onComplete }: WheelPlayground
           {/* Prompt 模板渲染结果 */}
           {finalPrompt && (
             <div
-              className="w-full max-w-2xl rounded-xl p-5"
-              style={{ background: 'var(--bg-card)', border: '1px solid var(--accent)' }}
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                  生成的 Prompt
-                </div>
-                <button
-                  onClick={() => copyToClipboard(finalPrompt, 'Prompt')}
-                  className="px-3 py-1 text-xs rounded-lg transition-colors"
-                  style={{ background: 'var(--accent-bg)', color: 'var(--accent)', border: '1px solid var(--accent)' }}
-                >
-                  📋 复制 Prompt
-                </button>
+            className="anke-card w-full max-w-2xl p-5"
+            style={{ border: '1px solid var(--accent)' }}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                生成的 Prompt
               </div>
+              <button
+                onClick={() => copyToClipboard(finalPrompt, 'Prompt')}
+                className="px-3 py-1 text-xs rounded-lg transition-colors"
+                style={{ background: 'var(--accent-bg)', color: 'var(--accent)', border: '1px solid var(--accent)' }}
+              >
+                <><Icon name="copy" size={16} /> 复制 Prompt</>
+              </button>
+            </div>
               <pre
                 className="text-sm whitespace-pre-wrap"
                 style={{ color: 'var(--text-primary)', fontFamily: 'inherit', margin: 0 }}
@@ -491,14 +492,14 @@ export function WheelPlayground({ scheme, onClose, onComplete }: WheelPlayground
               className="px-4 py-2 text-sm rounded-lg transition-colors"
               style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
             >
-              📋 复制结果
+              <><Icon name="copy" size={16} /> 复制结果</>
             </button>
             <button
               onClick={handleReset}
               className="px-4 py-2 text-sm rounded-lg transition-colors"
               style={{ background: 'var(--accent-bg)', color: 'var(--accent)', border: '1px solid var(--accent)' }}
             >
-              🔄 再次抽取
+              <><Icon name="refresh" size={16} /> 再次抽取</>
             </button>
             <button
               onClick={onClose}

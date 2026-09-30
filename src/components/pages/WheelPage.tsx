@@ -16,6 +16,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { Icon } from '../common/Icon'
 import { SchemeEditor } from '../wheel/SchemeEditor'
 import { WheelPlayground } from '../wheel/WheelPlayground'
 import { validateWheelImport, unwrapWheelImport } from '../../utils/wheelImport'
@@ -316,11 +317,7 @@ export function WheelPage({ onBack }: WheelPageProps) {
     (scheme: WheelScheme) => (
       <div
         key={scheme.id}
-        className="rounded-xl p-4 transition-all"
-        style={{
-          background: 'var(--bg-card)',
-          border: '1px solid var(--border-color)',
-        }}
+        className="anke-card p-4 transition-all"
       >
         <div className="flex items-start justify-between gap-3 mb-2">
           <div className="flex-1 min-w-0">
@@ -341,12 +338,12 @@ export function WheelPage({ onBack }: WheelPageProps) {
           className="flex flex-wrap gap-x-3 gap-y-1 text-xs mb-3"
           style={{ color: 'var(--text-tertiary, #888)' }}
         >
-          <span>🎯 {scheme.stages.length} 个阶段</span>
-          <span>
-            📝 {scheme.stages.reduce((sum, s) => sum + s.options.length, 0)} 个选项
-          </span>
-          {scheme.promptTemplate && <span>🤖 含 Prompt 模板</span>}
-          <span>🕒 {formatTime(scheme.updated_at)}</span>
+          <span className="inline-flex items-center gap-1"><Icon name="target" size={12} /> {scheme.stages.length} 个阶段</span>
+          <span className="inline-flex items-center gap-1"><Icon name="fileText" size={12} /> {scheme.stages.reduce((sum, s) => sum + s.options.length, 0)} 个选项</span>
+          {scheme.promptTemplate && (
+            <span className="inline-flex items-center gap-1"><Icon name="bot" size={12} /> 含 Prompt 模板</span>
+          )}
+          <span className="inline-flex items-center gap-1"><Icon name="clock" size={12} /> {formatTime(scheme.updated_at)}</span>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
@@ -358,7 +355,7 @@ export function WheelPage({ onBack }: WheelPageProps) {
               border: '1px solid var(--accent)',
             }}
           >
-            🎡 开始抽取
+            <><Icon name="wheel" size={16} /> 开始抽取</>
           </button>
           <button
             onClick={() => handleEdit(scheme)}
@@ -369,7 +366,7 @@ export function WheelPage({ onBack }: WheelPageProps) {
               border: '1px solid var(--border-color)',
             }}
           >
-            ✏️ 编辑
+            <><Icon name="pen" size={16} /> 编辑</>
           </button>
           <button
             onClick={() => handleExport(scheme)}
@@ -380,7 +377,7 @@ export function WheelPage({ onBack }: WheelPageProps) {
               border: '1px solid var(--border-color)',
             }}
           >
-            📤 导出
+            <><Icon name="upload" size={16} /> 导出</>
           </button>
           <button
             onClick={() => handleDuplicate(scheme)}
@@ -391,7 +388,7 @@ export function WheelPage({ onBack }: WheelPageProps) {
               border: '1px solid var(--border-color)',
             }}
           >
-            📋 复制
+            <><Icon name="copy" size={16} /> 复制</>
           </button>
           <button
             onClick={() => handleDelete(scheme)}
@@ -402,7 +399,7 @@ export function WheelPage({ onBack }: WheelPageProps) {
               border: '1px solid var(--border-color)',
             }}
           >
-            🗑 删除
+            <><Icon name="trash" size={16} /> 删除</>
           </button>
         </div>
       </div>
@@ -416,11 +413,7 @@ export function WheelPage({ onBack }: WheelPageProps) {
     return (
       <div
         key={h.id}
-        className="rounded-lg p-3 text-sm"
-        style={{
-          background: 'var(--bg-card)',
-          border: '1px solid var(--border-color)',
-        }}
+        className="anke-card p-3 text-sm"
       >
         <div className="flex items-center justify-between mb-2">
           <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
@@ -485,10 +478,10 @@ export function WheelPage({ onBack }: WheelPageProps) {
               border: '1px solid var(--border-color)',
             }}
           >
-            ← 返回
+            <><Icon name="back" size={16} /> 返回</>
           </button>
-          <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
-            🎡 玩转盘
+          <h1 className="text-lg font-semibold inline-flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+            <Icon name="wheel" size={16} /> 玩转盘
           </h1>
         </div>
         {view === 'list' && (
@@ -502,7 +495,7 @@ export function WheelPage({ onBack }: WheelPageProps) {
                 border: '1px solid var(--border-color)',
               }}
             >
-              📜 历史 ({history.length})
+              <><Icon name="scroll" size={16} /> 历史 ({history.length})</>
             </button>
             <button
               onClick={handleImport}
@@ -513,7 +506,7 @@ export function WheelPage({ onBack }: WheelPageProps) {
                 border: '1px solid var(--border-color)',
               }}
             >
-              📥 导入
+              <><Icon name="download" size={16} /> 导入</>
             </button>
             <button
               onClick={handleCreate}
@@ -580,7 +573,7 @@ export function WheelPage({ onBack }: WheelPageProps) {
                       color: 'var(--text-secondary)',
                     }}
                   >
-                    <div className="text-3xl mb-2">📜</div>
+                    <div className="flex justify-center mb-2"><Icon name="scroll" size={48} /></div>
                     <div className="text-sm">还没有抽取历史记录</div>
                   </div>
                 ) : (
@@ -607,7 +600,7 @@ export function WheelPage({ onBack }: WheelPageProps) {
                       color: 'var(--text-secondary)',
                     }}
                   >
-                    <div className="text-5xl mb-3">🎡</div>
+                    <div className="flex justify-center mb-3"><Icon name="wheel" size={48} /></div>
                     <div className="text-base font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
                       还没有转盘方案
                     </div>
@@ -635,7 +628,7 @@ export function WheelPage({ onBack }: WheelPageProps) {
                           border: '1px solid var(--border-color)',
                         }}
                       >
-                        📥 导入方案
+                        <><Icon name="download" size={16} /> 导入方案</>
                       </button>
                     </div>
                   </div>
