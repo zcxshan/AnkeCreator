@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon, type IconName } from './Icon';
 import type { Story } from '../../types';
@@ -30,7 +30,7 @@ interface MenuPos {
   left: number;
 }
 
-export function WorkCard({
+function WorkCardInner({
   work,
   onOpen,
   onDelete,
@@ -380,6 +380,8 @@ export function WorkCard({
     </div>
   );
 }
+
+export const WorkCard = memo(WorkCardInner);
 
 function MenuItem({
   icon,

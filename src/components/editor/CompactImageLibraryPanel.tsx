@@ -177,6 +177,7 @@ export function CompactImageLibraryPanel({ onInsertImage }: CompactImageLibraryP
                       src={item.url}
                       alt={item.filename}
                       loading="lazy"
+                      decoding="async"
                       className="w-full h-full object-cover"
                       onError={async (e) => {
                         const img = e.currentTarget as HTMLImageElement;

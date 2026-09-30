@@ -711,6 +711,8 @@ export function ImageLibraryPanel() {
                         <img
                           src={item.url}
                           alt={item.filename}
+                          loading="lazy"
+                          decoding="async"
                           className="w-full h-full object-cover"
                           draggable={false}
                           onError={async (e) => {
