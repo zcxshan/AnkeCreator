@@ -436,3 +436,73 @@ export function getInsertionRange(editor: HTMLElement): Range {
   r.collapse(false);
   return r;
 }
+
+/**
+ * 计算光标在编辑器内的文本偏移（供撤销/重做后恢复光标位置用）
+ * - 返回编辑器开头到光标之间的可见文本长度（toString 不计 <br>/标签）
+ * - 光标不在编辑器内 / 无可用选区 → 返回 -1（表示未知，恢复时回退到末尾）
+ */
+export function getCaretOffset(editor: HTMLElement): number {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return -1;
+  const range = sel.getRangeAt(0);
+  const container = range.startContainer;
+  if (!editor.contains(container)) return -1;
+  try {
+    const tmp = document.createRange();
+    tmp.selectNodeContents(editor);
+    tmp.setEnd(container, range.startOffset);
+    return tmp.toString().length;
+  } catch {
+    return -1;
+  }
+}
+
+/**
+ * 按文本偏移恢复光标（配合 getCaretOffset）
+ * - offset < 0 → 光标放到编辑器末尾
+ * - 超出内容长度 → 放到最后一个文本节点末尾
+ * - 编辑器无文本节点（空内容/<br>）→ 放到开头
+ */
+export function setCaretAtOffset(editor: HTMLElement, offset: number): void {
+  const sel = window.getSelection();
+  if (!sel) return;
+  const place = (r: Range) => {
+    sel.removeAllRanges();
+    sel.addRange(r);
+  };
+  if (offset < 0) {
+    const r = document.createRange();
+    r.selectNodeContents(editor);
+    r.collapse(false);
+    place(r);
+    return;
+  }
+  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+  let remaining = offset;
+  let node = walker.nextNode() as Text | null;
+  let lastText: Text | null = null;
+  while (node) {
+    lastText = node;
+    if (remaining <= node.length) {
+      const r = document.createRange();
+      r.setStart(node, remaining);
+      r.collapse(true);
+      place(r);
+      return;
+    }
+    remaining -= node.length;
+    node = walker.nextNode() as Text | null;
+  }
+  if (lastText) {
+    const r = document.createRange();
+    r.setStart(lastText, lastText.length);
+    r.collapse(true);
+    place(r);
+  } else {
+    const r = document.createRange();
+    r.selectNodeContents(editor);
+    r.collapse(false);
+    place(r);
+  }
+}

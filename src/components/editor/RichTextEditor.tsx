@@ -25,17 +25,43 @@ import {
   collectInlineStyleFromAncestors,
   insertStyledParagraphAfter,
   splitBlockAtCursor,
+  splitRootLineAtCursor,
   insertQuoteBlock,
   isWhitespaceOnly,
   domShowsContent,
+  normalizePastedHtml,
+  insertNormalizedHtml,
+  insertPlainTextAtCursor,
+  moveTableCellFocus,
+  indentListItem,
+  outdentListItem,
+  moveCaretPastAtomicBlock,
+  getCaretOffset,
+  setCaretAtOffset,
 } from '../../editor';
 import { useEditorStore } from '../../store/editorStore';
-import { useEditorHistoryStore } from '../../store/editorHistoryStore';
+import { useEditorHistoryStore, type HistoryEntry } from '../../store/editorHistoryStore';
 import { useToastStore } from '../../store/toastStore';
 import { useThemeStore } from '../../store/themeStore';
 import type { ThemeMode } from '../../store/themeStore';
 import { countWordsFromHtml } from '../pages/HomePage';
 import type { DiceBlockPayloadV2 } from '../../types';
+
+/**
+ * 判断编辑器 DOM 是否"内容为空"（用于显示占位符）：
+ * - 无可见文本
+ * - 无结构内容（图片/表格/分割线/原子块）—— 有结构内容即使无文字也不算空
+ */
+function isEditorDomEmpty(el: HTMLElement): boolean {
+  if ((el.textContent || '').trim() !== '') return false;
+  if (el.querySelector('img, table, hr, [data-type]')) return false;
+  return true;
+}
+
+/** 同步 data-empty 属性，驱动 CSS 占位符显隐 */
+function syncEmptyState(el: HTMLElement): void {
+  el.setAttribute('data-empty', isEditorDomEmpty(el) ? 'true' : 'false');
+}
 
 interface RichTextEditorProps {
   content: string | null | undefined;
@@ -112,6 +138,8 @@ function RichTextEditorInner({
   const applyingHistoryRef = useRef<boolean>(false);
   /** 防抖：把短时间内的连续输入合并为一条历史 */
   const historyTimerRef = useRef<number | null>(null);
+  /** 标记下一次 paste 事件按纯文本处理（Ctrl+Shift+V 设置，onPaste 消费） */
+  const pasteAsPlainRef = useRef(false);
   /**
    * 滚动容器的 ref（外层 .anke-editor-scroll div）
    * 用于在 touch 手势判定为 pan 时手动更新 scrollTop
@@ -190,7 +218,11 @@ function RichTextEditorInner({
     const onSelectionChange = () => {
       const sel = window.getSelection();
       if (!sel || sel.rangeCount === 0) {
-        setLastEditorRange(null);
+        // v42 Fix: 不在此清空 _lastEditorRange。
+        // 旧行为在 selectionchange 瞬间 rangeCount 短暂为 0(如点工具栏按钮失焦)时
+        // 会置空模块级范围,导致 applyActiveStylesToInsertion / getInsertionPoint 的
+        // 光标兜底失效,把文本插入到错误位置("光标位置错误")。
+        // 模块级范围只应被"编辑器内新选区"更新,或由内容重写(apply/applyHistory)主动失效。
         return;
       }
       const r = sel.getRangeAt(0);
@@ -273,6 +305,9 @@ function RichTextEditorInner({
 
     const apply = () => {
       el.innerHTML = displayHTML;
+      // v42 Fix: innerHTML 重写后旧选区指向的节点已失效,
+      // 主动清空模块级范围,避免后续插入函数用到过期位置("光标位置错误")
+      setLastEditorRange(null);
       // v48 Fix 4: innerHTML 重写后重新挂载 img error listener
       // 确保章节切换/视图切换后图片仍有 base64 兜底能力
       // (addEventListener 注册的 listener 不被 innerHTML 序列化,新 img 元素需要重新挂载)
@@ -281,6 +316,7 @@ function RichTextEditorInner({
       // 这里补齐让旧卡片升级到最新内部样式，如结果区色条）
       rerenderDiceCards(el);
       lastContentRef.current = safeContent;
+      syncEmptyState(el);
       // 内容从外部加载（切章节/导入等），重置历史栈
       useEditorHistoryStore.getState().reset(safeContent);
     };
@@ -415,8 +451,11 @@ function RichTextEditorInner({
     if (!el) return;
     const html = el.innerHTML;
     if (html === lastContentRef.current) return;
+    // 记录光标文本偏移，随历史快照一起保存（撤销/重做后恢复光标用）
+    const caret = getCaretOffset(el);
     lastContentRef.current = html;
     onChangeContent(html);
+    syncEmptyState(el);
     // 推历史：debounce 200ms 合并连续输入（缩短 debounce 让 Ctrl+Z 跨度更细）
     if (applyingHistoryRef.current) return;
     if (historyTimerRef.current) {
@@ -425,7 +464,7 @@ function RichTextEditorInner({
       (window as any).__editorHistoryTimer = null;
     }
     historyTimerRef.current = window.setTimeout(() => {
-      useEditorHistoryStore.getState().push(html);
+      useEditorHistoryStore.getState().push({ html, caret });
       historyTimerRef.current = null;
       (window as any).__editorHistoryTimer = null;
     }, 200);
@@ -555,14 +594,16 @@ function RichTextEditorInner({
   }, []);
 
   // 应用历史快照到编辑器（undo/redo 共用）
-  // 设置 innerHTML + 重置光标到末尾 + 通知内容变化
-  const applyHistory = (restored: string) => {
+  // 设置 innerHTML + 恢复光标（快照记录的位置）+ 通知内容变化
+  const applyHistory = (entry: HistoryEntry) => {
     const el = divRef.current;
     if (!el) return;
     applyingHistoryRef.current = true;
     try {
       // 空内容写 <br> 占位（与 content effect 的 displayHTML 一致，避免守卫失效）
-      el.innerHTML = restored === '' ? '<br>' : restored;
+      el.innerHTML = entry.html === '' ? '<br>' : entry.html;
+      // v42 Fix: innerHTML 重写后旧选区失效,清空模块级范围
+      setLastEditorRange(null);
       // 浏览器 innerHTML 序列化非幂等（空段落补 <br>、表格补 <tbody> 等），
       // 写回后读出的字符串可能与原始快照不一致。若直接把原始快照作为 content 传给
       // onChangeContent，content effect 的守卫会失效，进而误调 reset() 清空撤销/重做栈。
@@ -570,14 +611,19 @@ function RichTextEditorInner({
       // onChangeContent，保证后续守卫与历史比较都基于同一序列化。
       const normalized = el.innerHTML;
       lastContentRef.current = normalized;
-      useEditorHistoryStore.setState({ current: normalized });
-      // 重置光标到内容末尾，避免光标停留在无效位置
-      const range = document.createRange();
-      range.selectNodeContents(el);
-      range.collapse(false);
-      const sel = window.getSelection();
-      sel?.removeAllRanges();
-      sel?.addRange(range);
+      useEditorHistoryStore.setState({ current: { html: normalized, caret: entry.caret } });
+      syncEmptyState(el);
+      // 恢复光标：优先用快照记录的位置；未知（-1/null）回退到内容末尾
+      if (entry.caret != null && entry.caret >= 0) {
+        setCaretAtOffset(el, entry.caret);
+      } else {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        range.collapse(false);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+      }
       // 直接通知内容变化（不走 dispatchInput，否则 handleInput 会因 lastContentRef 相同而跳过）
       onChangeContent(normalized);
     } finally {
@@ -707,13 +753,82 @@ function RichTextEditorInner({
       return;
     }
 
-    // Tab 键：插入空格
-    if (e.key === 'Tab' && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
-      e.preventDefault();
-      try {
-        document.execCommand('insertHTML', false, '&nbsp;&nbsp;&nbsp;&nbsp;');
-      } catch {
-        /* ignore */
+    // 方向键：光标在原子块（图片/骰子/折叠块）内部时，
+    // 向左/向右跳到块的边界之外，避免"卡"在不可编辑块内
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        const container = range.startContainer;
+        const containerEl = container.nodeType === Node.ELEMENT_NODE
+          ? container as HTMLElement
+          : container.parentElement;
+        const block = containerEl?.closest(
+          '[data-type="image-block"], [data-type="dice-card"], [data-type="collapse-block"]',
+        );
+        if (block && el.contains(block)) {
+          const isAtStart =
+            (container.nodeType === Node.TEXT_NODE && range.startOffset === 0) ||
+            (container.nodeType === Node.ELEMENT_NODE && range.startOffset <= 0);
+          const isAtEnd =
+            (container.nodeType === Node.TEXT_NODE &&
+              range.startOffset >= (container as Text).length) ||
+            (container.nodeType === Node.ELEMENT_NODE &&
+              range.startOffset >= (container as Element).childNodes.length);
+          if (e.key === 'ArrowLeft' && isAtStart) {
+            e.preventDefault();
+            moveCaretPastAtomicBlock(el, 'before');
+            return;
+          }
+          if (e.key === 'ArrowRight' && isAtEnd) {
+            e.preventDefault();
+            moveCaretPastAtomicBlock(el, 'after');
+            return;
+          }
+        }
+      }
+    }
+
+    // Tab 键：列表缩进（Tab/Shift+Tab）/ 表格单元格导航 / 其余插入空格
+    if (e.key === 'Tab' && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0) {
+        const container = selection.getRangeAt(0).startContainer;
+        const containerEl = container.nodeType === Node.ELEMENT_NODE
+          ? container as HTMLElement
+          : container.parentElement;
+        // 列表：Tab 缩进 / Shift+Tab 退层
+        const li = containerEl?.closest('li');
+        if (li) {
+          e.preventDefault();
+          if (e.shiftKey) outdentListItem(li as HTMLElement);
+          else indentListItem(li as HTMLElement);
+          handleInput();
+          return;
+        }
+        // 表格：Tab 跳到下一单元格 / Shift+Tab 跳到上一单元格
+        const cell = containerEl?.closest('td, th');
+        if (cell) {
+          e.preventDefault();
+          if (!moveTableCellFocus(el, e.shiftKey ? 'prev' : 'next')) {
+            // 表格边界：仍插入空格继续输入，避免焦点跑出表格
+            try {
+              document.execCommand('insertHTML', false, '&nbsp;&nbsp;&nbsp;&nbsp;');
+            } catch {
+              /* ignore */
+            }
+          }
+          return;
+        }
+      }
+      // 其余位置：Tab 插入 4 个 &nbsp;（避免焦点跑掉）；Shift+Tab 走默认（焦点回退）
+      if (!e.shiftKey) {
+        e.preventDefault();
+        try {
+          document.execCommand('insertHTML', false, '&nbsp;&nbsp;&nbsp;&nbsp;');
+        } catch {
+          /* ignore */
+        }
       }
       return;
     }
@@ -1009,31 +1124,31 @@ function RichTextEditorInner({
             handleInput();
             return;
           } else {
-            // v41 Fix 1D: blockEl 为 null 时光标在编辑器根的直接子节点(裸文本等)
-            // 创建 <p><br></p> 或 <p><span style><br></span></p> 追加到编辑器根
+            // v42 Fix: blockEl 为 null 时光标在编辑器根裸文本 / 折叠块内部 / 根级 div 等
+            // 旧 v41 行为: 创建 <p> 追加到编辑器末尾并移动光标
+            //   → "按回车光标自动跳到文档最后一行"的 bug
+            // 参考 Word/Quill/Typora: Enter 应在光标处拆分/换行,新段落插入光标所在行之后
+            const r4 = sel3.getRangeAt(0);
+            const c4 = r4.startContainer;
+            const c4El = c4.nodeType === Node.ELEMENT_NODE ? (c4 as HTMLElement) : c4.parentElement;
+            // 折叠块内部裸文本: 让浏览器默认插入 <br> 软换行,不干预 DOM 与光标
+            // (折叠块 title/body 是无块级祖先的容器,拆分逻辑会把整个折叠块误当行容器)
+            if (c4El?.closest('.collapse-title, .collapse-body')) {
+              return;
+            }
+            // 表格单元格内 Enter: 让浏览器默认软换行（v44 回归修复——
+            // 旧逻辑会把整个 table-wrapper 当"行"拆走,破坏表格结构）
+            if (c4El?.closest('td, th')) {
+              return;
+            }
             e.preventDefault();
-            const p = document.createElement('p');
-            if (inlineStyles) {
-              const span = document.createElement('span');
-              if (inlineStyles.fontWeight) span.style.fontWeight = inlineStyles.fontWeight;
-              if (inlineStyles.fontStyle) span.style.fontStyle = inlineStyles.fontStyle;
-              if (inlineStyles.textDecoration) span.style.textDecoration = inlineStyles.textDecoration;
-              span.appendChild(document.createElement('br'));
-              p.appendChild(span);
-            } else {
-              p.appendChild(document.createElement('br'));
-            }
-            el.appendChild(p);
-            const newRange = document.createRange();
-            const firstChild = p.firstChild;
-            if (firstChild && firstChild.nodeType === Node.ELEMENT_NODE && (firstChild as HTMLElement).tagName === 'SPAN') {
-              newRange.setStart(firstChild, 0);
-            } else {
-              newRange.setStart(p, 0);
-            }
-            newRange.collapse(true);
+            if (!r4.collapsed) r4.deleteContents();
+            // 在光标处拆分该"行"(编辑器根级裸文本/根级 div 等)。
+            // splitRootLineAtCursor 只拆分光标所在行并插回光标位置,
+            // 不会像 splitBlockAtCursor(editor, editor) 那样把后续内容全部移走或追加到末尾
+            const cursor = splitRootLineAtCursor(el, r4, inlineStyles);
             sel3.removeAllRanges();
-            sel3.addRange(newRange);
+            sel3.addRange(cursor);
             handleInput();
             return;
           }
@@ -1067,6 +1182,12 @@ function RichTextEditorInner({
       }
       if (key === 'c') { e.preventDefault(); shortcutHandlersRef.current?.collapse(); return; }
       if (key === 'd') { e.preventDefault(); onInsertDiceRequest?.(); return; }
+      if (key === 'v') {
+        // Ctrl+Shift+V：纯文本粘贴。不 preventDefault，
+        // 让浏览器继续触发 paste 事件，由 onPaste 读取 text/plain 插入
+        pasteAsPlainRef.current = true;
+        return;
+      }
     }
 
     // Ctrl+Z 撤销 - 使用应用级历史栈（替代 execCommand）
@@ -1166,6 +1287,30 @@ function RichTextEditorInner({
       }
     }
   };
+
+  // 粘贴：默认 HTML 粘贴（清洗后插入）；Ctrl+Shift+V 走纯文本（pasteAsPlainRef 标记）
+  const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    const el = divRef.current;
+    if (!el || !editable) return;
+    e.preventDefault();
+    const plainOnly = pasteAsPlainRef.current;
+    pasteAsPlainRef.current = false;
+    const text = e.clipboardData?.getData('text/plain') ?? '';
+    if (plainOnly) {
+      if (text) insertPlainTextAtCursor(el, text);
+      return;
+    }
+    const html = e.clipboardData?.getData('text/html') ?? '';
+    if (html) {
+      const normalized = normalizePastedHtml(html);
+      if (normalized) {
+        insertNormalizedHtml(el, normalized);
+        return;
+      }
+    }
+    if (text) insertPlainTextAtCursor(el, text);
+  };
+
   // ─── 安卓全屏编辑模式：tap vs pan 手势判定 ───
   // 行为规范（用户原话）：
   //   - 手指点击（tap）→ contenteditable 显示光标 + 弹出手机键盘 → 可编辑
@@ -1827,6 +1972,7 @@ function RichTextEditorInner({
           onKeyDown={handleKeyDown}
           onKeyUp={handleKeyUp}
           onMouseUp={handleMouseUp}
+          onPaste={handlePaste}
           onClick={handleClick}
           onDragStart={handleDragStart}
           onDragOver={handleDragOver}
@@ -1878,7 +2024,7 @@ function RichTextEditorInner({
                 const el = divRef.current;
                 if (el) el.focus();
                 try {
-                  // 优先尝试带 HTML 格式粘贴（粗体、颜色、链接等）
+                  // 优先尝试带 HTML 格式粘贴（粗体、颜色、链接等）——清洗后插入
                   if (navigator.clipboard?.read) {
                     try {
                       const items = await navigator.clipboard.read();
@@ -1886,10 +2032,13 @@ function RichTextEditorInner({
                         if (item.types.includes('text/html')) {
                           const blob = await item.getType('text/html');
                           const html = await blob.text();
-                          if (html) {
-                            document.execCommand('insertHTML', false, html);
-                            setCtxMenu(null);
-                            return;
+                          if (html && el) {
+                            const normalized = normalizePastedHtml(html);
+                            if (normalized) {
+                              insertNormalizedHtml(el, normalized);
+                              setCtxMenu(null);
+                              return;
+                            }
                           }
                         }
                       }
@@ -1899,17 +2048,8 @@ function RichTextEditorInner({
                   }
                   // fallback：纯文本
                   const text = await navigator.clipboard.readText();
-                  if (text) {
-                    const ok = document.execCommand('insertText', false, text);
-                    if (!ok && el) {
-                      // 兜底：直接插入到光标
-                      const sel = window.getSelection();
-                      if (sel && sel.rangeCount) {
-                        sel.getRangeAt(0).insertNode(document.createTextNode(text));
-                        sel.collapseToEnd();
-                        handleInput();
-                      }
-                    }
+                  if (text && el) {
+                    insertPlainTextAtCursor(el, text);
                   }
                 } catch (err) {
                   useToastStore

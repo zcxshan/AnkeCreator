@@ -16,22 +16,36 @@ import { create } from 'zustand';
 
 const MAX_HISTORY = 20;
 
+/**
+ * 历史快照条目：内容 HTML + 该快照对应的光标偏移
+ * - caret 为 null 表示未知，恢复时回退到内容末尾（保持旧行为）
+ */
+export interface HistoryEntry {
+  html: string;
+  caret: number | null;
+}
+
+/** 兼容旧调用：直接传 string 时 caret 记为 null */
+function toEntry(input: string | HistoryEntry): HistoryEntry {
+  return typeof input === 'string' ? { html: input, caret: null } : input;
+}
+
 export interface EditorHistoryState {
   /** 当前快照 */
-  current: string;
+  current: HistoryEntry;
   /** 过去的快照（栈顶 = 最近） */
-  past: string[];
+  past: HistoryEntry[];
   /** 未来（已撤销等待重做）的快照（栈顶 = 最近撤销） */
-  future: string[];
+  future: HistoryEntry[];
 
   /** 初始化/重置历史（章节切换时调用） */
-  reset: (content: string) => void;
-  /** 推入新快照（仅当与 current 不同时） */
-  push: (newContent: string) => void;
-  /** 撤销：返回恢复后的内容（null 表示无历史） */
-  undo: () => string | null;
-  /** 重做：返回恢复后的内容（null 表示无历史） */
-  redo: () => string | null;
+  reset: (content: string | HistoryEntry) => void;
+  /** 推入新快照（仅当与 current 不同时）；string 兼容旧调用 */
+  push: (newContent: string | HistoryEntry) => void;
+  /** 撤销：返回恢复后的快照条目（null 表示无历史） */
+  undo: () => HistoryEntry | null;
+  /** 重做：返回恢复后的快照条目（null 表示无历史） */
+  redo: () => HistoryEntry | null;
   /** 是否可撤销 */
   canUndo: () => boolean;
   /** 是否可重做 */
@@ -39,22 +53,24 @@ export interface EditorHistoryState {
 }
 
 export const useEditorHistoryStore = create<EditorHistoryState>((set, get) => ({
-  current: '',
+  current: { html: '', caret: null },
   past: [],
   future: [],
 
   reset: (content) => {
-    set({ current: content, past: [], future: [] });
+    const entry = toEntry(content);
+    set({ current: entry, past: [], future: [] });
   },
 
   push: (newContent) => {
     const state = get();
-    if (newContent === state.current) return;
+    const entry = toEntry(newContent);
+    if (entry.html === state.current.html) return;
     const newPast = [...state.past, state.current].slice(-MAX_HISTORY);
     set({
       past: newPast,
       future: [], // 任何新编辑清空 redo 栈
-      current: newContent,
+      current: entry,
     });
   },
 

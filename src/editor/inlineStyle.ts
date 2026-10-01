@@ -647,6 +647,96 @@ export function splitBlockAtCursor(
 }
 
 // ------------------------------------------------------------
+// v42: 编辑器根级"裸行"按 Enter 在光标处拆分
+// 适用场景: 光标不在任何块级元素内(blockEl 为 null)
+//   - 编辑器根裸文本(如 <div>45的84</div> 根下的文本节点)
+//   - 根级 div / span 等非块容器内的裸文本
+// 参考 Word/Quill/Typora 行为:
+//   光标在行中间 → 拆成两行,后半段移入新 <p>,新 <p> 插在该行之后
+//   光标在行首   → 整行移入新 <p>(等效于上面空出一行)
+//   光标在行尾   → 在行后插入空 <p>(延续 inline 样式)
+// 关键区别(区别于 splitBlockAtCursor): 只拆分光标所在的"行"(editor 直接子节点),
+//   绝不把该行之后的同级内容(后续段落等)一起移入新 <p>。
+// @returns 光标位置 Range(已 collapse,调用方需 addRange)
+// ------------------------------------------------------------
+export function splitRootLineAtCursor(
+  editor: HTMLElement,
+  range: Range,
+  styles: { fontWeight?: string; fontStyle?: string; textDecoration?: string } | null,
+): Range {
+  const container = range.startContainer;
+  const offset = range.startOffset;
+
+  // 1. 确定"行节点"= 光标所在的 editor 直接子节点(裸文本自身或根级元素)
+  let lineNode: Node = container;
+  while (lineNode.parentNode && lineNode.parentNode !== editor) {
+    lineNode = lineNode.parentNode;
+  }
+
+  // 行节点被整体移入 newP 时(光标在行首),需要记录其原始位置以插回
+  const anchor = lineNode.previousSibling;
+
+  // 2. 在行节点内按光标拆分,光标后的内容移入新 <p>
+  const newP = document.createElement('p');
+  if (container.nodeType === Node.TEXT_NODE) {
+    const text = container as Text;
+    if (offset > 0 && offset < text.length) {
+      // 行中间: 拆出后半段
+      newP.appendChild(text.splitText(offset));
+    } else if (offset === 0) {
+      // 行首: 整行移入新 <p>
+      newP.appendChild(text);
+    }
+    // offset === length: 行尾,新 <p> 为空(下方补 <br> 占位)
+  } else {
+    // 光标在元素边界(container 为行节点或行节点后代元素):
+    // 把 childNodes[offset] 起的内容移入新 <p>
+    let child: Node | null = (container as HTMLElement).childNodes[offset] ?? null;
+    while (child) {
+      const next = child.nextSibling;
+      newP.appendChild(child);
+      child = next;
+    }
+  }
+
+  // 3. 空行占位: 延续当前 inline 样式(与 insertStyledParagraphAfter 一致)
+  if (newP.childNodes.length === 0) {
+    if (styles) {
+      const span = document.createElement('span');
+      if (styles.fontWeight) span.style.fontWeight = styles.fontWeight;
+      if (styles.fontStyle) span.style.fontStyle = styles.fontStyle;
+      if (styles.textDecoration) span.style.textDecoration = styles.textDecoration;
+      span.appendChild(document.createElement('br'));
+      newP.appendChild(span);
+    } else {
+      newP.appendChild(document.createElement('br'));
+    }
+  }
+
+  // 4. 把新 <p> 插到该行之后(光标位置):
+  //    - 行节点仍在编辑器内 → 插到行节点之后
+  //    - 行节点被整体移走(行首场景) → 插回其原始位置(anchor 之后)
+  if (lineNode.parentNode === editor) {
+    editor.insertBefore(newP, lineNode.nextSibling);
+  } else if (anchor) {
+    editor.insertBefore(newP, anchor.nextSibling);
+  } else {
+    editor.insertBefore(newP, editor.firstChild);
+  }
+
+  // 5. 光标放到 newP 开头(空行场景放到 span 内 br 之前,与 insertStyledParagraphAfter 一致)
+  const cursor = document.createRange();
+  const firstChild = newP.firstChild;
+  if (firstChild && firstChild.nodeType === Node.ELEMENT_NODE && (firstChild as HTMLElement).tagName === 'SPAN') {
+    cursor.setStart(firstChild, 0);
+  } else {
+    cursor.setStart(newP, 0);
+  }
+  cursor.collapse(true);
+  return cursor;
+}
+
+// ------------------------------------------------------------
 // 综合读取：当前光标/选区位置上的活动样式（颜色/字号/字体/粗体/斜体/下划线/删除线）
 // 返回值用作 useEditorStore.activeStyles
 // ------------------------------------------------------------

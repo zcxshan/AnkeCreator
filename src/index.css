@@ -291,6 +291,19 @@ body {
   cursor: default;
 }
 
+/* v44: 空内容占位符（"开始写作…"）——仅在内容真正为空时显示
+ * 用 data-empty 属性驱动（:empty 不适用，因为空内容时 DOM 有 <br> 占位）
+ * 流动式 ::before：自动与正文起点对齐，不引入定位上下文；
+ * pointer-events/user-select 屏蔽，不干扰点击与选区
+ */
+.anke-editor-content[contenteditable='true'][data-empty='true']::before {
+  content: '开始写作…';
+  color: var(--prose-placeholder);
+  font-size: 15px;
+  pointer-events: none;
+  user-select: none;
+}
+
 .anke-editor-content[contenteditable='false'] p,
 .anke-editor-content[contenteditable='false'] li,
 .anke-editor-content[contenteditable='false'] h1,

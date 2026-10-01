@@ -238,9 +238,9 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
           : useEditorHistoryStore.getState().redo();
       if (restored == null) return;
       if (editorMode === 'visual') {
-        setSectionContent(restored);
+        setSectionContent(restored.html);
       } else {
-        setBbcodeDraft(restored);
+        setBbcodeDraft(restored.html);
       }
     },
     [editorMode],

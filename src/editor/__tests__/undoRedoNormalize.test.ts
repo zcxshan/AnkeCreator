@@ -8,7 +8,7 @@ import { useEditorHistoryStore } from '../../store/editorHistoryStore';
 
 describe('undo/redo 与内容序列化规范化', () => {
   beforeEach(() => {
-    useEditorHistoryStore.setState({ current: '', past: [], future: [] });
+    useEditorHistoryStore.setState({ current: { html: '', caret: null }, past: [], future: [] });
   });
 
   it('前提：浏览器 innerHTML 写回后读回的字符串与原始快照不一致（序列化非幂等）', () => {
@@ -53,13 +53,13 @@ describe('undo/redo 与内容序列化规范化', () => {
     expect(useEditorHistoryStore.getState().canUndo()).toBe(true);
 
     const restored = useEditorHistoryStore.getState().undo();
-    expect(restored).toBe(initial);
+    expect(restored?.html).toBe(initial);
     expect(useEditorHistoryStore.getState().canRedo()).toBe(true);
 
     // 模拟 applyHistory：写回 DOM 并取规范化值同步 store.current（修复行为）
     div.innerHTML = restored!;
     const normalized = div.innerHTML;
-    useEditorHistoryStore.setState({ current: normalized });
+    useEditorHistoryStore.setState({ current: { html: normalized, caret: null } });
 
     // content effect 守卫：规范化值应判定"已显示" → 不会调用 reset
     expect(domShowsContent(div, normalized)).toBe(true);

@@ -724,7 +724,7 @@ describe('Phase E - BBCode 视图 Ctrl+Z / Ctrl+Y 拦截', () => {
   it('BBCode 视图 textarea 在 Ctrl+Z 时调用 useEditorHistoryStore.undo()（不走浏览器原生 undo）', async () => {
     // 准备：undo 应返回某个历史快照
     const previousSnapshot = '[b]之前的内容[/b]';
-    historyState.undo.mockReturnValue(previousSnapshot);
+    historyState.undo.mockReturnValue({ html: previousSnapshot, caret: null });
     historyState.canUndo.mockReturnValue(true);
 
     const { EditorPage } = await import('./EditorPage');
@@ -754,7 +754,7 @@ describe('Phase E - BBCode 视图 Ctrl+Z / Ctrl+Y 拦截', () => {
 
   it('BBCode 视图 textarea 在 Ctrl+Y 时调用 useEditorHistoryStore.redo()', async () => {
     const nextSnapshot = '[b]重做后的内容[/b]';
-    historyState.redo.mockReturnValue(nextSnapshot);
+    historyState.redo.mockReturnValue({ html: nextSnapshot, caret: null });
     historyState.canRedo.mockReturnValue(true);
 
     const { EditorPage } = await import('./EditorPage');
@@ -782,7 +782,7 @@ describe('Phase E - BBCode 视图 Ctrl+Z / Ctrl+Y 拦截', () => {
 
   it('BBCode 视图 Ctrl+Shift+Z 也走 redo（兼容 Mac 习惯）', async () => {
     const nextSnapshot = '[b]redo by shift+z[/b]';
-    historyState.redo.mockReturnValue(nextSnapshot);
+    historyState.redo.mockReturnValue({ html: nextSnapshot, caret: null });
     historyState.canRedo.mockReturnValue(true);
 
     const { EditorPage } = await import('./EditorPage');

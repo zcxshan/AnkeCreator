@@ -33,6 +33,7 @@ import {
   getInlineStylesFromActive,
   insertStyledParagraphAfter,
   splitBlockAtCursor,
+  splitRootLineAtCursor,
 } from '../../editor';
 import { useEditorHistoryStore } from '../../store/editorHistoryStore';
 
@@ -406,7 +407,7 @@ describe('Phase E - 原子块 push 与 handleInput 互斥', () => {
 
   beforeEach(() => {
     // 重置 history store
-    useEditorHistoryStore.setState({ current: '', past: [], future: [] });
+    useEditorHistoryStore.setState({ current: { html: '', caret: null }, past: [], future: [] });
     // 清理全局 timer 标记
     (window as any).__editorHistoryTimer = null;
 
@@ -3695,5 +3696,147 @@ describe('v41: B/I/U/S DISABLE 后输入恢复默认 (activeStylesLocked=true)',
     const boldSpan = editor.querySelector('span[style*="bold"]');
     expect(boldSpan).toBeTruthy();
     expect(boldSpan!.textContent).toBe('bold');
+  });
+});
+
+// =============================================================================
+// v42: splitRootLineAtCursor - 编辑器根裸文本按 Enter 在光标处拆分
+// 回归: 旧行为把新 <p> 追加到编辑器末尾,导致"按回车光标自动跳到文档最后一行"
+// =============================================================================
+
+describe('v42: splitRootLineAtCursor - 编辑器根裸文本按 Enter 在光标处拆分', () => {
+  let editor: HTMLElement;
+
+  beforeEach(() => {
+    editor = document.createElement('div');
+    editor.contentEditable = 'true';
+    document.body.appendChild(editor);
+  });
+
+  afterEach(() => {
+    if (editor && editor.parentNode) editor.parentNode.removeChild(editor);
+  });
+
+  it('V42-T1: 根裸文本中间光标 split → 新 <p> 插在光标处,不追加到编辑器末尾', () => {
+    // <p>前</p>45的84<p>后</p> 光标在裸文本 "45的84" 中间(offset=2)
+    editor.innerHTML = '<p>前</p>45的84<p>后</p>';
+    const textNode = editor.childNodes[1] as Text;
+
+    const range = document.createRange();
+    range.setStart(textNode, 2);
+    range.collapse(true);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    const cursor = splitRootLineAtCursor(editor, range, null);
+
+    // 拆分后应存在 3 个 <p>
+    const ps = editor.querySelectorAll('p');
+    expect(ps.length).toBe(3);
+    // 新 <p> 含后半段 "的84"
+    expect(ps[1].textContent).toBe('的84');
+    // 新 <p> 应紧跟原裸文本之后(在 <p>后</p> 之前),而非编辑器末尾
+    expect(ps[1].previousElementSibling).toBe(ps[0]);
+    expect(ps[2].textContent).toBe('后');
+    // 光标在新 <p> 开头
+    expect(cursor.startContainer).toBe(ps[1]);
+  });
+
+  it('V42-T2: 根裸文本开头光标(offset=0) → 整段移入新 <p> 并插在原位置,不追加到末尾', () => {
+    editor.innerHTML = '<p>前</p>45的84<p>后</p>';
+    const textNode = editor.childNodes[1] as Text;
+
+    const range = document.createRange();
+    range.setStart(textNode, 0);
+    range.collapse(true);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    const cursor = splitRootLineAtCursor(editor, range, null);
+
+    const ps = editor.querySelectorAll('p');
+    expect(ps.length).toBe(3);
+    // 原裸文本整段移入新 <p>(紧跟 <p>前</p> 之后)
+    expect(ps[1].textContent).toBe('45的84');
+    expect(ps[1].previousElementSibling).toBe(ps[0]);
+    // 光标在新 <p> 开头
+    expect(cursor.startContainer).toBe(ps[1]);
+  });
+
+  it('V42-T3: 根裸文本末尾光标 → 新 <p> 追加在文本之后(即光标位置),文档末尾无重复段落', () => {
+    editor.innerHTML = '<p>前</p>45的84<p>后</p>';
+    const textNode = editor.childNodes[1] as Text;
+
+    const range = document.createRange();
+    range.setStart(textNode, textNode.length);
+    range.collapse(true);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    const cursor = splitRootLineAtCursor(editor, range, null);
+
+    const ps = editor.querySelectorAll('p');
+    expect(ps.length).toBe(3);
+    // 新 <p> 为空(含 <br>),紧跟原裸文本之后
+    expect(ps[1].textContent).toBe('');
+    expect(ps[1].firstChild!.nodeName).toBe('BR');
+    expect(ps[1].previousElementSibling).toBe(ps[0]);
+    expect(cursor.startContainer).toBe(ps[1]);
+  });
+
+  it('V42-T4: 根级 div 内文本中间光标 → 新 <p> 插在该行之后,不追加到末尾', () => {
+    editor.innerHTML = '<p>前</p><div>abc</div><p>后</p>';
+    const div = editor.querySelector('div')!;
+    const textNode = div.firstChild as Text;
+
+    const range = document.createRange();
+    range.setStart(textNode, 1);
+    range.collapse(true);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    const cursor = splitRootLineAtCursor(editor, range, null);
+
+    const ps = editor.querySelectorAll('p');
+    expect(ps.length).toBe(3);
+    // 新 <p> 应在 <div> 之后、<p>后</p> 之前
+    const newP = div.nextElementSibling as HTMLElement;
+    expect(newP.tagName).toBe('P');
+    expect(newP.textContent).toContain('bc');
+    // 尾部 <p>后</p> 仍在最后(未被挤到中间)
+    expect(editor.lastElementChild!.textContent).toBe('后');
+    // 光标在新 <p> 内
+    expect(cursor.startContainer).toBe(newP);
+  });
+
+  it('V42-T5: 行尾 Enter 延续 inline 样式 → 新 <p> 含带样式 span 占位', () => {
+    editor.innerHTML = '加粗?的84<p>后</p>';
+    const textNode = editor.childNodes[0] as Text;
+
+    const range = document.createRange();
+    range.setStart(textNode, textNode.length);
+    range.collapse(true);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    const cursor = splitRootLineAtCursor(editor, range, {
+      fontWeight: 'bold',
+      fontStyle: undefined,
+      textDecoration: undefined,
+    });
+
+    // 新 <p> 在裸文本之后,内含带样式 span
+    const newP = editor.childNodes[1] as HTMLElement;
+    expect(newP.tagName).toBe('P');
+    const span = newP.querySelector('span')!;
+    expect(span.style.fontWeight).toBe('bold');
+    expect(span.children[0].tagName).toBe('BR');
+    // 光标在 span 内
+    expect(cursor.startContainer).toBe(span);
   });
 });

@@ -11,3 +11,5 @@ export * from './imageBlock';
 export * from './diceCard';
 export * from './collapseBlock';
 export * from './inputPolicy';
+export * from './paste';
+export * from './listIndent';

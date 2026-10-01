@@ -254,6 +254,43 @@ export function insertTable(editor: HTMLElement, rows: number, cols: number): vo
   dispatchInput(editor);
 }
 
+/**
+ * 表格单元格 Tab / 方向键导航：把光标移到当前单元格的相邻单元格
+ * - direction: 'next' 向后一个单元格（Tab / 向右），'prev' 向前（Shift+Tab / 向左）
+ * - 返回 false 表示已到表格边界（无相邻单元格），调用方决定回退行为
+ */
+export function moveTableCellFocus(
+  editor: HTMLElement,
+  direction: 'next' | 'prev',
+): boolean {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return false;
+  const container = sel.getRangeAt(0).startContainer;
+  const containerEl = container.nodeType === Node.ELEMENT_NODE
+    ? container as HTMLElement
+    : container.parentElement;
+  const cell = containerEl?.closest('td, th') as HTMLElement | null;
+  if (!cell || !editor.contains(cell)) return false;
+  const table = cell.closest('table');
+  if (!table) return false;
+  const cells = Array.from(table.querySelectorAll('td, th')) as HTMLElement[];
+  const idx = cells.indexOf(cell);
+  if (idx < 0) return false;
+  const target = direction === 'next' ? cells[idx + 1] : cells[idx - 1];
+  if (!target) return false;
+  const r = document.createRange();
+  r.selectNodeContents(target);
+  r.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(r);
+  try {
+    target.focus();
+  } catch {
+    /* ignore */
+  }
+  return true;
+}
+
 // ------------------------------------------------------------
 // 自定义 DOM 节点：code-block
 // ------------------------------------------------------------
