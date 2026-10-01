@@ -30,7 +30,8 @@
     "cap:build:apk:release": "npm run cap:sync && gradle -p android assembleRelease --no-daemon",
     "apk:debug": "npm run cap:build:apk",
     "apk:release": "npm run cap:build:apk:release",
-    "keystore:gen": "node scripts/generate-keystore.js"
+    "keystore:gen": "node scripts/generate-keystore.js",
+    "build:mac": "tsc && vite build && electron-builder --mac --arm64 --publish never"
   },
   "dependencies": {
     "@capacitor/browser": "^6.0.6",
@@ -120,6 +121,18 @@
       "license": "build/LICENSE.txt",
       "deleteAppDataOnUninstall": false,
       "include": "build/installer.nsh"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.productivity",
+      "icon": "build/icon.png"
     }
   },
   "packageManager": "pnpm@11.17.0+sha512.cca3cea332ad254bb84145f966d19f4879615210346fc92c79a047f23a0d7b3cca3c3792f0076ba1f1831d277efbcf0a9119b31a9a60eca7fb3d6231f331ef72"
