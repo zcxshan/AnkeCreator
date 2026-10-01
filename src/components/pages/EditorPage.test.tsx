@@ -162,8 +162,9 @@ vi.mock('../../db/index', () => ({
 
 // ---------- Sub-component mocks ----------
 
-vi.mock('../editor/RichTextEditor', () => ({
-  RichTextEditor: () => <div data-testid="rich-text-editor" />,
+// S9 起 VisualEditorPane 的渲染目标已切换到 Tiptap 内核，此处 mock 新模块路径
+vi.mock('../../editor/tiptap/TiptapEditorPane', () => ({
+  TiptapEditorPane: () => <div data-testid="rich-text-editor" />,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 } as any));
 

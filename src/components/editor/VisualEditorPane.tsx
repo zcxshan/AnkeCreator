@@ -1,10 +1,11 @@
-// 可视化编辑器面板：独立订阅 sectionContent / 撤销栈 / 加载态，
-// 打字时仅此面板（及 RichTextEditor）重渲染，避免整个 EditorPage 因内容写入而重渲染。
+// 可视化编辑器面板：独立订阅 sectionContent / 加载态，
+// 打字时仅此面板（及编辑器内核）重渲染，避免整个 EditorPage 因内容写入而重渲染。
+// 编辑内核：Tiptap（ProseMirror）—— 撤销/重做以内核 history 为唯一事实来源，
+// 不再订阅应用级 editorHistoryStore。
 import React, { useCallback } from 'react';
 import { useDiceStore } from '../../store/diceStore';
 import { useEditorStore } from '../../store/editorStore';
-import { useEditorHistoryStore } from '../../store/editorHistoryStore';
-import { RichTextEditor, type RichTextEditorCommands } from './RichTextEditor';
+import { TiptapEditorPane as RichTextEditor, type RichTextEditorCommands } from '../../editor/tiptap/TiptapEditorPane';
 import type { DiceBlockPayloadV2 } from '../../types';
 
 interface VisualEditorPaneProps {
@@ -29,8 +30,6 @@ export const VisualEditorPane = React.memo(function VisualEditorPane({
   const content = useEditorStore((s) => s.sectionContent);
   const setSectionContent = useEditorStore((s) => s.setSectionContent);
   const sectionLoading = useEditorStore((s) => s.sectionLoading);
-  const canUndo = useEditorHistoryStore((s) => s.canUndo());
-  const canRedo = useEditorHistoryStore((s) => s.canRedo());
   const openDiceDialog = useDiceStore((s) => s.openDialog);
 
   const handleInsertDiceRequest = useCallback(() => openDiceDialog(), [openDiceDialog]);
@@ -46,8 +45,6 @@ export const VisualEditorPane = React.memo(function VisualEditorPane({
       commandsRef={commandsRef}
       editable={!sectionLoading}
       onShowToast={onShowToast}
-      canUndo={canUndo}
-      canRedo={canRedo}
       editorRef={editorRef}
       onSearchOpen={onSearchOpen}
     />

@@ -1,14 +1,10 @@
 // ============================================================
-// contenteditable 富文本工具集 — 粘贴规范化
+// 粘贴规范化（由 src/editor/paste.ts 迁移而来，逻辑逐字未改）
 // ------------------------------------------------------------
-// 职责：
-//   - 从剪贴板 HTML 清洗出编辑器支持的安全内容
-//     （白名单标签 + 白名单内联样式 + 危险/无关节点剥离）
-//   - 提供纯文本插入（Ctrl+Shift+V / 无 HTML 时兜底）
+// 职责：从剪贴板 HTML 清洗出编辑器支持的安全内容
+//       （白名单标签 + 白名单内联样式 + 危险/无关节点剥离）
 // 参考 Quill / ProseMirror 的粘贴清洗思路：黑名单删除 + 白名单属性
 // ============================================================
-
-import { focusEditor, getInsertionRange, dispatchInput } from './selection';
 
 const ALLOWED_TAGS = new Set([
   'P', 'BR', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
@@ -190,46 +186,4 @@ export function normalizePastedHtml(html: string): string {
   if (!hasRealContent(container)) return '';
   compressEmptyParagraphs(container);
   return container.innerHTML;
-}
-
-/**
- * 插入清洗后的 HTML（白名单内已剥离危险内容）。
- * 用 execCommand('insertHTML') 让浏览器原生解析插入，
- * 自动处理块级嵌套修正与光标定位。
- */
-export function insertNormalizedHtml(editor: HTMLElement, html: string): void {
-  if (!html) return;
-  focusEditor(editor);
-  const ok = document.execCommand('insertHTML', false, html);
-  if (ok) dispatchInput(editor);
-}
-
-/**
- * 纯文本插入（Ctrl+Shift+V / 剪贴板无 HTML 时兜底）
- * - \n 转 <br>（保留换行）
- * - 插入位置为当前光标（编辑器失焦时回退到末尾）
- */
-export function insertPlainTextAtCursor(editor: HTMLElement, text: string): void {
-  if (!text) return;
-  focusEditor(editor);
-  const sel = window.getSelection();
-  if (!sel) return;
-  const range = getInsertionRange(editor);
-  if (!range.collapsed) range.deleteContents();
-  const lines = text.split('\n');
-  const frag = document.createDocumentFragment();
-  lines.forEach((line, i) => {
-    if (i > 0) frag.appendChild(document.createElement('br'));
-    frag.appendChild(document.createTextNode(line));
-  });
-  const last = frag.lastChild;
-  range.insertNode(frag);
-  if (last) {
-    const r = document.createRange();
-    r.setStartAfter(last);
-    r.collapse(true);
-    sel.removeAllRanges();
-    sel.addRange(r);
-  }
-  dispatchInput(editor);
 }

@@ -5,7 +5,7 @@ import { useMetaStore } from '../../store/metaStore';
 import { useStoryStore } from '../../store/storyStore';
 import { CharacterCard } from './CharacterCard';
 import { AttributeTable } from './AttributeTable';
-import type { RichTextEditorCommands } from '../editor/RichTextEditor';
+import type { RichTextEditorCommands } from '../../editor/tiptap/TiptapEditorPane';
 import { NGA_DEFAULT_IMAGE_SIZE } from '../../types';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { Icon } from '../common/Icon';

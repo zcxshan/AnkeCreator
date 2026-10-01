@@ -1,4 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
+import type { Editor } from '@tiptap/core';
+import { useEditorState } from '@tiptap/react';
 import {
   Bold,
   Italic,
@@ -33,50 +35,16 @@ import {
   NGA_DEFAULT_COLOR,
   NGA_DEFAULT_IMAGE_SIZE,
   ngaColorToCSS,
-  ngaFontToCSS,
   percentToCssFontSize,
 } from '../../types';
 import {
-  execRemoveFormat,
-  execInsertUnorderedList,
-  execInsertOrderedList,
-  isBoldActive,
-  isItalicActive,
-  isUnderlineActive,
-  isStrikeActive,
+  // 选区 ALL 语义判定：供工具栏激活态（B/I/U/S 高亮）实时计算使用
   isBoldFullyActive,
   isItalicFullyActive,
   isUnderlineFullyActive,
   isStrikeFullyActive,
-  isSupActive,
-  isSubActive,
-  getEffectiveColorName,
-  getEffectiveFontSizePercent,
-  getEffectiveFontFamilyValue,
-  getCurrentBlockAlign,
-  isInsideList,
-  setBlockAlign,
-  applyInlineStyleNoFocus,
-  removeInlineStyleNoFocus,
-  removeInlineTagNoFocus,
-  applyTextDecorationPartNoFocus,
-  removeTextDecorationPartNoFocus,
-  insertMarkersAtRange,
-  restoreSelectionFromMarkers,
-  insertCollapseBlock,
-  insertQuoteBlock,
-  insertTable,
-  insertCodeBlock,
-  insertHorizontalRuleNGA,
-  insertNgaLink,
-  insertImageBlock,
-  insertImageBlockWithSize,
-  setImageBlockAlign,
-  removeLinkAtCursor,
-  getCurrentStyles,
-  getInsertionPoint,
-  dispatchInput,
 } from '../../editor';
+import { createAnkeToolbarCommands, type AnkeToolbarCommands } from '../../editor/tiptap/toolbarCommands';
 import { useEditorStore } from '../../store/editorStore';
 import { useSettingStore } from '../../store/settingStore';
 import { useToastStore } from '../../store/toastStore';
@@ -93,6 +61,12 @@ import {
 } from '../../utils/ngaHtmlToBBCode';
 
 interface EditorToolbarProps {
+  /** Tiptap（ProseMirror）编辑器实例 */
+  editor?: Editor | null;
+  /**
+   * 兼容保留：调用方（TiptapEditorPane / 测试）仍会传入，
+   * 迁移到 Tiptap 内核后本组件内部已不再使用该引用。
+   */
   editorElRef: React.MutableRefObject<HTMLElement | null>;
   savedRangeRef?: React.MutableRefObject<Range | null>;
   onInsertImage: (src: string, size?: string) => void;
@@ -270,44 +244,6 @@ function GroupDivider() {
   );
 }
 
-function useEditor(
-  ref: React.MutableRefObject<HTMLElement | null>,
-): HTMLElement | null {
-  const [, setTick] = useState(0);
-  const lastRef = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (el === lastRef.current) return;
-    lastRef.current = el;
-
-    if (!el) return;
-    const bump = () => setTick((t) => t + 1);
-    el.addEventListener('input', bump);
-    el.addEventListener('keyup', bump);
-    el.addEventListener('mouseup', bump);
-    el.addEventListener('focus', bump);
-    el.addEventListener('blur', bump);
-    return () => {
-      el.removeEventListener('input', bump);
-      el.removeEventListener('keyup', bump);
-      el.removeEventListener('mouseup', bump);
-      el.removeEventListener('focus', bump);
-      el.removeEventListener('blur', bump);
-    };
-  }, [ref]);
-
-  // v40: 订阅 cursorStyles 触发 re-render(替代 selectionchange 监听)
-  //   原 useEditor 在 document 上监听 selectionchange + 50ms debounce + setTick,
-  //   但 RichTextEditor 已在 document 上监听 selectionchange 并同步 cursorStyles 到 store,
-  //   两次监听同一事件导致工具栏高亮闪烁/延迟。改为订阅 store,由 cursorStyles 变化驱动 re-render。
-  useEditorStore((s) => s.cursorStyles);
-  useEditorStore((s) => s.activeStyles);
-  useEditorStore((s) => s.activeStylesLocked);
-
-  return ref.current;
-}
-
 function useDismiss(open: boolean, onDismiss: () => void) {
   const ref = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -323,8 +259,44 @@ function useDismiss(open: boolean, onDismiss: () => void) {
   return ref;
 }
 
+/**
+ * 工具栏激活态选择器（S12）：事务驱动重渲染。
+ *
+ * 背景：删除工具栏内本地 useEditor 后，工具栏失去了「选区变化 → 重渲染」的触发源。
+ * TiptapEditorPane 只在 cursorStyles 真正变化时才写 store（`if (!same)`），
+ * 因此把光标从普通段落移到列表项时 store 不更新，activeUL/activeOL/activeAlign
+ * 以及依赖选区的上标/下标禁用态会变陈旧。
+ *
+ * 这里订阅 editor 事务，仅在下列切片变化时重渲染：
+ *   - from/to   ：选区范围（保证选区折叠态/上标下标禁用态实时刷新）
+ *   - isBulletList / isOrderedList / textAlign：列表与对齐高亮
+ * 选择器定义在模块作用域，保持引用稳定，避免每次渲染重建订阅。
+ */
+function selectToolbarActiveState({ editor }: { editor: Editor | null }) {
+  if (!editor) {
+    return {
+      from: 0,
+      to: 0,
+      isBulletList: false,
+      isOrderedList: false,
+      textAlign: 'left' as string,
+    };
+  }
+  const sel = editor.state.selection;
+  return {
+    from: sel.from,
+    to: sel.to,
+    isBulletList: editor.isActive('bulletList'),
+    isOrderedList: editor.isActive('orderedList'),
+    textAlign:
+      (editor.getAttributes('paragraph').textAlign as string | undefined) ??
+      (editor.getAttributes('imageBlock').textAlign as string | undefined) ??
+      'left',
+  };
+}
+
 export function EditorToolbar({
-  editorElRef,
+  editor: tiptapEditor = null,
   savedRangeRef,
   onInsertImage,
   onInsertDice,
@@ -335,7 +307,6 @@ export function EditorToolbar({
   canRedo = false,
   onShortcutReady,
 }: EditorToolbarProps) {
-  const editor = useEditor(editorElRef);
   const [urlInput, setUrlInput] = useState('');
   const [showUrlBox, setShowUrlBox] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -494,73 +465,16 @@ export function EditorToolbar({
     return NGA_DEFAULT_FONT;
   })();
 
-  const activeAlign = editor ? getCurrentBlockAlign(editor) : 'left';
-  const activeUL = editor ? isInsideList(editor, 'UL') : false;
-  const activeOL = editor ? isInsideList(editor, 'OL') : false;
-
-  const withEditor = (
-    fn: (e: HTMLElement) => void,
-    options: { skipFocus?: boolean } = {},
-  ): void => {
-    const el = editorElRef.current;
-    if (!el) return;
-    // 恢复保存的光标位置（编辑器失焦后光标位置丢失的问题）
-    const saved = savedRangeRef?.current;
-    if (saved && el.contains(saved.startContainer)) {
-      const sel = window.getSelection();
-      if (sel) {
-        sel.removeAllRanges();
-        sel.addRange(saved);
-      }
-    }
-    // 工具栏的 input/select 修改样式时跳过 focus()，避免抢焦点导致用户输入中断
-    if (!options.skipFocus) el.focus();
-    fn(el);
-  };
-
-  // 工具栏样式按钮共用：恢复 savedRange + 应用 inline 样式 + 同步 activeStyles
-  // 不抢焦点（让 input/select 不失焦），不依赖 withEditor（避免抢焦点）
-  // v30 注释：B/I/U/S 按钮的 lock/unlock 时机
-  //   - apply(cancel 状态 → active): 调 lockActiveStyles,让用户后续输入自动应用该样式
-  //   - cancel(active 状态 → cancel): 调 unlockActiveStyles,让用户后续输入不再应用该样式
-  //   - v18 spread 保留保证 lock/unlock 只影响当前样式的 activeStyles,
-  //     不会清空其他样式的 activeStyles,符合"互不影响"需求
-  // v41 Fix 2D: 先检查当前 window.getSelection() 是否有效且在编辑器内,
-  //   只在无效时才用 savedRangeRef 恢复。
-  //   原因: selectionchange 事件是异步的,程序化设置选区后立即点击按钮,
-  //   savedRangeRef 可能还保存旧值(折叠光标),用旧值覆盖新选区会导致样式无法应用。
-  const applyInlineStylePreservingFocus = (styles: Record<string, string>): void => {
-    const el = editorElRef.current;
-    if (!el) return;
-    restoreSelectionIfValid();
-    applyInlineStyleNoFocus(el, styles);
-  };
-
-  // v41 Fix 2B: 取消样式时恢复选区(与 applyInlineStylePreservingFocus 对称)
-  //   用于 B/I/U/S 非折叠 DISABLE 路径:点击工具栏按钮会让编辑器失焦,
-  //   需在调用 removeInlineTagNoFocus/removeInlineStyleNoFocus/removeTextDecorationPartNoFocus 前
-  //   恢复 savedRange,确保操作应用到用户原始选中的文本。
-  // v41 Fix 2D: 先检查当前选区是否有效,只在无效时才恢复 savedRange。
-  const restoreSelectionIfValid = (): void => {
-    const el = editorElRef.current;
-    if (!el) return;
-    const sel = window.getSelection();
-    // 先检查当前选区是否有效且在编辑器内
-    if (sel && sel.rangeCount > 0) {
-      const r = sel.getRangeAt(0);
-      if (el.contains(r.startContainer) && el.contains(r.endContainer) && !r.collapsed) {
-        return; // 当前选区有效,不需要恢复
-      }
-    }
-    // 当前选区无效(折叠/不在编辑器内/无选区),用 savedRange 恢复
-    const saved = savedRangeRef?.current;
-    if (saved && el.contains(saved.startContainer)) {
-      if (sel) {
-        sel.removeAllRanges();
-        sel.addRange(saved);
-      }
-    }
-  };
+  // 激活态：列表 / 对齐（Tiptap 内核，等价于旧 DOM 判定）
+  // S12：改为 useEditorState 订阅事务驱动重渲染，取数与 TiptapEditorPane 的 store
+  // 更新策略解耦（store 仅在 cursorStyles 真正变化时写入，不能作为唯一重渲染源）。
+  const toolbarActiveState = useEditorState({
+    editor: tiptapEditor,
+    selector: selectToolbarActiveState,
+  });
+  const activeUL = toolbarActiveState?.isBulletList ?? false;
+  const activeOL = toolbarActiveState?.isOrderedList ?? false;
+  const activeAlign = toolbarActiveState?.textAlign ?? 'left';
 
   // 判断当前编辑器选区是否折叠（无选区或光标处）
   // v26:改为 function declaration 以支持 hoisting(active state 计算在文件更早位置需要)
@@ -571,41 +485,19 @@ export function EditorToolbar({
     return false;
   }
 
-  // 简单样式切换：在无选区时主动翻转 activeStyles，让下一次输入自动应用
-  // v18 修复:用 spread 保留其他样式(B/I/U/S 互不影响)
-  // v25c 新增:翻转后弹 Toast 提示(仅无选区时)
-  // v38 修复: 取消样式时保持锁定 + 刷新 cursorStyles
-  //   v37 错误: 取消样式时调用 unlockActiveStyles,导致 onBeforeInputNative 直接 return,
-  //   v21 的 insertTextOutsideStyledSpan 不会触发(该函数仅在 activeStylesLocked=true 路径内调用),
-  //   用户取消样式后输入字符仍被浏览器默认插入到粗体 span 内继承粗体(伪取消)。
-  //   v38 修正: 取消样式时保持锁定,设置 activeStyles[key]=false 触发 hasExplicitCancel=true,
-  //   让 onBeforeInputNative 走 v21 显式取消路径(insertTextOutsideStyledSpan 在父 span 外插入裸文本)。
-  //   同时显式 setCursorStyles({ [key]: false }) 刷新视觉,让按钮立即退出高亮
-  //   (与非折叠选区路径 L822/L857/L892/L931 对齐)。
-  const toggleSimpleActiveStyle = (key: 'bold' | 'italic' | 'underline' | 'strike'): void => {
-    if (!isCollapsedSelection()) return; // 有选区由 execCommand 处理
-    const cur = useEditorStore.getState().activeStyles;
-    const willEnable = !cur[key];
-    useEditorStore.getState().setActiveStyles({ ...cur, [key]: willEnable });
-    // v38: 启用和取消都保持锁定,让 onBeforeInputNative 接管
-    // - 启用: hasStyle=true → 创建 span 包裹文本
-    // - 取消: hasExplicitCancel=true → insertTextOutsideStyledSpan 跳出父 span 插入裸文本
-    useEditorStore.getState().lockActiveStyles();
-    if (!willEnable) {
-      // v38: 显式刷新 cursorStyles,让按钮立即视觉退出高亮
-      // (与有选区路径 L822/L857/L892/L931 的 setCursorStyles({key:false}) 对齐)
-      const curCursor = useEditorStore.getState().cursorStyles;
-      useEditorStore.getState().setCursorStyles({ ...curCursor, [key]: false });
-    }
-    // v25c 反馈
-    const labelMap = { bold: '粗体', italic: '斜体', underline: '下划线', strike: '删除线' };
-    const label = labelMap[key];
-    showToast(willEnable ? `已开启${label}格式，新输入自动应用` : `已关闭${label}格式`);
-  };
-
   const showToast = (msg: string) => {
     onShowToast?.(msg);
   };
+
+  // ------------------------------------------------------------
+  // Tiptap 内核命令桥（改造方案 S8）：工具栏「命令层」分派点
+  //   传入 editor（TiptapEditorPane）→ 走 ProseMirror 事务；
+  //   首帧 editor 尚未初始化时（ttCmd 为 null）相关命令为空操作。
+  //   UI / 图标 / 布局 / 折叠行为完全不变，只替换命令调用层。
+  // ------------------------------------------------------------
+  const ttCmd: AnkeToolbarCommands | null = tiptapEditor
+    ? createAnkeToolbarCommands({ getEditor: () => tiptapEditor, onToast: showToast })
+    : null;
 
   // 需求2: 快捷键按钮 ref — 通过 .click() 复用按钮 onClick 逻辑
   const boldBtnRef = useRef<HTMLButtonElement>(null);
@@ -744,27 +636,32 @@ export function EditorToolbar({
     }
   };
 
-  const handleInsertImageWithSize = (src: string, name?: string) => {
+  const handleInsertImageWithSize = (src: string, _name?: string) => {
     if (!src) return;
-    // 透传 name 到 insertImageBlock（alt 用可读名字）
-    withEditor((ed) => insertImageBlock(ed, src, { size: imageSize, name }));
+    // Tiptap 内核：走 RichTextEditorCommands.insertImage（内部 insertContent 事务）
+    if (tiptapEditor) {
+      onInsertImage(src, imageSize);
+    }
   };
 
   const handleUrlConfirm = () => {
     const url = urlInput.trim();
     if (!url) return;
-    withEditor((ed) => insertImageBlockWithSize(ed, url, imageSize));
+    if (tiptapEditor) {
+      onInsertImage(url, imageSize);
+    }
     setUrlInput('');
     setShowUrlBox(false);
   };
 
-  // 字号改变：实时应用到选区 + 同步 activeStyles（与 color/fontFamily 一致）
-  // skipFocus: 不抢 input 焦点（工具栏 input onChange 调用时使用）
-  const handleFontSizeChange = (percent: number, opts: { skipFocus?: boolean } = {}): void => {
+  // 字号改变：实时应用到选区（Tiptap 事务）
+  //   editor 尚未初始化的首帧：仅同步 activeStyles（不触碰 DOM 命令）
+  const handleFontSizeChange = (percent: number, _opts: { skipFocus?: boolean } = {}): void => {
+    if (ttCmd) {
+      ttCmd.setFontSizePercent(percent);
+      return;
+    }
     const cssSize = percentToCssFontSize(percent);
-    // 直接用 applyInlineStyleNoFocus 包裹选区文本（或同步 activeStyles 用于下一次输入）
-    // 不走 withEditor → focus() 链路，避免抢 input 焦点
-    applyInlineStylePreservingFocus({ fontSize: cssSize });
     useEditorStore.getState().setActiveStyles({ fontSize: cssSize });
     useEditorStore.getState().lockActiveStyles();
   };
@@ -773,32 +670,14 @@ export function EditorToolbar({
     const safePack = (smileyPack || '').trim() || '表情包';
     const safeFace = (smileyFace || '').trim() || '表情';
     const text = `[s:${safePack}:${safeFace}]`;
-    withEditor((ed) => {
-      // 关键：用 getInsertionPoint 而非 document.createRange()。
-      // 原因：document.createRange() 创建的是 body 起点 (0,0) 的空 range，
-      // 之前直接 range.insertNode 会把表情文本插到 body 末尾，用户视觉上看不到任何变化。
-      // getInsertionPoint 会优先用 _lastEditorRange（用户在编辑器内的最后光标），
-      // 退化到当前 sel，最后兜底到编辑器末尾。
-      const range = getInsertionPoint(ed);
-      const sel = window.getSelection();
-      if (!sel) return;
-      if (range.collapsed) {
-        const node = document.createTextNode(text);
-        range.insertNode(node);
-        range.setStartAfter(node);
-        range.collapse(true);
-      } else {
-        // 替换选区
-        range.deleteContents();
-        const node = document.createTextNode(text);
-        range.insertNode(node);
-        range.setStartAfter(node);
-        range.collapse(true);
-      }
-      sel.removeAllRanges();
-      sel.addRange(range);
-      dispatchInput(ed);
-    });
+    if (ttCmd) {
+      ttCmd.insertText(text);
+      setSmileyPack('');
+      setSmileyFace('');
+      setSmileyOpen(false);
+      showToast('已插入表情');
+      return;
+    }
     setSmileyPack('');
     setSmileyFace('');
     setSmileyOpen(false);
@@ -808,20 +687,26 @@ export function EditorToolbar({
   const handleLinkConfirm = () => {
     const url = linkUrl.trim();
     if (!url) return;
-    withEditor((ed) => insertNgaLink(ed, url, linkLabel));
+    if (ttCmd) {
+      ttCmd.insertLink(url, linkLabel);
+    }
     setLinkUrl('');
     setLinkLabel('');
     setLinkOpen(false);
   };
 
   const handleCollapseConfirm = () => {
-    withEditor((ed) => insertCollapseBlock(ed, collapseTitle));
+    if (ttCmd) {
+      ttCmd.insertCollapse(collapseTitle);
+    }
     setCollapseTitle('');
     setCollapseOpen(false);
   };
 
   const handleTableConfirm = () => {
-    withEditor((ed) => insertTable(ed, tableRows, tableCols));
+    if (ttCmd) {
+      ttCmd.insertTable(tableRows, tableCols);
+    }
     setTableOpen(false);
   };
 
@@ -877,61 +762,9 @@ export function EditorToolbar({
             btnRef={boldBtnRef}
             title="粗体 (Ctrl+B)"
             onClick={() => {
-              if (isCollapsedSelection()) {
-                toggleSimpleActiveStyle('bold');
-              } else {
-                // v26 修复:用 ALL 语义 (isBoldFullyActive) 决定 toggle 方向
-                // - 选区全粗体 → 取消全部
-                // - 选区部分/全非粗体 → 应用全部
-                const el = editorElRef.current;
-                if (isBoldFullyActive()) {
-                  // v18 修复:同时移除 <b>/<strong> 元素(老 DOM 残留)+ CSS font-weight
-                  // v28 修复:确保 removeInlineTagNoFocus 已从 contenteditableUtils 导入(防止 ReferenceError)
-                  // v41 Fix 2B: 恢复 savedRange,确保操作应用到用户原始选中的文本
-                  restoreSelectionIfValid();
-                  // v49 Phase C2 Fix: 使用 Comment 节点 bookmark 标记法,替代保存原始 container 引用
-                  //   原因: v49 Fix 保存原始 textNode 引用,但 removeInlineStyle 内部的 normalize()
-                  //   会合并相邻 textNode,导致保存的 container 不再在 DOM 中,选区恢复被跳过
-                  //   Comment 节点不受 normalize() 影响,选区恢复更可靠
-                  let markersB: { startMarker: Comment; endMarker: Comment } | null = null;
-                  {
-                    const selBm = window.getSelection();
-                    if (selBm && selBm.rangeCount > 0) {
-                      const rBm = selBm.getRangeAt(0);
-                      if (el!.contains(rBm.startContainer) && el!.contains(rBm.endContainer)) {
-                        try { markersB = insertMarkersAtRange(rBm); } catch {}
-                      }
-                    }
-                  }
-                  removeInlineTagNoFocus(el!, 'b', { skipFocus: true, skipSelectionRestore: true });
-                  removeInlineTagNoFocus(el!, 'strong', { skipFocus: true, skipSelectionRestore: true });
-                  removeInlineStyleNoFocus(el!, ['fontWeight'], { skipSelectionRestore: true });
-                  // v49 Phase C2 Fix: 通过 markers 恢复选区(优先于各 removeXxx 内部的恢复)
-                  if (markersB) {
-                    try { restoreSelectionFromMarkers(markersB.startMarker, markersB.endMarker); } catch {}
-                  }
-                  // v49 Phase C2 Fix: 统一调用 dispatchInput (removeXxx 内部因 skipSelectionRestore=true 跳过了)
-                  //   必须在 restoreSelectionFromMarkers 之后调用,确保 markers 已被移除,
-                  //   React state 更新为不含 markers 的最终 HTML
-                  try { dispatchInput(el!); } catch {}
-                  // v18 修复:用 spread 保留其他样式(互不影响)
-                  const cur = useEditorStore.getState().activeStyles;
-                  useEditorStore.getState().setActiveStyles({ ...cur, bold: false });
-                  // v19: 刷新 cursorStyles（unlock 后工具栏读 cursorStyles）
-                  useEditorStore.getState().setCursorStyles({ bold: false });
-                  // v41 Fix 2A: 保持锁定 + cursorStyles{bold:false} → onBeforeInputNative 走 hasExplicitCancel 路径
-                  //   v38 回归: 非折叠 DISABLE 仍调 unlockActiveStyles,导致 onBeforeInputNative 早退,
-                  //   新输入继承父 span 粗体(伪取消)。与 toggleSimpleActiveStyle L525 对齐。
-                  useEditorStore.getState().lockActiveStyles();
-                } else {
-                  applyInlineStylePreservingFocus({ fontWeight: 'bold' });
-                  if (el) {
-                    // v18 修复:用 spread 保留其他样式
-                    const cur = useEditorStore.getState().activeStyles;
-                    useEditorStore.getState().setActiveStyles({ ...cur, bold: isBoldFullyActive() });
-                  }
-                  useEditorStore.getState().lockActiveStyles();
-                }
+              if (ttCmd) {
+                ttCmd.toggleSimpleMark('bold');
+                return;
               }
             }}
             active={activeBold}
@@ -942,52 +775,9 @@ export function EditorToolbar({
             btnRef={italicBtnRef}
             title="斜体 (Ctrl+I)"
             onClick={() => {
-              if (isCollapsedSelection()) {
-                toggleSimpleActiveStyle('italic');
-              } else {
-                // v26 修复:用 ALL 语义 (isItalicFullyActive) 决定 toggle 方向
-                const el = editorElRef.current;
-                if (isItalicFullyActive()) {
-                  // v18 修复:同时移除 <i>/<em> 元素(老 DOM 残留)+ CSS font-style
-                  // v41 Fix 2B: 恢复 savedRange
-                  restoreSelectionIfValid();
-                  // v48 Fix 1: 统一保存选区(同 B 按钮 DISABLE 路径)
-                  // v49 Phase C2 Fix: 使用 Comment 节点 bookmark 标记法(同 B 按钮)
-                  let markersI: { startMarker: Comment; endMarker: Comment } | null = null;
-                  {
-                    const selIm = window.getSelection();
-                    if (selIm && selIm.rangeCount > 0) {
-                      const rIm = selIm.getRangeAt(0);
-                      if (el!.contains(rIm.startContainer) && el!.contains(rIm.endContainer)) {
-                        try { markersI = insertMarkersAtRange(rIm); } catch {}
-                      }
-                    }
-                  }
-                  removeInlineTagNoFocus(el!, 'i', { skipFocus: true, skipSelectionRestore: true });
-                  removeInlineTagNoFocus(el!, 'em', { skipFocus: true, skipSelectionRestore: true });
-                  removeInlineStyleNoFocus(el!, ['fontStyle'], { skipSelectionRestore: true });
-                  // v49 Phase C2 Fix: 通过 markers 恢复选区(同 B 按钮)
-                  if (markersI) {
-                    try { restoreSelectionFromMarkers(markersI.startMarker, markersI.endMarker); } catch {}
-                  }
-                  // v49 Phase C2 Fix: 同 B 按钮,统一 dispatchInput
-                  try { dispatchInput(el!); } catch {}
-                  // v18 修复:用 spread 保留其他样式(互不影响)
-                  const cur = useEditorStore.getState().activeStyles;
-                  useEditorStore.getState().setActiveStyles({ ...cur, italic: false });
-                  // v19: 刷新 cursorStyles
-                  useEditorStore.getState().setCursorStyles({ italic: false });
-                  // v41 Fix 2A: 保持锁定(同 bold 分支)
-                  useEditorStore.getState().lockActiveStyles();
-                } else {
-                  applyInlineStylePreservingFocus({ fontStyle: 'italic' });
-                  if (el) {
-                    // v18 修复:用 spread 保留其他样式
-                    const cur = useEditorStore.getState().activeStyles;
-                    useEditorStore.getState().setActiveStyles({ ...cur, italic: isItalicFullyActive() });
-                  }
-                  useEditorStore.getState().lockActiveStyles();
-                }
+              if (ttCmd) {
+                ttCmd.toggleSimpleMark('italic');
+                return;
               }
             }}
             active={activeItalic}
@@ -998,56 +788,9 @@ export function EditorToolbar({
             btnRef={underlineBtnRef}
             title="下划线 (Ctrl+U)"
             onClick={() => {
-              if (isCollapsedSelection()) {
-                toggleSimpleActiveStyle('underline');
-              } else {
-                // v26 修复:用 ALL 语义 (isUnderlineFullyActive) 决定 toggle 方向
-                const el = editorElRef.current;
-                if (isUnderlineFullyActive()) {
-                  // v18 修复:同时移除 <u> 元素(老 DOM 残留)+ CSS text-decoration
-                  // 细粒度：仅移除 underline，保留 line-through（如有）
-                  // v41 Fix 2B: 恢复 savedRange
-                  restoreSelectionIfValid();
-                  // v48 Fix 1: 统一保存选区(同 B 按钮 DISABLE 路径)
-                  // v49 Phase C2 Fix: 使用 Comment 节点 bookmark 标记法(同 B 按钮)
-                  let markersU: { startMarker: Comment; endMarker: Comment } | null = null;
-                  {
-                    const selUm = window.getSelection();
-                    if (selUm && selUm.rangeCount > 0) {
-                      const rUm = selUm.getRangeAt(0);
-                      if (el!.contains(rUm.startContainer) && el!.contains(rUm.endContainer)) {
-                        try { markersU = insertMarkersAtRange(rUm); } catch {}
-                      }
-                    }
-                  }
-                  removeTextDecorationPartNoFocus(el!, 'underline', { skipFocus: true, skipSelectionRestore: true });
-                  removeInlineTagNoFocus(el!, 'u', { skipFocus: true, skipSelectionRestore: true });
-                  // v49 Phase C2 Fix: 通过 markers 恢复选区(同 B 按钮)
-                  if (markersU) {
-                    try { restoreSelectionFromMarkers(markersU.startMarker, markersU.endMarker); } catch {}
-                  }
-                  // v49 Phase C2 Fix: 同 B 按钮,统一 dispatchInput
-                  try { dispatchInput(el!); } catch {}
-                  // v18 修复:用 spread 保留其他样式(互不影响)
-                  const cur = useEditorStore.getState().activeStyles;
-                  useEditorStore.getState().setActiveStyles({ ...cur, underline: false });
-                  // v19: 刷新 cursorStyles
-                  useEditorStore.getState().setCursorStyles({ underline: false });
-                  // v41 Fix 2A: 保持锁定(同 bold 分支)
-                  useEditorStore.getState().lockActiveStyles();
-                } else {
-                  // 细粒度:追加 underline,保留 line-through(如有)
-                  // v25d 重写后 applyTextDecorationPartNoFocus 一定能处理裸文本
-                  // v41 Fix 2C: 恢复 savedRange(与 B/I ENABLE 路径对齐)
-                  restoreSelectionIfValid();
-                  applyTextDecorationPartNoFocus(el!, 'underline', { skipFocus: true });
-                  if (el) {
-                    // v18 修复:用 spread 保留其他样式
-                    const cur = useEditorStore.getState().activeStyles;
-                    useEditorStore.getState().setActiveStyles({ ...cur, underline: isUnderlineFullyActive() });
-                  }
-                  useEditorStore.getState().lockActiveStyles();
-                }
+              if (ttCmd) {
+                ttCmd.toggleSimpleMark('underline');
+                return;
               }
             }}
             active={activeUnderline}
@@ -1058,57 +801,9 @@ export function EditorToolbar({
             btnRef={strikeBtnRef}
             title="删除线 (Ctrl+Shift+S)"
             onClick={() => {
-              if (isCollapsedSelection()) {
-                toggleSimpleActiveStyle('strike');
-              } else {
-                // v26 修复:用 ALL 语义 (isStrikeFullyActive) 决定 toggle 方向
-                const el = editorElRef.current;
-                if (isStrikeFullyActive()) {
-                  // v18 修复:同时移除 <s>/<strike> 元素(老 DOM 残留)+ CSS line-through
-                  // 细粒度：仅移除 line-through，保留 underline（如有）
-                  // v41 Fix 2B: 恢复 savedRange
-                  restoreSelectionIfValid();
-                  // v48 Fix 1: 统一保存选区(同 B 按钮 DISABLE 路径)
-                  // v49 Phase C2 Fix: 使用 Comment 节点 bookmark 标记法(同 B 按钮)
-                  let markersS: { startMarker: Comment; endMarker: Comment } | null = null;
-                  {
-                    const selSm = window.getSelection();
-                    if (selSm && selSm.rangeCount > 0) {
-                      const rSm = selSm.getRangeAt(0);
-                      if (el!.contains(rSm.startContainer) && el!.contains(rSm.endContainer)) {
-                        try { markersS = insertMarkersAtRange(rSm); } catch {}
-                      }
-                    }
-                  }
-                  removeTextDecorationPartNoFocus(el!, 'line-through', { skipFocus: true, skipSelectionRestore: true });
-                  removeInlineTagNoFocus(el!, 's', { skipFocus: true, skipSelectionRestore: true });
-                  removeInlineTagNoFocus(el!, 'strike', { skipFocus: true, skipSelectionRestore: true });
-                  // v49 Phase C2 Fix: 通过 markers 恢复选区(同 B 按钮)
-                  if (markersS) {
-                    try { restoreSelectionFromMarkers(markersS.startMarker, markersS.endMarker); } catch {}
-                  }
-                  // v49 Phase C2 Fix: 同 B 按钮,统一 dispatchInput
-                  try { dispatchInput(el!); } catch {}
-                  // v18 修复:用 spread 保留其他样式(互不影响)
-                  const cur = useEditorStore.getState().activeStyles;
-                  useEditorStore.getState().setActiveStyles({ ...cur, strike: false });
-                  // v19: 刷新 cursorStyles
-                  useEditorStore.getState().setCursorStyles({ strike: false });
-                  // v41 Fix 2A: 保持锁定(同 bold 分支)
-                  useEditorStore.getState().lockActiveStyles();
-                } else {
-                  // 细粒度:追加 line-through,保留 underline(如有)
-                  // v25d 重写后 applyTextDecorationPartNoFocus 一定能处理裸文本
-                  // v41 Fix 2C: 恢复 savedRange(与 B/I ENABLE 路径对齐)
-                  restoreSelectionIfValid();
-                  applyTextDecorationPartNoFocus(el!, 'line-through', { skipFocus: true });
-                  if (el) {
-                    // v18 修复:用 spread 保留其他样式
-                    const cur = useEditorStore.getState().activeStyles;
-                    useEditorStore.getState().setActiveStyles({ ...cur, strike: isStrikeFullyActive() });
-                  }
-                  useEditorStore.getState().lockActiveStyles();
-                }
+              if (ttCmd) {
+                ttCmd.toggleSimpleMark('strike');
+                return;
               }
             }}
             active={activeStrike}
@@ -1120,15 +815,9 @@ export function EditorToolbar({
             active={activeSup && !isCollapsedSelection()}
             disabled={isCollapsedSelection()}
             onClick={() => {
-              // 一次性：仅在有选区时执行，不锁定 activeStyles（不影响下次输入）
-              withEditor((ed) => document.execCommand('superscript', false));
-              // 同步当前 sup/sub 状态（不锁定）
-              const el = editorElRef.current;
-              if (el) {
-                useEditorStore.getState().setActiveStyles({
-                  sup: isSupActive(),
-                  sub: isSubActive(),
-                });
+              if (ttCmd) {
+                ttCmd.toggleScriptMark('superscript');
+                return;
               }
             }}
           >
@@ -1139,14 +828,9 @@ export function EditorToolbar({
             active={activeSub && !isCollapsedSelection()}
             disabled={isCollapsedSelection()}
             onClick={() => {
-              // 一次性：仅在有选区时执行，不锁定 activeStyles（不影响下次输入）
-              withEditor((ed) => document.execCommand('subscript', false));
-              const el = editorElRef.current;
-              if (el) {
-                useEditorStore.getState().setActiveStyles({
-                  sup: isSupActive(),
-                  sub: isSubActive(),
-                });
+              if (ttCmd) {
+                ttCmd.toggleScriptMark('subscript');
+                return;
               }
             }}
           >
@@ -1202,13 +886,9 @@ export function EditorToolbar({
                     <button
                       key={c.value}
                       onClick={() => {
-                        // Word 模式：
-                        // 1. 有选区：直接应用颜色（不切换），与 toggleColor 不同
-                        // 2. 无选区：仅同步 activeStyles，下一次输入自动应用
-                        // skipFocus: 弹窗关闭后让编辑器仍可保留当前选区视觉高亮
-                        applyInlineStylePreservingFocus({ color: effectiveCssColor });
-                        useEditorStore.getState().setActiveStyles({ color: effectiveCssColor });
-                        useEditorStore.getState().lockActiveStyles();
+                        if (ttCmd) {
+                          ttCmd.setColor(effectiveCssColor);
+                        }
                         setColorPickerOpen(false);
                       }}
                       title={isLast && isDark ? '白色' : c.label}
@@ -1328,12 +1008,10 @@ export function EditorToolbar({
             onChange={(e) => {
               const v = e.target.value;
               if (!v) return;
-              const cssFamily = ngaFontToCSS(v);
-              // Word 模式：直接应用字体（不切换），无选区时仅同步 activeStyles
-              // skipFocus: 不抢 select 焦点，让 select 关闭后仍能看到选区变化
-              applyInlineStylePreservingFocus({ fontFamily: cssFamily });
-              useEditorStore.getState().setActiveStyles({ fontFamily: cssFamily });
-              useEditorStore.getState().lockActiveStyles();
+              if (ttCmd) {
+                ttCmd.setFontFamily(v);
+                return;
+              }
             }}
             style={{ ...selectNga, minWidth: 96 }}
             title="字体"
@@ -1351,14 +1029,24 @@ export function EditorToolbar({
         <div style={groupContainer}>
           <ToolbarBtn
             title="无序列表 [list]"
-            onClick={() => withEditor(execInsertUnorderedList)}
+            onClick={() => {
+              if (ttCmd) {
+                ttCmd.setList('bullet');
+                return;
+              }
+            }}
             active={activeUL}
           >
             • <span className="tb-label">列表</span>
           </ToolbarBtn>
           <ToolbarBtn
             title="有序列表 [list=1]"
-            onClick={() => withEditor(execInsertOrderedList)}
+            onClick={() => {
+              if (ttCmd) {
+                ttCmd.setList('ordered');
+                return;
+              }
+            }}
             active={activeOL}
           >
             1. <span className="tb-label">列表</span>
@@ -1366,21 +1054,36 @@ export function EditorToolbar({
 
           <ToolbarBtn
             title="左对齐"
-            onClick={() => withEditor((ed) => setBlockAlign(ed, 'left'))}
+            onClick={() => {
+              if (ttCmd) {
+                ttCmd.setAlign('left');
+                return;
+              }
+            }}
             active={activeAlign === 'left'}
           >
             <ArrowLeft size={14} />
           </ToolbarBtn>
           <ToolbarBtn
             title="居中"
-            onClick={() => withEditor((ed) => setBlockAlign(ed, 'center'))}
+            onClick={() => {
+              if (ttCmd) {
+                ttCmd.setAlign('center');
+                return;
+              }
+            }}
             active={activeAlign === 'center'}
           >
             <ArrowLeftRight size={14} />
           </ToolbarBtn>
           <ToolbarBtn
             title="右对齐"
-            onClick={() => withEditor((ed) => setBlockAlign(ed, 'right'))}
+            onClick={() => {
+              if (ttCmd) {
+                ttCmd.setAlign('right');
+                return;
+              }
+            }}
             active={activeAlign === 'right'}
           >
             <ArrowRight size={14} />
@@ -1448,19 +1151,34 @@ export function EditorToolbar({
                 </div>
                 <div style={{ display: 'flex', gap: 4 }}>
                   <ToolbarBtn
-                    onClick={() => withEditor((ed) => setImageBlockAlign(ed, 'left'))}
+                    onClick={() => {
+                      if (ttCmd) {
+                        ttCmd.setImageAlign('left');
+                        return;
+                      }
+                    }}
                     title="左对齐"
                   >
                     <ArrowLeft size={14} />
                   </ToolbarBtn>
                   <ToolbarBtn
-                    onClick={() => withEditor((ed) => setImageBlockAlign(ed, 'center'))}
+                    onClick={() => {
+                      if (ttCmd) {
+                        ttCmd.setImageAlign('center');
+                        return;
+                      }
+                    }}
                     title="居中"
                   >
                     <ArrowLeftRight size={14} />
                   </ToolbarBtn>
                   <ToolbarBtn
-                    onClick={() => withEditor((ed) => setImageBlockAlign(ed, 'right'))}
+                    onClick={() => {
+                      if (ttCmd) {
+                        ttCmd.setImageAlign('right');
+                        return;
+                      }
+                    }}
                     title="右对齐"
                   >
                     <ArrowRight size={14} />
@@ -1542,7 +1260,12 @@ export function EditorToolbar({
         {/* 引用（行级，#f2eddf） */}
         <ToolbarBtn
           title="引用 (Ctrl+Shift+Q)"
-          onClick={() => withEditor(insertQuoteBlock)}
+          onClick={() => {
+            if (ttCmd) {
+              ttCmd.toggleQuote();
+              return;
+            }
+          }}
         >
           <Quote size={14} /> <span className="tb-label">引用</span>
         </ToolbarBtn>
@@ -1633,7 +1356,12 @@ export function EditorToolbar({
         {/* 代码 */}
         <ToolbarBtn
           title="代码块 [code]…[/code]（#f1f1f1）"
-          onClick={() => withEditor((ed) => insertCodeBlock(ed, ''))}
+          onClick={() => {
+            if (ttCmd) {
+              ttCmd.setCodeBlock();
+              return;
+            }
+          }}
         >
           <Code size={14} /> <span className="tb-label">代码</span>
         </ToolbarBtn>
@@ -1677,7 +1405,12 @@ export function EditorToolbar({
 
         <ToolbarBtn
           title="取消链接"
-          onClick={() => withEditor(removeLinkAtCursor)}
+          onClick={() => {
+            if (ttCmd) {
+              ttCmd.unlink();
+              return;
+            }
+          }}
         >
           <Unlink size={14} /> <span className="tb-label">取消链接</span>
         </ToolbarBtn>
@@ -1706,7 +1439,12 @@ export function EditorToolbar({
         <div style={groupContainer}>
           <ToolbarBtn
             title="分割线 [h][/h]"
-            onClick={() => withEditor(insertHorizontalRuleNGA)}
+            onClick={() => {
+              if (ttCmd) {
+                ttCmd.insertHorizontalRule();
+                return;
+              }
+            }}
           >
             <Minus size={14} /> <span className="tb-label">分割线</span>
           </ToolbarBtn>
@@ -1716,7 +1454,9 @@ export function EditorToolbar({
               // 用保存的 range 判断点击前的选区状态（工具栏点击会让编辑器失焦）
               const saved = savedRangeRef?.current;
               const collapsed = !saved || saved.collapsed;
-              withEditor(execRemoveFormat);
+              if (ttCmd) {
+                ttCmd.clearFormat();
+              }
               if (collapsed) {
                 // 无选区：重置工具栏样式状态到默认
                 useEditorStore.getState().clearActiveStyles();
@@ -1724,12 +1464,6 @@ export function EditorToolbar({
                 useEditorStore.getState().setCursorStyles({});
               }
               // 有选区：仅清选中文本格式，工具栏由 cursorStyles 后续自然同步
-              // 同步 cursorStyles 到清格式后的光标处实际样式
-              const el = editorElRef.current;
-              if (el) {
-                const cur = getCurrentStyles(el);
-                useEditorStore.getState().setCursorStyles(cur);
-              }
             }}
           >
             <Eraser size={14} /> <span className="tb-label">清格式</span>

@@ -18,7 +18,7 @@ import { Icon, type IconName } from '../common/Icon';
 import { DiceConfigDialog } from '../dice/DiceConfigDialog';
 import { WorldSettingPanel } from '../common/WorldSettingPanel';
 import { CharacterPanel } from '../character/CharacterEditor';
-import { type RichTextEditorCommands } from '../editor/RichTextEditor';
+import { type RichTextEditorCommands } from '../../editor/tiptap/TiptapEditorPane';
 import { VisualEditorPane } from '../editor/VisualEditorPane';
 import { WordCount, computeSectionWordCount } from '../editor/WordCount';
 import { isDiceCardInEditor } from '../../editor';
