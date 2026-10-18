@@ -11,7 +11,8 @@
 //  2. 撤销/重做以 ProseMirror history 为唯一事实来源，
 //     忽略外层传入的 onUndo/onRedo/canUndo/canRedo（S9 起外层不再传）。
 //  3. 序列化口径：onChangeContent 使用 view.dom.innerHTML（与旧内核逐字节对齐，
-//     含 NodeView 生成的样式）；空文档归一化为 ''（与旧内核空内容口径一致）。
+//     含 NodeView 生成的样式），并剥除 PM 渲染层临时 DOM（ProseMirror-separator
+//     等，见 serialize.ts）；空文档归一化为 ''（与旧内核空内容口径一致）。
 //  4. DOM 结构：EditorContent div（.anke-editor-content，承载 padding/zoom）
 //     > div.ProseMirror.anke-editor-content（实际 contenteditable）。
 //     类名同时挂两层，使 index.css 中既有的
@@ -47,6 +48,7 @@ import { createAnkeExtensions } from './schema';
 import { ankeNodeViews, setAnkeNodeViewHandlers } from './nodeViews';
 import { createAnkeCommands } from './commands';
 import { normalizePastedHtml } from './pasteNormalize';
+import { stripProseMirrorArtifacts, hasProseMirrorArtifacts } from './serialize';
 
 /** 可编辑根 / 外层容器共用的类名（index.css 依赖） */
 const ANKE_CONTENT_CLASS = 'anke-editor-content';
@@ -386,7 +388,9 @@ export function TiptapEditorPane({
 
   const editor = useEditor({
     extensions,
-    content: content ?? '',
+    // 内容入口清洗：存量库数据可能含 PM 临时 DOM（ProseMirror-separator 等），
+    // 不清洗会导致其作为文档内容反复增殖（工程文件膨胀到 23MB 的根因）
+    content: content ? stripProseMirrorArtifacts(content) : '',
     editable,
     immediatelyRender: true,
     editorProps: {
@@ -400,7 +404,9 @@ export function TiptapEditorPane({
     },
     onUpdate: ({ editor: current }) => {
       const el = current.view.dom;
-      const html = current.isEmpty ? '' : el.innerHTML;
+      // 序列化出口清洗：剥除 PM 渲染层临时 DOM（separator 等），
+      // 防止其随 innerHTML 存库后无限增殖（见 serialize.ts 模块注释）
+      const html = current.isEmpty ? '' : stripProseMirrorArtifacts(el.innerHTML);
       if (html === lastContentRef.current) return;
       lastContentRef.current = html;
       syncEmptyState(el);
@@ -454,14 +460,19 @@ export function TiptapEditorPane({
     if (!editor || editor.isDestroyed) return;
     const el = editor.view.dom;
     const safe: string = content == null || content === '' ? '' : content;
-    if (lastContentRef.current === safe) return;
-    if (domShowsContent(el, safe)) {
-      lastContentRef.current = safe;
+    // 存量污染治愈：剥离 PM 临时 DOM 后若内容有变，说明库里是脏数据，
+    // 加载干净版本并主动回传，确保下次保存落库即为干净 HTML
+    const cleaned = stripProseMirrorArtifacts(safe);
+    const healed = hasProseMirrorArtifacts(safe) && cleaned !== safe;
+    if (lastContentRef.current === cleaned) return;
+    if (domShowsContent(el, cleaned)) {
+      lastContentRef.current = cleaned;
       syncEmptyState(el);
+      if (healed) onChangeContentRef.current(cleaned);
       return;
     }
-    editor.commands.setContent(safe, { emitUpdate: false });
-    lastContentRef.current = safe;
+    editor.commands.setContent(cleaned, { emitUpdate: false });
+    lastContentRef.current = cleaned;
     editor.view.updateState(
       EditorState.create({
         schema: editor.schema,
@@ -470,6 +481,7 @@ export function TiptapEditorPane({
       }),
     );
     syncEmptyState(editor.view.dom);
+    if (healed) onChangeContentRef.current(cleaned);
   }, [content, editor]);
 
   // ------------------------------------------------------------
