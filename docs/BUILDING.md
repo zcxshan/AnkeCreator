@@ -1,4 +1,4 @@
-# 本地打包指南（Windows + Android）
+# 本地打包指南（Windows + macOS + Android）
 
 本文档面向需要从源代码本地打包出可分发安装包 / APK 的开发者。
 
@@ -10,6 +10,7 @@
 ## 目录
 
 - [环境要求](#环境要求)
+- [macOS 打包](#macos-打包)
 - [Windows 打包](#windows-打包)
 - [Android 打包](#android-打包)
 - [签名密钥管理](#签名密钥管理)
@@ -41,6 +42,42 @@
 JAVA_HOME=C:\Program Files\Eclipse Adoptium\jdk-17.0.x.x-hotspot\
 ANDROID_HOME=%LOCALAPPDATA%\Android\Sdk
 ```
+
+---
+
+## macOS 打包
+
+在 Apple Silicon Mac 上使用 Node.js 22 和 npm 10：
+
+```bash
+npm ci
+npm run build:mac
+```
+
+产物：
+
+- `release/mac-arm64/安科作者助手.app`：可直接打开的 ARM64 应用。
+- `release/安科作者助手-<版本>-arm64.dmg`：可拖入「应用程序」的磁盘映像。
+
+本机测试如需跳过签名证书自动查找，可以仅对当前构建设置环境变量：
+
+```bash
+CSC_IDENTITY_AUTO_DISCOVERY=false npm run build:mac
+```
+
+此方式生成的测试包未使用 Developer ID 签名或 Apple 公证。仓库配置保留默认签名能力；
+需要正式分发时，应另行配置签名与公证。
+
+正式版作品、图片、音效和错误日志保存于：
+
+```text
+~/Library/Application Support/com.shanshian.ankecreator/data/
+```
+
+Electron 的浏览器状态位于上述目录下的 `electron-data/`。应用更新、移动或替换 `.app`
+不会替换这些数据。开发模式仍使用项目根目录的 `data/`。
+
+验证时至少检查：打开应用、新建作品、编辑保存、退出后恢复、本地图片和导入导出。
 
 ---
 

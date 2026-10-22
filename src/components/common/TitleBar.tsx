@@ -4,10 +4,10 @@ import { AuthorInfo } from './AuthorInfo';
 import { SettingsDialog } from './SettingsDialog';
 
 /**
- * 自定义标题栏（无边框窗口专用） - 支持日间/夜间主题
+ * 自定义标题栏 - 支持日间/夜间主题和平台窗口按钮
  *
  *  - 左侧为可拖拽区域（drag-region），显示应用名 + 当前故事/节
- *  - 右侧为 主题切换按钮 + Windows 风格的最小化/最大化/关闭按钮
+ *  - macOS 左侧为原生红黄绿按钮预留空间；其他桌面平台显示右侧窗口按钮
  *  - 在非 Electron 环境下（纯 web 预览）窗口控制按钮将优雅降级
  */
 export function TitleBar({
@@ -39,7 +39,9 @@ export function TitleBar({
     }
   }, []);
 
-  const hasElectron = !!window.electronAPI;
+  const electronAPI = window.electronAPI;
+  const hasElectron = !!electronAPI;
+  const isMac = electronAPI?.platform === 'darwin';
 
   const handleToggleMaximize = () => {
     if (hasElectron) {
@@ -56,6 +58,7 @@ export function TitleBar({
         background: 'var(--bg-card)',
         borderBottom: '1px solid var(--border-color)',
         WebkitAppRegion: 'drag',
+        paddingLeft: isMac ? 78 : undefined,
         color: 'var(--text-primary)',
       } as React.CSSProperties}
     >
@@ -166,119 +169,123 @@ export function TitleBar({
           </svg>
         </button>
 
-        {/* 最小化 */}
-        <button
-          onClick={() => window.electronAPI?.minimize()}
-          disabled={!hasElectron}
-          title="最小化"
-          className="w-10 h-8 flex items-center justify-center transition-colors disabled:opacity-60"
-          style={{ color: 'var(--text-secondary)' }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'var(--bg-hover)';
-            e.currentTarget.style.color = 'var(--text-primary)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'transparent';
-            e.currentTarget.style.color = 'var(--text-secondary)';
-          }}
-        >
-          <svg width="12" height="12" viewBox="0 0 12 12">
-            <line
-              x1="2"
-              y1="6"
-              x2="10"
-              y2="6"
-              stroke="currentColor"
-              strokeWidth="1"
-            />
-          </svg>
-        </button>
+        {!isMac && (
+          <>
+            {/* 最小化 */}
+            <button
+              onClick={() => window.electronAPI?.minimize()}
+              disabled={!hasElectron}
+              title="最小化"
+              className="w-10 h-8 flex items-center justify-center transition-colors disabled:opacity-60"
+              style={{ color: 'var(--text-secondary)' }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--bg-hover)';
+                e.currentTarget.style.color = 'var(--text-primary)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.color = 'var(--text-secondary)';
+              }}
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12">
+                <line
+                  x1="2"
+                  y1="6"
+                  x2="10"
+                  y2="6"
+                  stroke="currentColor"
+                  strokeWidth="1"
+                />
+              </svg>
+            </button>
 
-        {/* 最大化 / 还原 */}
-        <button
-          onClick={handleToggleMaximize}
-          disabled={!hasElectron}
-          title={isMaximized ? '还原' : '最大化'}
-          className="w-10 h-8 flex items-center justify-center transition-colors disabled:opacity-60"
-          style={{ color: 'var(--text-secondary)' }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'var(--bg-hover)';
-            e.currentTarget.style.color = 'var(--text-primary)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'transparent';
-            e.currentTarget.style.color = 'var(--text-secondary)';
-          }}
-        >
-          {isMaximized ? (
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-              <rect
-                x="3"
-                y="1"
-                width="8"
-                height="8"
-                stroke="currentColor"
-                strokeWidth="1"
-              />
-              <rect
-                x="1"
-                y="3"
-                width="8"
-                height="8"
-                stroke="currentColor"
-                strokeWidth="1"
-                fill="var(--bg-card)"
-              />
-            </svg>
-          ) : (
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-              <rect
-                x="2"
-                y="2"
-                width="8"
-                height="8"
-                stroke="currentColor"
-                strokeWidth="1"
-              />
-            </svg>
-          )}
-        </button>
+            {/* 最大化 / 还原 */}
+            <button
+              onClick={handleToggleMaximize}
+              disabled={!hasElectron}
+              title={isMaximized ? '还原' : '最大化'}
+              className="w-10 h-8 flex items-center justify-center transition-colors disabled:opacity-60"
+              style={{ color: 'var(--text-secondary)' }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--bg-hover)';
+                e.currentTarget.style.color = 'var(--text-primary)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.color = 'var(--text-secondary)';
+              }}
+            >
+              {isMaximized ? (
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <rect
+                    x="3"
+                    y="1"
+                    width="8"
+                    height="8"
+                    stroke="currentColor"
+                    strokeWidth="1"
+                  />
+                  <rect
+                    x="1"
+                    y="3"
+                    width="8"
+                    height="8"
+                    stroke="currentColor"
+                    strokeWidth="1"
+                    fill="var(--bg-card)"
+                  />
+                </svg>
+              ) : (
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <rect
+                    x="2"
+                    y="2"
+                    width="8"
+                    height="8"
+                    stroke="currentColor"
+                    strokeWidth="1"
+                  />
+                </svg>
+              )}
+            </button>
 
-        {/* 关闭 */}
-        <button
-          onClick={() => window.electronAPI?.close()}
-          disabled={!hasElectron}
-          title="关闭"
-          className="w-10 h-8 flex items-center justify-center transition-colors disabled:opacity-60"
-          style={{ color: 'var(--text-secondary)' }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'var(--danger)';
-            e.currentTarget.style.color = 'var(--text-on-accent)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'transparent';
-            e.currentTarget.style.color = 'var(--text-secondary)';
-          }}
-        >
-          <svg width="12" height="12" viewBox="0 0 12 12">
-            <line
-              x1="2"
-              y1="2"
-              x2="10"
-              y2="10"
-              stroke="currentColor"
-              strokeWidth="1"
-            />
-            <line
-              x1="10"
-              y1="2"
-              x2="2"
-              y2="10"
-              stroke="currentColor"
-              strokeWidth="1"
-            />
-          </svg>
-        </button>
+            {/* 关闭 */}
+            <button
+              onClick={() => window.electronAPI?.close()}
+              disabled={!hasElectron}
+              title="关闭"
+              className="w-10 h-8 flex items-center justify-center transition-colors disabled:opacity-60"
+              style={{ color: 'var(--text-secondary)' }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--danger)';
+                e.currentTarget.style.color = 'var(--text-on-accent)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.color = 'var(--text-secondary)';
+              }}
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12">
+                <line
+                  x1="2"
+                  y1="2"
+                  x2="10"
+                  y2="10"
+                  stroke="currentColor"
+                  strokeWidth="1"
+                />
+                <line
+                  x1="10"
+                  y1="2"
+                  x2="2"
+                  y2="10"
+                  stroke="currentColor"
+                  strokeWidth="1"
+                />
+              </svg>
+            </button>
+          </>
+        )}
       </div>
 
       {showAuthorInfo && <AuthorInfo onClose={() => setShowAuthorInfo(false)} />}

@@ -18,6 +18,7 @@
 import { app, dialog } from 'electron'
 import fs from 'fs'
 import path from 'path'
+import { getDataDir } from './paths'
 
 let initialized = false
 let logFilePath: string | null = null
@@ -25,13 +26,13 @@ let logFilePath: string | null = null
 /**
  * 获取错误日志文件路径
  * - dev 模式：<项目根>/.dev-logs/main-error.log
- * - 打包模式：<安装路径>/data/main-error.log
+ * - 打包模式：与作品数据共用 getDataDir()，避免写入 macOS .app
  */
 function getLogFile(): string {
   if (logFilePath) return logFilePath
   let base: string
   if (app.isPackaged) {
-    base = path.join(path.dirname(process.execPath), 'data')
+    base = getDataDir()
   } else {
     base = path.join(process.cwd(), '.dev-logs')
   }

@@ -37,7 +37,7 @@
 | --- | --- | --- | --- |
 | **Windows** | ✅ 主推 | `npm run build:win` | `release/*.exe` |
 | **Android** | ✅ 移动端 | `npm run cap:build:apk` | `android/app/build/outputs/apk/*.apk` |
-| **macOS** | ⏳ 暂缓 | — | — |
+| **macOS** | 🧪 Apple Silicon 本机测试版 | `npm run build:mac` | `release/*.dmg` / `.app` |
 | **Linux** | ⏳ 暂缓 | — | — |
 | **Web** | ⚠️ 实验性 | `npm run build-web` | `dist/` |
 
@@ -105,6 +105,7 @@ npm run keystore:gen       # 交互式生成（密码、DN、有效期）
 所有用户数据（作品、人物、世界观、模板等）存储在应用数据目录下，使用 JSON 文件格式自动保存。
 
 - **Windows**: `%APPDATA%/AnkeCreator/AnkeCreatorData`
+- **macOS**: `~/Library/Application Support/com.shanshian.ankecreator/data/`
 - **Android**: `/data/data/com.shanshian.ankecreator/`
 - **Web 模式**：浏览器 IndexedDB（`anke-creator` 库）
 

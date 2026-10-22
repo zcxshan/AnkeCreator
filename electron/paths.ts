@@ -5,7 +5,8 @@
 //       `app.isPackaged` 判断和路径拼接。
 //
 // 决策规则：
-//   - 打包模式（app.isPackaged === true）：<安装路径>/data/
+//   - macOS 打包模式：~/Library/Application Support/com.shanshian.ankecreator/data/
+//   - 其他平台打包模式：<安装路径>/data/
 //     安装路径 = path.dirname(process.execPath)
 //   - dev 模式（npm run dev，未打包）：<项目根>/data/
 //     与打包模式一致，数据统一在项目/安装路径下的 data/ 目录
@@ -34,7 +35,8 @@ let _dataRootFallback: boolean = false
 
 /**
  * 数据根目录（#9：v3.2+ 扁平化）
- * - 打包模式：<安装路径>/data/（所有数据统一在此目录下）
+ * - macOS 打包模式：Application Support 下的应用数据目录（不写入 .app）
+ * - 其他平台打包模式：<安装路径>/data/
  * - 如果 <安装路径> 无写权限（常见于 C:\Program Files\），
  *   自动回退到 %APPDATA%\com.shanshian.ankecreator\data\，
  *   避免数据丢失。
@@ -46,22 +48,26 @@ let _dataRootFallback: boolean = false
 export function getDataRoot(): string {
   if (_dataRoot) return _dataRoot
   if (app.isPackaged) {
-    const installDir = path.dirname(process.execPath)
-    const installDataDir = path.join(installDir, 'data')
-    // 第一次调用：检测 installDir/data/ 是否可写
-    if (isPathWritable(installDataDir)) {
-      _dataRoot = installDataDir
-      console.log('[paths] 数据目录：', _dataRoot, '(安装路径)')
+    if (process.platform === 'darwin') {
+      _dataRoot = path.join(app.getPath('appData'), 'com.shanshian.ankecreator', 'data')
     } else {
-      // 回退到 %APPDATA%
-      const appdata = app.getPath('appData')
-      const fallbackDataDir = path.join(appdata, 'com.shanshian.ankecreator', 'data')
-      _dataRoot = fallbackDataDir
-      _dataRootFallback = true
-      console.warn(
-        '[paths] 安装路径无写权限，回退到 %APPDATA%：',
-        fallbackDataDir,
-      )
+      const installDir = path.dirname(process.execPath)
+      const installDataDir = path.join(installDir, 'data')
+      // 第一次调用：检测 installDir/data/ 是否可写
+      if (isPathWritable(installDataDir)) {
+        _dataRoot = installDataDir
+        console.log('[paths] 数据目录：', _dataRoot, '(安装路径)')
+      } else {
+        // 回退到 %APPDATA%
+        const appdata = app.getPath('appData')
+        const fallbackDataDir = path.join(appdata, 'com.shanshian.ankecreator', 'data')
+        _dataRoot = fallbackDataDir
+        _dataRootFallback = true
+        console.warn(
+          '[paths] 安装路径无写权限，回退到 %APPDATA%：',
+          fallbackDataDir,
+        )
+      }
     }
     // 确保目录存在
     try {
@@ -108,7 +114,7 @@ function isPathWritable(p: string): boolean {
 /**
  * 数据目录（#9：v3.2+ 扁平化）。
  * 与 getDataRoot() 等价；保留函数名以避免破坏调用方。
- * 实际指向 <dataRoot>，即 <安装路径>/data/。
+ * 实际位置由 getDataRoot() 按平台决定。
  */
 export function getDataDir(): string {
   return getDataRoot()
@@ -235,6 +241,8 @@ function ensureDirWritable(dir: string): void {
  * 每个子函数都自带幂等性（标记文件防重复迁移）
  */
 export function migrateFromUserDataIfNeeded(): void {
+  // macOS 从首版起使用 Application Support，没有 Windows 安装目录迁移。
+  if (process.platform === 'darwin') return
   console.log('[paths] 检查是否需要迁移...')
   if (!app.isPackaged) {
     console.log('[paths] dev 模式，跳过迁移')

@@ -67,7 +67,9 @@ function createWindow() {
     center: true,
     backgroundColor: '#1e1e1e',
     titleBarStyle: 'hidden',
-    frame: false,
+    // macOS 保留原生红黄绿按钮；Windows 继续使用自定义窗口按钮。
+    frame: process.platform === 'darwin',
+    trafficLightPosition: process.platform === 'darwin' ? { x: 12, y: 9 } : undefined,
     icon: iconPath,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
