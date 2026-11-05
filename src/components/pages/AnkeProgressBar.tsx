@@ -22,12 +22,10 @@ export function AnkeProgressBar({
   const safeTotal = total > 0 ? total : 0;
   return (
     <section
-      className="rounded-2xl p-4"
-      style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
+      className="bg-[var(--bg-card)] border border-[color:var(--border-color)] rounded-2xl p-4"
     >
       <div
-        className="flex items-center justify-between mb-2 text-xs"
-        style={{ color: 'var(--text-secondary)' }}
+        className="text-[var(--text-secondary)] flex items-center justify-between mb-2 text-xs"
       >
         <span>{label}</span>
         <span>
@@ -35,8 +33,7 @@ export function AnkeProgressBar({
         </span>
       </div>
       <div
-        className="h-2 rounded-full overflow-hidden"
-        style={{ background: 'var(--bg-hover)' }}
+        className="bg-[var(--bg-hover)] h-2 rounded-full overflow-hidden"
       >
         <div
           data-testid="anke-progress-fill"

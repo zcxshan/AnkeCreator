@@ -73,12 +73,10 @@ interface OptionRowProps {
 function OptionRow({ option, index, onChange, onRemove }: OptionRowProps) {
   return (
     <div
-      className="flex items-center gap-2 py-1.5"
-      style={{ borderBottom: '1px solid var(--border-color)' }}
+      className="border-b border-b-[color:var(--border-color)] flex items-center gap-2 py-1.5"
     >
       <span
-        className="shrink-0 w-6 text-xs text-center"
-        style={{ color: 'var(--text-tertiary, #888)' }}
+        className="text-[var(--text-tertiary)] shrink-0 w-6 text-xs text-center"
       >
         {index + 1}
       </span>
@@ -90,8 +88,7 @@ function OptionRow({ option, index, onChange, onRemove }: OptionRowProps) {
         className="anke-input flex-1 px-2 py-1 text-sm"
       />
       <label
-        className="shrink-0 flex items-center gap-1 text-xs"
-        style={{ color: 'var(--text-secondary)' }}
+        className="text-[var(--text-secondary)] shrink-0 flex items-center gap-1 text-xs"
         title="权重越大被抽中概率越高"
       >
         权重
@@ -110,12 +107,7 @@ function OptionRow({ option, index, onChange, onRemove }: OptionRowProps) {
       <button
         type="button"
         onClick={onRemove}
-        className="shrink-0 px-2 py-1 text-xs rounded transition-colors"
-        style={{
-          background: 'var(--bg-hover)',
-          color: 'var(--text-secondary)',
-          border: '1px solid var(--border-color)',
-        }}
+        className="bg-[var(--bg-hover)] text-[var(--text-secondary)] border border-[color:var(--border-color)] shrink-0 px-2 py-1 text-xs rounded transition-colors"
         title="删除选项"
       >
         ✕
@@ -176,17 +168,12 @@ function StageCard({
 
   return (
     <div
-      className="rounded-xl p-4"
-      style={{
-        background: 'var(--bg-card)',
-        border: '1px solid var(--border-color)',
-      }}
+      className="bg-[var(--bg-card)] border border-[color:var(--border-color)] rounded-xl p-4"
     >
       {/* 阶段头部 */}
       <div className="flex items-center gap-2 mb-3">
         <span
-          className="shrink-0 px-2 py-0.5 text-xs rounded-full"
-          style={{ background: 'var(--accent-bg)', color: 'var(--accent)' }}
+          className="bg-[var(--accent-bg)] text-[var(--accent)] shrink-0 px-2 py-0.5 text-xs rounded-full"
         >
           阶段 {index + 1}
         </span>
@@ -201,12 +188,7 @@ function StageCard({
           type="button"
           onClick={onMoveUp}
           disabled={index === 0}
-          className="shrink-0 px-2 py-1 text-xs rounded transition-colors disabled:opacity-40"
-          style={{
-            background: 'var(--bg-hover)',
-            color: 'var(--text-secondary)',
-            border: '1px solid var(--border-color)',
-          }}
+          className="bg-[var(--bg-hover)] text-[var(--text-secondary)] border border-[color:var(--border-color)] shrink-0 px-2 py-1 text-xs rounded transition-colors disabled:opacity-40"
           title="上移阶段"
         >
           <ChevronUp size={16} />
@@ -215,12 +197,7 @@ function StageCard({
           type="button"
           onClick={onMoveDown}
           disabled={index === total - 1}
-          className="shrink-0 px-2 py-1 text-xs rounded transition-colors disabled:opacity-40"
-          style={{
-            background: 'var(--bg-hover)',
-            color: 'var(--text-secondary)',
-            border: '1px solid var(--border-color)',
-          }}
+          className="bg-[var(--bg-hover)] text-[var(--text-secondary)] border border-[color:var(--border-color)] shrink-0 px-2 py-1 text-xs rounded transition-colors disabled:opacity-40"
           title="下移阶段"
         >
           <ChevronDown size={16} />
@@ -228,13 +205,9 @@ function StageCard({
         <button
           type="button"
           onClick={onRemove}
-          className="shrink-0 px-2 py-1 text-xs rounded transition-colors"
-          style={{
-            background: 'var(--bg-hover)',
-            color: '#ef4444',
-            border: '1px solid var(--border-color)',
-          }}
+          className="bg-[var(--bg-hover)] text-[var(--tone-danger)] border border-[color:var(--border-color)] shrink-0 px-2 py-1 text-xs rounded transition-colors"
           title="删除阶段"
+          aria-label="删除阶段"
         >
           <Icon name="trash" size={16} />
         </button>
@@ -243,8 +216,7 @@ function StageCard({
       {/* 基础配置 */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-3 text-xs">
         <label
-          className="flex items-center gap-1"
-          style={{ color: 'var(--text-secondary)' }}
+          className="text-[var(--text-secondary)] flex items-center gap-1"
           title="本阶段抽取多少个结果"
         >
           抽取次数
@@ -261,8 +233,7 @@ function StageCard({
             />
         </label>
         <label
-          className="flex items-center gap-1"
-          style={{ color: 'var(--text-secondary)' }}
+          className="text-[var(--text-secondary)] flex items-center gap-1"
           title="开启后，本阶段多次抽取不会重复同一选项"
         >
           <input
@@ -277,8 +248,7 @@ function StageCard({
       {/* 选项列表 */}
       <div className="mb-3">
         <div
-          className="text-xs mb-1.5"
-          style={{ color: 'var(--text-secondary)' }}
+          className="text-[var(--text-secondary)] text-xs mb-1.5"
         >
           选项列表（共 {stage.options.length} 个）
         </div>
@@ -294,8 +264,7 @@ function StageCard({
           ))}
           {stage.options.length === 0 && (
             <div
-              className="py-3 text-center text-xs"
-              style={{ color: 'var(--text-tertiary, #888)' }}
+              className="text-[var(--text-tertiary)] py-3 text-center text-xs"
             >
               暂无选项，点击下方按钮添加
             </div>
@@ -304,12 +273,7 @@ function StageCard({
         <button
           type="button"
           onClick={addOption}
-          className="mt-2 px-3 py-1 text-xs rounded transition-colors"
-          style={{
-            background: 'var(--accent-bg)',
-            color: 'var(--accent)',
-            border: '1px solid var(--accent)',
-          }}
+          className="bg-[var(--accent-bg)] text-[var(--accent)] border border-[color:var(--accent)] mt-2 px-3 py-1 text-xs rounded transition-colors"
         >
           + 添加选项
         </button>
@@ -318,15 +282,13 @@ function StageCard({
       {/* 进阶：变量与条件 */}
       <details className="mb-2">
         <summary
-          className="cursor-pointer text-xs font-medium select-none"
-          style={{ color: 'var(--text-secondary)' }}
+          className="text-[var(--text-secondary)] cursor-pointer text-xs font-medium select-none"
         >
           进阶：变量与条件
         </summary>
         <div className="mt-2 space-y-2 pl-2">
           <label
-            className="block text-xs"
-            style={{ color: 'var(--text-secondary)' }}
+            className="text-[var(--text-secondary)] block text-xs"
           >
             输出变量名
             <input
@@ -340,8 +302,7 @@ function StageCard({
             />
           </label>
           <label
-            className="block text-xs"
-            style={{ color: 'var(--text-secondary)' }}
+            className="text-[var(--text-secondary)] block text-xs"
           >
             条件表达式（为 false 时跳过此阶段）
             <input
@@ -360,15 +321,13 @@ function StageCard({
       {/* 高阶：公式 */}
       <details>
         <summary
-          className="cursor-pointer text-xs font-medium select-none"
-          style={{ color: 'var(--text-secondary)' }}
+          className="text-[var(--text-secondary)] cursor-pointer text-xs font-medium select-none"
         >
           高阶：公式计算
         </summary>
         <div className="mt-2 pl-2">
           <label
-            className="block text-xs"
-            style={{ color: 'var(--text-secondary)' }}
+            className="text-[var(--text-secondary)] block text-xs"
           >
             公式表达式（结果作为额外选项加入抽取池）
             <input
@@ -454,15 +413,10 @@ export function SchemeEditor({
     <div className="flex flex-col gap-4">
       {/* 顶部：方案基础信息 */}
       <div
-        className="rounded-xl p-4"
-        style={{
-          background: 'var(--bg-card)',
-          border: '1px solid var(--border-color)',
-        }}
+        className="bg-[var(--bg-card)] border border-[color:var(--border-color)] rounded-xl p-4"
       >
         <label
-          className="block text-sm font-medium mb-2"
-          style={{ color: 'var(--text-primary)' }}
+          className="text-[var(--text-primary)] block text-sm font-medium mb-2"
         >
           方案名
           <input
@@ -474,8 +428,7 @@ export function SchemeEditor({
           />
         </label>
         <label
-          className="block text-sm mb-2"
-          style={{ color: 'var(--text-secondary)' }}
+          className="text-[var(--text-secondary)] block text-sm mb-2"
         >
           方案说明（可选）
           <textarea
@@ -487,8 +440,7 @@ export function SchemeEditor({
           />
         </label>
         <div
-          className="text-xs"
-          style={{ color: 'var(--text-tertiary, #888)' }}
+          className="text-[var(--text-tertiary)] text-xs"
         >
           共 {scheme.stages.length} 个阶段 · {totalOptions} 个选项
         </div>
@@ -510,12 +462,7 @@ export function SchemeEditor({
         ))}
         {scheme.stages.length === 0 && (
           <div
-            className="rounded-xl p-8 text-center"
-            style={{
-              background: 'var(--bg-card)',
-              border: '2px dashed var(--border-color)',
-              color: 'var(--text-secondary)',
-            }}
+            className="bg-[var(--bg-card)] border-[2px] border-[color:var(--border-color)] text-[var(--text-secondary)] rounded-xl p-8 text-center"
           >
             <div className="text-3xl mb-2">🎡</div>
             <div className="text-sm">还没有阶段，点击下方按钮添加第一个阶段</div>
@@ -524,12 +471,7 @@ export function SchemeEditor({
         <button
           type="button"
           onClick={addStage}
-          className="self-start px-4 py-2 text-sm rounded-lg transition-colors"
-          style={{
-            background: 'var(--accent-bg)',
-            color: 'var(--accent)',
-            border: '1px solid var(--accent)',
-          }}
+          className="bg-[var(--accent-bg)] text-[var(--accent)] border border-[color:var(--accent)] self-start px-4 py-2 text-sm rounded-lg transition-colors"
         >
           + 添加阶段
         </button>
@@ -538,21 +480,15 @@ export function SchemeEditor({
       {/* AI 协作：Prompt 模板 */}
       <details>
         <summary
-          className="cursor-pointer text-sm font-medium select-none"
-          style={{ color: 'var(--text-primary)' }}
+          className="text-[var(--text-primary)] cursor-pointer text-sm font-medium select-none"
         >
           AI 协作：Prompt 模板（可选）
         </summary>
         <div
-          className="mt-2 rounded-xl p-4"
-          style={{
-            background: 'var(--bg-card)',
-            border: '1px solid var(--border-color)',
-          }}
+          className="bg-[var(--bg-card)] border border-[color:var(--border-color)] mt-2 rounded-xl p-4"
         >
           <label
-            className="block text-xs mb-2"
-            style={{ color: 'var(--text-secondary)' }}
+            className="text-[var(--text-secondary)] block text-xs mb-2"
           >
             Prompt 模板（抽取完成后用变量值替换占位符，生成可复制的 Prompt）
           </label>
@@ -571,22 +507,13 @@ export function SchemeEditor({
 
       {/* 底部操作栏 */}
       <div
-        className="sticky bottom-0 flex items-center justify-end gap-3 py-3 px-4 -mx-4"
-        style={{
-          background: 'var(--bg-base)',
-          borderTop: '1px solid var(--border-color)',
-        }}
+        className="bg-[var(--bg-base)] border-t border-t-[color:var(--border-color)] sticky bottom-0 flex items-center justify-end gap-3 py-3 px-4 -mx-4"
       >
         <button
           type="button"
           onClick={onCancel}
           disabled={saving}
-          className="px-4 py-2 text-sm rounded-lg transition-colors disabled:opacity-50"
-          style={{
-            background: 'var(--bg-card)',
-            color: 'var(--text-primary)',
-            border: '1px solid var(--border-color)',
-          }}
+          className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)] px-4 py-2 text-sm rounded-lg transition-colors disabled:opacity-50"
         >
           取消
         </button>
@@ -594,12 +521,7 @@ export function SchemeEditor({
           type="button"
           onClick={onSave}
           disabled={saving || !scheme.name.trim()}
-          className="px-4 py-2 text-sm rounded-lg transition-colors disabled:opacity-50"
-          style={{
-            background: 'var(--accent-bg)',
-            color: 'var(--accent)',
-            border: '1px solid var(--accent)',
-          }}
+          className="bg-[var(--accent-bg)] text-[var(--accent)] border border-[color:var(--accent)] px-4 py-2 text-sm rounded-lg transition-colors disabled:opacity-50"
         >
           {saving ? '保存中...' : <><Icon name="save" size={16} /> 保存方案</>}
         </button>

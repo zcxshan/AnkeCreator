@@ -28,6 +28,7 @@
   --text-primary: #000000;
   --text-secondary: #555555;
   --text-muted: #888888;
+  --text-tertiary: var(--text-muted); /* 与 muted 同色：此前被 14 处引用但从未定义 */
   --text-readonly: #999999; /* v41 Fix 3B: 不可编辑区域文字颜色 */
   --text-link: #0066bf;
   --text-on-accent: #ffffff;
@@ -114,6 +115,83 @@
   --danger: #f44747;
   --danger-hover: #c72d2d;
   --danger-soft: var(--error-bg);
+
+  /* === 圆角阶梯 === */
+  --radius-tight: 2px;
+  --radius-chip: 3px;
+  --radius-sm: 4px;
+  --radius-scrollbar: 5px;
+  --radius-control: 6px;
+  --radius-md: 8px;
+  --radius-toolbar: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  /* === 语义色调：提示 / 成功 / 警告 / 危险 / 中性 / 装饰 === */
+  --tone-info: #2563eb;
+  --tone-info-soft: rgba(37, 99, 235, 0.08);
+  --tone-info-veil: rgba(37, 99, 235, 0.1);
+  --tone-info-border: rgba(37, 99, 235, 0.22);
+  --tone-info-border-strong: rgba(37, 99, 235, 0.4);
+  --tone-info-glow: rgba(37, 99, 235, 0.35);
+  --tone-info-glow-strong: rgba(37, 99, 235, 0.45);
+
+  --tone-success: #16a34a;
+  --tone-success-soft: rgba(34, 197, 94, 0.1);
+  --tone-success-border: rgba(34, 197, 94, 0.22);
+
+  --tone-warn: #f59e0b;
+  --tone-warn-ink: #d97706;
+  --tone-warn-soft: rgba(245, 158, 11, 0.08);
+  --tone-warn-veil: rgba(245, 158, 11, 0.12);
+  --tone-warn-border: rgba(245, 158, 11, 0.3);
+  --tone-warn-glow: rgba(245, 158, 11, 0.4);
+
+  --tone-danger: #dc2626;
+  --tone-danger-soft: rgba(220, 38, 38, 0.08);
+  --tone-danger-veil: rgba(220, 38, 38, 0.1);
+  --tone-danger-border: rgba(220, 38, 38, 0.3);
+  --tone-danger-border-strong: rgba(220, 38, 38, 0.4);
+
+  --tone-neutral: #6b7280;
+  --tone-neutral-soft: rgba(107, 114, 128, 0.1);
+  --tone-neutral-border: rgba(107, 114, 128, 0.22);
+
+  --tone-purple: #8b5cf6;
+  --tone-indigo: #6366f1;
+  --tone-indigo-soft: rgba(99, 102, 241, 0.2);
+  --tone-indigo-glow: rgba(99, 102, 241, 0.4);
+  --tone-pink: #ec4899;
+  --tone-cyan: #0891b2;
+  --tone-violet: #7c3aed;
+
+  /* === 遮罩 / 蒙层 === */
+  --scrim: rgba(0, 0, 0, 0.45);
+  --scrim-strong: rgba(0, 0, 0, 0.6);
+  --scrim-soft: rgba(0, 0, 0, 0.08);
+  --on-accent-veil: rgba(255, 255, 255, 0.2);
+  --on-accent-border: rgba(255, 255, 255, 0.25);
+  --swatch-border: rgba(0, 0, 0, 0.1);
+
+  /* === 弹层阴影 === */
+  --shadow-modal: 0 12px 40px rgba(0, 0, 0, 0.2);
+  --shadow-float: 0 4px 16px rgba(0, 0, 0, 0.18);
+  --shadow-tooltip: 0 6px 20px rgba(0, 0, 0, 0.15);
+  --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --shadow-hero: 0 24px 64px rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --shadow-accent: 0 4px 14px var(--tone-info-glow);
+  --shadow-accent-hover: 0 6px 20px var(--tone-info-glow-strong);
+  --shadow-card: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-card-hover: 0 4px 16px rgba(0, 0, 0, 0.08);
+
+  /* === 渐变（导出进度 / 品牌条 / 警告条）=== */
+  --gradient-brand: linear-gradient(90deg, var(--tone-info), var(--tone-purple), var(--tone-pink));
+  --gradient-info: linear-gradient(90deg, var(--tone-indigo), var(--tone-purple), var(--tone-pink));
+  --gradient-hero: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(168, 85, 247, 0.28));
+  --gradient-success: linear-gradient(90deg, #22c55e, #16a34a);
+  --gradient-danger: linear-gradient(90deg, #ef4444, #dc2626);
+  --gradient-neutral: linear-gradient(90deg, #6b7280, #4b5563);
+  --gradient-warn: linear-gradient(90deg, var(--tone-warn), var(--tone-warn-ink));
 }
 
 [data-theme='dark'] {
@@ -136,6 +214,7 @@
   --text-primary: #ffffff;
   --text-secondary: #bbbbbb;
   --text-muted: #888888;
+  --text-tertiary: var(--text-muted); /* 与 muted 同色：此前被 14 处引用但从未定义 */
   --text-readonly: #888888; /* v41 Fix 3B: 不可编辑区域文字颜色（暗色） */
   --text-link: #3794ff;
   --text-on-accent: #ffffff;
@@ -213,6 +292,117 @@
   --danger: #f48771;
   --danger-hover: #e05a40;
   --danger-soft: var(--error-bg);
+
+  /* === 语义色调（暗色校对）=== */
+  --tone-info: #60a5fa;
+  --tone-info-soft: rgba(96, 165, 250, 0.14);
+  --tone-info-veil: rgba(96, 165, 250, 0.18);
+  --tone-info-border: rgba(96, 165, 250, 0.3);
+  --tone-info-border-strong: rgba(96, 165, 250, 0.45);
+  --tone-info-glow: rgba(96, 165, 250, 0.35);
+  --tone-info-glow-strong: rgba(96, 165, 250, 0.5);
+
+  --tone-success: #4ade80;
+  --tone-success-soft: rgba(74, 222, 128, 0.14);
+  --tone-success-border: rgba(74, 222, 128, 0.3);
+
+  --tone-warn: #fbbf24;
+  --tone-warn-ink: #fcd34d;
+  --tone-warn-soft: rgba(251, 191, 36, 0.12);
+  --tone-warn-veil: rgba(251, 191, 36, 0.16);
+  --tone-warn-border: rgba(251, 191, 36, 0.32);
+  --tone-warn-glow: rgba(251, 191, 36, 0.4);
+
+  --tone-danger: #f87171;
+  --tone-danger-soft: rgba(248, 113, 113, 0.12);
+  --tone-danger-veil: rgba(248, 113, 113, 0.16);
+  --tone-danger-border: rgba(248, 113, 113, 0.3);
+  --tone-danger-border-strong: rgba(248, 113, 113, 0.45);
+
+  --tone-neutral: #9ca3af;
+  --tone-neutral-soft: rgba(156, 163, 175, 0.12);
+  --tone-neutral-border: rgba(156, 163, 175, 0.28);
+
+  --tone-purple: #a78bfa;
+  --tone-indigo: #818cf8;
+  --tone-indigo-soft: rgba(129, 140, 248, 0.24);
+  --tone-indigo-glow: rgba(129, 140, 248, 0.45);
+  --tone-pink: #f472b6;
+  --tone-cyan: #22d3ee;
+  --tone-violet: #a78bfa;
+
+  --scrim: rgba(0, 0, 0, 0.65);
+  --scrim-strong: rgba(0, 0, 0, 0.75);
+  --scrim-soft: rgba(255, 255, 255, 0.08);
+  --on-accent-veil: rgba(255, 255, 255, 0.2);
+  --on-accent-border: rgba(255, 255, 255, 0.25);
+  --swatch-border: rgba(255, 255, 255, 0.15);
+
+  --shadow-modal: 0 12px 40px rgba(0, 0, 0, 0.6);
+  --shadow-float: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --shadow-tooltip: 0 6px 20px rgba(0, 0, 0, 0.5);
+  --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.6);
+  --shadow-hero: 0 24px 64px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --shadow-accent: 0 4px 14px var(--tone-info-glow);
+  --shadow-accent-hover: 0 6px 20px var(--tone-info-glow-strong);
+  --shadow-card: 0 4px 12px rgba(0, 0, 0, 0.45);
+  --shadow-card-hover: 0 4px 16px rgba(0, 0, 0, 0.5);
+
+  --gradient-brand: linear-gradient(90deg, var(--tone-info), var(--tone-purple), var(--tone-pink));
+  --gradient-info: linear-gradient(90deg, var(--tone-indigo), var(--tone-purple), var(--tone-pink));
+}
+
+/* ================================
+   阅读器主题（独立于应用主题，由阅读页显式切换）
+   ================================ */
+.reader-theme-light {
+  --reader-bg: #ffffff;
+  --reader-text: #1a1a1a;
+  --reader-text-2: #666666;
+  --reader-border: #e5e5e5;
+  --reader-accent: #2563eb;
+  --reader-accent-soft: rgba(37, 99, 235, 0.07);
+}
+
+.reader-theme-dark {
+  --reader-bg: #1a1a1a;
+  --reader-text: #e0e0e0;
+  --reader-text-2: #999999;
+  --reader-border: #333333;
+  --reader-accent: #60a5fa;
+  --reader-accent-soft: rgba(96, 165, 250, 0.1);
+}
+
+.reader-theme-sepia {
+  --reader-bg: #f5f0e6;
+  --reader-text: #3a2a1a;
+  --reader-text-2: #7a6a5a;
+  --reader-border: #d9ccb8;
+  --reader-accent: #8b6914;
+  --reader-accent-soft: rgba(139, 105, 20, 0.08);
+}
+
+/* 主题色卡（始终展示各自主题的背景色，不随当前主题变化） */
+.reader-swatch-light {
+  background: #ffffff;
+}
+.reader-swatch-dark {
+  background: #1a1a1a;
+}
+.reader-swatch-sepia {
+  background: #f5f0e6;
+}
+
+/* ================================
+   崩溃兜底屏（固定深色，不跟随主题）
+   ================================ */
+.crash-screen {
+  --crash-bg: #1f2937;
+  --crash-ink: #fee2e2;
+  --crash-danger: #fca5a5;
+  --crash-warn: #fbbf24;
+  --crash-action: #3b82f6;
+  --crash-action-danger: #7f1d1d;
 }
 
 /* ================================
@@ -442,7 +632,7 @@ body {
   background: var(--prose-quote-bg);
   color: var(--prose-quote-fg);
   font-style: normal;
-  border-radius: 0 4px 4px 0;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 
 .anke-editor-content .ProseMirror blockquote p {
@@ -503,7 +693,7 @@ body {
 
 .anke-editor-content::-webkit-scrollbar-thumb {
   background: var(--editor-scrollbar-thumb);
-  border-radius: 5px;
+  border-radius: var(--radius-scrollbar);
 }
 
 .anke-editor-content::-webkit-scrollbar-thumb:hover {
@@ -522,7 +712,7 @@ body {
 
 ::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
-  border-radius: 5px;
+  border-radius: var(--radius-scrollbar);
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -1013,14 +1203,14 @@ html.capacitor-platform-ios body.keyboard-open .mobile-bottom-nav {
    这里通过 .reader-content 作用域补充样式 + JS 委托点击处理。
    ================================ */
 .reader-content [data-type="collapse-block"] {
-  border: 1px solid var(--border-color, #ddd);
-  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
   margin: 12px 0;
   overflow: hidden;
 }
 
 .reader-content .collapse-head {
-  background: var(--collapse-head-bg, #f5f5f5);
+  background: var(--collapse-head-bg);
   padding: 8px 12px;
   cursor: pointer;
   display: flex;
@@ -1099,27 +1289,27 @@ html.capacitor-platform-ios body.keyboard-open .mobile-bottom-nav {
     padding-left: 4px;
     border-left: 1px solid var(--border-color);
   }
-  /* 所有按钮：紧凑 32×32 + 圆角 + 按压反馈 */
+  /* 所有按钮：触屏目标 44×44（可访问性要求）+ 圆角 + 按压反馈；工具栏横向滚动容纳 */
   .mobile-toolbar-root button {
-    min-width: 32px !important;
-    min-height: 32px !important;
-    width: 32px;
-    height: 32px;
-    padding: 4px !important;
-    font-size: 13px !important;
+    min-width: 44px !important;
+    min-height: 44px !important;
+    width: 44px;
+    height: 44px;
+    padding: 8px !important;
+    font-size: 15px !important;
     flex-shrink: 0;
-    border-radius: 6px;
+    border-radius: var(--radius-control);
   }
   .mobile-toolbar-root button:active {
     background: var(--accent-soft);
   }
-  /* select（下拉） */
+  /* select（下拉）：同样保证 44px 触屏高度 */
   .mobile-toolbar-root select {
-    min-height: 32px !important;
-    height: 32px;
-    font-size: 12px !important;
-    padding: 2px 4px !important;
-    border-radius: 6px;
+    min-height: 44px !important;
+    height: 44px;
+    font-size: 14px !important;
+    padding: 4px 6px !important;
+    border-radius: var(--radius-control);
   }
   /* 段间分隔线 <div className="w-px h-5 bg-border-color"> */
   .mobile-toolbar-root > div > div[class*="w-px"] {
@@ -1130,6 +1320,14 @@ html.capacitor-platform-ios body.keyboard-open .mobile-bottom-nav {
   /* 安卓版：工具栏按钮只留图标，隐藏中文文字描述 */
   .mobile-toolbar-root .tb-label {
     display: none;
+  }
+}
+
+/* 阅读器工具栏：触屏设备保证 44px 触控目标（鼠标设备保持紧凑） */
+@media (pointer: coarse) {
+  .reader-toolbar button {
+    min-width: 44px;
+    min-height: 44px;
   }
 }
 
@@ -1144,4 +1342,221 @@ html.capacitor-platform-ios body.keyboard-open .mobile-bottom-nav {
   .mobile-grid-2 {
     grid-template-columns: repeat(2, 1fr) !important;
   }
+}
+
+/* ================================
+   EPUB 导出进度弹窗入场动画
+   ================================ */
+@keyframes epubDialogIn {
+  from { opacity: 0; transform: scale(0.92) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.epub-dialog-in {
+  animation: epubDialogIn 0.25s ease-out;
+}
+
+/* ================================
+   搜索板块（SearchSiteSection）
+   把原先散落在 JSX 的静态样式收敛为组件类，
+   仅数量输入/结果计数等动态值仍可走内联。
+   ================================ */
+.search-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+}
+.search-section--flat {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+.search-section__header {
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-sidebar);
+}
+.search-section__title {
+  color: var(--text-primary);
+}
+.search-section__subtitle {
+  color: var(--text-secondary);
+}
+.search-export-btn {
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 500;
+  transition: color 0.15s, background 0.15s;
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+}
+.search-export-btn:hover {
+  background: var(--bg-card);
+  color: var(--accent);
+}
+.search-count-badge {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: var(--radius-full);
+  font-weight: 500;
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+.search-field {
+  border: 1px solid var(--border-color);
+  background: var(--bg-input);
+  color: var(--text-primary);
+}
+.search-count {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-control);
+  background: var(--bg-input);
+}
+.search-count__label {
+  color: var(--text-secondary);
+}
+.search-count__input {
+  background: transparent;
+  color: var(--text-primary);
+}
+.search-match-group {
+  border: 1px solid var(--border-color);
+}
+.search-match-btn {
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  border: 0;
+  cursor: pointer;
+}
+.search-match-btn.is-active {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+.search-submit {
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border: 0;
+  cursor: pointer;
+}
+.search-submit:disabled {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  opacity: 0.6;
+  cursor: wait;
+}
+.search-cache-hint {
+  color: var(--text-tertiary);
+  border-top: 1px solid var(--border-light);
+  border-bottom: 1px solid var(--border-light);
+}
+.search-empty {
+  color: var(--text-secondary);
+}
+.search-empty--muted {
+  color: var(--text-muted);
+}
+.search-empty__icon {
+  margin-bottom: 10px;
+}
+.search-error {
+  color: var(--error);
+  background: var(--error-bg);
+}
+.search-ghost-btn {
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.search-filters {
+  background: var(--bg-card);
+}
+.search-select {
+  border: 1px solid var(--border-color);
+  background: var(--bg-input);
+  color: var(--text-primary);
+}
+.search-filter-toggle {
+  border: 1px solid var(--border-color);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+}
+.search-filter-toggle.is-open {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.search-meta {
+  color: var(--text-secondary);
+}
+.search-advanced {
+  border-top: 1px solid var(--border-color);
+}
+.search-tag {
+  border: 1px solid var(--border-color);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+}
+.search-tag.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.search-more {
+  background: var(--bg-card);
+  color: var(--accent);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  opacity: 1;
+}
+.search-more:disabled {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  cursor: wait;
+  opacity: 0.6;
+}
+
+/* 搜索结果卡片 */
+.result-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+  cursor: pointer;
+}
+.result-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-card-hover);
+}
+.result-cover {
+  width: 96px;
+  height: 120px;
+  background: var(--gradient-hero);
+  color: var(--accent);
+  font-size: 36px;
+}
+.result-title {
+  color: var(--text-primary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.result-badge--success {
+  background: var(--tone-success-soft);
+  color: var(--tone-success);
+}
+.result-badge--indigo {
+  background: var(--tone-indigo-soft);
+  color: var(--tone-indigo);
+}
+.result-badge--neutral {
+  background: var(--bg-hover);
+  color: var(--text-tertiary);
+}
+.result-tag {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+.result-meta {
+  color: var(--text-secondary);
 }

@@ -3,7 +3,7 @@
 // 导致 content effect 误判"外部加载"而 reset() 清空撤销/重做栈
 // ============================================================
 import { describe, it, expect, beforeEach } from 'vitest';
-import { domShowsContent } from '../utils';
+import { domShowsContent } from '../tiptap/domState';
 import { useEditorHistoryStore } from '../../store/editorHistoryStore';
 
 describe('undo/redo 与内容序列化规范化', () => {

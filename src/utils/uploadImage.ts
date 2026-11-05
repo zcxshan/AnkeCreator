@@ -31,7 +31,7 @@ export interface UploadProgressEvent {
 }
 
 /** File → 纯 base64（无 data: 前缀），用于 IPC buffer 传输 */
-function fileToBase64(file: File): Promise<string> {
+function fileToBase64(file: File | Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {

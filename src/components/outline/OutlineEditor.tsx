@@ -103,8 +103,7 @@ export function OutlineEditor() {
   if (!outline || !payload) {
     return (
       <div
-        className="flex-1 flex flex-col items-center justify-center p-8"
-        style={{ background: 'var(--bg-page)' }}
+        className="bg-[var(--bg-page)] flex-1 flex flex-col items-center justify-center p-8"
       >
         <div className="mb-4 opacity-30 flex justify-center"><Icon name="pen" size={56} /></div>
         <div className="text-sm font-medium text-slate-600">选择左侧目录开始编写大纲</div>
@@ -115,20 +114,18 @@ export function OutlineEditor() {
 
   return (
     <div
-      className="flex-1 flex flex-col overflow-hidden"
-      style={{ background: 'var(--bg-page)' }}
+      className="bg-[var(--bg-page)] flex-1 flex flex-col overflow-hidden"
     >
       {/* 顶部标题栏 */}
       <header
-        className="shrink-0 flex items-center gap-3 px-6 py-4 border-b"
-        style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)' }}
+        className="bg-[var(--bg-card)] border-[color:var(--border-color)] shrink-0 flex items-center gap-3 px-6 py-4 border-b"
       >
         <span className="shrink-0">
           <Icon name={payload.target_type === 'volume' ? 'bookText' : 'fileText'} size={18} />
         </span>
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{displayTitle}</div>
-          <div className="text-[10px] mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+          <div className="text-[var(--text-primary)] text-sm font-semibold truncate">{displayTitle}</div>
+          <div className="text-[var(--text-secondary)] text-[10px] mt-0.5">
             {payload.target_type === 'volume'
               ? '本卷概述、核心剧情、重要角色等'
               : '本章概要、关键事件、角色互动等'}
@@ -151,7 +148,7 @@ export function OutlineEditor() {
                 minHeight: '52vh',
                 resize: 'none',
                 border: '1px solid var(--border-color)',
-                borderRadius: 8,
+                borderRadius: 'var(--radius-md)',
                 padding: '24px 28px',
                 background: 'var(--bg-card)',
                 color: 'var(--text-primary)',
@@ -167,14 +164,12 @@ export function OutlineEditor() {
 
       {/* 底部状态栏 */}
       <footer
-        className="shrink-0 flex items-center justify-between px-4 py-2 border-t"
-        style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)' }}
+        className="bg-[var(--bg-card)] border-[color:var(--border-color)] shrink-0 flex items-center justify-between px-4 py-2 border-t"
       >
         <div className="flex items-center gap-2">
           <button
             onClick={handleSave}
-            className="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
-            style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
+            className="bg-[var(--accent)] text-[var(--text-on-accent)] px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
           >
             保存
           </button>

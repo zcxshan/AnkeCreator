@@ -154,7 +154,7 @@ export function WheelCanvas({
           height: 0,
           borderLeft: '10px solid transparent',
           borderRight: '10px solid transparent',
-          borderTop: '18px solid var(--accent, #ef4444)',
+          borderTop: '18px solid var(--accent)',
           zIndex: 10,
         }}
       />
@@ -176,7 +176,7 @@ export function WheelCanvas({
           cy={cy}
           r={radius + 4}
           fill="none"
-          stroke="var(--border-color, #d1d5db)"
+          stroke="var(--border-color)"
           strokeWidth={2}
         />
         {/* 扇区 */}
@@ -219,14 +219,14 @@ export function WheelCanvas({
           cy={cy}
           r={Math.max(12, radius * 0.08)}
           fill="#fff"
-          stroke="var(--border-color, #d1d5db)"
+          stroke="var(--border-color)"
           strokeWidth={2}
         />
         <circle
           cx={cx}
           cy={cy}
           r={Math.max(6, radius * 0.04)}
-          fill="var(--accent, #ef4444)"
+          fill="var(--accent)"
         />
       </svg>
     </div>

@@ -347,7 +347,7 @@ function cleanRedundantHtml(html: string): string {
       for (const el of allEls) {
         if (el.childElementCount === 1) {
           const child = el.firstElementChild as HTMLElement;
-          if (child && sameTagAndStyle(el, child)) {
+          if (child && sameTagAndStyle(el as HTMLElement, child)) {
             // 子元素完全相同 → 用子元素的内容替换父元素
             while (child.firstChild) {
               el.insertBefore(child.firstChild, child);
@@ -362,7 +362,7 @@ function cleanRedundantHtml(html: string): string {
       const inlineEls = root.querySelectorAll('b, i, u, del, span, sup, sub, font');
       for (const el of inlineEls) {
         const next = el.nextElementSibling as HTMLElement | null;
-        if (next && sameTagAndStyle(el, next)) {
+        if (next && sameTagAndStyle(el as HTMLElement, next)) {
           // 把 next 的子节点移到 el 末尾
           while (next.firstChild) {
             el.appendChild(next.firstChild);

@@ -37,11 +37,8 @@ import { ContextMenu, type ContextMenuItemConfig } from '../../components/common
 import { useEditorStore } from '../../store/editorStore';
 import { useToastStore } from '../../store/toastStore';
 import { countWordsFromHtml } from '../../components/pages/HomePage';
-import {
-  getCurrentStyles,
-  setLastEditorRange,
-  domShowsContent,
-} from '..';
+import { getCurrentStyles } from './currentStyles';
+import { setLastEditorRange, domShowsContent } from './domState';
 import type { DiceBlockPayloadV2 } from '../../types';
 
 import { createAnkeExtensions } from './schema';
@@ -71,7 +68,7 @@ const INJECTED_CSS = `
   .anke-editor-content div[data-type="image-block"][data-selected="true"] {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
-    border-radius: 2px;
+    border-radius: var(--radius-tight);
   }
   .anke-editor-content div[data-type="image-block"] img {
     display: inline-block;
@@ -677,17 +674,7 @@ export function TiptapEditorPane({
 
   return (
     <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        flex: 1,
-        minHeight: 0,
-        background: 'var(--bg-editor)',
-        border: '1px solid var(--border-color)',
-        borderRadius: 6,
-        overflow: 'hidden',
-      }}
-      className={className}
+      className={`${className} flex flex-col flex-[1] min-h-[0px] bg-[var(--bg-editor)] border border-[color:var(--border-color)] rounded-[var(--radius-control)] overflow-hidden`}
     >
       <EditorToolbar
         editor={editor}
@@ -714,14 +701,7 @@ export function TiptapEditorPane({
         onTouchEnd={handleTouchEndScroll}
         onTouchCancel={handleTouchEndScroll}
         onWheel={handleWheel}
-        style={{
-          flex: 1,
-          minHeight: 0,
-          overflowY: 'auto',
-          overflowX: 'hidden',
-          position: 'relative',
-        }}
-        className="anke-editor-scroll"
+        className="flex-[1] min-h-[0px] overflow-y-auto overflow-x-hidden relative anke-editor-scroll"
       >
         {showZoomHint && (
           <div
@@ -730,7 +710,7 @@ export function TiptapEditorPane({
               background: 'var(--bg-card)',
               color: 'var(--text-primary)',
               border: '1px solid var(--border-color)',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+              boxShadow: 'var(--shadow-md)',
             }}
             aria-live="polite"
           >

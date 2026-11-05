@@ -1,5 +1,5 @@
 // 端到端模拟：完整 .anke.json 导入 + 新增节
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, beforeAll, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -23,9 +23,46 @@ import { ensureDefaultVolumeAndChapter } from '../../src/utils/storyImport';
 const storiesDir = path.join(tmpDir, 'data', 'stories');
 if (!fs.existsSync(storiesDir)) fs.mkdirSync(storiesDir, { recursive: true });
 
-// 找到真实的 .anke.json（直接读固定路径，不引入额外依赖）
-const ankeFile = 'C:/Users/dell/Desktop/某音乐的迷途之星_某学都的人偶剧目.anke.json';
-console.log('ankeFile:', ankeFile);
+// 导入 fixture：测试内自建 .anke.json（结构同真实导出文件），不再依赖机器上的外部文件
+// 验证点保持不变：导入后 order_index 连续（0..19），新增节取 max+1（=20）
+const ankeFile = path.join(tmpDir, 'anke-fixture.json');
+
+beforeAll(() => {
+  const targetSections = Array.from({ length: 20 }, (_, i) => ({
+    id: `sec-t-${i}`,
+    title: `第${i + 1}节`,
+    content: `<p>目标章第${i + 1}节内容</p>`,
+    order_index: i,
+  }));
+  const fixture = {
+    format: 'anke-creator-export',
+    version: '1.0',
+    data: {
+      title: '某音乐的迷途之星_某学都的人偶剧目',
+      volumes: [{ id: 'vol-1', title: '第一卷', order_index: 0 }],
+      chapters: [
+        {
+          id: 'ch-1',
+          title: '重逢是故事的起点',
+          order_index: 0,
+          volume_id: 'vol-1',
+          sections: targetSections,
+        },
+        {
+          id: 'ch-2',
+          title: '第二章',
+          order_index: 1,
+          volume_id: 'vol-1',
+          sections: [
+            { id: 'sec-o-0', title: '第二章第1节', content: '<p>内容</p>', order_index: 0 },
+            { id: 'sec-o-1', title: '第二章第2节', content: '<p>内容</p>', order_index: 1 },
+          ],
+        },
+      ],
+    },
+  };
+  fs.writeFileSync(ankeFile, JSON.stringify(fixture), 'utf-8');
+});
 
 describe('E2E: 真实文件导入 + 新增节', () => {
   let storyId: string;

@@ -149,7 +149,7 @@ export function AttributeTable({ attributes, onChange }: AttributeTableProps) {
               className="bg-[var(--bg-input)] border border-[var(--border-color)] focus:border-[var(--accent)] rounded px-2 py-1 outline-none text-[var(--text-primary)] text-xs"
             />
             <div className="text-center">
-              <button
+              <button aria-label="删除此属性"
                 onClick={() => deleteRow(r.id)}
                 className="text-[var(--text-secondary)] hover:text-[var(--danger)] text-xs"
                 title="删除此属性"

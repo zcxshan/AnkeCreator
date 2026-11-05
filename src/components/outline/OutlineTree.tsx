@@ -3,6 +3,7 @@ import { Icon } from '../common/Icon';
 import { useStoryStore } from '../../store/storyStore';
 import type { OutlinePayload } from '../../types';
 import { parseOutlineContent } from '../../types';
+import { askConfirm } from '../common/confirmPrompt';
 
 interface OutlineTreeProps {
   onJumpToChapter?: (chapterId: string) => void;
@@ -93,7 +94,7 @@ export function OutlineTree({ onJumpToChapter }: OutlineTreeProps) {
     setEditingText('');
   };
 
-  const handleDelete = (outlineId: string) => {
+  const handleDelete = async (outlineId: string) => {
     const outline = outlines.find((o) => o.id === outlineId);
     if (!outline) return;
     const payload = parseOutlineContent(outline.content);
@@ -110,7 +111,13 @@ export function OutlineTree({ onJumpToChapter }: OutlineTreeProps) {
     if (payload.body && payload.body.trim()) {
       confirmText += '\n\n其大纲描述文本也会丢失。';
     }
-    if (!confirm(confirmText)) return;
+    const confirmed = await askConfirm({
+      title: `删除${label}`,
+      message: confirmText,
+      confirmText: '删除',
+      danger: true,
+    });
+    if (!confirmed) return;
 
     if (isVolume) {
       const children = chaptersByParent[outlineId] || [];
@@ -149,16 +156,14 @@ export function OutlineTree({ onJumpToChapter }: OutlineTreeProps) {
 
   return (
     <aside
-      className="shrink-0 w-64 flex flex-col border-r overflow-hidden"
-      style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)' }}
+      className="bg-[var(--bg-card)] border-[color:var(--border-color)] shrink-0 w-64 flex flex-col border-r overflow-hidden"
     >
       <div
-        className="shrink-0 flex items-center justify-between px-3 py-2 border-b"
-        style={{ borderColor: 'var(--border-color)', background: 'var(--bg-toolbar)' }}
+        className="border-[color:var(--border-color)] bg-[var(--bg-toolbar)] shrink-0 flex items-center justify-between px-3 py-2 border-b"
       >
         <div>
-          <div className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>大纲目录</div>
-          <div className="text-[10px] mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+          <div className="text-[var(--text-primary)] text-xs font-semibold">大纲目录</div>
+          <div className="text-[var(--text-secondary)] text-[10px] mt-0.5">
             {totalVolumes} 卷 · {totalChapters} 章
           </div>
         </div>
@@ -223,35 +228,29 @@ export function OutlineTree({ onJumpToChapter }: OutlineTreeProps) {
                           if (e.key === 'Escape') cancelEdit();
                         }}
                         onClick={(e) => e.stopPropagation()}
-                        className="flex-1 text-xs font-semibold rounded px-1.5 py-0.5 border outline-none"
-                        style={{
-                          color: 'var(--text-primary)',
-                          background: 'var(--bg-card)',
-                          borderColor: 'var(--border-color)',
-                        }}
+                        className="text-[var(--text-primary)] bg-[var(--bg-card)] border-[color:var(--border-color)] flex-1 text-xs font-semibold rounded px-1.5 py-0.5 border outline-none"
                       />
                     ) : (
-                      <div className="text-xs font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+                      <div className="text-[var(--text-primary)] text-xs font-semibold truncate">
                         第{vIdx + 1}卷 · {v.payload.title}
                       </div>
                     )}
                     {vHasBody && editingId !== v.outline.id && (
-                      <span className="shrink-0" style={{ color: 'var(--accent)' }}><Icon name="check" size={10} /></span>
+                      <span className="text-[var(--accent)] shrink-0"><Icon name="check" size={10} /></span>
                     )}
                     {vLinked && editingId !== v.outline.id && (
-                      <span className="shrink-0" style={{ color: 'var(--border-color)' }}><Icon name="link" size={10} /></span>
+                      <span className="text-[var(--border-color)] shrink-0"><Icon name="link" size={10} /></span>
                     )}
                   </button>
 
                   <div className="shrink-0 flex items-center gap-1">
                     <button
-                      className="w-5 h-5 flex items-center justify-center rounded transition-colors"
+                      className="text-[var(--text-secondary)] w-5 h-5 flex items-center justify-center rounded transition-colors"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleCreateChapter(v.outline.id);
                       }}
                       title="在该卷下新增章"
-                      style={{ color: 'var(--text-secondary)' }}
                       onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                       onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                     >
@@ -261,13 +260,12 @@ export function OutlineTree({ onJumpToChapter }: OutlineTreeProps) {
                     </button>
                     {editingId !== v.outline.id && (
                       <button
-                        className="w-5 h-5 flex items-center justify-center rounded transition-colors"
+                        className="text-[var(--text-secondary)] w-5 h-5 flex items-center justify-center rounded transition-colors"
                         onClick={(e) => {
                           e.stopPropagation();
                           startEdit(v.outline.id, v.payload.title);
                         }}
                         title="重命名"
-                        style={{ color: 'var(--text-secondary)' }}
                         onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                         onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                       >
@@ -277,13 +275,12 @@ export function OutlineTree({ onJumpToChapter }: OutlineTreeProps) {
                       </button>
                     )}
                     <button
-                      className="w-5 h-5 flex items-center justify-center rounded transition-colors"
+                      className="text-[var(--text-secondary)] w-5 h-5 flex items-center justify-center rounded transition-colors"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleDelete(v.outline.id);
                       }}
                       title="删除"
-                      style={{ color: 'var(--text-secondary)' }}
                       onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--danger)'; }}
                       onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
                     >
@@ -295,7 +292,7 @@ export function OutlineTree({ onJumpToChapter }: OutlineTreeProps) {
                 </div>
 
                 {vExpanded && vChapters.length > 0 && (
-                  <div className="ml-4 mt-0.5 space-y-0.5 border-l pl-1.5" style={{ borderColor: 'var(--border-color)' }}>
+                  <div className="border-[color:var(--border-color)] ml-4 mt-0.5 space-y-0.5 border-l pl-1.5">
                     {vChapters.map((c, cIdx) => {
                       const cActive = activeOutlineId === c.outline.id;
                       const cHasBody = c.payload.body && c.payload.body.trim().length > 0 && c.payload.body !== '{}' && c.payload.body !== 'null';
@@ -331,36 +328,30 @@ export function OutlineTree({ onJumpToChapter }: OutlineTreeProps) {
                                   if (e.key === 'Escape') cancelEdit();
                                 }}
                                 onClick={(e) => e.stopPropagation()}
-                                className="flex-1 text-xs rounded px-1.5 py-0.5 border outline-none"
-                                style={{
-                                  color: 'var(--text-primary)',
-                                  background: 'var(--bg-card)',
-                                  borderColor: 'var(--border-color)',
-                                }}
+                                className="text-[var(--text-primary)] bg-[var(--bg-card)] border-[color:var(--border-color)] flex-1 text-xs rounded px-1.5 py-0.5 border outline-none"
                               />
                             ) : (
-                              <div className="text-xs truncate" style={{ color: 'var(--text-primary)' }}>
+                              <div className="text-[var(--text-primary)] text-xs truncate">
                                 第{cIdx + 1}章 · {c.payload.title}
                               </div>
                             )}
                             {cHasBody && editingId !== c.outline.id && (
-                              <span className="shrink-0" style={{ color: 'var(--accent)' }}><Icon name="check" size={10} /></span>
+                              <span className="text-[var(--accent)] shrink-0"><Icon name="check" size={10} /></span>
                             )}
                             {cLinked && editingId !== c.outline.id && (
-                              <span className="shrink-0" style={{ color: 'var(--border-color)' }}><Icon name="link" size={10} /></span>
+                              <span className="text-[var(--border-color)] shrink-0"><Icon name="link" size={10} /></span>
                             )}
                           </button>
 
                           <div className="shrink-0 flex items-center gap-1">
                             {editingId !== c.outline.id && (
                               <button
-                                className="w-5 h-5 flex items-center justify-center rounded transition-colors"
+                                className="text-[var(--text-secondary)] w-5 h-5 flex items-center justify-center rounded transition-colors"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   startEdit(c.outline.id, c.payload.title);
                                 }}
                                 title="重命名"
-                                style={{ color: 'var(--text-secondary)' }}
                                 onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                                 onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                               >
@@ -370,13 +361,12 @@ export function OutlineTree({ onJumpToChapter }: OutlineTreeProps) {
                               </button>
                             )}
                             <button
-                              className="w-5 h-5 flex items-center justify-center rounded transition-colors"
+                              className="text-[var(--text-secondary)] w-5 h-5 flex items-center justify-center rounded transition-colors"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleDelete(c.outline.id);
                               }}
                               title="删除"
-                              style={{ color: 'var(--text-secondary)' }}
                               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--danger)'; }}
                               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
                             >
@@ -425,17 +415,15 @@ export function OutlineTree({ onJumpToChapter }: OutlineTreeProps) {
       </div>
 
       <div
-        className="shrink-0 flex items-center justify-between px-3 py-2 border-t"
-        style={{ borderColor: 'var(--border-color)', background: 'var(--bg-toolbar)' }}
+        className="border-[color:var(--border-color)] bg-[var(--bg-toolbar)] shrink-0 flex items-center justify-between px-3 py-2 border-t"
       >
         <button
           onClick={handleCreateVolume}
-          className="px-2 py-1 text-xs rounded-md transition-colors"
-          style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
+          className="bg-[var(--accent)] text-[var(--text-on-accent)] px-2 py-1 text-xs rounded-md transition-colors"
         >
           + 新增卷
         </button>
-        <div className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>{story?.title || ''}</div>
+        <div className="text-[var(--text-secondary)] text-[10px]">{story?.title || ''}</div>
       </div>
 
       {ctxMenu && (
@@ -465,7 +453,7 @@ export function OutlineTree({ onJumpToChapter }: OutlineTreeProps) {
               }}
             />
           )}
-          <div className="my-1 border-t" style={{ borderColor: 'var(--border-color)' }} />
+          <div className="border-[color:var(--border-color)] my-1 border-t" />
           <ContextMenuItem
             label={ctxMenu.type === 'volume' ? '删除卷' : '删除章'}
             danger

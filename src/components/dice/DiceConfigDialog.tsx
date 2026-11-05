@@ -25,12 +25,17 @@ import {
 } from '../../utils/diceEngine';
 import { parseNgaAnjia, toDiceOptions, type DiceNGAOption } from '../../utils/parseNgaAnjia';
 import { ptToSizePercent } from '../../utils/ngaHtmlToBBCode';
+import { askConfirm } from '../common/confirmPrompt';
 
 interface DiceConfigDialogProps {
   /** 保存时触发：如果有 targetBlockId，则调用 updateBlock；否则调用 onSaveNew 把新建的 dice 加到当前节 */
   onSaveEdit?: (blockId: string, payload: DiceBlockPayloadV2) => void;
   onSaveNew: (payload: DiceBlockPayloadV2) => void;
 }
+
+/** 表单控件统一外观（背景/前景/描边全部走 token） */
+const INPUT_CLASS =
+  'w-full px-3 py-2 text-xs rounded-md border outline-none bg-[var(--bg-card)] text-[var(--text-primary)] border-[var(--border-color)]';
 
 export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProps) {
   const { dialog, closeDialog, setDraftName, setDraftKind, setDraftFaces,
@@ -70,7 +75,7 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
     setNgaParsed(result);
   };
 
-  const handleConfirmImport = () => {
+  const handleConfirmImport = async () => {
     let parsed = ngaParsed;
     if (parsed.length === 0 && ngaText.trim()) {
       parsed = parseNgaAnjia(ngaText);
@@ -82,13 +87,13 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
     }
     const currentOptionsCount = (draft.options ?? []).length;
     if (currentOptionsCount > 0) {
-      if (
-        !window.confirm(
-          `当前已有 ${currentOptionsCount} 个选项，将被解析出的 ${parsed.length} 个选项覆盖。是否继续？`,
-        )
-      ) {
-        return;
-      }
+      const confirmed = await askConfirm({
+        title: '覆盖现有选项',
+        message: `当前已有 ${currentOptionsCount} 个选项，将被解析出的 ${parsed.length} 个选项覆盖。是否继续？`,
+        confirmText: '覆盖',
+        danger: true,
+      });
+      if (!confirmed) return;
     }
     const options = toDiceOptions(parsed, createOptionId);
     setDraft({ ...draft, kind: 'option', faces: options.length, options });
@@ -151,8 +156,7 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: 'var(--bg-overlay)' }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)]"
       onMouseDown={(e) => {
         mouseDownOnOverlayRef.current = e.target === e.currentTarget;
       }}
@@ -164,26 +168,24 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
       }}
     >
       <div
-        className="w-[560px] max-w-[92vw] max-h-[86vh] flex flex-col rounded-2xl shadow-2xl overflow-hidden"
-        style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
+        className="w-[560px] max-w-[92vw] max-h-[86vh] flex flex-col rounded-2xl shadow-2xl overflow-hidden bg-[var(--bg-card)] border border-[var(--border-color)]"
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
       >
         {/* 标题栏 */}
         <div
-          className="flex items-center justify-between px-5 py-3 border-b"
-          style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)' }}
+          className="flex items-center justify-between px-5 py-3 border-b bg-[var(--bg-card)] border-[var(--border-color)]"
         >
           <div className="flex items-center gap-2">
             <Icon name="dices" size={18} />
-            <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+            <span className="text-sm font-semibold text-[var(--text-primary)]">
               {targetBlockId ? '编辑骰子配置' : '新建骰子'}
             </span>
           </div>
           <button
             onClick={closeDialog}
-            className="w-7 h-7 rounded-md flex items-center justify-center text-sm"
-            style={{ color: 'var(--text-secondary)' }}
+            className="w-7 h-7 rounded-md flex items-center justify-center text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+            aria-label="关闭"
           >
             <Icon name="x" size={16} />
           </button>
@@ -197,8 +199,7 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
               value={draft.name}
               onChange={(e) => setDraftName(e.target.value)}
               placeholder="给骰子起个名字，例如「命运抉择」"
-              className="w-full px-3 py-2 text-xs rounded-md border outline-none"
-              style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', borderColor: 'var(--border-color)' }}
+              className={INPUT_CLASS}
             />
           </Field>
 
@@ -225,12 +226,10 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
               <details
                 open={ngaPanelOpen}
                 onToggle={(e) => setNgaPanelOpen((e.target as HTMLDetailsElement).open)}
-                className="rounded-lg border"
-                style={{ borderColor: 'var(--border-color)', background: 'var(--bg-toolbar)' }}
+                className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-toolbar)]"
               >
                 <summary
-                  className="px-3 py-2 text-xs cursor-pointer select-none font-medium"
-                  style={{ color: 'var(--text-secondary)' }}
+                  className="px-3 py-2 text-xs cursor-pointer select-none font-medium text-[var(--text-secondary)]"
                 >
                   <span className="inline-flex items-center gap-1"><Icon name="clipboard" size={12} /> 通过 NGA 文本添加选项</span>
                 </summary>
@@ -240,36 +239,24 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
                     onChange={(e) => setNgaText(e.target.value)}
                     placeholder={`[b]16楼 橘响弦[/b]\n安价：克星血统 (...) [s:ac:哭笑]\n\n[b]23楼 uid:67074399[/b]\n安价：数据库\n...`}
                     rows={6}
-                    className="w-full px-2 py-1.5 text-xs rounded-md border outline-none font-mono resize-y"
-                    style={{
-                      background: 'var(--bg-card)',
-                      color: 'var(--text-primary)',
-                      borderColor: 'var(--border-color)',
-                      minHeight: 120,
-                    }}
+                    className="w-full px-2 py-1.5 text-xs rounded-md border outline-none font-mono resize-y min-h-[120px] bg-[var(--bg-card)] text-[var(--text-primary)] border-[var(--border-color)]"
                   />
                   <div className="flex items-center gap-2 flex-wrap">
                     <button
                       onClick={handleParseNga}
                       disabled={!ngaText.trim()}
-                      className="px-2.5 py-1 text-xs rounded-md border transition-colors disabled:opacity-50"
-                      style={{
-                        background: 'var(--bg-card)',
-                        borderColor: 'var(--border-color)',
-                        color: 'var(--text-primary)',
-                      }}
+                      className="px-2.5 py-1 text-xs rounded-md border transition-colors disabled:opacity-50 bg-[var(--bg-card)] border-[var(--border-color)] text-[var(--text-primary)]"
                     >
                       <span className="inline-flex items-center gap-1"><Icon name="search" size={12} /> 解析</span>
                     </button>
                     <button
                       onClick={handleConfirmImport}
                       disabled={!ngaText.trim() && ngaParsed.length === 0}
-                      className="px-2.5 py-1 text-xs font-medium rounded-md transition-colors disabled:opacity-50"
-                      style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
+                      className="px-2.5 py-1 text-xs font-medium rounded-md transition-colors disabled:opacity-50 bg-[var(--accent)] text-[var(--text-on-accent)]"
                     >
                       <span className="inline-flex items-center gap-1"><Icon name="check" size={12} /> 导入到选项</span>
                     </button>
-                    <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                    <span className="text-[11px] text-[var(--text-muted)]">
                       {ngaParsed.length > 0
                         ? `已解析 ${ngaParsed.length} 个选项`
                         : ngaText.trim()
@@ -279,16 +266,12 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
                   </div>
                   {ngaParsed.length > 0 && (
                     <div
-                      className="rounded-md p-2 space-y-1 max-h-32 overflow-y-auto text-[11px]"
-                      style={{
-                        background: 'var(--bg-card)',
-                        border: '1px solid var(--border-color)',
-                      }}
+                      className="rounded-md p-2 space-y-1 max-h-32 overflow-y-auto text-[11px] bg-[var(--bg-card)] border border-[var(--border-color)]"
                     >
                       {ngaParsed.map((opt, i) => (
                         <div key={i} className="flex items-baseline gap-1.5">
-                          <span style={{ color: 'var(--accent)' }}>{opt.displayValue}.</span>
-                          <span style={{ color: 'var(--text-primary)' }}>{opt.content}</span>
+                          <span className="text-[var(--accent)]">{opt.displayValue}.</span>
+                          <span className="text-[var(--text-primary)]">{opt.content}</span>
                         </div>
                       ))}
                     </div>
@@ -319,15 +302,13 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
 
           {isOption && coverageWarning && (
             <div
-              className="text-xs rounded-md px-3 py-2"
-              style={{ background: 'var(--danger-soft)', color: 'var(--danger)', border: '1px solid var(--danger-soft)' }}
+              className="text-xs rounded-md px-3 py-2 bg-[var(--danger-soft)] text-[var(--danger)] border border-[var(--danger-soft)]"
             >
               {coverageWarning}
             </div>
           )}
           {isOption && coverage && coverage.ok && (
-            <div className="flex items-center gap-1 text-xs rounded-md px-3 py-2"
-              style={{ background: 'var(--accent-soft)', color: 'var(--accent)', border: '1px solid var(--accent-soft)' }}
+            <div className="flex items-center gap-1 text-xs rounded-md px-3 py-2 bg-[var(--accent-soft)] text-[var(--accent)] border border-[var(--accent-soft)]"
             >
               <Icon name="check" size={12} /> 覆盖校验通过：1~{faces} 全部命中且无重复
             </div>
@@ -335,12 +316,10 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
 
         {/* ===== 需求4:骰子样式设置 ===== */}
         <details
-          className="mt-4 border rounded-lg overflow-hidden"
-          style={{ borderColor: 'var(--border-color)' }}
+          className="mt-4 border rounded-lg overflow-hidden border-[var(--border-color)]"
         >
           <summary
-            className="px-4 py-2 cursor-pointer text-sm font-medium"
-            style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
+            className="px-4 py-2 cursor-pointer text-sm font-medium bg-[var(--bg-hover)] text-[var(--text-primary)]"
           >
             <span className="inline-flex items-center gap-1.5">
               <Icon name="palette" size={14} /> 样式设置(可选)
@@ -369,12 +348,7 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
               onReset={() => resetStyleDraft('unselectedOption')}
             />
             <button
-              className="text-xs px-3 py-1.5 rounded-md"
-              style={{
-                background: 'var(--bg-hover)',
-                color: 'var(--text-secondary)',
-                border: '1px solid var(--border-color)',
-              }}
+              className="text-xs px-3 py-1.5 rounded-md bg-[var(--bg-hover)] text-[var(--text-secondary)] border border-[var(--border-color)] hover:text-[var(--text-primary)]"
               onClick={() => resetStyleDraft()}
             >
               恢复全部默认
@@ -385,20 +359,17 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
 
         {/* 底部 */}
         <div
-          className="flex items-center justify-end gap-2 px-5 py-3 border-t shrink-0"
-          style={{ background: 'var(--bg-toolbar)', borderColor: 'var(--border-color)' }}
+          className="flex items-center justify-end gap-2 px-5 py-3 border-t shrink-0 bg-[var(--bg-toolbar)] border-[var(--border-color)]"
         >
           <button
             onClick={closeDialog}
-            className="px-3 py-1.5 text-xs rounded-lg transition-colors"
-            style={{ color: 'var(--text-secondary)' }}
+            className="px-3 py-1.5 text-xs rounded-lg transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           >
             取消
           </button>
           <button
             onClick={handleSave}
-            className="px-3 py-1.5 text-xs font-medium rounded-lg shadow-sm transition-colors"
-            style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg shadow-sm transition-colors bg-[var(--accent)] text-[var(--text-on-accent)] hover:opacity-90"
           >
             {targetBlockId ? '保存修改' : '创建骰子'}
           </button>
@@ -422,11 +393,11 @@ function DiceStyleEditor({
   onChange: (patch: Partial<DiceTextStyle>) => void;
   onReset: () => void;
 }) {
-  const toggleBtns: { key: keyof DiceTextStyle; label: string; css: React.CSSProperties }[] = [
-    { key: 'bold', label: 'B', css: { fontWeight: 700 } },
-    { key: 'italic', label: 'I', css: { fontStyle: 'italic' } },
-    { key: 'underline', label: 'U', css: { textDecoration: 'underline' } },
-    { key: 'strike', label: 'S', css: { textDecoration: 'line-through' } },
+  const toggleBtns: { key: keyof DiceTextStyle; label: string; cls: string }[] = [
+    { key: 'bold', label: 'B', cls: 'font-bold' },
+    { key: 'italic', label: 'I', cls: 'italic' },
+    { key: 'underline', label: 'U', cls: 'underline' },
+    { key: 'strike', label: 'S', cls: 'line-through' },
   ];
 
   // 颜色 popover 状态
@@ -470,21 +441,19 @@ function DiceStyleEditor({
 
   return (
     <div
-      className="p-3 rounded-md"
-      style={{ background: 'var(--bg-input)', border: '1px solid var(--border-color)' }}
+      className="p-3 rounded-md bg-[var(--bg-input)] border border-[var(--border-color)]"
     >
       <div className="flex items-center justify-between mb-2">
         <div>
-          <div className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>
+          <div className="text-xs font-semibold text-[var(--text-primary)]">
             {title}
           </div>
-          <div className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>
+          <div className="text-[10px] text-[var(--text-secondary)]">
             {description}
           </div>
         </div>
         <button
-          className="text-[10px] px-2 py-1 rounded"
-          style={{ color: 'var(--text-muted)' }}
+          className="text-[10px] px-2 py-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)]"
           onClick={onReset}
         >
           重置
@@ -497,13 +466,7 @@ function DiceStyleEditor({
             <button
               key={btn.key}
               type="button"
-              className="w-7 h-7 text-xs rounded border flex items-center justify-center"
-              style={{
-                background: active ? 'var(--accent-bg)' : 'var(--bg-card)',
-                color: active ? 'var(--accent)' : 'var(--text-primary)',
-                borderColor: active ? 'var(--accent)' : 'var(--border-color)',
-                ...btn.css,
-              }}
+              className={`w-7 h-7 text-xs rounded border flex items-center justify-center ${btn.cls} ${active ? 'bg-[var(--accent-bg)] text-[var(--accent)] border-[var(--accent)]' : 'bg-[var(--bg-card)] text-[var(--text-primary)] border-[var(--border-color)]'}`}
               onClick={() => onChange({ [btn.key]: !active } as Partial<DiceTextStyle>)}
             >
               {btn.label}
@@ -511,40 +474,29 @@ function DiceStyleEditor({
           );
         })}
         {/* 字色：NGA 24 色色板 popover（参考工具栏） */}
-        <div ref={colorRef} style={{ position: 'relative' }}>
+        <div ref={colorRef} className="relative">
           <div className="flex items-center gap-1">
             <button
               type="button"
-              className="flex items-center gap-1 text-[10px] px-1 py-0.5 rounded border"
-              style={{
-                background: 'var(--bg-card)',
-                color: 'var(--text-secondary)',
-                borderColor: colorOpen ? 'var(--accent)' : 'var(--border-color)',
-              }}
+              className={`flex items-center gap-1 text-[10px] px-1 py-0.5 rounded border bg-[var(--bg-card)] text-[var(--text-secondary)] ${colorOpen ? 'border-[var(--accent)]' : 'border-[var(--border-color)]'}`}
               onClick={() => setColorOpen((v) => !v)}
               title="文字颜色"
             >
               <span
+                className="inline-block w-3 h-3 rounded-[var(--radius-chip)] border border-[var(--border-color)] align-middle"
                 style={{
-                  display: 'inline-block',
-                  width: 12,
-                  height: 12,
-                  borderRadius: 3,
                   background: (() => {
-                    if (!style?.color) return isDark ? '#fff' : '#000';
-                    if (style.color === '#000000' && isDark) return '#ffffff';
+                    if (!style?.color) return 'var(--text-primary)';
+                    if (style.color === '#000000' && isDark) return 'var(--text-primary)';
                     return style.color;
                   })(),
-                  border: '1px solid var(--border-color)',
-                  verticalAlign: 'middle',
                 }}
               />
               字色
             </button>
             {style?.color && (
-              <button
-                className="text-[9px]"
-                style={{ color: 'var(--text-muted)' }}
+              <button aria-label="清除颜色"
+                className="text-[9px] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
                 onClick={() => onChange({ color: undefined })}
                 title="清除颜色"
               >
@@ -554,30 +506,11 @@ function DiceStyleEditor({
           </div>
           {colorOpen && (
             <div
-              style={{
-                position: 'absolute',
-                zIndex: 50,
-                top: 28,
-                left: 0,
-                background: 'var(--bg-card)',
-                border: '1px solid var(--border-color)',
-                borderRadius: 6,
-                padding: 8,
-                boxShadow: '0 6px 20px rgba(0,0,0,0.15)',
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: 4,
-                minWidth: 220,
-                maxHeight: 260,
-                overflowY: 'auto',
-              }}
+              className="absolute z-50 top-7 left-0 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-[var(--radius-control)] p-2 shadow-[var(--shadow-tooltip)] flex flex-wrap gap-1 min-w-[220px] max-h-[260px] overflow-y-auto"
             >
               {NGA_COLORS.map((c, idx) => {
                 const isLast = idx === NGA_COLORS.length - 1;
                 const effectiveCssColor = isLast && isDark ? '#ffffff' : c.cssColor;
-                const baseBorder = isDark
-                  ? 'rgba(255,255,255,0.25)'
-                  : 'rgba(0,0,0,0.1)';
                 return (
                   <button
                     key={c.value}
@@ -586,18 +519,14 @@ function DiceStyleEditor({
                       setColorOpen(false);
                     }}
                     title={isLast && isDark ? '白色' : c.label}
-                    style={{
-                      width: 28,
-                      height: 28,
-                      borderRadius: 4,
-                      background: effectiveCssColor,
-                      border:
-                        style?.color === effectiveCssColor
-                          ? '2px solid var(--accent)'
-                          : `1px solid ${baseBorder}`,
-                      cursor: 'pointer',
-                      outline: 'none',
-                    }}
+                    className={`w-7 h-7 rounded-[var(--radius-sm)] cursor-pointer outline-none ${
+                      style?.color === effectiveCssColor
+                        ? 'border-2 border-[var(--accent)]'
+                        : isDark
+                          ? 'border border-[var(--on-accent-border)]'
+                          : 'border border-[var(--swatch-border)]'
+                    }`}
+                    style={{ background: effectiveCssColor }}
                   />
                 );
               })}
@@ -606,8 +535,7 @@ function DiceStyleEditor({
         </div>
         {/* 字体：NGA 16 项（参考工具栏） */}
         <label
-          className="flex items-center gap-1 text-[10px]"
-          style={{ color: 'var(--text-secondary)' }}
+          className="flex items-center gap-1 text-[10px] text-[var(--text-secondary)]"
         >
           字体
           <select
@@ -618,13 +546,7 @@ function DiceStyleEditor({
               const found = NGA_FONTS.find((f) => f.value === v);
               if (found) onChange({ fontFamily: found.cssFamily });
             }}
-            className="text-[10px] px-1 py-0.5 rounded border"
-            style={{
-              background: 'var(--bg-card)',
-              color: 'var(--text-primary)',
-              borderColor: 'var(--border-color)',
-              minWidth: 80,
-            }}
+            className="text-[10px] px-1 py-0.5 rounded border bg-[var(--bg-card)] text-[var(--text-primary)] border-[var(--border-color)] min-w-[80px]"
           >
             <option value="">默认</option>
             {NGA_FONTS.map((f) => (
@@ -636,8 +558,7 @@ function DiceStyleEditor({
         </label>
         {/* 字号：number input + range（参考工具栏） */}
         <label
-          className="flex items-center gap-1 text-[10px]"
-          style={{ color: 'var(--text-secondary)' }}
+          className="flex items-center gap-1 text-[10px] text-[var(--text-secondary)]"
         >
           字号
           <input
@@ -667,12 +588,7 @@ function DiceStyleEditor({
                 (e.currentTarget as HTMLInputElement).blur();
               }
             }}
-            className="w-12 text-[10px] px-1 py-0.5 rounded border"
-            style={{
-              background: 'var(--bg-card)',
-              color: 'var(--text-primary)',
-              borderColor: 'var(--border-color)',
-            }}
+            className="w-12 text-[10px] px-1 py-0.5 rounded border bg-[var(--bg-card)] text-[var(--text-primary)] border-[var(--border-color)]"
             title="输入 20-500 的百分比"
           />
           <input
@@ -687,10 +603,10 @@ function DiceStyleEditor({
               setFontSizeInput(String(v));
               handleFontSizeChange(v);
             }}
-            style={{ width: 60, accentColor: 'var(--accent)', cursor: 'pointer' }}
+            className="w-[60px] accent-[var(--accent)] cursor-pointer"
             title="拖动调整字号 20%-500%"
           />
-          <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>%</span>
+          <span className="text-[10px] text-[var(--text-muted)]">%</span>
         </label>
       </div>
     </div>
@@ -702,7 +618,7 @@ function DiceStyleEditor({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <label className="block text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>{label}</label>
+      <label className="block text-[11px] font-medium text-[var(--text-secondary)]">{label}</label>
       {children}
     </div>
   );
@@ -722,15 +638,14 @@ function KindButton({
   return (
     <button
       onClick={onClick}
-      className="flex-1 text-left px-3 py-2 rounded-lg border transition-all"
-      style={{
-        background: active ? 'var(--accent-soft)' : 'var(--bg-toolbar)',
-        borderColor: active ? 'var(--accent)' : 'var(--border-color)',
-        color: 'var(--text-primary)',
-      }}
+      className={`flex-1 text-left px-3 py-2 rounded-lg border transition-all text-[var(--text-primary)] ${
+        active
+          ? 'bg-[var(--accent-soft)] border-[var(--accent)]'
+          : 'bg-[var(--bg-toolbar)] border-[var(--border-color)]'
+      }`}
     >
       <div className="text-xs font-semibold">{label}</div>
-      <div className="text-[10px] mt-0.5" style={{ color: 'var(--text-secondary)' }}>{desc}</div>
+      <div className="text-[10px] mt-0.5 text-[var(--text-secondary)]">{desc}</div>
     </button>
   );
 }
@@ -761,8 +676,7 @@ function OptionEditor({
           min={1}
           value={faces}
           onChange={(e) => onFaces(parseInt(e.target.value, 10) || 2)}
-          className="w-32 px-3 py-2 text-xs rounded-md border outline-none"
-          style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', borderColor: 'var(--border-color)' }}
+          className="w-32 px-3 py-2 text-xs rounded-md border outline-none bg-[var(--bg-card)] text-[var(--text-primary)] border-[var(--border-color)]"
         />
       </Field>
 
@@ -770,27 +684,23 @@ function OptionEditor({
         {options.map((opt) => (
           <div
             key={opt.id}
-            className="flex items-start gap-2 p-2 rounded-lg border"
-            style={{ background: 'var(--bg-toolbar)', borderColor: 'var(--border-color)' }}
+            className="flex items-start gap-2 p-2 rounded-lg border bg-[var(--bg-toolbar)] border-[var(--border-color)]"
           >
             <input
               value={opt.displayValue}
               onChange={(e) => onUpdateOption(opt.id, { displayValue: e.target.value })}
               placeholder="值：1-3 / 2,4,6 / 5"
-              className="w-36 shrink-0 px-2 py-1.5 text-xs rounded-md border outline-none font-mono"
-              style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', borderColor: 'var(--border-color)' }}
+              className="w-36 shrink-0 px-2 py-1.5 text-xs rounded-md border outline-none font-mono bg-[var(--bg-card)] text-[var(--text-primary)] border-[var(--border-color)]"
             />
             <input
               value={opt.content}
               onChange={(e) => onUpdateOption(opt.id, { content: e.target.value })}
               placeholder="选项内容，例如「去学校」"
-              className="flex-1 px-2 py-1.5 text-xs rounded-md border outline-none"
-              style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', borderColor: 'var(--border-color)' }}
+              className="flex-1 px-2 py-1.5 text-xs rounded-md border outline-none bg-[var(--bg-card)] text-[var(--text-primary)] border-[var(--border-color)]"
             />
-            <button
+            <button aria-label="删除此选项"
               onClick={() => onRemove(opt.id)}
-              className="shrink-0 w-7 h-7 rounded-md transition-colors text-xs"
-              style={{ color: 'var(--text-secondary)' }}
+              className="shrink-0 w-7 h-7 rounded-md transition-colors text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
               title="删除此选项"
             >
               <Icon name="x" size={12} />
@@ -801,8 +711,7 @@ function OptionEditor({
 
       <button
         onClick={onAdd}
-        className="w-full px-3 py-2 text-xs rounded-lg border border-dashed transition-colors"
-        style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}
+        className="w-full px-3 py-2 text-xs rounded-lg border border-dashed transition-colors border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--accent)]"
       >
         + 新增选项
       </button>
@@ -848,23 +757,21 @@ function NumericEditor({
       <div className="flex items-center gap-2">
         <button
           onClick={() => setMode('simple')}
-          className="px-3 py-1 text-xs rounded-md transition-colors"
-          style={{
-            background: mode === 'simple' ? 'var(--accent-bg)' : 'var(--bg-toolbar)',
-            color: mode === 'simple' ? 'var(--accent)' : 'var(--text-secondary)',
-            border: `1px solid ${mode === 'simple' ? 'var(--accent)' : 'var(--border-color)'}`,
-          }}
+          className={`px-3 py-1 text-xs rounded-md transition-colors border ${
+            mode === 'simple'
+              ? 'bg-[var(--accent-bg)] text-[var(--accent)] border-[var(--accent)]'
+              : 'bg-[var(--bg-toolbar)] text-[var(--text-secondary)] border-[var(--border-color)]'
+          }`}
         >
           简单模式
         </button>
         <button
           onClick={() => setMode('expression')}
-          className="px-3 py-1 text-xs rounded-md transition-colors"
-          style={{
-            background: mode === 'expression' ? 'var(--accent-bg)' : 'var(--bg-toolbar)',
-            color: mode === 'expression' ? 'var(--accent)' : 'var(--text-secondary)',
-            border: `1px solid ${mode === 'expression' ? 'var(--accent)' : 'var(--border-color)'}`,
-          }}
+          className={`px-3 py-1 text-xs rounded-md transition-colors border ${
+            mode === 'expression'
+              ? 'bg-[var(--accent-bg)] text-[var(--accent)] border-[var(--accent)]'
+              : 'bg-[var(--bg-toolbar)] text-[var(--text-secondary)] border-[var(--border-color)]'
+          }`}
         >
           表达式模式
         </button>
@@ -880,8 +787,7 @@ function NumericEditor({
                 max={NUMERIC_MAX_COUNT}
                 value={count}
                 onChange={(e) => onCount(parseInt(e.target.value, 10) || 1)}
-                className="w-full px-2 py-2 text-xs rounded-md border outline-none"
-                style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', borderColor: 'var(--border-color)' }}
+                className="w-full px-2 py-2 text-xs rounded-md border outline-none bg-[var(--bg-card)] text-[var(--text-primary)] border-[var(--border-color)]"
               />
             </Field>
             <Field label={`面数（≤${NUMERIC_MAX_FACES}）`}>
@@ -891,8 +797,7 @@ function NumericEditor({
                 max={NUMERIC_MAX_FACES}
                 value={faces}
                 onChange={(e) => onFaces(parseInt(e.target.value, 10) || 6)}
-                className="w-full px-2 py-2 text-xs rounded-md border outline-none"
-                style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', borderColor: 'var(--border-color)' }}
+                className="w-full px-2 py-2 text-xs rounded-md border outline-none bg-[var(--bg-card)] text-[var(--text-primary)] border-[var(--border-color)]"
               />
             </Field>
             <Field label="修正值（+/-）">
@@ -900,13 +805,12 @@ function NumericEditor({
                 type="number"
                 value={modifier}
                 onChange={(e) => onModifier(parseInt(e.target.value, 10) || 0)}
-                className="w-full px-2 py-2 text-xs rounded-md border outline-none"
-                style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', borderColor: 'var(--border-color)' }}
+                className="w-full px-2 py-2 text-xs rounded-md border outline-none bg-[var(--bg-card)] text-[var(--text-primary)] border-[var(--border-color)]"
               />
             </Field>
           </div>
-          <div className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
-            结果将以 NGA 风格展示，例如 <span className="font-mono" style={{ color: 'var(--text-primary)' }}>[3D6=2+5+3=10]</span>
+          <div className="text-[11px] text-[var(--text-secondary)]">
+            结果将以 NGA 风格展示，例如 <span className="font-mono text-[var(--text-primary)]">[3D6=2+5+3=10]</span>
           </div>
         </>
       ) : (
@@ -916,68 +820,63 @@ function NumericEditor({
               value={expression || ''}
               onChange={(e) => onExpression(e.target.value)}
               placeholder="例如：2*3d100+1d10-5"
-              className="w-full px-3 py-2 text-sm font-mono rounded-md border outline-none"
-              style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', borderColor: 'var(--border-color)' }}
+              className="w-full px-3 py-2 text-sm font-mono rounded-md border outline-none bg-[var(--bg-card)] text-[var(--text-primary)] border-[var(--border-color)]"
             />
           </Field>
           {exprValidation && exprValidation.ok && (
-            <div className="flex items-center gap-1 text-xs rounded-md px-3 py-2"
-              style={{ background: 'var(--accent-soft)', color: 'var(--accent)', border: '1px solid var(--accent-soft)' }}
+            <div className="flex items-center gap-1 text-xs rounded-md px-3 py-2 bg-[var(--accent-soft)] text-[var(--accent)] border border-[var(--accent-soft)]"
             >
               <Icon name="check" size={12} /> 解析成功：{exprValidation.preview}
             </div>
           )}
           {exprValidation && !exprValidation.ok && expression && (
             <div
-              className="text-xs rounded-md px-3 py-2"
-              style={{ background: 'var(--danger-soft)', color: 'var(--danger)', border: '1px solid var(--danger-soft)' }}
+              className="text-xs rounded-md px-3 py-2 bg-[var(--danger-soft)] text-[var(--danger)] border border-[var(--danger-soft)]"
             >
               {exprValidation.error}
             </div>
           )}
           <details
-            className="text-[11px] rounded-md px-3 py-2"
-            style={{ background: 'var(--bg-toolbar)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}
+            className="text-[11px] rounded-md px-3 py-2 bg-[var(--bg-toolbar)] text-[var(--text-secondary)] border border-[var(--border-color)]"
           >
             <summary
-              className="cursor-pointer select-none font-medium"
-              style={{ color: 'var(--text-primary)' }}
+              className="cursor-pointer select-none font-medium text-[var(--text-primary)]"
             >
               <span className="inline-flex items-center gap-1"><Icon name="book" size={14} /> 表达式语法说明（点击展开）</span>
             </summary>
             <div className="mt-2 space-y-2 leading-relaxed">
               <div>
-                <div className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>基础语法</div>
+                <div className="font-semibold mb-1 text-[var(--text-primary)]">基础语法</div>
                 <ul className="list-disc list-inside space-y-0.5 ml-1">
                   <li>
-                    <span className="font-mono" style={{ color: 'var(--text-primary)' }}>NdM</span>：投掷 <span className="font-mono">N</span> 颗 <span className="font-mono">M</span> 面骰，每颗取值 1~M 概率均等；省略 N 默认 1（如 <span className="font-mono">d100</span> ≡ <span className="font-mono">1d100</span>）
+                    <span className="font-mono text-[var(--text-primary)]">NdM</span>：投掷 <span className="font-mono">N</span> 颗 <span className="font-mono">M</span> 面骰，每颗取值 1~M 概率均等；省略 N 默认 1（如 <span className="font-mono">d100</span> ≡ <span className="font-mono">1d100</span>）
                   </li>
                   <li>
-                    <span className="font-mono" style={{ color: 'var(--text-primary)' }}>NdM±K</span>：所有骰子点数之和 ± 固定常数 K
+                    <span className="font-mono text-[var(--text-primary)]">NdM±K</span>：所有骰子点数之和 ± 固定常数 K
                   </li>
                   <li>多个骰子项可用 + - * / 连接，遵循常规运算优先级（乘除 &gt; 加减）</li>
                 </ul>
               </div>
               <div>
-                <div className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>进阶语法</div>
+                <div className="font-semibold mb-1 text-[var(--text-primary)]">进阶语法</div>
                 <ul className="list-disc list-inside space-y-0.5 ml-1">
                   <li>
-                    <span className="font-mono" style={{ color: 'var(--text-primary)' }}>NdMkhX</span>：投 N 颗 M 面，<b>保留最高的 X 颗</b>求和（如 <span className="font-mono">4d6kh3</span> 投 4 颗 d6 取最大 3 颗）
+                    <span className="font-mono text-[var(--text-primary)]">NdMkhX</span>：投 N 颗 M 面，<b>保留最高的 X 颗</b>求和（如 <span className="font-mono">4d6kh3</span> 投 4 颗 d6 取最大 3 颗）
                   </li>
                   <li>
-                    <span className="font-mono" style={{ color: 'var(--text-primary)' }}>NdMklX</span>：投 N 颗 M 面，<b>保留最低的 X 颗</b>求和（如 <span className="font-mono">5d10kl2</span>）
+                    <span className="font-mono text-[var(--text-primary)]">NdMklX</span>：投 N 颗 M 面，<b>保留最低的 X 颗</b>求和（如 <span className="font-mono">5d10kl2</span>）
                   </li>
                   <li>
-                    <span className="font-mono" style={{ color: 'var(--text-primary)' }}>NdM!</span>：<b>爆炸骰</b>，单颗掷出最大值 M 时追加 1 颗同面骰，递归直到未掷出最大值（典型 <span className="font-mono">1d6!</span>）
+                    <span className="font-mono text-[var(--text-primary)]">NdM!</span>：<b>爆炸骰</b>，单颗掷出最大值 M 时追加 1 颗同面骰，递归直到未掷出最大值（典型 <span className="font-mono">1d6!</span>）
                   </li>
                   <li>
-                    <span className="font-mono" style={{ color: 'var(--text-primary)' }}>NdM&gt;=X</span>：<b>骰池计数</b>，统计点数 ≥ X 的骰子颗数，结果为<b>成功次数</b>而非点数（如 <span className="font-mono">6d10&gt;=7</span> 投 6 颗 d10 数 ≥7 的颗数）
+                    <span className="font-mono text-[var(--text-primary)]">NdM&gt;=X</span>：<b>骰池计数</b>，统计点数 ≥ X 的骰子颗数，结果为<b>成功次数</b>而非点数（如 <span className="font-mono">6d10&gt;=7</span> 投 6 颗 d10 数 ≥7 的颗数）
                   </li>
                 </ul>
               </div>
               <div>
-                <div className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>示例</div>
-                <div className="font-mono space-y-0.5 ml-1" style={{ color: 'var(--text-primary)' }}>
+                <div className="font-semibold mb-1 text-[var(--text-primary)]">示例</div>
+                <div className="font-mono space-y-0.5 ml-1 text-[var(--text-primary)]">
                   <div>2d6+3</div>
                   <div>4d6kh3</div>
                   <div>1d6!+2d6</div>
@@ -993,8 +892,7 @@ function NumericEditor({
       {/* 格式预览 */}
       <Field label="格式预览">
         <div
-          className="px-3 py-2 text-sm font-mono rounded-md border"
-          style={{ background: 'var(--bg-toolbar)', color: 'var(--text-primary)', borderColor: 'var(--border-color)' }}
+          className="px-3 py-2 text-sm font-mono rounded-md border bg-[var(--bg-toolbar)] text-[var(--text-primary)] border-[var(--border-color)]"
         >
           {formula}
         </div>

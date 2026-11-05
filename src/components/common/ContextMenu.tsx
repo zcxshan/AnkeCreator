@@ -45,8 +45,8 @@ export function ContextMenu({
           zIndex: 1000,
           background: 'var(--bg-card)',
           border: '1px solid var(--border-color)',
-          borderRadius: 6,
-          boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
+          borderRadius: 'var(--radius-control)',
+          boxShadow: 'var(--shadow-float)',
           padding: 4,
           minWidth: 180,
           fontSize: 13,
@@ -58,11 +58,7 @@ export function ContextMenu({
           <React.Fragment key={idx}>
             {sepSet.has(idx) && (
               <div
-                style={{
-                  height: 1,
-                  background: 'var(--border-color)',
-                  margin: '4px 0',
-                }}
+                className="h-[1px] bg-[var(--border-color)] my-[4px] mx-[0px]"
               />
             )}
             <ContextMenuItem {...item} />
@@ -77,11 +73,7 @@ export function ContextMenu({
           e.preventDefault();
           onClose();
         }}
-        style={{
-          position: 'fixed',
-          inset: 0,
-          zIndex: 999,
-        }}
+        className="fixed inset-0 z-[999]"
       />
     </>
   );
@@ -99,14 +91,14 @@ function ContextMenuItem({
       onClick={disabled ? undefined : onClick}
       style={{
         padding: '6px 12px',
-        borderRadius: 4,
+        borderRadius: 'var(--radius-sm)',
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.4 : 1,
         transition: 'background 0.12s',
       }}
       onMouseEnter={(e) => {
         if (disabled) return;
-        e.currentTarget.style.background = 'var(--bg-hover, rgba(99,102,241,0.1))';
+        e.currentTarget.style.background = 'var(--bg-hover)';
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.background = 'transparent';

@@ -61,19 +61,19 @@ export function TitleBar({
     >
       {/* 左侧：应用名 + 当前故事/节 */}
       <div className="flex items-center px-3 text-xs overflow-hidden">
-        <span className="font-medium whitespace-nowrap" style={{ color: 'var(--text-primary)' }}>
+        <span className="text-[var(--text-primary)] font-medium whitespace-nowrap">
           安科作者助手
         </span>
         {storyTitle && (
           <>
-            <span className="mx-2" style={{ color: 'var(--text-muted)' }}>—</span>
-            <span className="truncate" style={{ color: 'var(--text-secondary)' }}>
+            <span className="text-[var(--text-muted)] mx-2">—</span>
+            <span className="text-[var(--text-secondary)] truncate">
               {storyTitle}
             </span>
             {sectionTitle && (
               <>
-                <span className="mx-1" style={{ color: 'var(--text-muted)' }}>/</span>
-                <span className="truncate" style={{ color: 'var(--text-secondary)' }}>
+                <span className="text-[var(--text-muted)] mx-1">/</span>
+                <span className="text-[var(--text-secondary)] truncate">
                   {sectionTitle}
                 </span>
               </>
@@ -91,8 +91,7 @@ export function TitleBar({
         <button
           onClick={() => setShowSettings(true)}
           title="设置"
-          className="w-10 h-8 flex items-center justify-center transition-colors"
-          style={{ color: 'var(--text-secondary)' }}
+          className="text-[var(--text-secondary)] w-10 h-8 flex items-center justify-center transition-colors"
           onMouseEnter={(e) => {
             e.currentTarget.style.background = 'var(--bg-hover)';
             e.currentTarget.style.color = 'var(--text-primary)';
@@ -112,8 +111,7 @@ export function TitleBar({
         <button
           onClick={toggle}
           title={mode === 'dark' ? '切换到日间模式' : '切换到夜间模式'}
-          className="w-10 h-8 flex items-center justify-center transition-colors"
-          style={{ color: 'var(--text-secondary)' }}
+          className="text-[var(--text-secondary)] w-10 h-8 flex items-center justify-center transition-colors"
           onMouseEnter={(e) => {
             e.currentTarget.style.background = 'var(--bg-hover)';
             e.currentTarget.style.color = 'var(--text-primary)';
@@ -148,8 +146,7 @@ export function TitleBar({
         <button
           onClick={() => setShowAuthorInfo(true)}
           title="关于作者"
-          className="w-10 h-8 flex items-center justify-center transition-colors"
-          style={{ color: 'var(--text-secondary)' }}
+          className="text-[var(--text-secondary)] w-10 h-8 flex items-center justify-center transition-colors"
           onMouseEnter={(e) => {
             e.currentTarget.style.background = 'var(--bg-hover)';
             e.currentTarget.style.color = 'var(--text-primary)';
@@ -171,8 +168,7 @@ export function TitleBar({
           onClick={() => window.electronAPI?.minimize()}
           disabled={!hasElectron}
           title="最小化"
-          className="w-10 h-8 flex items-center justify-center transition-colors disabled:opacity-60"
-          style={{ color: 'var(--text-secondary)' }}
+          className="text-[var(--text-secondary)] w-10 h-8 flex items-center justify-center transition-colors disabled:opacity-60"
           onMouseEnter={(e) => {
             e.currentTarget.style.background = 'var(--bg-hover)';
             e.currentTarget.style.color = 'var(--text-primary)';
@@ -199,8 +195,7 @@ export function TitleBar({
           onClick={handleToggleMaximize}
           disabled={!hasElectron}
           title={isMaximized ? '还原' : '最大化'}
-          className="w-10 h-8 flex items-center justify-center transition-colors disabled:opacity-60"
-          style={{ color: 'var(--text-secondary)' }}
+          className="text-[var(--text-secondary)] w-10 h-8 flex items-center justify-center transition-colors disabled:opacity-60"
           onMouseEnter={(e) => {
             e.currentTarget.style.background = 'var(--bg-hover)';
             e.currentTarget.style.color = 'var(--text-primary)';
@@ -249,8 +244,7 @@ export function TitleBar({
           onClick={() => window.electronAPI?.close()}
           disabled={!hasElectron}
           title="关闭"
-          className="w-10 h-8 flex items-center justify-center transition-colors disabled:opacity-60"
-          style={{ color: 'var(--text-secondary)' }}
+          className="text-[var(--text-secondary)] w-10 h-8 flex items-center justify-center transition-colors disabled:opacity-60"
           onMouseEnter={(e) => {
             e.currentTarget.style.background = 'var(--danger)';
             e.currentTarget.style.color = 'var(--text-on-accent)';

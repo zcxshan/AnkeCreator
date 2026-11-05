@@ -17,6 +17,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Icon } from '../common/Icon'
+import { askConfirm } from '../common/confirmPrompt'
 import { SchemeEditor } from '../wheel/SchemeEditor'
 import { WheelPlayground } from '../wheel/WheelPlayground'
 import { validateWheelImport, unwrapWheelImport } from '../../utils/wheelImport'
@@ -75,6 +76,8 @@ export function WheelPage({ onBack }: WheelPageProps) {
   const [playingScheme, setPlayingScheme] = useState<WheelScheme | null>(null)
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
+  // 加载失败需在页面内可见并可重试（不能只弹一次 toast）
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [showHistory, setShowHistory] = useState(false)
   const [toast, setToast] = useState<{ msg: string; type: 'info' | 'error' | 'success' } | null>(null)
 
@@ -87,6 +90,7 @@ export function WheelPage({ onBack }: WheelPageProps) {
   // 加载方案列表 + 历史记录
   const refresh = useCallback(async () => {
     setLoading(true)
+    setLoadError(null)
     try {
       const [list, hist] = await Promise.all([
         window.wheelAPI.listSchemes(),
@@ -96,6 +100,7 @@ export function WheelPage({ onBack }: WheelPageProps) {
       setHistory(hist)
     } catch (e) {
       console.error('[WheelPage] 加载失败:', e)
+      setLoadError((e as Error)?.message || String(e))
       showToast('加载数据失败', 'error')
     } finally {
       setLoading(false)
@@ -131,7 +136,13 @@ export function WheelPage({ onBack }: WheelPageProps) {
   // 删除方案
   const handleDelete = useCallback(
     async (scheme: WheelScheme) => {
-      if (!confirm(`确定删除方案「${scheme.name}」吗？相关历史记录也会一并删除。`)) return
+      const confirmed = await askConfirm({
+        title: '删除方案',
+        message: `确定删除方案「${scheme.name}」吗？相关历史记录也会一并删除。`,
+        confirmText: '删除',
+        danger: true,
+      })
+      if (!confirmed) return
       try {
         await window.wheelAPI.deleteScheme(scheme.id)
         showToast('已删除', 'success')
@@ -167,7 +178,6 @@ export function WheelPage({ onBack }: WheelPageProps) {
         console.error('[WheelPage] 复制失败:', e)
         showToast('复制失败', 'error')
       }
-      void now
     },
     [refresh, showToast],
   )
@@ -272,7 +282,13 @@ export function WheelPage({ onBack }: WheelPageProps) {
 
   // 清空历史
   const handleClearHistory = useCallback(async () => {
-    if (!confirm('确定清空所有抽取历史记录吗？')) return
+    const confirmed = await askConfirm({
+      title: '清空历史',
+      message: '确定清空所有抽取历史记录吗？',
+      confirmText: '清空',
+      danger: true,
+    })
+    if (!confirmed) return
     try {
       await window.wheelAPI.clearHistory()
       showToast('已清空历史', 'success')
@@ -321,13 +337,12 @@ export function WheelPage({ onBack }: WheelPageProps) {
       >
         <div className="flex items-start justify-between gap-3 mb-2">
           <div className="flex-1 min-w-0">
-            <div className="text-base font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+            <div className="text-[var(--text-primary)] text-base font-medium truncate">
               {scheme.name}
             </div>
             {scheme.description && (
               <div
-                className="text-xs mt-1 line-clamp-2"
-                style={{ color: 'var(--text-secondary)' }}
+                className="text-[var(--text-secondary)] text-xs mt-1 line-clamp-2"
               >
                 {scheme.description}
               </div>
@@ -335,8 +350,7 @@ export function WheelPage({ onBack }: WheelPageProps) {
           </div>
         </div>
         <div
-          className="flex flex-wrap gap-x-3 gap-y-1 text-xs mb-3"
-          style={{ color: 'var(--text-tertiary, #888)' }}
+          className="text-[var(--text-tertiary)] flex flex-wrap gap-x-3 gap-y-1 text-xs mb-3"
         >
           <span className="inline-flex items-center gap-1"><Icon name="target" size={12} /> {scheme.stages.length} 个阶段</span>
           <span className="inline-flex items-center gap-1"><Icon name="fileText" size={12} /> {scheme.stages.reduce((sum, s) => sum + s.options.length, 0)} 个选项</span>
@@ -348,56 +362,31 @@ export function WheelPage({ onBack }: WheelPageProps) {
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => handlePlay(scheme)}
-            className="px-3 py-1.5 text-xs rounded-lg transition-colors"
-            style={{
-              background: 'var(--accent-bg)',
-              color: 'var(--accent)',
-              border: '1px solid var(--accent)',
-            }}
+            className="bg-[var(--accent-bg)] text-[var(--accent)] border border-[color:var(--accent)] px-3 py-1.5 text-xs rounded-lg transition-colors"
           >
             <><Icon name="wheel" size={16} /> 开始抽取</>
           </button>
           <button
             onClick={() => handleEdit(scheme)}
-            className="px-3 py-1.5 text-xs rounded-lg transition-colors"
-            style={{
-              background: 'var(--bg-hover)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border-color)',
-            }}
+            className="bg-[var(--bg-hover)] text-[var(--text-primary)] border border-[color:var(--border-color)] px-3 py-1.5 text-xs rounded-lg transition-colors"
           >
             <><Icon name="pen" size={16} /> 编辑</>
           </button>
           <button
             onClick={() => handleExport(scheme)}
-            className="px-3 py-1.5 text-xs rounded-lg transition-colors"
-            style={{
-              background: 'var(--bg-hover)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border-color)',
-            }}
+            className="bg-[var(--bg-hover)] text-[var(--text-primary)] border border-[color:var(--border-color)] px-3 py-1.5 text-xs rounded-lg transition-colors"
           >
             <><Icon name="upload" size={16} /> 导出</>
           </button>
           <button
             onClick={() => handleDuplicate(scheme)}
-            className="px-3 py-1.5 text-xs rounded-lg transition-colors"
-            style={{
-              background: 'var(--bg-hover)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border-color)',
-            }}
+            className="bg-[var(--bg-hover)] text-[var(--text-primary)] border border-[color:var(--border-color)] px-3 py-1.5 text-xs rounded-lg transition-colors"
           >
             <><Icon name="copy" size={16} /> 复制</>
           </button>
           <button
             onClick={() => handleDelete(scheme)}
-            className="px-3 py-1.5 text-xs rounded-lg transition-colors"
-            style={{
-              background: 'var(--bg-hover)',
-              color: '#ef4444',
-              border: '1px solid var(--border-color)',
-            }}
+            className="bg-[var(--bg-hover)] text-[var(--tone-danger)] border border-[color:var(--border-color)] px-3 py-1.5 text-xs rounded-lg transition-colors"
           >
             <><Icon name="trash" size={16} /> 删除</>
           </button>
@@ -416,22 +405,22 @@ export function WheelPage({ onBack }: WheelPageProps) {
         className="anke-card p-3 text-sm"
       >
         <div className="flex items-center justify-between mb-2">
-          <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
+          <span className="text-[var(--text-primary)] font-medium">
             {h.schemeName}
           </span>
-          <span className="text-xs" style={{ color: 'var(--text-tertiary, #888)' }}>
+          <span className="text-[var(--text-tertiary)] text-xs">
             {formatTime(h.drawnAt)}
           </span>
         </div>
         <div className="space-y-1">
           {validResults.map((r, i) => (
-            <div key={i} className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-              <span style={{ color: 'var(--text-tertiary, #888)' }}>{r.stageName}：</span>
+            <div key={i} className="text-[var(--text-secondary)] text-xs">
+              <span className="text-[var(--text-tertiary)]">{r.stageName}：</span>
               {r.results.join('、')}
             </div>
           ))}
           {validResults.length === 0 && (
-            <div className="text-xs" style={{ color: 'var(--text-tertiary, #888)' }}>
+            <div className="text-[var(--text-tertiary)] text-xs">
               （所有阶段均跳过）
             </div>
           )}
@@ -439,8 +428,7 @@ export function WheelPage({ onBack }: WheelPageProps) {
         {h.finalPrompt && (
           <details className="mt-2">
             <summary
-              className="cursor-pointer text-xs select-none"
-              style={{ color: 'var(--accent)' }}
+              className="text-[var(--accent)] cursor-pointer text-xs select-none"
             >
               查看 Prompt
             </summary>
@@ -465,22 +453,16 @@ export function WheelPage({ onBack }: WheelPageProps) {
   const header = useMemo(
     () => (
       <div
-        className="flex items-center justify-between gap-3 mb-4"
-        style={{ borderBottom: '1px solid var(--border-color)' }}
+        className="border-b border-b-[color:var(--border-color)] flex items-center justify-between gap-3 mb-4"
       >
         <div className="flex items-center gap-3 pb-3">
           <button
             onClick={onBack}
-            className="px-3 py-1.5 text-sm rounded-lg transition-colors"
-            style={{
-              background: 'var(--bg-card)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border-color)',
-            }}
+            className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)] inline-flex items-center gap-1.5 whitespace-nowrap px-3 py-1.5 text-sm rounded-lg transition-colors"
           >
             <><Icon name="back" size={16} /> 返回</>
           </button>
-          <h1 className="text-lg font-semibold inline-flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+          <h1 className="text-[var(--text-primary)] text-lg font-semibold inline-flex items-center gap-2">
             <Icon name="wheel" size={16} /> 玩转盘
           </h1>
         </div>
@@ -499,23 +481,13 @@ export function WheelPage({ onBack }: WheelPageProps) {
             </button>
             <button
               onClick={handleImport}
-              className="px-3 py-1.5 text-xs rounded-lg transition-colors"
-              style={{
-                background: 'var(--bg-card)',
-                color: 'var(--text-primary)',
-                border: '1px solid var(--border-color)',
-              }}
+              className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)] px-3 py-1.5 text-xs rounded-lg transition-colors"
             >
               <><Icon name="download" size={16} /> 导入</>
             </button>
             <button
               onClick={handleCreate}
-              className="px-3 py-1.5 text-xs rounded-lg transition-colors"
-              style={{
-                background: 'var(--accent-bg)',
-                color: 'var(--accent)',
-                border: '1px solid var(--accent)',
-              }}
+              className="bg-[var(--accent-bg)] text-[var(--accent)] border border-[color:var(--accent)] px-3 py-1.5 text-xs rounded-lg transition-colors"
             >
               + 新建方案
             </button>
@@ -528,8 +500,7 @@ export function WheelPage({ onBack }: WheelPageProps) {
 
   return (
     <div
-      className="min-h-full w-full flex flex-col"
-      style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}
+      className="bg-[var(--bg-base)] text-[var(--text-primary)] min-h-full w-full flex flex-col"
     >
       <div className="flex-1 w-full max-w-4xl mx-auto px-4 py-4 md:px-6 md:py-6 flex flex-col">
         {header}
@@ -537,21 +508,33 @@ export function WheelPage({ onBack }: WheelPageProps) {
         {/* 列表视图 */}
         {view === 'list' && (
           <div className="flex-1 flex flex-col gap-4">
-            {showHistory ? (
+            {loadError ? (
+              <div
+                role="alert"
+                className="border border-[color:var(--tone-danger-border)] bg-[var(--tone-danger-veil)] rounded-xl px-6 py-8 text-center"
+              >
+                <div className="text-[var(--tone-danger)] flex justify-center mb-2">
+                  <Icon name="alert" size={28} />
+                </div>
+                <div className="text-[var(--text-primary)] text-sm font-medium">转盘数据加载失败</div>
+                <div className="text-[var(--text-secondary)] text-xs mt-1">{loadError}</div>
+                <button
+                  onClick={() => refresh()}
+                  className="mt-4 inline-flex items-center gap-1 px-4 py-1.5 text-sm rounded-md bg-[var(--accent-bg)] text-[var(--accent)] border border-[color:var(--accent)]"
+                >
+                  <Icon name="refresh" size={13} /> 重新加载
+                </button>
+              </div>
+            ) : showHistory ? (
               <div className="flex flex-col gap-3">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-base font-medium" style={{ color: 'var(--text-primary)' }}>
+                  <h2 className="text-[var(--text-primary)] text-base font-medium">
                     抽取历史记录
                   </h2>
                   {history.length > 0 && (
                     <button
                       onClick={handleClearHistory}
-                      className="px-3 py-1 text-xs rounded-lg transition-colors"
-                      style={{
-                        background: 'var(--bg-hover)',
-                        color: '#ef4444',
-                        border: '1px solid var(--border-color)',
-                      }}
+                      className="bg-[var(--bg-hover)] text-[var(--tone-danger)] border border-[color:var(--border-color)] px-3 py-1 text-xs rounded-lg transition-colors"
                     >
                       清空历史
                     </button>
@@ -559,19 +542,13 @@ export function WheelPage({ onBack }: WheelPageProps) {
                 </div>
                 {loading ? (
                   <div
-                    className="text-center py-8 text-sm"
-                    style={{ color: 'var(--text-secondary)' }}
+                    className="text-[var(--text-secondary)] text-center py-8 text-sm"
                   >
                     加载中...
                   </div>
                 ) : history.length === 0 ? (
                   <div
-                    className="text-center py-12 rounded-xl"
-                    style={{
-                      background: 'var(--bg-card)',
-                      border: '2px dashed var(--border-color)',
-                      color: 'var(--text-secondary)',
-                    }}
+                    className="bg-[var(--bg-card)] border-[2px] border-[color:var(--border-color)] text-[var(--text-secondary)] text-center py-12 rounded-xl"
                   >
                     <div className="flex justify-center mb-2"><Icon name="scroll" size={48} /></div>
                     <div className="text-sm">还没有抽取历史记录</div>
@@ -586,22 +563,16 @@ export function WheelPage({ onBack }: WheelPageProps) {
               <div className="flex flex-col gap-3">
                 {loading ? (
                   <div
-                    className="text-center py-8 text-sm"
-                    style={{ color: 'var(--text-secondary)' }}
+                    className="text-[var(--text-secondary)] text-center py-8 text-sm"
                   >
                     加载中...
                   </div>
                 ) : schemes.length === 0 ? (
                   <div
-                    className="text-center py-16 rounded-xl"
-                    style={{
-                      background: 'var(--bg-card)',
-                      border: '2px dashed var(--border-color)',
-                      color: 'var(--text-secondary)',
-                    }}
+                    className="bg-[var(--bg-card)] border-[2px] border-[color:var(--border-color)] text-[var(--text-secondary)] text-center py-16 rounded-xl"
                   >
                     <div className="flex justify-center mb-3"><Icon name="wheel" size={48} /></div>
-                    <div className="text-base font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                    <div className="text-[var(--text-primary)] text-base font-medium mb-1">
                       还没有转盘方案
                     </div>
                     <div className="text-sm mb-4">
@@ -610,23 +581,13 @@ export function WheelPage({ onBack }: WheelPageProps) {
                     <div className="flex justify-center gap-2">
                       <button
                         onClick={handleCreate}
-                        className="px-4 py-2 text-sm rounded-lg transition-colors"
-                        style={{
-                          background: 'var(--accent-bg)',
-                          color: 'var(--accent)',
-                          border: '1px solid var(--accent)',
-                        }}
+                        className="bg-[var(--accent-bg)] text-[var(--accent)] border border-[color:var(--accent)] px-4 py-2 text-sm rounded-lg transition-colors"
                       >
                         + 新建方案
                       </button>
                       <button
                         onClick={handleImport}
-                        className="px-4 py-2 text-sm rounded-lg transition-colors"
-                        style={{
-                          background: 'var(--bg-card)',
-                          color: 'var(--text-primary)',
-                          border: '1px solid var(--border-color)',
-                        }}
+                        className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)] px-4 py-2 text-sm rounded-lg transition-colors"
                       >
                         <><Icon name="download" size={16} /> 导入方案</>
                       </button>
@@ -645,7 +606,7 @@ export function WheelPage({ onBack }: WheelPageProps) {
         {/* 编辑视图 */}
         {view === 'edit' && editingScheme && (
           <div className="flex-1 flex flex-col">
-            <div className="mb-3 text-sm" style={{ color: 'var(--text-secondary)' }}>
+            <div className="text-[var(--text-secondary)] mb-3 text-sm">
               {schemes.some((s) => s.id === editingScheme.id) ? '编辑方案' : '新建方案'}
             </div>
             <SchemeEditor
@@ -661,7 +622,7 @@ export function WheelPage({ onBack }: WheelPageProps) {
         {/* 抽取视图 */}
         {view === 'play' && playingScheme && (
           <div className="flex-1 flex flex-col">
-            <div className="mb-3 text-sm" style={{ color: 'var(--text-secondary)' }}>
+            <div className="text-[var(--text-secondary)] mb-3 text-sm">
               正在抽取：{playingScheme.name}
             </div>
             <WheelPlayground
@@ -680,11 +641,11 @@ export function WheelPage({ onBack }: WheelPageProps) {
           style={{
             background:
               toast.type === 'error'
-                ? '#ef4444'
+                ? 'var(--tone-danger)'
                 : toast.type === 'success'
-                  ? '#10b981'
+                  ? 'var(--tone-success)'
                   : 'var(--bg-card)',
-            color: toast.type === 'info' ? 'var(--text-primary)' : '#fff',
+            color: toast.type === 'info' ? 'var(--text-primary)' : 'var(--text-on-accent)',
             border: '1px solid var(--border-color)',
           }}
         >

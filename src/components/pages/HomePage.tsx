@@ -13,6 +13,7 @@ interface HomePageProps {
   onShowAuthor?: () => void;
   onShowAnjiaCollect?: () => void;
   onShowAnkeCollect?: () => void;
+  onShowGululuCollect?: () => void;
   onShowFindAnke?: () => void;
   onShowDicePlayground?: () => void;
   onShowWheelPlayground?: () => void;
@@ -63,6 +64,10 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
   const [pickerStories, setPickerStories] = useState<{ id: string; title: string; updated_at: string }[]>([]);
   // 最近编辑作品列表（供首页「最近编辑」区块渲染）
   const [recentStories, setRecentStories] = useState<RecentStorySummary[]>([]);
+  // 最近作品加载态：数据库读取可能失败，页面必须有 loading / empty / error 三态
+  const [recentLoading, setRecentLoading] = useState(true);
+  const [recentError, setRecentError] = useState<string | null>(null);
+  const [recentReloadKey, setRecentReloadKey] = useState(0);
 
   // 统计数据：所有作品的字数、骰点数、作品数（基于富文本 content 字段）
   const [stats, setStats] = useState<StatItem[]>([
@@ -74,58 +79,69 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
   useEffect(() => {
     let cancelled = false;
     const compute = async () => {
-      // 一次性聚合查询：3 次文件读 vs 原来 N×M 次（消灭 N+1）
-      const storiesWithStats = await db.listStoriesWithStats();
-      const diceRecords = useDiceHistoryStore.getState().records;
+      setRecentLoading(true);
+      setRecentError(null);
+      try {
+        // 一次性聚合查询：3 次文件读 vs 原来 N×M 次（消灭 N+1）
+        const storiesWithStats = await db.listStoriesWithStats();
+        const diceRecords = useDiceHistoryStore.getState().records;
 
-      let totalWords = 0;
-      const storyCount = storiesWithStats.length;
-      for (const s of storiesWithStats) {
-        totalWords += s.wordCount || 0;
-      }
+        let totalWords = 0;
+        const storyCount = storiesWithStats.length;
+        for (const s of storiesWithStats) {
+          totalWords += s.wordCount || 0;
+        }
 
-      // 只统计当前仍存在的作品的骰点记录（#1：删除作品后骰子历史可能残留）
-      const validStoryIds = new Set(storiesWithStats.map((s) => s.id));
-      const totalDice = diceRecords.filter((r) => validStoryIds.has(r.storyId)).length;
+        // 只统计当前仍存在的作品的骰点记录（#1：删除作品后骰子历史可能残留）
+        const validStoryIds = new Set(storiesWithStats.map((s) => s.id));
+        const totalDice = diceRecords.filter((r) => validStoryIds.has(r.storyId)).length;
 
-      if (!cancelled) {
-        setStats([
-          { icon: 'pen', label: '累计创作字数', value: totalWords.toLocaleString() },
-          { icon: 'dices', label: '骰点总次数', value: totalDice.toLocaleString() },
-          { icon: 'book', label: '安科作品数', value: storyCount.toLocaleString() },
-        ]);
-      }
+        if (!cancelled) {
+          setStats([
+            { icon: 'pen', label: '累计创作字数', value: totalWords.toLocaleString() },
+            { icon: 'dices', label: '骰点总次数', value: totalDice.toLocaleString() },
+            { icon: 'book', label: '安科作品数', value: storyCount.toLocaleString() },
+          ]);
+        }
 
-      // 预建骰子记录 → 作品 ID 计数索引，避免为每个作品重复 filter 遍历
-      const diceCountByStory = new Map<string, number>();
-      for (const r of diceRecords) {
-        diceCountByStory.set(r.storyId, (diceCountByStory.get(r.storyId) ?? 0) + 1);
-      }
+        // 预建骰子记录 → 作品 ID 计数索引，避免为每个作品重复 filter 遍历
+        const diceCountByStory = new Map<string, number>();
+        for (const r of diceRecords) {
+          diceCountByStory.set(r.storyId, (diceCountByStory.get(r.storyId) ?? 0) + 1);
+        }
 
-      // 最近编辑的作品摘要（最多 3 个），复用已聚合的统计字段
-      const sorted = [...storiesWithStats]
-        .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
-        .slice(0, 3);
+        // 最近编辑的作品摘要（最多 3 个），复用已聚合的统计字段
+        const sorted = [...storiesWithStats]
+          .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+          .slice(0, 3);
 
-      const results: RecentStorySummary[] = sorted.map((story) => ({
-        id: story.id,
-        title: story.title,
-        description: story.description || '',
-        updatedAt: formatDate(story.updated_at),
-        sectionCount: story.sectionCount || 0,
-        diceCount: diceCountByStory.get(story.id) ?? 0,
-        wordCount: story.wordCount || 0,
-      }));
+        const results: RecentStorySummary[] = sorted.map((story) => ({
+          id: story.id,
+          title: story.title,
+          description: story.description || '',
+          updatedAt: formatDate(story.updated_at),
+          sectionCount: story.sectionCount || 0,
+          diceCount: diceCountByStory.get(story.id) ?? 0,
+          wordCount: story.wordCount || 0,
+        }));
 
-      if (!cancelled) {
-        setRecentStories(results);
+        if (!cancelled) {
+          setRecentStories(results);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          console.error('[HomePage] 加载最近作品失败：', e);
+          setRecentError((e as Error)?.message || String(e));
+        }
+      } finally {
+        if (!cancelled) setRecentLoading(false);
       }
     };
-    compute();
+    void compute();
     return () => {
       cancelled = true;
     };
-  }, [stories]);
+  }, [stories, recentReloadKey]);
 
   const handleCreateStory = async () => {
     const title = newStoryTitle.trim() || `未命名作品 ${new Date().toLocaleDateString()}`;
@@ -144,7 +160,7 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
   };
 
   return (
-    <div className="min-h-full w-full flex flex-col items-center" style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}>
+    <div className="bg-[var(--bg-base)] text-[var(--text-primary)] min-h-full w-full flex flex-col items-center">
       <div className="w-full max-w-4xl px-4 py-6 md:px-8 md:py-12">
         {/* 欢迎区 */}
         <section className="mb-10">
@@ -152,23 +168,22 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
             安科助手 · Anke Creator
           </div>
-          <h1 className="text-4xl sm:text-5xl font-bold tracking-tight leading-tight" style={{ color: 'var(--text-primary)' }}>
+          <h1 className="text-[var(--text-primary)] text-4xl sm:text-5xl font-bold tracking-tight leading-tight">
             欢迎回来！
             <span className="block mt-2 bg-gradient-to-r from-emerald-600 via-teal-500 to-cyan-500 bg-clip-text text-transparent">
               准备开始新的安科创作
             </span>
           </h1>
-          <p className="mt-4 text-base sm:text-lg leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+          <p className="text-[var(--text-secondary)] mt-4 text-base sm:text-lg leading-relaxed">
             骰子决定命运，故事由此展开 —— 让每一次掷骰都成为精彩的转折。
           </p>
 
           <div className={isCapacitor ? 'mt-8 grid grid-cols-2 gap-2' : 'mt-8 flex flex-wrap gap-3'}>
             <button
               onClick={() => setShowNewStoryModal(true)}
-              className={isCapacitor
+              className={`${isCapacitor
                 ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium shadow-sm active:translate-y-0 transition-all'
-                : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium shadow-sm hover:-translate-y-0.5 active:translate-y-0 transition-all'}
-              style={{ background: 'var(--accent-bg)', color: 'var(--accent)', border: '1px solid var(--accent)' }}
+                : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium shadow-sm hover:-translate-y-0.5 active:translate-y-0 transition-all'} bg-[var(--accent-bg)] text-[var(--accent)] border border-[color:var(--accent)]`}
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent)'; e.currentTarget.style.color = 'var(--text-on-accent)' }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--accent-bg)'; e.currentTarget.style.color = 'var(--accent)' }}
             >
@@ -178,10 +193,9 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
             {onShowResourceLibrary && (
               <button
                 onClick={onShowResourceLibrary}
-                className={isCapacitor
+                className={`${isCapacitor
                   ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
-                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'}
-                style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'} bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)]`}
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
               >
@@ -191,10 +205,9 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
             {onShowTutorial && (
               <button
                 onClick={onShowTutorial}
-                className={isCapacitor
+                className={`${isCapacitor
                   ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
-                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'}
-                style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'} bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)]`}
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
               >
@@ -204,10 +217,9 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
             {onShowAnjiaCollect && !isCapacitor && (
               <button
                 onClick={onShowAnjiaCollect}
-                className={isCapacitor
+                className={`${isCapacitor
                   ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
-                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'}
-                style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'} bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)]`}
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
               >
@@ -217,10 +229,9 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
             {onShowAnkeCollect && !isCapacitor && (
               <button
                 onClick={onShowAnkeCollect}
-                className={isCapacitor
+                className={`${isCapacitor
                   ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
-                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'}
-                style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'} bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)]`}
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
               >
@@ -230,10 +241,9 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
             {onShowFindAnke && !isCapacitor && (
               <button
                 onClick={onShowFindAnke}
-                className={isCapacitor
+                className={`${isCapacitor
                   ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
-                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'}
-                style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'} bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)]`}
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
               >
@@ -243,10 +253,9 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
             {onShowDicePlayground && (
               <button
                 onClick={onShowDicePlayground}
-                className={isCapacitor
+                className={`${isCapacitor
                   ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
-                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'}
-                style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'} bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)]`}
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
               >
@@ -256,10 +265,9 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
             {onShowWheelPlayground && (
               <button
                 onClick={onShowWheelPlayground}
-                className={isCapacitor
+                className={`${isCapacitor
                   ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
-                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'}
-                style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'} bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)]`}
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
               >
@@ -278,10 +286,9 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
                     setShowStoryPicker(true);
                   }
                 }}
-                className={isCapacitor
+                className={`${isCapacitor
                   ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
-                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'}
-                style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'} bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)]`}
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
               >
@@ -294,26 +301,25 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
         {/* 统计卡片 */}
         <section className="mb-10">
           <div className="flex items-baseline justify-between mb-4">
-            <h2 className="text-sm font-semibold tracking-wide uppercase" style={{ color: 'var(--text-primary)' }}>创作概览</h2>
-            <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>基于全部作品</span>
+            <h2 className="text-[var(--text-primary)] text-sm font-semibold tracking-wide uppercase">创作概览</h2>
+            <span className="text-[var(--text-secondary)] text-xs">基于全部作品</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {stats.map((stat) => (
               <div
                 key={stat.label}
-                className="group relative rounded-2xl p-6 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all"
-                style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
+                className="bg-[var(--bg-card)] border border-[color:var(--border-color)] group relative rounded-2xl p-6 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all"
               >
                 <div className="flex items-start justify-between">
                   <Icon name={stat.icon} size={24} />
-                  <span className="text-[10px] font-medium tracking-widest uppercase" style={{ color: 'var(--text-muted)' }}>
+                  <span className="text-[var(--text-muted)] text-[10px] font-medium tracking-widest uppercase">
                     TOTAL
                   </span>
                 </div>
-                <div className="mt-5 text-3xl font-bold tabular-nums" style={{ color: 'var(--text-primary)' }}>
+                <div className="text-[var(--text-primary)] mt-5 text-3xl font-bold tabular-nums">
                   {stat.value}
                 </div>
-                <div className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>{stat.label}</div>
+                <div className="text-[var(--text-secondary)] mt-1 text-sm">{stat.label}</div>
               </div>
             ))}
           </div>
@@ -322,27 +328,49 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
         {/* 最近作品 */}
         <section>
           <div className="flex items-baseline justify-between mb-4">
-            <h2 className="text-sm font-semibold tracking-wide uppercase" style={{ color: 'var(--text-primary)' }}>
+            <h2 className="text-[var(--text-primary)] text-sm font-semibold tracking-wide uppercase">
               最近编辑
             </h2>
             <button
               onClick={() => onShowWorks?.()}
-              className="text-xs transition-colors"
-              style={{ color: 'var(--text-secondary)' }}
-              onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)' }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)' }}
+              className="text-[var(--text-secondary)] text-xs transition-colors hover:text-[var(--text-primary)]"
             >
               查看全部 →
             </button>
           </div>
 
-          {recentStories.length === 0 ? (
-            <div className="rounded-2xl p-12 text-center" style={{ background: 'var(--bg-card)', border: '1px dashed var(--border-color)' }}>
+          {recentError ? (
+            <div
+              role="alert"
+              className="bg-[var(--bg-card)] border border-[color:var(--border-color)] rounded-2xl p-10 text-center"
+            >
+              <div className="text-[var(--danger)] mb-3 inline-flex">
+                <Icon name="alert" size={24} />
+              </div>
+              <p className="text-[var(--text-primary)] font-medium">最近作品加载失败</p>
+              <p className="text-[var(--text-secondary)] text-xs mt-1 break-all">{recentError}</p>
+              <button
+                onClick={() => setRecentReloadKey((k) => k + 1)}
+                className="mt-4 px-3 py-1.5 rounded-lg text-xs transition-colors bg-[var(--accent-bg)] text-[var(--accent)] border border-[var(--accent)] hover:bg-[var(--accent)] hover:text-[var(--text-on-accent)]"
+              >
+                重新加载
+              </button>
+            </div>
+          ) : recentLoading && recentStories.length === 0 ? (
+            <div
+              role="status"
+              aria-live="polite"
+              className="bg-[var(--bg-card)] border border-[color:var(--border-color)] rounded-2xl p-12 text-center text-[var(--text-secondary)] text-sm"
+            >
+              正在加载最近作品…
+            </div>
+          ) : recentStories.length === 0 ? (
+            <div className="bg-[var(--bg-card)] border border-[color:var(--border-color)] rounded-2xl p-12 text-center">
               <div className="text-4xl mb-3">
                 <Icon name="pen" size={24} />
               </div>
-              <p className="font-medium" style={{ color: 'var(--text-primary)' }}>还没有作品，开始你的第一个安科吧</p>
-              <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>点击上方「新建安科」按钮创建</p>
+              <p className="text-[var(--text-primary)] font-medium">还没有作品，开始你的第一个安科吧</p>
+              <p className="text-[var(--text-secondary)] text-sm mt-1">点击上方「新建安科」按钮创建</p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -359,10 +387,7 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
                       onOpenStory(story.id);
                     }
                   }}
-                  className="w-full text-left rounded-2xl p-5 hover:shadow-md transition-all group"
-                  style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent)' }}
-                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)' }}
+                  className="bg-[var(--bg-card)] border border-[color:var(--border-color)] w-full text-left rounded-2xl p-5 hover:border-[var(--accent)] hover:shadow-md transition-all group"
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
@@ -403,7 +428,7 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
           )}
         </section>
 
-        <footer className="mt-16 text-center text-xs" style={{ color: 'var(--text-secondary)' }}>
+        <footer className="text-[var(--text-secondary)] mt-16 text-center text-xs">
           用骰子编织故事 · Anke Creator
         </footer>
       </div>
@@ -413,15 +438,14 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
         <Modal onClose={() => setShowNewStoryModal(false)} title="新建安科作品">
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-primary)' }}>作品标题</label>
+              <label className="text-[var(--text-primary)] block text-sm font-medium mb-1.5">作品标题</label>
               <input
                 autoFocus
                 type="text"
                 value={newStoryTitle}
                 onChange={(e) => setNewStoryTitle(e.target.value)}
                 placeholder="给你的安科起个名字"
-                className="w-full px-3.5 py-2.5 text-sm rounded-lg outline-none transition-all"
-                style={{ background: 'var(--bg-input)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+                className="bg-[var(--bg-input)] border border-[color:var(--border-color)] text-[var(--text-primary)] w-full px-3.5 py-2.5 text-sm rounded-lg outline-none transition-all"
                 onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--accent)' }}
                 onBlur={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)' }}
                 onKeyDown={(e) => {
@@ -430,14 +454,13 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-primary)' }}>作品简介（可选）</label>
+              <label className="text-[var(--text-primary)] block text-sm font-medium mb-1.5">作品简介（可选）</label>
               <textarea
                 rows={3}
                 value={newStoryDescription}
                 onChange={(e) => setNewStoryDescription(e.target.value)}
                 placeholder="一句话介绍这个安科世界…"
-                className="w-full px-3.5 py-2.5 text-sm rounded-lg outline-none transition-all resize-none"
-                style={{ background: 'var(--bg-input)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+                className="bg-[var(--bg-input)] border border-[color:var(--border-color)] text-[var(--text-primary)] w-full px-3.5 py-2.5 text-sm rounded-lg outline-none transition-all resize-none"
                 onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--accent)' }}
                 onBlur={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)' }}
               />
@@ -445,8 +468,7 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
             <div className="flex justify-end gap-2 pt-2">
               <button
                 onClick={() => setShowNewStoryModal(false)}
-                className="px-4 py-2 text-sm rounded-lg transition-colors"
-                style={{ color: 'var(--text-primary)' }}
+                className="text-[var(--text-primary)] px-4 py-2 text-sm rounded-lg transition-colors"
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)' }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
               >
@@ -454,8 +476,7 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
               </button>
               <button
                 onClick={handleCreateStory}
-                className="px-4 py-2 text-sm rounded-lg transition-colors"
-                style={{ background: 'var(--accent-bg)', color: 'var(--accent)', border: '1px solid var(--accent)' }}
+                className="bg-[var(--accent-bg)] text-[var(--accent)] border border-[color:var(--accent)] px-4 py-2 text-sm rounded-lg transition-colors"
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent)'; e.currentTarget.style.color = 'var(--text-on-accent)' }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--accent-bg)'; e.currentTarget.style.color = 'var(--accent)' }}
               >
@@ -470,7 +491,7 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
       {showStoryPicker && (
         <Modal onClose={() => setShowStoryPicker(false)} title="选择作品查看创作日志">
           {pickerStories.length === 0 ? (
-            <div className="text-center py-8 text-sm" style={{ color: 'var(--text-secondary)' }}>
+            <div className="text-[var(--text-secondary)] text-center py-8 text-sm">
               暂无作品，请先创建一个安科作品
             </div>
           ) : (
@@ -482,13 +503,12 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
                     setShowStoryPicker(false);
                     onShowCreationLog?.(s.id);
                   }}
-                  className="w-full text-left px-3 py-2 rounded-lg text-sm transition-colors"
-                  style={{ color: 'var(--text-primary)' }}
+                  className="text-[var(--text-primary)] w-full text-left px-3 py-2 rounded-lg text-sm transition-colors"
                   onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                 >
                   <div className="font-medium truncate">{s.title}</div>
-                  <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                  <div className="text-[var(--text-secondary)] text-xs">
                     更新于 {new Date(s.updated_at).toLocaleString()}
                   </div>
                 </button>
@@ -498,8 +518,7 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
           <div className="flex justify-end pt-2">
             <button
               onClick={() => setShowStoryPicker(false)}
-              className="px-4 py-2 text-sm rounded-lg transition-colors"
-              style={{ color: 'var(--text-primary)' }}
+              className="text-[var(--text-primary)] px-4 py-2 text-sm rounded-lg transition-colors"
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
             >
@@ -524,21 +543,18 @@ function Modal({
 }) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm p-4"
-      style={{ background: 'var(--bg-overlay)' }}
+      className="bg-[var(--bg-overlay)] fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm p-4"
       onClick={onClose}
     >
       <div
-        className="rounded-2xl shadow-xl w-full max-w-md p-6"
-        style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
+        className="bg-[var(--bg-card)] border border-[color:var(--border-color)] rounded-2xl shadow-xl w-full max-w-md p-6"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-5">
-          <h3 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>{title}</h3>
+          <h3 className="text-[var(--text-primary)] text-lg font-semibold">{title}</h3>
           <button
             onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-lg transition-colors"
-            style={{ color: 'var(--text-secondary)' }}
+            className="text-[var(--text-secondary)] w-8 h-8 flex items-center justify-center rounded-lg transition-colors"
             onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)' }}
             onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)' }}
             aria-label="关闭"

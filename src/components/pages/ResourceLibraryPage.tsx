@@ -36,19 +36,16 @@ export function ResourceLibraryPage({ onBack, onShowAuthor }: ResourceLibraryPag
 
   return (
     <div
-      className="h-full w-full flex flex-col"
-      style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}
+      className="bg-[var(--bg-base)] text-[var(--text-primary)] h-full w-full flex flex-col"
     >
       {/* 顶栏（非 sticky，随 body 滚动） */}
       <div
-        className="flex items-center justify-between gap-3 px-6 py-4 border-b"
-        style={{ borderColor: 'var(--border-color)', background: 'var(--bg-base)' }}
+        className="border-[color:var(--border-color)] bg-[var(--bg-base)] flex items-center justify-between gap-3 px-6 py-4 border-b"
       >
         <div className="flex items-center gap-3">
           <button
             onClick={onBack}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors"
-            style={{ color: 'var(--text-secondary)' }}
+            className="text-[var(--text-secondary)] flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors"
             onMouseEnter={(e) => {
               e.currentTarget.style.background = 'var(--bg-hover)';
               e.currentTarget.style.color = 'var(--text-primary)';
@@ -61,8 +58,7 @@ export function ResourceLibraryPage({ onBack, onShowAuthor }: ResourceLibraryPag
             <Icon name="back" size={16} /> 返回
           </button>
           <h1
-            className="text-lg font-semibold flex items-center gap-2"
-            style={{ color: 'var(--text-primary)' }}
+            className="text-[var(--text-primary)] text-lg font-semibold flex items-center gap-2"
           >
             <Icon name="folder" size={20} /> 资源库
           </h1>
@@ -71,8 +67,7 @@ export function ResourceLibraryPage({ onBack, onShowAuthor }: ResourceLibraryPag
 
       {/* 顶部主 Tab 切换（2 个：图片 / 模板） */}
       <div
-        className="flex items-center gap-2 px-6 py-3 border-b"
-        style={{ borderColor: 'var(--border-color)' }}
+        className="border-[color:var(--border-color)] flex items-center gap-2 px-6 py-3 border-b"
       >
         {TABS.map((t) => {
           const active = activeTab === t.key;
@@ -86,7 +81,7 @@ export function ResourceLibraryPage({ onBack, onShowAuthor }: ResourceLibraryPag
                 color: active ? 'var(--accent)' : 'var(--text-secondary)',
                 border: `1px solid ${active ? 'var(--accent)' : 'var(--border-color)'}`,
                 fontWeight: active ? 600 : 400,
-                boxShadow: active ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
+                boxShadow: active ? 'var(--shadow-sm)' : 'none',
               }}
               onMouseEnter={(e) => {
                 if (!active) {

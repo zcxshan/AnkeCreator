@@ -38,8 +38,8 @@ function WordCountBarChart({ today, thisWeek, thisMonth, thisYear, total }: {
   const svgWidth = data.length * (barWidth + gap) - gap;
 
   return (
-    <div className="anke-card" style={{ marginTop: 16, padding: 16 }}>
-      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>
+    <div className="mt-[16px] p-[16px] anke-card">
+      <div className="text-[13px] font-semibold text-[var(--text-secondary)] mb-[8px]">
         <span className="inline-flex items-center gap-1"><Icon name="chartBar" size={14} />时段字数对比</span>
       </div>
       <svg width={svgWidth} height={chartHeight + 24} style={{ display: 'block', margin: '0 auto', maxWidth: '100%' }}>
@@ -50,8 +50,8 @@ function WordCountBarChart({ today, thisWeek, thisMonth, thisYear, total }: {
           return (
             <g key={d.label}>
               <rect x={x} y={y} width={barWidth} height={h} rx={3}
-                fill={i === 4 ? 'var(--accent, #2563eb)' : 'var(--accent-bg, rgba(37,99,235,0.15))'}
-                stroke={i === 4 ? 'none' : 'var(--accent, #2563eb)'}
+                fill={i === 4 ? 'var(--accent)' : 'var(--accent-bg)'}
+                stroke={i === 4 ? 'none' : 'var(--accent)'}
                 strokeWidth={1}
               />
               <text x={x + barWidth / 2} y={chartHeight + 14} textAnchor="middle"
@@ -76,11 +76,11 @@ function DailyTrendChart({ dailyStats }: { dailyStats: { date: string; wordCount
 
   if (!hasData) {
     return (
-      <div className="anke-card" style={{ marginTop: 16, padding: 16 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>
+      <div className="mt-[16px] p-[16px] anke-card">
+        <div className="text-[13px] font-semibold text-[var(--text-secondary)] mb-[8px]">
           <span className="inline-flex items-center gap-1"><Icon name="trendingUp" size={14} />近 14 日字数趋势</span>
         </div>
-        <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted, #999)', fontSize: 12 }}>
+        <div className="h-[120px] flex items-center justify-center text-[var(--text-muted)] text-[12px]">
           暂无数据
         </div>
       </div>
@@ -110,15 +110,15 @@ function DailyTrendChart({ dailyStats }: { dailyStats: { date: string; wordCount
   const baseY = padTop + innerH;
 
   return (
-    <div className="anke-card" style={{ marginTop: 16, padding: 16 }}>
-      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>
+    <div className="mt-[16px] p-[16px] anke-card">
+      <div className="text-[13px] font-semibold text-[var(--text-secondary)] mb-[8px]">
         <span className="inline-flex items-center gap-1"><Icon name="trendingUp" size={14} />近 14 日字数趋势</span>
       </div>
       <svg
         width="100%"
         viewBox={`0 0 ${width} ${height}`}
         preserveAspectRatio="xMidYMid meet"
-        style={{ display: 'block', maxWidth: '100%' }}
+        className="block max-w-full"
       >
         {/* 轴线 */}
         <line x1={padLeft} y1={padTop} x2={padLeft} y2={baseY} stroke="var(--border-color)" strokeWidth={1} />
@@ -132,10 +132,10 @@ function DailyTrendChart({ dailyStats }: { dailyStats: { date: string; wordCount
           0
         </text>
         {/* 折线 + 数据点 */}
-        <path d={pathD} fill="none" stroke="var(--accent, #2563eb)" strokeWidth={1.5} />
+        <path d={pathD} fill="none" stroke="var(--accent)" strokeWidth={1.5} />
         {points.map((p, i) => (
           <g key={i}>
-            <circle cx={p.x} cy={p.y} r={2.5} fill="var(--accent, #2563eb)" />
+            <circle cx={p.x} cy={p.y} r={2.5} fill="var(--accent)" />
             {i % 2 === 0 && (
               <text x={p.x} y={baseY + 14} textAnchor="middle" style={{ fontSize: 8, fill: 'var(--text-muted)' }}>
                 {p.date.slice(5)}
@@ -158,14 +158,18 @@ export function CreationLogPage({ storyId, onBack }: CreationLogPageProps) {
     setLoading(true);
     setError('');
     try {
-      const [story, bundle] = await Promise.all([
+      // 性能：统计只需要元数据（word_count/created_at 等），不能用 getStoryWithAll
+      // ——它会把所有节的完整 content 经 IPC 拉进渲染层，大作品（几十 MB）会拖垮页面
+      const [story, volumes, chapters, characters] = await Promise.all([
         db.getStory(storyId),
-        db.getStoryWithAll(storyId),
+        db.listVolumes(storyId),
+        db.listChapters(storyId),
+        db.listCharacters(storyId),
       ]);
       setStoryTitle(story?.title || '');
-      if (bundle) {
-        setStats(computeCreationLogStats(bundle as any));
-      }
+      const sectionLists = await Promise.all(chapters.map((ch) => db.listSectionMetadata(ch.id)));
+      const sections = sectionLists.flat();
+      setStats(computeCreationLogStats({ sections, chapters, characters, volumes }));
     } catch (e) {
       setError((e as Error).message || '加载失败');
     } finally {
@@ -186,27 +190,24 @@ export function CreationLogPage({ storyId, onBack }: CreationLogPageProps) {
   };
 
   const statRows: { label: string; data: { wordCount: number; sectionCount: number; chapterCount: number }; color: string }[] = stats ? [
-    { label: '今日', data: stats.today, color: 'var(--accent, #2563eb)' },
-    { label: '本周', data: stats.thisWeek, color: '#16a34a' },
-    { label: '本月', data: stats.thisMonth, color: '#0891b2' },
-    { label: '本年', data: stats.thisYear, color: '#7c3aed' },
-    { label: '累计', data: { wordCount: stats.total.wordCount, sectionCount: stats.total.sectionCount, chapterCount: stats.total.chapterCount }, color: '#d97706' },
+    { label: '今日', data: stats.today, color: 'var(--accent)' },
+    { label: '本周', data: stats.thisWeek, color: 'var(--tone-success)' },
+    { label: '本月', data: stats.thisMonth, color: 'var(--tone-cyan)' },
+    { label: '本年', data: stats.thisYear, color: 'var(--tone-violet)' },
+    { label: '累计', data: { wordCount: stats.total.wordCount, sectionCount: stats.total.sectionCount, chapterCount: stats.total.chapterCount }, color: 'var(--tone-warn-ink)' },
   ] : [];
 
   return (
     <div
-      className="min-h-full w-full flex flex-col"
-      style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}
+      className="bg-[var(--bg-base)] text-[var(--text-primary)] min-h-full w-full flex flex-col"
     >
       {/* 顶栏（sticky 在 TitleBar 下方 32px 处，z-40） */}
       <div
-        className="flex items-center gap-3 px-6 py-4 border-b sticky top-8 z-40"
-        style={{ borderColor: 'var(--border-color)', background: 'var(--bg-base)' }}
+        className="border-[color:var(--border-color)] bg-[var(--bg-base)] flex items-center gap-3 px-6 py-4 border-b sticky top-8 z-40"
       >
         <button
           onClick={onBack}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors"
-          style={{ color: 'var(--text-secondary)' }}
+          className="text-[var(--text-secondary)] flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors"
           onMouseEnter={(e) => {
             e.currentTarget.style.background = 'var(--bg-hover)';
             e.currentTarget.style.color = 'var(--text-primary)';
@@ -219,8 +220,7 @@ export function CreationLogPage({ storyId, onBack }: CreationLogPageProps) {
           ← 返回
         </button>
         <h1
-          className="text-lg font-semibold flex items-center gap-2"
-          style={{ color: 'var(--text-primary)' }}
+          className="text-[var(--text-primary)] text-lg font-semibold flex items-center gap-2"
         >
           <span className="inline-flex items-center gap-1">
             <Icon name="pen" size={14} />
@@ -232,7 +232,7 @@ export function CreationLogPage({ storyId, onBack }: CreationLogPageProps) {
 
       {/* 错误提示 */}
       {error && (
-        <div className="px-6 py-2 text-sm" style={{ color: 'var(--danger, #e53e3e)' }}>
+        <div className="text-[var(--danger)] px-6 py-2 text-sm">
           {error}
           <button onClick={() => setError('')} className="ml-2 underline">关闭</button>
         </div>
@@ -241,7 +241,7 @@ export function CreationLogPage({ storyId, onBack }: CreationLogPageProps) {
       {/* 内容区 */}
       <div className="flex-1 overflow-y-auto px-6 pb-6">
         {loading ? (
-          <div className="flex items-center justify-center h-32 text-sm" style={{ color: 'var(--text-secondary)' }}>
+          <div className="text-[var(--text-secondary)] flex items-center justify-center h-32 text-sm">
             加载中...
           </div>
         ) : (
@@ -249,7 +249,7 @@ export function CreationLogPage({ storyId, onBack }: CreationLogPageProps) {
             {/* 统计区 */}
             {stats && (
               <section className="mb-8">
-                <h2 className="mb-4" style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                <h2 className="text-[13px] font-semibold text-[var(--text-secondary)] mb-4">
                   <span className="inline-flex items-center gap-1"><Icon name="chartBar" size={14} />创作统计</span>
                 </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
@@ -263,30 +263,30 @@ export function CreationLogPage({ storyId, onBack }: CreationLogPageProps) {
                       }}
                     >
                       <div className="flex items-center justify-between mb-2">
-                        <div className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>{row.label}</div>
+                        <div className="text-[var(--text-secondary)] text-xs font-medium">{row.label}</div>
                         <div style={{ width: 8, height: 8, borderRadius: '50%', background: row.color }} />
                       </div>
                       <div style={{ fontSize: 22, fontWeight: 700, color: row.color, lineHeight: 1.2, marginBottom: 2 }}>
                         {row.data.wordCount.toLocaleString()}
                       </div>
-                      <div className="text-xs mb-2" style={{ color: 'var(--text-muted, #999)' }}>字</div>
-                      <div className="space-y-1 pt-2" style={{ borderTop: '1px dashed var(--border-color)' }}>
+                      <div className="text-[var(--text-muted)] text-xs mb-2">字</div>
+                      <div className="border-t border-t-[color:var(--border-color)] space-y-1 pt-2">
                         <div className="flex justify-between text-xs">
-                          <span style={{ color: 'var(--text-secondary)' }}>章节</span>
-                          <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{row.data.chapterCount}</span>
+                          <span className="text-[var(--text-secondary)]">章节</span>
+                          <span className="text-[var(--text-primary)] font-medium">{row.data.chapterCount}</span>
                         </div>
                         <div className="flex justify-between text-xs">
-                          <span style={{ color: 'var(--text-secondary)' }}>小节</span>
-                          <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{row.data.sectionCount}</span>
+                          <span className="text-[var(--text-secondary)]">小节</span>
+                          <span className="text-[var(--text-primary)] font-medium">{row.data.sectionCount}</span>
                         </div>
                       </div>
                       {idx < 4 && (
-                        <div style={{ marginTop: 8, height: 4, borderRadius: 2, background: 'var(--bg-hover, rgba(0,0,0,0.06))', overflow: 'hidden' }}>
+                        <div className="mt-[8px] h-[4px] rounded-[var(--radius-tight)] bg-[var(--bg-hover)] overflow-hidden">
                           <div style={{
                             height: '100%',
                             width: `${stats.total.wordCount > 0 ? Math.min(100, (row.data.wordCount / stats.total.wordCount * 100)) : 0}%`,
                             background: row.color,
-                            borderRadius: 2,
+                            borderRadius: 'var(--radius-tight)',
                             transition: 'width 0.3s ease',
                           }} />
                         </div>
@@ -305,7 +305,7 @@ export function CreationLogPage({ storyId, onBack }: CreationLogPageProps) {
                   />
                 </div>
                 {stats.total.characterCount > 0 || stats.total.volumeCount > 0 ? (
-                  <div className="mt-3 flex gap-4 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                  <div className="text-[var(--text-secondary)] mt-3 flex gap-4 text-xs">
                     <span>卷数：{stats.total.volumeCount}</span>
                     <span>角色数：{stats.total.characterCount}</span>
                   </div>

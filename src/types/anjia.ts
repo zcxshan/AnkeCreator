@@ -7,3 +7,5 @@
 // SectionExportOptions/Result 替代），已于本轮清理删除。
 //
 // 如后续需要恢复导出类型，请参考 utils/ngaExporter.ts 中的实际定义。
+
+export {};

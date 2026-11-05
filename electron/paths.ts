@@ -33,49 +33,101 @@ let _dataRoot: string | null = null
 let _dataRootFallback: boolean = false
 
 /**
+ * 用户自定义数据目录的配置文件。
+ * 放在 %APPDATA%\com.shanshian.ankecreator\ 下（与数据目录位置无关），
+ * 避免"数据目录内保存数据目录配置"的循环依赖。
+ */
+function getDataDirConfigPath(): string {
+  return path.join(app.getPath('appData'), 'com.shanshian.ankecreator', 'data-dir.json')
+}
+
+/** 读取用户自定义数据目录；未配置或配置损坏时返回 null */
+export function readConfiguredDataDir(): string | null {
+  try {
+    const file = getDataDirConfigPath()
+    if (!fs.existsSync(file)) return null
+    const raw = JSON.parse(fs.readFileSync(file, 'utf-8'))
+    const dir = typeof raw?.dataDir === 'string' ? raw.dataDir.trim() : ''
+    return dir || null
+  } catch (e) {
+    console.warn('[paths] 读取自定义数据目录配置失败（使用默认位置）:', e)
+    return null
+  }
+}
+
+/** 写入用户自定义数据目录（原子替换，避免半写损坏） */
+export function writeConfiguredDataDir(dir: string): void {
+  const file = getDataDirConfigPath()
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  const tmp = `${file}.tmp-${process.pid}`
+  fs.writeFileSync(
+    tmp,
+    JSON.stringify({ dataDir: path.resolve(dir), updatedAt: new Date().toISOString() }, null, 2),
+    'utf-8',
+  )
+  fs.renameSync(tmp, file)
+  console.log('[paths] 已记录自定义数据目录:', dir)
+}
+
+/** 清除自定义数据目录配置（下次启动回到默认位置） */
+export function clearConfiguredDataDir(): void {
+  try {
+    fs.unlinkSync(getDataDirConfigPath())
+  } catch {
+    /* 配置不存在时忽略 */
+  }
+}
+
+/**
+ * 默认数据目录（不含用户自定义覆盖）。
+ * - 打包模式：<安装路径>/data/；无写权限时回退 %APPDATA%\com.shanshian.ankecreator\data
+ * - dev 模式：<项目根>/data/
+ */
+export function getDefaultDataDir(): string {
+  if (app.isPackaged) {
+    const installDataDir = path.join(path.dirname(process.execPath), 'data')
+    if (isPathWritable(installDataDir)) return installDataDir
+    return path.join(app.getPath('appData'), 'com.shanshian.ankecreator', 'data')
+  }
+  const appRoot = process.env.APP_ROOT || app.getAppPath()
+  return path.join(appRoot, 'data')
+}
+
+/**
  * 数据根目录（#9：v3.2+ 扁平化）
- * - 打包模式：<安装路径>/data/（所有数据统一在此目录下）
- * - 如果 <安装路径> 无写权限（常见于 C:\Program Files\），
- *   自动回退到 %APPDATA%\com.shanshian.ankecreator\data\，
- *   避免数据丢失。
+ * - 若用户在设置页迁移过数据目录，优先使用配置中的路径
+ * - 打包模式：<安装路径>/data/；无写权限时回退 %APPDATA%\com.shanshian.ankecreator\data
  * - dev 模式（未打包）：<项目根>/data/
  *
- * 回退策略：第一次调用时尝试检测 installDir 是否可写，
+ * 回退策略：第一次调用时尝试检测路径是否可写，
  *   不可写时切换到 %APPDATA%，后续所有调用都走回退后的路径。
  */
 export function getDataRoot(): string {
   if (_dataRoot) return _dataRoot
   if (app.isPackaged) {
-    const installDir = path.dirname(process.execPath)
-    const installDataDir = path.join(installDir, 'data')
-    // 第一次调用：检测 installDir/data/ 是否可写
-    if (isPathWritable(installDataDir)) {
-      _dataRoot = installDataDir
-      console.log('[paths] 数据目录：', _dataRoot, '(安装路径)')
-    } else {
-      // 回退到 %APPDATA%
-      const appdata = app.getPath('appData')
-      const fallbackDataDir = path.join(appdata, 'com.shanshian.ankecreator', 'data')
-      _dataRoot = fallbackDataDir
-      _dataRootFallback = true
-      console.warn(
-        '[paths] 安装路径无写权限，回退到 %APPDATA%：',
-        fallbackDataDir,
-      )
+    const configured = readConfiguredDataDir()
+    if (configured && isPathWritable(configured)) {
+      _dataRoot = configured
+      console.log('[paths] 数据目录：', _dataRoot, '(用户自定义)')
+      return _dataRoot
     }
-    // 确保目录存在
-    try {
-      if (!fs.existsSync(_dataRoot)) {
-        fs.mkdirSync(_dataRoot, { recursive: true })
-      }
-    } catch (e) {
-      console.error('[paths] 创建数据目录失败:', e)
-    }
+  }
+  const defaultDir = getDefaultDataDir()
+  if (app.isPackaged) {
+    const installDataDir = path.join(path.dirname(process.execPath), 'data')
+    _dataRootFallback = path.resolve(defaultDir) !== path.resolve(installDataDir)
+    console.log('[paths] 数据目录：', defaultDir, _dataRootFallback ? '(回退 %APPDATA%)' : '(安装路径)')
   } else {
-    // dev 模式：用项目根目录下的 data/（与打包模式一致，不写 C 盘 AppData）
-    const appRoot = process.env.APP_ROOT || app.getAppPath()
-    _dataRoot = path.join(appRoot, 'data')
-    console.log('[paths] 数据目录：', _dataRoot, '(dev 模式)')
+    console.log('[paths] 数据目录：', defaultDir, '(dev 模式)')
+  }
+  _dataRoot = defaultDir
+  // 确保目录存在
+  try {
+    if (!fs.existsSync(_dataRoot)) {
+      fs.mkdirSync(_dataRoot, { recursive: true })
+    }
+  } catch (e) {
+    console.error('[paths] 创建数据目录失败:', e)
   }
   return _dataRoot
 }
@@ -119,6 +171,18 @@ export function getDataDir(): string {
  */
 export function getStoriesDir(): string {
   const dir = path.join(getDataDir(), 'stories')
+  ensureDirWritable(dir)
+  return dir
+}
+
+/**
+ * 节正文侧车目录：<dataDir>/sections/
+ *
+ * 每个节一个 JSON 文件（<sectionId>.json），只存 content / bbcode / word_count。
+ * 作品 bundle（stories/<storyId>.json）只保留元数据，避免每次自动保存都重写整份作品。
+ */
+export function getSectionsDir(): string {
+  const dir = path.join(getDataDir(), 'sections')
   ensureDirWritable(dir)
   return dir
 }

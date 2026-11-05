@@ -94,17 +94,15 @@ function WorkCardInner({
 
   if (confirmDelete) {
     return (
-      <div className="group relative rounded-2xl border p-5 shadow-sm flex flex-col items-center justify-center min-h-[280px] text-center"
-        style={{ background: 'var(--bg-card)', borderColor: 'var(--danger)' }}
+      <div className="bg-[var(--bg-card)] border-[color:var(--danger)] group relative rounded-2xl border p-5 shadow-sm flex flex-col items-center justify-center min-h-[280px] text-center"
       >
         <div className="text-3xl mb-2"><Icon name="trash" size={24} /></div>
-        <div className="text-sm font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>确认删除？</div>
-        <div className="text-xs mb-4 px-2" style={{ color: 'var(--text-secondary)' }}>该操作不可撤销</div>
+        <div className="text-[var(--text-primary)] text-sm font-semibold mb-1">确认删除？</div>
+        <div className="text-[var(--text-secondary)] text-xs mb-4 px-2">该操作不可撤销</div>
         <div className="flex gap-2">
           <button
             onClick={() => setConfirmDelete(false)}
-            className="px-3 py-1.5 text-xs rounded-lg transition-colors"
-            style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+            className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)] px-3 py-1.5 text-xs rounded-lg transition-colors"
             onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
             onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-card)'}
           >
@@ -115,8 +113,7 @@ function WorkCardInner({
               onDelete(work.id);
               setConfirmDelete(false);
             }}
-            className="px-3 py-1.5 text-xs rounded-lg transition-colors"
-            style={{ background: 'var(--danger)', color: 'var(--text-on-accent)' }}
+            className="bg-[var(--danger)] text-[var(--text-on-accent)] px-3 py-1.5 text-xs rounded-lg transition-colors"
             onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
             onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
           >
@@ -143,12 +140,7 @@ function WorkCardInner({
       onKeyDown={handleCardKeyDown}
       draggable
       data-story-id={work.id}
-      className="group relative rounded-2xl border hover:shadow-lg hover:-translate-y-1 transition-all cursor-pointer overflow-hidden"
-      style={{
-        background: 'var(--bg-card)',
-        borderColor: 'var(--border-color)',
-        outline: 'none',
-      }}
+      className="bg-[var(--bg-card)] border-[color:var(--border-color)] outline-none group relative rounded-2xl border hover:shadow-lg hover:-translate-y-1 transition-all cursor-pointer overflow-hidden"
       onMouseEnter={(e) => {
         e.currentTarget.style.borderColor = 'var(--accent)';
       }}
@@ -167,8 +159,7 @@ function WorkCardInner({
       {/* 置顶作品左侧 accent 竖条 */}
       {isPinned && (
         <div
-          className="absolute left-0 top-0 bottom-0 w-1"
-          style={{ background: 'var(--accent)' }}
+          className="bg-[var(--accent)] absolute left-0 top-0 bottom-0 w-1"
         />
       )}
 
@@ -237,13 +228,8 @@ function WorkCardInner({
               e.stopPropagation();
               onMoveToFavorite(work.id);
             }}
-            className="px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors"
+            className="bg-[var(--bg-card)] border-[color:var(--border-color)] text-[var(--text-secondary)] px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors"
             title="收藏到指定收藏夹"
-            style={{
-              background: 'var(--bg-card)',
-              borderColor: 'var(--border-color)',
-              color: 'var(--text-secondary)',
-            }}
             onMouseEnter={(e) => {
               e.currentTarget.style.background = 'var(--bg-hover)';
               e.currentTarget.style.color = 'var(--accent)';
@@ -264,13 +250,8 @@ function WorkCardInner({
             e.stopPropagation();
             setConfirmDelete(true);
           }}
-          className="px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors"
+          className="bg-[var(--bg-card)] border-[color:var(--border-color)] text-[var(--danger)] px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors"
           title="删除到回收站"
-          style={{
-            background: 'var(--bg-card)',
-            borderColor: 'var(--border-color)',
-            color: 'var(--danger)',
-          }}
           onMouseEnter={(e) => {
             e.currentTarget.style.background = 'var(--danger-soft)';
           }}
@@ -289,25 +270,23 @@ function WorkCardInner({
       >
         {/* 背景装饰图案 */}
         <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-0 left-0 w-16 h-16 rounded-full -translate-x-1/2 -translate-y-1/2" style={{ background: 'var(--accent)' }} />
-          <div className="absolute bottom-0 right-0 w-20 h-20 rounded-full translate-x-1/2 translate-y-1/2" style={{ background: 'var(--accent)' }} />
-          <div className="absolute top-1/2 left-1/2 w-12 h-12 rounded-full -translate-x-1/2 -translate-y-1/2" style={{ background: 'var(--accent)' }} />
+          <div className="bg-[var(--accent)] absolute top-0 left-0 w-16 h-16 rounded-full -translate-x-1/2 -translate-y-1/2" />
+          <div className="bg-[var(--accent)] absolute bottom-0 right-0 w-20 h-20 rounded-full translate-x-1/2 translate-y-1/2" />
+          <div className="bg-[var(--accent)] absolute top-1/2 left-1/2 w-12 h-12 rounded-full -translate-x-1/2 -translate-y-1/2" />
         </div>
         {/* 主图标 */}
         <div className="relative z-10 flex flex-col items-center">
           <Icon name="bookText" size={36} />
-          <div className="text-[10px] mt-1 font-medium" style={{ color: 'var(--text-secondary)' }}>安科作品</div>
+          <div className="text-[var(--text-secondary)] text-[10px] mt-1 font-medium">安科作品</div>
         </div>
         {/* 安科骰点标记 */}
-        <div className="absolute bottom-2 left-3 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full backdrop-blur-sm border text-[10px] font-medium shadow-sm"
-          style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)', color: 'var(--accent)' }}
+        <div className="bg-[var(--bg-card)] border-[color:var(--border-color)] text-[var(--accent)] absolute bottom-2 left-3 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full backdrop-blur-sm border text-[10px] font-medium shadow-sm"
         >
           <Icon name="dices" size={12} />
           <span>安科</span>
         </div>
         {/* 章节计数 */}
-        <div className="absolute bottom-2 right-3 inline-flex items-center gap-1 px-2 py-0.5 rounded-full backdrop-blur-sm border text-[10px] font-medium shadow-sm"
-          style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}
+        <div className="bg-[var(--bg-card)] border-[color:var(--border-color)] text-[var(--text-secondary)] absolute bottom-2 right-3 inline-flex items-center gap-1 px-2 py-0.5 rounded-full backdrop-blur-sm border text-[10px] font-medium shadow-sm"
         >
           <span><Icon name="bookText" size={11} /></span>
           <span>{work.chapterCount}章·{work.sectionCount}节</span>
@@ -316,15 +295,14 @@ function WorkCardInner({
 
       {/* 底部信息 */}
       <div className="p-4">
-        <h3 className="text-sm font-semibold truncate transition-colors"
-          style={{ color: 'var(--text-primary)' }}
+        <h3 className="text-[var(--text-primary)] text-sm font-semibold truncate transition-colors"
           title={work.title}
           onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent)'}
           onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-primary)'}
         >
           {work.title}
         </h3>
-        <div className="mt-1.5 flex items-center gap-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
+        <div className="text-[var(--text-secondary)] mt-1.5 flex items-center gap-3 text-xs">
           <span className="inline-flex items-center gap-1">
             <span><Icon name="pen" size={12} /></span>
             <span className="tabular-nums">{work.wordCount.toLocaleString()} 字</span>

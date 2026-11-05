@@ -12,7 +12,7 @@ export function PageHeader({
             <Icon name="back" size={14} />
           </button>
         )}
-        <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+        <h1 className="text-[var(--text-primary)] text-lg font-semibold">
           {title}
         </h1>
       </div>
@@ -24,8 +24,7 @@ export function PageHeader({
 export function PageContainer({ children }: { children: ReactNode }) {
   return (
     <div
-      className="w-full flex-1 flex flex-col"
-      style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}
+      className="bg-[var(--bg-base)] text-[var(--text-primary)] w-full flex-1 flex flex-col"
     >
       <div className="w-full max-w-4xl mx-auto px-4 py-4 md:px-6 md:py-6 flex flex-col gap-4 flex-1">
         {children}

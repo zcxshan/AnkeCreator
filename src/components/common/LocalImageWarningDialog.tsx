@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { useImageWarningStore } from '../../store/imageWarningStore';
 import { Icon } from './Icon';
+import { Modal } from './Modal';
 
 const DISMISSED_KEY = 'anke-creator-image-warning-dismissed';
 
@@ -23,16 +23,12 @@ export function LocalImageWarningDialog() {
     if (!open) return;
     setDontShow(false);
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        resolve(false);
-      } else if (e.key === 'Enter') {
+      if (e.key === 'Enter') {
         e.stopPropagation();
         handleConfirm();
       }
     };
     window.addEventListener('keydown', handler);
-    setTimeout(() => confirmBtnRef.current?.focus(), 10);
     return () => window.removeEventListener('keydown', handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -50,83 +46,49 @@ export function LocalImageWarningDialog() {
     resolve(true);
   };
 
-  return createPortal(
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 9000,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'rgba(0,0,0,0.45)',
-        animation: 'modalFade 0.15s ease-out',
+  return (
+    <Modal
+      open={open}
+      onClose={() => resolve(false)}
+      initialFocusRef={confirmBtnRef}
+      labelledBy="local-image-warning-dialog-title"
+      contentStyle={{
+        background: 'var(--bg-card)',
+        borderRadius: 'var(--radius-toolbar)',
+        boxShadow: 'var(--shadow-modal)',
+        padding: '24px 28px 20px',
+        minWidth: 360,
+        maxWidth: 480,
+        animation: 'modalSlideIn 0.18s ease-out',
+        border: '1px solid var(--border-color)',
       }}
-      onClick={() => resolve(false)}
-      role="dialog"
-      aria-modal="true"
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: 'var(--bg-card, #fff)',
-          borderRadius: 10,
-          boxShadow: '0 12px 40px rgba(0,0,0,0.2)',
-          padding: '24px 28px 20px',
-          minWidth: 360,
-          maxWidth: 480,
-          animation: 'modalSlideIn 0.18s ease-out',
-          border: '1px solid var(--border-color, #e5e7eb)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+        <div className="flex items-center gap-[8px] mb-[14px]">
           <Icon name="lightbulb" size={20} />
           <h3
-            style={{
-              margin: 0,
-              fontSize: 15,
-              fontWeight: 600,
-              color: 'var(--text-primary, #111)',
-            }}
+            id="local-image-warning-dialog-title"
+            className="m-[0px] text-[15px] font-semibold text-[var(--text-primary)]"
           >
             图片保存提示
           </h3>
         </div>
 
         <div
-          style={{
-            marginBottom: 14,
-            padding: '12px 14px',
-            fontSize: 12,
-            lineHeight: 1.8,
-            color: 'var(--text-primary, #111)',
-            background: 'var(--bg-toolbar, #f5f5f5)',
-            borderRadius: 6,
-            border: '1px solid var(--border-color, #e5e7eb)',
-          }}
+          className="mb-[14px] py-[12px] px-[14px] text-[12px] leading-[1.8] text-[var(--text-primary)] bg-[var(--bg-toolbar)] rounded-[var(--radius-control)] border border-[color:var(--border-color)]"
         >
           本应用使用的免费图片托管平台是
-          <b style={{ color: 'var(--danger, #dc2626)' }}>限时的</b>
+          <b className="text-[var(--danger)]">限时的</b>
           ，图片可能在数月/数年后失效
           <br />
           本地保存的图片（路径）在 NGA 论坛
-          <b style={{ color: 'var(--danger, #dc2626)' }}>无法被识别</b>
+          <b className="text-[var(--danger)]">无法被识别</b>
           ，导出时自动替换为占位符
           <br />
           <b>最推荐：</b>把图片上传到 NGA 后，复制 NGA 的图片 URL 直接粘贴到编辑器
         </div>
 
         <label
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            marginBottom: 16,
-            fontSize: 12,
-            color: 'var(--text-secondary, #555)',
-            cursor: 'pointer',
-            userSelect: 'none',
-          }}
+          className="flex items-center gap-[6px] mb-[16px] text-[12px] text-[var(--text-secondary)] cursor-pointer select-none"
         >
           <input
             type="checkbox"
@@ -136,53 +98,22 @@ export function LocalImageWarningDialog() {
           <span>不再提示（清除 localStorage 的 anke-creator-image-warning-dismissed 可重置）</span>
         </label>
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        <div className="flex justify-end gap-[8px]">
           <button
             onClick={() => resolve(false)}
-            style={{
-              padding: '8px 18px',
-              fontSize: 13,
-              border: '1px solid var(--border-color, #e5e7eb)',
-              borderRadius: 6,
-              background: 'transparent',
-              color: 'var(--text-primary, #111)',
-              cursor: 'pointer',
-            }}
+            className="py-[8px] px-[18px] text-[13px] border border-[color:var(--border-color)] rounded-[var(--radius-control)] bg-transparent text-[var(--text-primary)] cursor-pointer"
           >
             取消
           </button>
           <button
             ref={confirmBtnRef}
             onClick={handleConfirm}
-            style={{
-              padding: '8px 18px',
-              fontSize: 13,
-              fontWeight: 600,
-              border: '1px solid #2563eb33',
-              borderRadius: 6,
-              background: 'rgba(37,99,235,0.08)',
-              color: '#2563eb',
-              cursor: 'pointer',
-            }}
+            className="py-[8px] px-[18px] text-[13px] font-semibold border border-[color:var(--tone-info-border)] rounded-[var(--radius-control)] bg-[var(--tone-info-soft)] text-[var(--tone-info)] cursor-pointer"
           >
             我知道了，继续上传
           </button>
         </div>
-      </div>
-      <style>
-        {`
-          @keyframes modalFade {
-            from { opacity: 0; }
-            to { opacity: 1; }
-          }
-          @keyframes modalSlideIn {
-            from { opacity: 0; transform: translateY(-8px) scale(0.98); }
-            to { opacity: 1; transform: translateY(0) scale(1); }
-          }
-        `}
-      </style>
-    </div>,
-    document.body,
+    </Modal>
   );
 }
 

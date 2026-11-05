@@ -18,7 +18,7 @@ import { isCapacitor } from '../../utils/platform'
 import { SearchSiteSection, GululuCard, NgaCard } from './SearchSiteSection'
 import { Icon } from '../common/Icon'
 import { useSettingStore } from '../../store/settingStore'
-import type { GululuResult, NgaResult } from '../../../electron/searchAnke'
+import type { GululuResult, NgaResult } from '../../types/search'
 
 interface FindAnkePageProps {
   onBack: () => void
@@ -48,7 +48,7 @@ export function FindAnkePage({ onBack }: FindAnkePageProps) {
 
   // NGA 搜索函数：封装 IPC 调用 + Cookie
   const ngaSearchFn = useCallback(
-    (keyword: string, matchField: 'title' | 'author', page?: number, limit?: number) =>
+    (keyword: string, matchField: 'all' | 'title' | 'author', page?: number, limit?: number) =>
       (window as any).electronAPI.searchAnke.ngaAnke(
         keyword,
         ngaCookies || undefined,
@@ -65,7 +65,7 @@ export function FindAnkePage({ onBack }: FindAnkePageProps) {
     fontWeight: 500,
     border: 'none',
     cursor: 'pointer',
-    borderRadius: 8,
+    borderRadius: 'var(--radius-md)',
     transition: 'all 0.15s',
   }
 
@@ -73,41 +73,32 @@ export function FindAnkePage({ onBack }: FindAnkePageProps) {
   if (isCapacitor) {
     return (
       <div
-        className="flex flex-col min-h-full"
-        style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+        className="bg-[var(--bg-primary)] text-[var(--text-primary)] flex flex-col min-h-full"
       >
         <div
-          className="flex items-center gap-3 px-4 py-3 shrink-0 sticky top-8 z-40"
-          style={{ borderBottom: '1px solid var(--border-color)', background: 'var(--bg-primary)' }}
+          className="border-b border-b-[color:var(--border-color)] bg-[var(--bg-primary)] flex items-center gap-3 px-4 py-3 shrink-0 sticky top-8 z-40"
         >
-          <Icon name="search" size={18} />
-          <h1 className="text-lg font-semibold m-0">寻找安科</h1>
           <button
             onClick={onBack}
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium ml-auto"
-            style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
+            className="bg-[var(--bg-hover)] text-[var(--text-primary)] inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium"
           >
             ← 返回
           </button>
+          <Icon name="search" size={18} />
+          <h1 className="text-lg font-semibold m-0">寻找安科</h1>
         </div>
         <div className="flex-1 flex items-center justify-center p-8">
           <div
-            className="text-center max-w-md p-8 rounded-2xl"
-            style={{
-              background: 'var(--bg-card)',
-              border: '1px dashed var(--border-color)',
-            }}
+            className="bg-[var(--bg-card)] border border-[color:var(--border-color)] text-center max-w-md p-8 rounded-2xl"
           >
             <div className="mb-4"><Icon name="laptop" size={48} /></div>
             <h2
-              className="text-xl font-semibold mb-2"
-              style={{ color: 'var(--text-primary)' }}
+              className="text-[var(--text-primary)] text-xl font-semibold mb-2"
             >
               该功能仅桌面版可用
             </h2>
             <p
-              className="text-sm leading-relaxed m-0"
-              style={{ color: 'var(--text-secondary)' }}
+              className="text-[var(--text-secondary)] text-sm leading-relaxed m-0"
             >
               寻找安科需要在 Windows 桌面版使用，安卓版暂不支持。
             </p>
@@ -119,33 +110,29 @@ export function FindAnkePage({ onBack }: FindAnkePageProps) {
 
   return (
     <div
-      className="flex flex-col h-full"
-      style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+      className="bg-[var(--bg-primary)] text-[var(--text-primary)] flex flex-col h-full"
     >
       {/* 顶栏 */}
       <div
-        className="flex items-center gap-3 px-4 py-3 shrink-0"
-        style={{ borderBottom: '1px solid var(--border-color)' }}
+        className="border-b border-b-[color:var(--border-color)] flex items-center gap-3 px-4 py-3 shrink-0"
       >
-        <div className="flex items-center gap-2">
-          <Icon name="search" size={18} />
-          <h1 className="text-lg font-semibold m-0">寻找安科</h1>
-        </div>
         <button
           onClick={onBack}
-          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ml-auto"
-          style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
+          className="bg-[var(--bg-hover)] text-[var(--text-primary)] inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors"
           onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-card)')}
           onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--bg-hover)')}
         >
           ← 返回
         </button>
+        <div className="flex items-center gap-2">
+          <Icon name="search" size={18} />
+          <h1 className="text-lg font-semibold m-0">寻找安科</h1>
+        </div>
       </div>
 
       {/* Tab 切换栏 */}
       <div
-        className="shrink-0 flex gap-2 px-4 py-2"
-        style={{ borderBottom: '1px solid var(--border-color)' }}
+        className="border-b border-b-[color:var(--border-color)] shrink-0 flex gap-2 px-4 py-2"
       >
         <button
           onClick={() => setTab('gululu')}
@@ -217,19 +204,14 @@ export function FindAnkePage({ onBack }: FindAnkePageProps) {
             <div className="max-w-4xl mx-auto flex flex-col gap-3">
               {!ngaCookies && (
                 <div
-                  className="p-3 rounded-lg flex items-start gap-2 text-xs"
-                  style={{
-                    background: 'rgba(245, 158, 11, 0.1)',
-                    border: '1px solid rgba(245, 158, 11, 0.3)',
-                    color: 'var(--text-primary)',
-                  }}
+                  className="bg-[var(--tone-warn-veil)] border border-[color:var(--tone-warn-border)] text-[var(--text-primary)] p-3 rounded-lg flex items-start gap-2 text-xs"
                 >
-                  <span className="shrink-0" style={{ color: '#f59e0b' }}>
+                  <span className="text-[var(--tone-warn)] shrink-0">
                     <Icon name="alert" size={14} />
                   </span>
                   <div className="flex-1">
                     <div className="font-medium mb-0.5">未配置 NGA Cookie</div>
-                    <div style={{ color: 'var(--text-secondary)' }}>
+                    <div className="text-[var(--text-secondary)]">
                       未登录状态下仅能查看部分公开帖子，部分内容可能缺失或被拦截。
                       请在 <strong>设置 → NGA 登录态</strong> 中粘贴 Cookie 后重试。
                     </div>

@@ -302,7 +302,7 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
     width: '100%',
     padding: '8px 14px',
     fontSize: 14,
-    borderRadius: 8,
+    borderRadius: 'var(--radius-md)',
     outline: 'none',
     background: 'var(--bg-input)',
     border: '1px solid var(--border-color)',
@@ -312,31 +312,28 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
   if (isMobileUnsupported) {
     return (
       <div
-        className="min-h-full w-full flex flex-col"
-        style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}
+        className="bg-[var(--bg-base)] text-[var(--text-primary)] min-h-full w-full flex flex-col"
       >
         <div
-          className="flex items-center gap-3 px-6 py-4 border-b sticky top-8 z-40"
-          style={{ borderColor: 'var(--border-color)', background: 'var(--bg-base)' }}
+          className="border-[color:var(--border-color)] bg-[var(--bg-base)] flex items-center gap-3 px-6 py-4 border-b sticky top-8 z-40"
         >
           <button
             onClick={onBack}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors"
-            style={{ color: 'var(--text-secondary)' }}
+            className="text-[var(--text-secondary)] flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors"
             onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
           >
             <span className="inline-flex items-center gap-1"><Icon name="back" size={16} /> 返回</span>
           </button>
-          <h1 className="text-lg font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+          <h1 className="text-[var(--text-primary)] text-lg font-semibold flex items-center gap-2">
             <span className="inline-flex items-center gap-1"><Icon name="bookText" size={20} /> 收集安科</span>
           </h1>
         </div>
         <div className="flex-1 flex items-center justify-center p-8">
           <div className="text-center max-w-sm">
             <div className="text-4xl mb-3"><Icon name="bot" size={48} /></div>
-            <p className="font-medium" style={{ color: 'var(--text-primary)' }}>移动端暂不支持收集安科</p>
-            <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>请在桌面端（Electron）使用此功能</p>
+            <p className="text-[var(--text-primary)] font-medium">移动端暂不支持收集安科</p>
+            <p className="text-[var(--text-secondary)] text-sm mt-1">请在桌面端（Electron）使用此功能</p>
           </div>
         </div>
       </div>
@@ -345,18 +342,15 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
 
   return (
     <div
-      className="min-h-full w-full flex flex-col"
-      style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}
+      className="bg-[var(--bg-base)] text-[var(--text-primary)] min-h-full w-full flex flex-col"
     >
       {/* 顶栏 */}
       <div
-        className="flex items-center gap-3 px-6 py-4 border-b flex-wrap"
-        style={{ borderColor: 'var(--border-color)' }}
+        className="border-[color:var(--border-color)] flex items-center gap-3 px-6 py-4 border-b flex-wrap"
       >
         <button
           onClick={onBack}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors"
-          style={{ color: 'var(--text-secondary)' }}
+          className="text-[var(--text-secondary)] flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors"
           onMouseEnter={(e) => {
             e.currentTarget.style.background = 'var(--bg-hover)';
             e.currentTarget.style.color = 'var(--text-primary)';
@@ -369,15 +363,13 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
           <span className="inline-flex items-center gap-1"><Icon name="back" size={16} /> 返回</span>
         </button>
         <h1
-          className="text-lg font-semibold flex items-center gap-2"
-          style={{ color: 'var(--text-primary)' }}
+          className="text-[var(--text-primary)] text-lg font-semibold flex items-center gap-2"
         >
           <span className="inline-flex items-center gap-1"><Icon name="bookText" size={20} /> 收集安科</span>
         </h1>
         {/* Tab 切换：NGA / 骨碌碌 */}
         <div
-          className="inline-flex items-center gap-1 p-1 rounded-xl"
-          style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
+          className="bg-[var(--bg-card)] border border-[color:var(--border-color)] inline-flex items-center gap-1 p-1 rounded-xl"
           role="tablist"
         >
           <button
@@ -387,7 +379,7 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
             className="px-3 py-1.5 rounded-lg text-sm transition-colors"
             style={{
               background: tab === 'nga' ? 'var(--accent)' : 'transparent',
-              color: tab === 'nga' ? 'var(--text-on-accent, #fff)' : 'var(--text-primary)',
+              color: tab === 'nga' ? 'var(--text-on-accent)' : 'var(--text-primary)',
               fontWeight: tab === 'nga' ? 600 : 400,
             }}
           >
@@ -400,7 +392,7 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
             className="px-3 py-1.5 rounded-lg text-sm transition-colors"
             style={{
               background: tab === 'gululu' ? 'var(--accent)' : 'transparent',
-              color: tab === 'gululu' ? 'var(--text-on-accent, #fff)' : 'var(--text-primary)',
+              color: tab === 'gululu' ? 'var(--text-on-accent)' : 'var(--text-primary)',
               fontWeight: tab === 'gululu' ? 600 : 400,
             }}
           >
@@ -414,8 +406,7 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
         <div className="flex-1 overflow-y-auto px-3 py-3 md:px-6 md:py-6">
         <div className="max-w-4xl mx-auto space-y-4 md:space-y-5">
           <section
-            className="rounded-2xl p-5"
-            style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
+            className="bg-[var(--bg-card)] border border-[color:var(--border-color)] rounded-2xl p-5"
           >
             <h2
               className="text-sm font-semibold mb-4 inline-flex items-center gap-1"
@@ -425,11 +416,11 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
               收集条件
             </h2>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="flex flex-col gap-[12px]">
               {/* NGA 帖子 URL + 自动检测 */}
               <div>
                 <label style={labelStyle}>NGA 主题帖链接</label>
-                <div style={{ display: 'flex', alignItems: 'stretch', gap: 8 }}>
+                <div className="flex items-stretch gap-[8px]">
                   <input
                     className="anke-input"
                     value={url}
@@ -447,12 +438,7 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
                   <button
                     onClick={handleAutoDetect}
                     disabled={running || detecting}
-                    className="px-3 py-2 text-xs rounded-lg transition-colors disabled:opacity-50 whitespace-nowrap anke-btn"
-                    style={{
-                      background: 'var(--bg-hover)',
-                      color: 'var(--text-primary)',
-                      border: '1px solid var(--border-color)',
-                    }}
+                    className="bg-[var(--bg-hover)] text-[var(--text-primary)] border border-[color:var(--border-color)] px-3 py-2 text-xs rounded-lg transition-colors disabled:opacity-50 whitespace-nowrap anke-btn"
                     onMouseEnter={(e) => {
                       if (!running && !detecting) {
                         e.currentTarget.style.borderColor = 'var(--accent)';
@@ -480,12 +466,7 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
                 </div>
                 {parsedAuthorid && (
                   <div
-                    className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs"
-                    style={{
-                      background: 'var(--accent-bg)',
-                      color: 'var(--accent)',
-                      border: '1px solid var(--accent)',
-                    }}
+                    className="bg-[var(--accent-bg)] text-[var(--accent)] border border-[color:var(--accent)] mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs"
                     title="仅收集该用户的回复"
                   >
                     <Icon name="target" size={14} />
@@ -493,9 +474,8 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
                     <button
                       onClick={clearAuthorid}
                       disabled={running}
-                      className="ml-0.5 px-1 rounded transition-colors disabled:opacity-50"
-                      style={{ color: 'var(--accent)' }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(0,0,0,0.08)'; }}
+                      className="text-[var(--accent)] ml-0.5 px-1 rounded transition-colors disabled:opacity-50"
+                      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--scrim-soft)'; }}
                       onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                       title="清除用户筛选（恢复全员）"
                     >
@@ -506,10 +486,10 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
               </div>
 
               {/* 楼层范围 + 切分模式 */}
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <div style={{ flex: '1 1 120px' }}>
+              <div className="flex gap-[8px] flex-wrap">
+                <div className="flex-[1_1_120px]">
                   <label style={labelStyle}>
-                    起始楼层 <span style={{ color: 'var(--text-secondary)', fontSize: 11 }}>（NGA 含 0 楼）</span>
+                    起始楼层 <span className="text-[var(--text-secondary)] text-[11px]">（NGA 含 0 楼）</span>
                   </label>
                   <input
                     type="number"
@@ -522,7 +502,7 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
                     onBlur={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; }}
                   />
                 </div>
-                <div style={{ flex: '1 1 120px' }}>
+                <div className="flex-[1_1_120px]">
                   <label style={labelStyle}>终止楼层</label>
                   <input
                     type="number"
@@ -538,7 +518,7 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
                     onBlur={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; }}
                   />
                 </div>
-                <div style={{ flex: '1 1 120px' }}>
+                <div className="flex-[1_1_120px]">
                   <label style={labelStyle}>切分模式</label>
                   <select
                     value={sectionMode}
@@ -554,7 +534,7 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
                   </select>
                 </div>
                 {sectionMode === 'every-n' && (
-                  <div style={{ flex: '1 1 120px' }}>
+                  <div className="flex-[1_1_120px]">
                     <label style={labelStyle}>每 N 楼一节</label>
                     <input
                       type="number"
@@ -597,8 +577,7 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
 
               {/* 提示 */}
               <div
-                className="text-xs flex items-start gap-1.5"
-                style={{ color: 'var(--text-muted)' }}
+                className="text-[var(--text-muted)] text-xs flex items-start gap-1.5"
               >
                 <Icon name="lightbulb" size={14} className="shrink-0" />
                 <div>
@@ -647,26 +626,14 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
                     <button
                       type="button"
                       onClick={handleTogglePause}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all anke-btn"
-                      style={{
-                        background: 'var(--bg-card)',
-                        color: 'var(--text-primary)',
-                        border: '1px solid var(--border-color)',
-                        cursor: 'pointer',
-                      }}
+                      className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)] cursor-pointer inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all anke-btn"
                     >
                       <span className="inline-flex items-center gap-1">{paused ? <><Icon name="play" size={13} /> 恢复</> : <><Icon name="pause" size={13} /> 暂停</>}</span>
                     </button>
                     <button
                       type="button"
                       onClick={handleCancel}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all anke-btn"
-                      style={{
-                        background: 'var(--bg-card)',
-                        color: 'var(--error, #e53935)',
-                        border: '1px solid var(--error, #e53935)',
-                        cursor: 'pointer',
-                      }}
+                      className="bg-[var(--bg-card)] text-[var(--error)] border border-[color:var(--error)] cursor-pointer inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all anke-btn"
                     >
                       取消
                     </button>
@@ -687,22 +654,16 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
           {/* 结果提示 */}
           {resultMsg && !running && (
             <section
-              className="rounded-2xl p-5"
-              style={{
-                background: 'var(--bg-card)',
-                border: '1px solid var(--accent)',
-              }}
+              className="bg-[var(--bg-card)] border border-[color:var(--accent)] rounded-2xl p-5"
             >
               <div
-                className="text-sm font-semibold mb-2 flex items-center gap-1"
-                style={{ color: 'var(--accent)' }}
+                className="text-[var(--accent)] text-sm font-semibold mb-2 flex items-center gap-1"
               >
                 <Icon name="check" size={14} className="shrink-0" />
                 收集完成
               </div>
               <div
-                className="text-sm whitespace-pre-wrap"
-                style={{ color: 'var(--text-primary)' }}
+                className="text-[var(--text-primary)] text-sm whitespace-pre-wrap"
               >
                 {resultMsg}
               </div>
@@ -712,20 +673,15 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
           {/* 失败页/楼层超范围警告 */}
           {ankeWarnings.length > 0 && !running && (
             <section
-              className="rounded-2xl p-4"
-              style={{
-                background: 'rgba(245,158,11,0.08)',
-                border: '1px solid rgba(245,158,11,0.3)',
-              }}
+              className="bg-[var(--tone-warn-soft)] border border-[color:var(--tone-warn-border)] rounded-2xl p-4"
             >
               <div className="flex items-start gap-2">
-                <span style={{ color: '#f59e0b' }}><Icon name="alert" size={14} className="shrink-0" /></span>
+                <span className="text-[var(--tone-warn)]"><Icon name="alert" size={14} className="shrink-0" /></span>
                 <div className="flex-1">
                   {ankeWarnings.map((w, i) => (
                     <div
                       key={i}
-                      className="text-xs mt-1 first:mt-0"
-                      style={{ color: 'var(--text-secondary)' }}
+                      className="text-[var(--text-secondary)] text-xs mt-1 first:mt-0"
                     >
                       {w}
                     </div>
@@ -738,19 +694,15 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
           {/* 失败页重试卡片 */}
           {!running && ankeFailedPages.length > 0 && (
             <section
-              className="rounded-2xl p-4"
-              style={{
-                background: 'rgba(245,158,11,0.08)',
-                border: '1px solid rgba(245,158,11,0.3)',
-              }}
+              className="bg-[var(--tone-warn-soft)] border border-[color:var(--tone-warn-border)] rounded-2xl p-4"
             >
               <div className="flex items-start gap-2 mb-3">
-                <span style={{ color: '#f59e0b' }}><Icon name="alert" size={14} className="shrink-0" /></span>
+                <span className="text-[var(--tone-warn)]"><Icon name="alert" size={14} className="shrink-0" /></span>
                 <div className="flex-1">
-                  <div className="text-sm font-semibold" style={{ color: '#f59e0b' }}>
+                  <div className="text-[var(--tone-warn)] text-sm font-semibold">
                     {ankeFailedPages.length} 个页面抓取失败
                   </div>
-                  <div className="text-xs mt-1.5" style={{ color: 'var(--text-secondary)' }}>
+                  <div className="text-[var(--text-secondary)] text-xs mt-1.5">
                     可选择重试这些页面（自动补齐到 JSON），或跳过使用当前已收集的结果。
                   </div>
                   {(() => {
@@ -758,17 +710,16 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
                     const visible = ankeFailedPagesExpanded ? ankeFailedPages : ankeFailedPages.slice(0, SHOW);
                     const hasMore = ankeFailedPages.length > SHOW;
                     return (
-                      <div className="mt-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                        <span style={{ fontWeight: 500 }}>失败页码：</span>
-                        <span style={{ wordBreak: 'break-all' }}>
+                      <div className="text-[var(--text-secondary)] mt-2 text-xs">
+                        <span className="font-medium">失败页码：</span>
+                        <span className="break-all">
                           {visible.join(', ')}
                           {hasMore && !ankeFailedPagesExpanded && ` 等 ${ankeFailedPages.length} 页`}
                         </span>
                         {hasMore && (
                           <button
                             onClick={() => setAnkeFailedPagesExpanded((v) => !v)}
-                            className="ml-2 underline"
-                            style={{ color: '#f59e0b', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                            className="text-[var(--tone-warn)] bg-transparent border-none cursor-pointer p-[0px] ml-2 underline"
                           >
                             {ankeFailedPagesExpanded ? '收起' : '展开全部'}
                           </button>
@@ -782,12 +733,7 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
                 <button
                   onClick={handleRetryFailedAnkePages}
                   disabled={ankeRetrying}
-                  className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 anke-btn"
-                  style={{
-                    background: '#f59e0b',
-                    color: '#fff',
-                    border: '1px solid #f59e0b',
-                  }}
+                  className="bg-[var(--tone-warn)] text-[var(--text-on-accent)] border border-[color:var(--tone-warn)] px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 anke-btn"
                 >
                   {ankeRetrying ? (
                     `重试中…（${ankeFailedPages.length} 页）`
@@ -801,12 +747,7 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
                 <button
                   onClick={handleSkipFailedAnkePages}
                   disabled={ankeRetrying}
-                  className="px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50 anke-btn"
-                  style={{
-                    background: 'transparent',
-                    color: 'var(--text-secondary)',
-                    border: '1px solid var(--border-color)',
-                  }}
+                  className="bg-transparent text-[var(--text-secondary)] border border-[color:var(--border-color)] px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50 anke-btn"
                 >
                   ⏭ 跳过失败页，使用当前结果
                 </button>

@@ -14,6 +14,7 @@ import { WheelPage } from './components/pages/WheelPage';
 import { TitleBar } from './components/common/TitleBar';
 import { AuthorInfo } from './components/common/AuthorInfo';
 import { ToastContainer } from './components/common/Toast';
+import { ConfirmDialogHost } from './components/common/confirmPrompt';
 import { LocalImageWarningDialog } from './components/common/LocalImageWarningDialog';
 import { MobileBottomNav } from './components/common/MobileBottomNav';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
@@ -22,6 +23,7 @@ import { useMetaStore } from './store/metaStore';
 import { initDatabase } from './db/index';
 import { isCapacitor, isElectron } from './utils/platform';
 import { useSettingStore } from './store/settingStore';
+import { flushDebouncedSave } from './store/editorStore';
 import './index.css';
 
 type Route = 'home' | 'works' | 'editor' | 'reader' | 'resource-library' | 'tutorial' | 'anjia-collect' | 'anke-collect' | 'find-anke' | 'dice-playground' | 'creation-log' | 'wheel-playground';
@@ -68,6 +70,19 @@ function App() {
       await initDatabase();
     };
     init();
+  }, []);
+
+  // 关闭窗口前把未保存的编辑器内容 flush 到磁盘，完成后再通知主进程关闭
+  useEffect(() => {
+    if (!isElectron) return;
+    const unsubscribe = window.electronAPI?.onAppBeforeClose?.(async () => {
+      try {
+        await flushDebouncedSave();
+      } finally {
+        window.electronAPI?.confirmAppClose?.();
+      }
+    });
+    return () => unsubscribe?.();
   }, []);
 
   // 启动时扫描可用骰子音效（仅 Electron）
@@ -117,17 +132,12 @@ function App() {
   // TitleBar 位于所有页面顶部（仅 Electron 无边框窗口显示；Capacitor / Web 走系统状态栏沉浸式）
   const renderWithTitleBar = (content: React.ReactNode) => (
     <div
-      className="flex flex-col min-h-screen"
-      style={{
-        width: '100%',
-        background: 'var(--bg-page)',
-        color: 'var(--text-primary)',
-      }}
+      className="w-full bg-[var(--bg-page)] text-[var(--text-primary)] flex flex-col min-h-screen"
     >
       {/* TitleBar 始终固定在窗口顶部（sticky），
           包裹 div 加 flex-shrink: 0 防止 flex 容器压缩 TitleBar 32px 高度 */}
       {isElectron && (
-        <div className="sticky top-0 z-50" style={{ flexShrink: 0 }}>
+        <div className="shrink-0 sticky top-0 z-50">
           <TitleBar />
         </div>
       )}
@@ -147,6 +157,8 @@ function App() {
         hasActiveStory={!!activeStoryId}
       />
       <ToastContainer />
+      {/* 全局命令式确认框宿主（askConfirm），统一替代原生 window.confirm */}
+      <ConfirmDialogHost />
       {/* 全局唯一的本地上传警告弹窗（订阅 imageWarningStore.open） */}
       <LocalImageWarningDialog />
     </div>

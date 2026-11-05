@@ -684,27 +684,24 @@ export function TutorialPage({ onBack, onShowAuthor }: TutorialPageProps) {
 
   return (
     <div
-      className="min-h-full w-full flex flex-col items-center"
-      style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}
+      className="bg-[var(--bg-base)] text-[var(--text-primary)] min-h-full w-full flex flex-col items-center"
     >
       <div className="w-full max-w-3xl px-6 py-8">
         {/* 顶部导航（非 sticky，跟随内容一起滚动） */}
-        <div className="flex items-center gap-3 mb-6" style={{ background: 'var(--bg-base)' }}>
+        <div className="bg-[var(--bg-base)] flex items-center gap-3 mb-6">
           <button
             onClick={onBack}
-            className="inline-flex items-center gap-1 px-4 py-2 rounded-xl text-sm font-medium transition-all"
-            style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+            className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)] inline-flex items-center gap-1 px-4 py-2 rounded-xl text-sm font-medium transition-all"
             onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
           >
             <Icon name="back" size={16} /> 返回首页
           </button>
-          <h1 className="text-2xl font-bold"><Icon name="bookText" size={24} /> 安科创作教程</h1>
+          <h1 className="text-2xl font-bold inline-flex items-center gap-2"><Icon name="bookText" size={24} /> 安科创作教程</h1>
           {onShowAuthor && (
             <button
               onClick={onShowAuthor}
-              className="inline-flex items-center gap-1 px-4 py-2 rounded-xl text-sm font-medium transition-all ml-auto"
-              style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+              className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)] inline-flex items-center gap-1 px-4 py-2 rounded-xl text-sm font-medium transition-all ml-auto"
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
             >
@@ -715,11 +712,10 @@ export function TutorialPage({ onBack, onShowAuthor }: TutorialPageProps) {
 
         {/* 说明条 */}
         <div
-          className="px-5 py-4 mb-6 rounded-2xl"
-          style={{ background: 'var(--accent-bg)', border: '1px solid var(--accent)', color: 'var(--text-primary)' }}
+          className="bg-[var(--accent-bg)] border border-[color:var(--accent)] text-[var(--text-primary)] px-5 py-4 mb-6 rounded-2xl"
         >
-          <div className="text-sm font-semibold mb-1" style={{ color: 'var(--accent)' }}>快速上手</div>
-          <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+          <div className="text-[var(--accent)] text-sm font-semibold mb-1">快速上手</div>
+          <div className="text-[var(--text-secondary)] text-xs">
             点击下方任意主题卡片展开详细步骤指南，共 {TUTORIAL_TOPICS.length} 个主题，涵盖从创建作品到导出 NGA BBCode 的完整创作流程。
           </div>
         </div>
@@ -734,28 +730,26 @@ export function TutorialPage({ onBack, onShowAuthor }: TutorialPageProps) {
                 className="anke-card overflow-hidden"
                 style={{
                   borderColor: isExpanded ? 'var(--accent)' : undefined,
-                  boxShadow: isExpanded ? '0 4px 16px -4px rgba(0,0,0,0.15)' : undefined,
+                  boxShadow: isExpanded ? 'var(--shadow-md)' : undefined,
                 }}
               >
                 {/* 卡片头部（可点击展开/收起） */}
                 <button
                   onClick={() => setExpandedId(isExpanded ? null : topic.id)}
-                  className="w-full px-5 py-4 flex items-center gap-3 transition-colors"
-                  style={{ background: 'transparent' }}
+                  className="bg-transparent w-full px-5 py-4 flex items-center gap-3 transition-colors"
                   onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                 >
                   <div
-                    className="flex-shrink-0"
-                    style={{ display: 'flex', width: 40, height: 40, borderRadius: 12, background: 'var(--bg-hover)', alignItems: 'center', justifyContent: 'center' }}
+                    className="flex w-[40px] h-[40px] rounded-[var(--radius-lg)] bg-[var(--bg-hover)] items-center justify-center flex-shrink-0"
                   >
                     <Icon name={topic.icon} size={20} />
                   </div>
                   <div className="flex-1 text-left">
-                    <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                    <div className="text-[var(--text-primary)] text-sm font-semibold">
                       {topic.title}
                     </div>
-                    <div className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                    <div className="text-[var(--text-secondary)] text-xs mt-0.5">
                       {topic.summary}
                     </div>
                   </div>
@@ -774,29 +768,25 @@ export function TutorialPage({ onBack, onShowAuthor }: TutorialPageProps) {
                 {/* 展开内容（步骤列表） */}
                 {isExpanded && (
                   <div
-                    className="px-5 pb-5"
-                    style={{ borderTop: '1px solid var(--border-color)' }}
+                    className="border-t border-t-[color:var(--border-color)] px-5 pb-5"
                   >
                     <div className="pt-4 space-y-2">
                       {topic.steps.map((step, idx) => (
                         <div
                           key={idx}
-                          className="p-3 rounded-xl flex gap-3"
-                          style={{ background: 'var(--bg-base)', border: '1px solid var(--border-color)' }}
+                          className="bg-[var(--bg-base)] border border-[color:var(--border-color)] p-3 rounded-xl flex gap-3"
                         >
                           <div
-                            className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold"
-                            style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
+                            className="bg-[var(--accent)] text-[var(--text-on-accent)] flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold"
                           >
                             {idx + 1}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="text-xs font-semibold mb-1" style={{ color: 'var(--accent)' }}>
+                            <div className="text-[var(--accent)] text-xs font-semibold mb-1">
                               {step.title.replace(/^\d+\.\s*/, '')}
                             </div>
                             <div
-                              className="text-xs leading-relaxed"
-                              style={{ color: 'var(--text-primary)' }}
+                              className="text-[var(--text-primary)] text-xs leading-relaxed"
                             >
                               {step.description}
                             </div>
@@ -813,7 +803,7 @@ export function TutorialPage({ onBack, onShowAuthor }: TutorialPageProps) {
 
         {/* 底部提示 */}
         <div className="mt-8 text-center">
-          <div className="text-xs inline-flex items-center gap-1.5" style={{ color: 'var(--text-secondary)' }}>
+          <div className="text-[var(--text-secondary)] text-xs inline-flex items-center gap-1.5">
             <Icon name="lightbulb" size={14} /> 提示：所有创作内容保存在本地数据目录，关闭应用后不会丢失。
           </div>
         </div>

@@ -20,7 +20,7 @@ import type { Editor } from '@tiptap/core'
 import type { JSONContent } from '@tiptap/core'
 import { NodeSelection, TextSelection } from '@tiptap/pm/state'
 import { NGA_DEFAULT_IMAGE_SIZE, NGA_IMAGE_SIZES, type DiceBlockPayloadV2 } from '../../types'
-import { scrollToDiceCard as scrollToDiceCardByPayload } from '../diceCard'
+import { scrollToDiceCard as scrollToDiceCardByPayload } from './diceRender'
 import type { RichTextEditorCommands } from './TiptapEditorPane'
 
 /** NodeView 挂载期间写入 DOM 的瞬态 UI（不应进入文档序列化结果） */

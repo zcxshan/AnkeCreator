@@ -12,6 +12,7 @@ import { rollExpression } from '../../utils/diceEngine';
 import { useToastStore } from '../../store/toastStore';
 import { useSettingStore } from '../../store/settingStore';
 import { playDiceRollSound } from '../../utils/diceSound';
+import { askConfirm } from '../common/confirmPrompt';
 // 改动 3：补齐 store 导入
 import {
   useDicePlaygroundHistoryStore,
@@ -106,12 +107,17 @@ export function DicePlaygroundPage({ onBack }: DicePlaygroundPageProps) {
 
   const handleRoll = () => doRoll(expr);
 
-  const handleClearHistory = () => {
+  const handleClearHistory = async () => {
     // 改动 9：二次确认，避免误清空
-    if (window.confirm('确定清空所有历史记录？此操作不可撤销。')) {
-      clearHistoryStore();
-      setLastResult(null);
-    }
+    const confirmed = await askConfirm({
+      title: '清空历史记录',
+      message: '确定清空所有历史记录？此操作不可撤销。',
+      confirmText: '清空',
+      danger: true,
+    });
+    if (!confirmed) return;
+    clearHistoryStore();
+    setLastResult(null);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -123,18 +129,15 @@ export function DicePlaygroundPage({ onBack }: DicePlaygroundPageProps) {
 
   return (
     <div
-      className="flex flex-col min-h-full"
-      style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}
+      className="bg-[var(--bg-base)] text-[var(--text-primary)] flex flex-col min-h-full"
     >
       {/* 顶栏（sticky 在 TitleBar 下方 32px 处，z-40） */}
       <div
-        className="flex items-center gap-3 px-4 py-3 shrink-0 sticky top-8 z-40"
-        style={{ borderBottom: '1px solid var(--border-color)', background: 'var(--bg-base)' }}
+        className="border-b border-b-[color:var(--border-color)] bg-[var(--bg-base)] flex items-center gap-3 px-4 py-3 shrink-0 sticky top-8 z-40"
       >
         <button
           onClick={onBack}
-          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors"
-          style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
+          className="bg-[var(--bg-hover)] text-[var(--text-primary)] inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors"
           onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-card)')}
           onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--bg-hover)')}
         >
@@ -151,12 +154,10 @@ export function DicePlaygroundPage({ onBack }: DicePlaygroundPageProps) {
         <div className="max-w-3xl mx-auto space-y-6">
           {/* 输入区 */}
           <section
-            className="rounded-2xl p-5"
-            style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
+            className="bg-[var(--bg-card)] border border-[color:var(--border-color)] rounded-2xl p-5"
           >
             <label
-              className="block text-xs mb-2 font-medium"
-              style={{ color: 'var(--text-secondary)' }}
+              className="text-[var(--text-secondary)] block text-xs mb-2 font-medium"
             >
               骰子表达式
             </label>
@@ -169,22 +170,12 @@ export function DicePlaygroundPage({ onBack }: DicePlaygroundPageProps) {
                 onKeyDown={handleKeyDown}
                 disabled={isRolling}
                 placeholder="例如：1d100、2d6+3、1d20"
-                className="flex-1 px-3 py-2 text-sm rounded-md outline-none disabled:opacity-50"
-                style={{
-                  background: 'var(--bg-input)',
-                  border: '1px solid var(--border-color)',
-                  color: 'var(--text-primary)',
-                }}
+                className="bg-[var(--bg-input)] border border-[color:var(--border-color)] text-[var(--text-primary)] flex-1 px-3 py-2 text-sm rounded-md outline-none disabled:opacity-50"
               />
               <button
                 onClick={handleRoll}
                 disabled={isRolling}
-                className={`px-5 py-2 text-sm rounded-md font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${isRolling ? 'anke-dice-playground-press' : ''}`}
-                style={{
-                  background: 'var(--accent)',
-                  color: 'var(--text-on-accent)',
-                  border: '1px solid var(--accent)',
-                }}
+                className={`${`px-5 py-2 text-sm rounded-md font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${isRolling ? 'anke-dice-playground-press' : ''}`} bg-[var(--accent)] text-[var(--text-on-accent)] border border-[color:var(--accent)]`}
                 onMouseEnter={(e) => { if (!isRolling) e.currentTarget.style.opacity = '0.85'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
               >
@@ -202,12 +193,7 @@ export function DicePlaygroundPage({ onBack }: DicePlaygroundPageProps) {
                     doRoll(p.expr);
                   }}
                   disabled={isRolling}
-                  className="text-xs px-2.5 py-1 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  style={{
-                    background: 'var(--bg-hover)',
-                    color: 'var(--text-secondary)',
-                    border: '1px solid var(--border-color)',
-                  }}
+                  className="bg-[var(--bg-hover)] text-[var(--text-secondary)] border border-[color:var(--border-color)] text-xs px-2.5 py-1 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   onMouseEnter={(e) => {
                     e.currentTarget.style.borderColor = 'var(--accent)';
                     e.currentTarget.style.color = 'var(--accent)';
@@ -224,8 +210,7 @@ export function DicePlaygroundPage({ onBack }: DicePlaygroundPageProps) {
 
             {/* 表达式语法提示 */}
             <div
-              className="mt-3 text-xs leading-relaxed"
-              style={{ color: 'var(--text-muted)' }}
+              className="text-[var(--text-muted)] mt-3 text-xs leading-relaxed"
             >
               语法：NdM（N 个 M 面骰）、四则运算 + - * /、括号、kh/kl（保留最高/低）、!（爆炸）、{'>='}（骰池）
             </div>
@@ -234,32 +219,25 @@ export function DicePlaygroundPage({ onBack }: DicePlaygroundPageProps) {
           {/* 最近一次结果（投骰动画期间也显示） */}
           {(lastResult || isRolling) && (
             <section
-              className="rounded-2xl p-6"
-              style={{
-                background: 'var(--accent-bg)',
-                border: '1px solid var(--accent)',
-              }}
+              className="bg-[var(--accent-bg)] border border-[color:var(--accent)] rounded-2xl p-6"
             >
               <div
-                className="text-xs mb-2 font-medium flex items-center gap-2"
-                style={{ color: 'var(--accent)' }}
+                className="text-[var(--accent)] text-xs mb-2 font-medium flex items-center gap-2"
               >
                 <span>最近一次投掷</span>
                 <span
-                  className={isRolling ? 'anke-dice-playground-spin' : ''}
-                  style={{ fontSize: 16, display: 'inline-flex' }}
+                  className={`${isRolling ? 'anke-dice-playground-spin' : ''} text-[16px] inline-flex`}
                 >
                   <Icon name="dices" size={16} />
                 </span>
               </div>
               <div className="flex items-baseline gap-3">
-                <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                <span className="text-[var(--text-secondary)] text-sm">
                   {isRolling ? expr.trim() : lastResult?.expr}
                 </span>
-                <span style={{ color: 'var(--text-muted)' }}>=</span>
+                <span className="text-[var(--text-muted)]">=</span>
                 <span
-                  className="text-5xl font-bold tabular-nums"
-                  style={{ color: 'var(--accent)' }}
+                  className="text-[var(--accent)] text-5xl font-bold tabular-nums"
                 >
                   {isRolling ? displayTotal : lastResult?.total}
                 </span>
@@ -267,8 +245,7 @@ export function DicePlaygroundPage({ onBack }: DicePlaygroundPageProps) {
               {!isRolling && lastResult && (
                 <>
                   <div
-                    className="mt-3 text-sm font-mono"
-                    style={{ color: 'var(--text-secondary)' }}
+                    className="text-[var(--text-secondary)] mt-3 text-sm font-mono"
                   >
                     {lastResult.detail}
                   </div>
@@ -277,13 +254,7 @@ export function DicePlaygroundPage({ onBack }: DicePlaygroundPageProps) {
                       {lastResult.allRolls.map((r, i) => (
                         <span
                           key={i}
-                          className="inline-flex items-center justify-center text-xs font-semibold rounded px-2 py-1"
-                          style={{
-                            background: 'var(--bg-card)',
-                            color: 'var(--text-primary)',
-                            border: '1px solid var(--border-color)',
-                            minWidth: 28,
-                          }}
+                          className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)] min-w-[28px] inline-flex items-center justify-center text-xs font-semibold rounded px-2 py-1"
                         >
                           {r}
                         </span>
@@ -298,18 +269,16 @@ export function DicePlaygroundPage({ onBack }: DicePlaygroundPageProps) {
           {/* 历史记录 */}
           {history.length > 0 && (
             <section
-              className="rounded-2xl p-5"
-              style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
+              className="bg-[var(--bg-card)] border border-[color:var(--border-color)] rounded-2xl p-5"
             >
               <div className="flex items-center justify-between mb-3">
-                <h2 className="text-sm font-semibold m-0" style={{ color: 'var(--text-primary)' }}>
+                <h2 className="text-[var(--text-primary)] text-sm font-semibold m-0">
                   历史记录（最近 {history.length} 次）
                 </h2>
                 <button
                   onClick={handleClearHistory}
-                  className="text-xs px-2 py-1 rounded-md transition-colors"
-                  style={{ color: 'var(--text-secondary)' }}
-                  onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--danger, #d33)')}
+                  className="text-[var(--text-secondary)] text-xs px-2 py-1 rounded-md transition-colors"
+                  onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--danger)')}
                   onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-secondary)')}
                 >
                   清空
@@ -319,31 +288,26 @@ export function DicePlaygroundPage({ onBack }: DicePlaygroundPageProps) {
                 {history.map((h) => (
                   <div
                     key={h.id}
-                    className="flex items-center gap-3 px-3 py-2 rounded-md"
-                    style={{ background: 'var(--bg-hover)' }}
+                    className="bg-[var(--bg-hover)] flex items-center gap-3 px-3 py-2 rounded-md"
                   >
                     <span
-                      className="text-xs tabular-nums shrink-0"
-                      style={{ color: 'var(--text-muted)' }}
+                      className="text-[var(--text-muted)] text-xs tabular-nums shrink-0"
                     >
                       {new Date(h.timestamp).toLocaleTimeString()}
                     </span>
                     <span
-                      className="text-sm font-mono shrink-0"
-                      style={{ color: 'var(--text-secondary)' }}
+                      className="text-[var(--text-secondary)] text-sm font-mono shrink-0"
                     >
                       {h.expr}
                     </span>
-                    <span style={{ color: 'var(--text-muted)' }}>=</span>
+                    <span className="text-[var(--text-muted)]">=</span>
                     <span
-                      className="text-lg font-bold tabular-nums"
-                      style={{ color: 'var(--accent)' }}
+                      className="text-[var(--accent)] text-lg font-bold tabular-nums"
                     >
                       {h.total}
                     </span>
                     <span
-                      className="text-xs truncate flex-1"
-                      style={{ color: 'var(--text-muted)' }}
+                      className="text-[var(--text-muted)] text-xs truncate flex-1"
                       title={h.detail}
                     >
                       {h.detail}
@@ -357,15 +321,14 @@ export function DicePlaygroundPage({ onBack }: DicePlaygroundPageProps) {
           {/* 空状态提示 */}
           {!lastResult && !isRolling && history.length === 0 && (
             <div
-              className="rounded-2xl p-12 text-center"
-              style={{ background: 'var(--bg-card)', border: '1px dashed var(--border-color)' }}
+              className="bg-[var(--bg-card)] border border-[color:var(--border-color)] rounded-2xl p-12 text-center"
             >
               <div className="text-4xl mb-3"><Icon name="dices" size={48} />
               </div>
-              <p className="font-medium" style={{ color: 'var(--text-primary)' }}>
+              <p className="text-[var(--text-primary)] font-medium">
                 输入骰子表达式开始投掷
               </p>
-              <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
+              <p className="text-[var(--text-secondary)] text-sm mt-1">
                 支持标准表达式语法，点击上方快捷按钮即可试投
               </p>
             </div>

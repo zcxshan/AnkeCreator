@@ -12,6 +12,7 @@
 // 文件结构：
 //   <dataRoot>/data/stories/<storyId>.json          正常作品
 //   <dataRoot>/data/stories/<storyId>.json.bak      上一次写入前的备份
+//   <dataRoot>/data/sections/<sectionId>.json       节正文侧车（content/bbcode/word_count）
 //   <dataRoot>/data/stories/__trash/<storyId>.json  软删除的作品
 //   <dataRoot>/data/templates/                      跨作品共享模板
 //   <dataRoot>/data/favorites.json                  收藏夹元数据
@@ -37,6 +38,7 @@ import {
   getTrashDir,
   getTemplatesDir,
   getImagesDir,
+  getSectionsDir,
   migrateFromUserDataIfNeeded,
 } from './paths';
 
@@ -334,17 +336,35 @@ function loadJSONWithRecovery<T>(filePath: string, bakPath: string, fallback: T)
   return fallback;
 }
 
+/**
+ * 备份主文件到 .bak。
+ *
+ * 优先用硬链接（同一目录、同一卷，O(1)，不复制字节）：主文件之后通过
+ * tmp + rename 整体替换，旧 inode 由 .bak 引用，语义与整份复制完全一致，
+ * 但省掉每次保存一次全文件复制（大作品时这是主要写放大来源）。
+ * 不支持硬链接的文件系统（FAT32、跨卷等）回退为 copyFileSync。
+ */
+function backupFileForRollback(filePath: string, bakPath: string): void {
+  if (!fs.existsSync(filePath)) return;
+  try {
+    if (fs.existsSync(bakPath)) fs.unlinkSync(bakPath);
+    fs.linkSync(filePath, bakPath);
+    return;
+  } catch {
+    // 硬链接失败：回退整份复制
+  }
+  try {
+    fs.copyFileSync(filePath, bakPath);
+  } catch (e) {
+    console.warn(`[db-main] 备份 .bak 失败（不影响写入）: ${bakPath}`, e);
+  }
+}
+
 /** 通用 JSON 写入（tmp + rename 原子替换 + .bak 备份） */
 function saveJSONWithBackup(filePath: string, bakPath: string, data: unknown): void {
   try {
-    // 1. 若主文件存在，复制到 .bak
-    if (fs.existsSync(filePath)) {
-      try {
-        fs.copyFileSync(filePath, bakPath);
-      } catch (e) {
-        console.warn(`[db-main] 备份 .bak 失败（不影响写入）: ${bakPath}`, e);
-      }
-    }
+    // 1. 若主文件存在，备份到 .bak（优先硬链接，避免整份复制）
+    backupFileForRollback(filePath, bakPath);
     // 2. 写入 .tmp
     const tmp = filePath + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(data, null, 0), 'utf-8');
@@ -356,6 +376,140 @@ function saveJSONWithBackup(filePath: string, bakPath: string, data: unknown): v
   }
 }
 
+// —— 节正文侧车（content sidecar） —— //
+//
+// 设计目标：自动保存只写「单节正文文件 + 元数据 bundle」，不再重写整份作品。
+// 兼容策略：
+//   - 旧数据里 section.content / section.bbcode 仍内联在 bundle 中，读取时照常可用
+//     （hydrateSectionRow 优先使用内联内容）。
+//   - 首次启动会把内联正文拆分到侧车（幂等，失败不置空，保证不丢数据）。
+//   - 写入顺序永远是「先侧车、后 bundle」，侧车写失败则整次写入失败，bundle 不变。
+
+interface SectionContentFile {
+  format: 'anke-section-v1';
+  id: string;
+  content: string | null;
+  bbcode: string | null;
+  word_count: number;
+  updated_at: string;
+}
+
+function sectionContentFilePath(sectionId: string): string {
+  return path.join(getSectionsDir(), `${sectionId}.json`);
+}
+
+function sectionContentBakPath(sectionId: string): string {
+  return sectionContentFilePath(sectionId) + '.bak';
+}
+
+/** 读取节正文侧车（带 .bak 恢复）；不存在返回 null */
+function readSectionContentFile(sectionId: string): SectionContentFile | null {
+  return loadJSONWithRecovery<SectionContentFile | null>(
+    sectionContentFilePath(sectionId),
+    sectionContentBakPath(sectionId),
+    null,
+  );
+}
+
+/** 写入节正文侧车（tmp + rename + .bak） */
+function writeSectionContentFile(data: {
+  id: string;
+  content: string | null;
+  bbcode: string | null;
+  word_count: number;
+  updated_at?: string;
+}): void {
+  const payload: SectionContentFile = {
+    format: 'anke-section-v1',
+    id: data.id,
+    content: data.content ?? null,
+    bbcode: data.bbcode ?? null,
+    word_count: data.word_count || 0,
+    updated_at: data.updated_at || nowISO(),
+  };
+  saveJSONWithBackup(
+    sectionContentFilePath(data.id),
+    sectionContentBakPath(data.id),
+    payload,
+  );
+}
+
+function deleteSectionContentFile(sectionId: string): void {
+  try {
+    if (fs.existsSync(sectionContentFilePath(sectionId))) fs.unlinkSync(sectionContentFilePath(sectionId));
+  } catch (e) {
+    console.warn(`[db-main] 删除节正文失败: ${sectionId}`, e);
+  }
+  try {
+    if (fs.existsSync(sectionContentBakPath(sectionId))) fs.unlinkSync(sectionContentBakPath(sectionId));
+  } catch {
+    /* 忽略 */
+  }
+}
+
+/**
+ * 读取节正文（侧车优先；旧数据回退到 bundle 内联内容）。
+ * row 传 null 时只查侧车。
+ */
+function hydrateSectionRow(row: SectionRow): SectionRow {
+  // 旧数据：正文还内联在 bundle 里，直接返回（迁移后此分支基本不会命中）
+  if (row.content != null) return row;
+  const side = readSectionContentFile(row.id);
+  if (!side) return row;
+  return {
+    ...row,
+    content: side.content ?? null,
+    bbcode: side.bbcode ?? row.bbcode ?? null,
+    word_count: side.word_count ?? row.word_count,
+  };
+}
+
+/** 把一行的正文写入侧车，并返回可写入 bundle 的「纯元数据行」 */
+function persistSectionContentSidecar(
+  row: SectionRow,
+  patch?: { content?: string | null; bbcode?: string | null },
+): SectionRow {
+  const existing = readSectionContentFile(row.id);
+  const content =
+    patch && 'content' in patch ? (patch.content ?? null) : (row.content ?? existing?.content ?? null);
+  const bbcode =
+    patch && 'bbcode' in patch ? (patch.bbcode ?? null) : (row.bbcode ?? existing?.bbcode ?? null);
+  writeSectionContentFile({ id: row.id, content, bbcode, word_count: row.word_count || 0 });
+  return { ...row, content: null, bbcode: null, updated_at: nowISO() };
+}
+
+/**
+ * 把 bundle 中的内联正文拆分到侧车（幂等；侧车写入失败的行保持内联不置空）。
+ * 返回是否有改动。
+ */
+function splitInlineSectionContent(bundle: StoryBundle): boolean {
+  let changed = false;
+  for (const row of bundle.sections) {
+    if (row.content == null && row.bbcode == null) continue;
+    const existing = readSectionContentFile(row.id);
+    if (!existing) {
+      try {
+        writeSectionContentFile({
+          id: row.id,
+          content: row.content ?? null,
+          bbcode: row.bbcode ?? null,
+          word_count: row.word_count || 0,
+          updated_at: row.updated_at,
+        });
+      } catch (e) {
+        // 侧车写入失败：保留内联正文，下次再迁移，绝不置空
+        console.error(`[db-main] 拆分节正文失败，保留内联内容: ${row.id}`, e);
+        continue;
+      }
+      if (!fs.existsSync(sectionContentFilePath(row.id))) continue;
+    }
+    row.content = null;
+    row.bbcode = null;
+    changed = true;
+  }
+  return changed;
+}
+
 /** 读取 per-story 文件 */
 function readStoryFile(storyId: string): StoryBundle | null {
   return loadJSONWithRecovery<StoryBundle | null>(storyFilePath(storyId), storyBakPath(storyId), null);
@@ -365,6 +519,67 @@ function readStoryFile(storyId: string): StoryBundle | null {
 function writeStoryFile(storyId: string, bundle: StoryBundle): void {
   bundle.exportedAt = nowISO();
   saveJSONWithBackup(storyFilePath(storyId), storyBakPath(storyId), bundle);
+  // 同步维护实体索引（未构建时不做，首次查询会整体构建）
+  refreshStoryIndex(storyId, bundle);
+}
+
+// —— 实体 id → storyId 索引 —— //
+// 避免每次保存正文都遍历解析整个作品库。索引在进程内常驻，写盘/删除时增量维护。
+type IndexedEntityType =
+  | 'world_settings'
+  | 'characters'
+  | 'character_relations'
+  | 'outlines'
+  | 'volumes'
+  | 'chapters'
+  | 'sections';
+
+let entityStoryIndex: Map<string, string> | null = null;
+const storyIndexKeys = new Map<string, Set<string>>();
+
+function indexKey(type: string, id: string): string {
+  return `${type}:${id}`;
+}
+
+function refreshStoryIndex(storyId: string, bundle: StoryBundle): void {
+  if (!entityStoryIndex) return;
+  const previous = storyIndexKeys.get(storyId);
+  if (previous) {
+    for (const key of previous) entityStoryIndex.delete(key);
+  }
+  const keys = new Set<string>();
+  const add = (type: string, id: string | null | undefined) => {
+    if (!id) return;
+    const key = indexKey(type, id);
+    entityStoryIndex!.set(key, storyId);
+    keys.add(key);
+  };
+  for (const row of bundle.world_settings) add('world_settings', row.id);
+  for (const row of bundle.characters) add('characters', row.id);
+  for (const row of bundle.character_relations) add('character_relations', row.id);
+  for (const row of bundle.outlines) add('outlines', row.id);
+  for (const row of bundle.volumes) add('volumes', row.id);
+  for (const row of bundle.chapters) add('chapters', row.id);
+  for (const row of bundle.sections) add('sections', row.id);
+  storyIndexKeys.set(storyId, keys);
+}
+
+function buildEntityIndex(): void {
+  entityStoryIndex = new Map();
+  storyIndexKeys.clear();
+  for (const sid of listStoryIds()) {
+    const bundle = readStoryFile(sid);
+    if (bundle) refreshStoryIndex(sid, bundle);
+  }
+}
+
+function forgetStoryIndex(storyId: string): void {
+  if (!entityStoryIndex) return;
+  const keys = storyIndexKeys.get(storyId);
+  if (keys) {
+    for (const key of keys) entityStoryIndex.delete(key);
+    storyIndexKeys.delete(storyId);
+  }
 }
 
 /** 列出 stories/ 目录下所有 storyId（排除 .bak 和 __trash） */
@@ -488,6 +703,83 @@ export function initMainDatabase(): void {
   } catch (e) {
     console.warn('[imageLibrary] v21 URL 迁移失败:', e);
   }
+
+  // v3.6：把内联在 bundle 里的节正文拆分到 <data>/sections/（后台分批执行，不阻塞启动）
+  startSectionSidecarMigration();
+}
+
+const SECTION_SIDECAR_MARKER = '.migrated-sections-sidecar-v1';
+const SECTION_SIDECAR_BACKUP_DIR = 'backup/pre-sections-sidecar';
+
+/**
+ * 后台迁移：把旧数据中内联的 section.content / section.bbcode 拆到侧车文件。
+ *
+ * 安全性：
+ *   - 每个 story 在写锁内处理，避免与正在编辑的自动保存 race
+ *   - 先写侧车、再写 bundle；侧车写入失败的行保持内联，绝不置空
+ *   - 全部成功后写标记文件，之后启动不再扫描
+ *   - 迁移前把整份 bundle 复制到 backup/pre-sections-sidecar/（一次性，便于回滚）
+ */
+function startSectionSidecarMigration(): void {
+  const marker = path.join(getDataDir(), SECTION_SIDECAR_MARKER);
+  if (fs.existsSync(marker)) return;
+  const storyIds = listStoryIds();
+  if (storyIds.length === 0) {
+    try {
+      fs.writeFileSync(marker, JSON.stringify({ at: nowISO(), stories: 0 }), 'utf-8');
+    } catch {
+      /* 标记写入失败则下次重试，无副作用 */
+    }
+    return;
+  }
+
+  let index = 0;
+  let failures = 0;
+  const step = async (): Promise<void> => {
+    if (index >= storyIds.length) {
+      if (failures === 0) {
+        try {
+          fs.writeFileSync(
+            marker,
+            JSON.stringify({ at: nowISO(), stories: storyIds.length, failures: 0 }),
+            'utf-8',
+          );
+        } catch {
+          /* 下次启动重试 */
+        }
+      } else {
+        console.warn(`[db-main] 节正文迁移有 ${failures} 个作品失败，下次启动重试`);
+      }
+      return;
+    }
+    const storyId = storyIds[index++];
+    try {
+      await withStoryWriteLock(storyId, () => migrateStorySectionSidecars(storyId));
+    } catch (e) {
+      failures++;
+      console.error(`[db-main] 节正文迁移失败: ${storyId}`, e);
+    }
+    setTimeout(() => void step(), 0);
+  };
+  setTimeout(() => void step(), 0);
+}
+
+function migrateStorySectionSidecars(storyId: string): void {
+  const bundle = readStoryFile(storyId);
+  if (!bundle) return;
+  // 备份整份 bundle（一次性，便于用户回滚到拆分前的格式）
+  const backupDir = path.join(getDataDir(), SECTION_SIDECAR_BACKUP_DIR);
+  const backupPath = path.join(backupDir, `${storyId}.json`);
+  try {
+    if (!fs.existsSync(backupPath)) {
+      if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+      fs.copyFileSync(storyFilePath(storyId), backupPath);
+    }
+  } catch (e) {
+    console.warn(`[db-main] 备份 bundle 失败（继续迁移）: ${storyId}`, e);
+  }
+  if (!splitInlineSectionContent(bundle)) return;
+  writeStoryFile(storyId, bundle);
 }
 
 /** 旧格式 → per-story 文件迁移 */
@@ -734,9 +1026,21 @@ function recomputeChapterAndVolumeWordCount(bundle: StoryBundle, chapterId: stri
 function _recomputeStoryWordCountsUnlocked(storyId: string): void {
   const bundle = readStoryFile(storyId);
   if (!bundle) return;
-  // 对所有 sections 重新计算 word_count
+  // 旧数据先把内联正文拆到侧车，避免重算时把正文再写回 bundle
+  splitInlineSectionContent(bundle);
+  // 对所有 sections 重新计算 word_count（正文从侧车读取）
   for (const s of bundle.sections) {
-    s.word_count = countWordsInHtml(s.content ?? null);
+    const full = hydrateSectionRow(s);
+    const wc = countWordsInHtml(full.content ?? null);
+    s.word_count = wc;
+    if (full.content != null || full.bbcode != null) {
+      writeSectionContentFile({
+        id: s.id,
+        content: full.content ?? null,
+        bbcode: full.bbcode ?? null,
+        word_count: wc,
+      });
+    }
   }
   // 反向回填所有章的字数
   for (const ch of bundle.chapters) {
@@ -830,6 +1134,11 @@ export function updateStory(id: string, patch: Partial<StoryRow>): StoryRow | un
 }
 
 export function deleteStory(id: string): void {
+  // 先清理该作品所有节的正文侧车
+  const bundle = readStoryFile(id);
+  if (bundle) {
+    for (const s of bundle.sections) deleteSectionContentFile(s.id);
+  }
   // 物理删除 per-story 文件 + .bak
   const mainPath = storyFilePath(id);
   const bakPath = storyBakPath(id);
@@ -837,6 +1146,8 @@ export function deleteStory(id: string): void {
   try { if (fs.existsSync(bakPath)) fs.unlinkSync(bakPath); } catch {}
   // 维护 stats 缓存
   deleteStoryStats(id);
+  // 维护实体索引
+  forgetStoryIndex(id);
   // 维护收藏夹关联
   cleanupStoryFromFavorites(id);
 }
@@ -866,6 +1177,8 @@ export function restoreStory(id: string): void {
     const bundle = JSON.parse(raw) as StoryBundle;
     const now = nowISO();
     bundle.story = { ...bundle.story, is_deleted: 0, deleted_at: '', updated_at: now };
+    // 回收站中的旧数据可能仍内联正文，恢复时顺手拆分到侧车
+    splitInlineSectionContent(bundle);
     writeStoryFile(id, bundle);
     fs.unlinkSync(trashPath);
   } catch (e) {
@@ -874,9 +1187,17 @@ export function restoreStory(id: string): void {
 }
 
 export function permanentlyDeleteStory(id: string): void {
-  // 删除 __trash/ 下的文件
+  // 删除 __trash/ 下的文件（先读出来清理正文侧车）
   const trashPath = trashedStoryFilePath(id);
-  try { if (fs.existsSync(trashPath)) fs.unlinkSync(trashPath); } catch {}
+  try {
+    if (fs.existsSync(trashPath)) {
+      const bundle = JSON.parse(fs.readFileSync(trashPath, 'utf-8')) as StoryBundle;
+      for (const s of bundle.sections || []) deleteSectionContentFile(s.id);
+      fs.unlinkSync(trashPath);
+    }
+  } catch (e) {
+    console.error('[db-main] permanentlyDeleteStory 清理回收站失败:', e);
+  }
   // 也删除 stories/ 下的（防止残留）
   deleteStory(id);
 }
@@ -1386,13 +1707,18 @@ export function deleteVolume(id: string): Promise<void> {
     if (!bundle) return;
     // 级联删除该卷下的章和节
     const chaptersToDel = bundle.chapters.filter((c) => c.volume_id === id);
+    const removedSectionIds: string[] = [];
     for (const ch of chaptersToDel) {
+      for (const s of bundle.sections) {
+        if (s.chapter_id === ch.id) removedSectionIds.push(s.id);
+      }
       bundle.sections = bundle.sections.filter((s) => s.chapter_id !== ch.id);
     }
     bundle.chapters = bundle.chapters.filter((c) => c.volume_id !== id);
     bundle.volumes = bundle.volumes.filter((r) => r.id !== id);
     bundle.story.updated_at = nowISO();
     writeStoryFile(storyId, bundle);
+    for (const secId of removedSectionIds) deleteSectionContentFile(secId);
     _recomputeStoryStatsUnlocked(storyId);
   });
 }
@@ -1485,12 +1811,14 @@ export function deleteChapter(id: string): Promise<void> {
     const ch = bundle.chapters.find((r) => r.id === id);
     const volId = ch?.volume_id;
     // 级联删除该章下的节
+    const removedSectionIds = bundle.sections.filter((s) => s.chapter_id === id).map((s) => s.id);
     bundle.sections = bundle.sections.filter((s) => s.chapter_id !== id);
     bundle.chapters = bundle.chapters.filter((r) => r.id !== id);
     // 重算所属卷的字数
     if (volId) recomputeVolumeWordCount(bundle, volId);
     bundle.story.updated_at = nowISO();
     writeStoryFile(storyId, bundle);
+    for (const secId of removedSectionIds) deleteSectionContentFile(secId);
     // 内部调用不获取锁(已持锁),避免死锁
     _recomputeStoryStatsUnlocked(storyId);
   });
@@ -1543,28 +1871,30 @@ export function moveChapters(
 
 // —— Section —— //
 
+/** 读取章节下的节元数据行（不读正文侧车，供列表/目录使用） */
+function listSectionRowsRaw(chapterId: string): SectionRow[] {
+  // 通过实体索引定位 story（避免每次遍历整个作品库）
+  const storyId = findStoryIdByChapterId(chapterId);
+  if (!storyId) return [];
+  const bundle = readStoryFile(storyId);
+  if (!bundle) return [];
+  return bundle.sections
+    .filter((r) => r.chapter_id === chapterId)
+    .sort((a, b) => {
+      const ao = a.order_index || 0;
+      const bo = b.order_index || 0;
+      if (ao !== bo) return ao - bo;
+      // secondary key 用 id 保证同 order_index 时排序稳定
+      return a.id < b.id ? -1 : 1;
+    });
+}
+
 export function listSections(chapterId: string): SectionRow[] {
-  // 需要遍历所有 stories 找到 chapterId
-  const ids = listStoryIds();
-  for (const storyId of ids) {
-    const bundle = readStoryFile(storyId);
-    if (!bundle) continue;
-    const sections = bundle.sections
-      .filter((r) => r.chapter_id === chapterId)
-      .sort((a, b) => {
-        const ao = a.order_index || 0;
-        const bo = b.order_index || 0;
-        if (ao !== bo) return ao - bo;
-        // secondary key 用 id 保证同 order_index 时排序稳定
-        return a.id < b.id ? -1 : 1;
-      });
-    if (sections.length > 0) return sections;
-  }
-  return [];
+  return listSectionRowsRaw(chapterId).map(hydrateSectionRow);
 }
 
 export function listSectionMetadata(chapterId: string) {
-  return listSections(chapterId).map((r) => ({
+  return listSectionRowsRaw(chapterId).map((r) => ({
     id: r.id,
     chapter_id: r.chapter_id,
     title: r.title,
@@ -1584,26 +1914,31 @@ export function createSection(data: { chapter_id: string; title: string; content
     if (!bundle) throw new Error('story not found: ' + storyId);
     const existing = bundle.sections.filter((s) => s.chapter_id === data.chapter_id);
     const order = typeof data.order_index === 'number' ? data.order_index : nextOrderIndex(existing);
-    const wc = countWordsInHtml(data.content ?? null);
+    const content = data.content ?? null;
+    const bbcode = data.bbcode ?? null;
+    const wc = countWordsInHtml(content);
     const now = nowISO();
     const row: SectionRow = {
       id: uuid4(),
       chapter_id: data.chapter_id,
       title: data.title,
-      content: data.content ?? null,
-      bbcode: data.bbcode ?? null,
+      // bundle 只存元数据；正文写入 <data>/sections/<id>.json
+      content: null,
+      bbcode: null,
       word_count: wc,
       order_index: order,
       created_at: now,
       updated_at: now,
     };
+    // 先写正文侧车，成功后才写 bundle（失败则本节不会被创建）
+    writeSectionContentFile({ id: row.id, content, bbcode, word_count: wc, updated_at: now });
     bundle.sections.push(row);
     recomputeChapterAndVolumeWordCount(bundle, data.chapter_id);
     bundle.story.updated_at = now;
     writeStoryFile(storyId, bundle);
     // 内部调用不获取锁(已持锁),避免死锁
     _recomputeStoryStatsUnlocked(storyId);
-    return row;
+    return { ...row, content, bbcode };
   });
 }
 
@@ -1616,12 +1951,23 @@ export function updateSection(id: string, patch: Partial<SectionRow>): Promise<S
     const idx = bundle.sections.findIndex((r) => r.id === id);
     if (idx < 0) return undefined;
     const chId = bundle.sections[idx].chapter_id;
-    bundle.sections[idx] = { ...bundle.sections[idx], ...patch, updated_at: nowISO() };
-    if (patch.content !== undefined && chId) recomputeChapterAndVolumeWordCount(bundle, chId);
+    const contentChanged = patch.content !== undefined;
+    const bbcodeChanged = patch.bbcode !== undefined;
+    let row: SectionRow = { ...bundle.sections[idx], ...patch, updated_at: nowISO() };
+    if (contentChanged) row.word_count = countWordsInHtml(patch.content ?? null);
+    if (contentChanged || bbcodeChanged) {
+      // 正文 / BBCode 写入侧车，bundle 只保留元数据
+      row = persistSectionContentSidecar(row, {
+        ...(contentChanged ? { content: patch.content ?? null } : {}),
+        ...(bbcodeChanged ? { bbcode: patch.bbcode ?? null } : {}),
+      });
+    }
+    bundle.sections[idx] = row;
+    if (contentChanged && chId) recomputeChapterAndVolumeWordCount(bundle, chId);
     bundle.story.updated_at = nowISO();
     writeStoryFile(storyId, bundle);
-    if (patch.content !== undefined) _recomputeStoryStatsUnlocked(storyId);
-    return bundle.sections[idx];
+    if (contentChanged) _recomputeStoryStatsUnlocked(storyId);
+    return hydrateSectionRow(bundle.sections[idx]);
   });
 }
 
@@ -1637,6 +1983,8 @@ export function deleteSection(id: string): Promise<void> {
     if (chId) recomputeChapterAndVolumeWordCount(bundle, chId);
     bundle.story.updated_at = nowISO();
     writeStoryFile(storyId, bundle);
+    // bundle 写入成功后再删正文侧车，避免写失败时正文先丢
+    deleteSectionContentFile(id);
     _recomputeStoryStatsUnlocked(storyId);
   });
 }
@@ -1763,12 +2111,20 @@ export async function bulkCreateSections(rows: Array<{ chapter_id: string; title
           const r = item.row;
           const id = uuid4();
           const wc = countWordsInHtml(r.content ?? null);
+          // 正文侧车先落盘，bundle 只存元数据
+          writeSectionContentFile({
+            id,
+            content: r.content ?? null,
+            bbcode: r.bbcode ?? null,
+            word_count: wc,
+            updated_at: now,
+          });
           bundle.sections.push({
             id,
             chapter_id: r.chapter_id,
             title: r.title,
-            content: r.content ?? null,
-            bbcode: r.bbcode ?? null,
+            content: null,
+            bbcode: null,
             word_count: wc,
             order_index: item.normOrder,
             created_at: now,
@@ -1792,6 +2148,10 @@ export async function bulkCreateSections(rows: Array<{ chapter_id: string; title
 }
 
 export function getSectionContent(id: string): string | null {
+  // 侧车是正文的唯一事实来源：命中即可直接返回，无需读取整个作品
+  const side = readSectionContentFile(id);
+  if (side) return side.content;
+  // 旧数据兼容：正文还内联在 bundle 中
   const storyId = findStoryIdByEntityId(id, 'sections');
   if (!storyId) return null;
   const bundle = readStoryFile(storyId);
@@ -1800,12 +2160,28 @@ export function getSectionContent(id: string): string | null {
   return sec ? sec.content : null;
 }
 
+/** 读取节的 BBCode 缓存（与 content 同一份侧车；旧数据回退到 bundle 内联字段） */
+export function getSectionBBCode(id: string): string | null {
+  const side = readSectionContentFile(id);
+  if (side) return side.bbcode ?? null;
+  const storyId = findStoryIdByEntityId(id, 'sections');
+  if (!storyId) return null;
+  const bundle = readStoryFile(storyId);
+  if (!bundle) return null;
+  const sec = bundle.sections.find((s) => s.id === id);
+  return sec ? (sec.bbcode ?? null) : null;
+}
+
 /**
  * 设置节内容(富文本 HTML)
  * 单次 read-modify-write 原子操作,配合 withStoryWriteLock 串行化,避免并发 lost-update
  * 内部一次性更新:content / word_count / chapter&volume word_count / story stats / stats 缓存
  */
-export function setSectionContent(id: string, content: string | null): Promise<void> {
+export function setSectionContent(
+  id: string,
+  content: string | null,
+  bbcode?: string | null,
+): Promise<void> {
   const storyId = findStoryIdByEntityId(id, 'sections');
   if (!storyId) return Promise.resolve();
   return withStoryWriteLock(storyId, () => {
@@ -1815,7 +2191,14 @@ export function setSectionContent(id: string, content: string | null): Promise<v
     if (idx < 0) return;
     const oldWc = bundle.sections[idx].word_count || 0;
     const wc = countWordsInHtml(content);
-    bundle.sections[idx] = { ...bundle.sections[idx], content, word_count: wc, updated_at: nowISO() };
+    // 1) 先写正文侧车（失败会抛错，bundle 保持原样）
+    //    bbcode 显式传入时与 content 同一次原子写入，避免出现「正文已变、缓存未变」的中间态
+    const metadataRow = persistSectionContentSidecar(
+      { ...bundle.sections[idx], word_count: wc },
+      bbcode === undefined ? { content } : { content, bbcode },
+    );
+    // 2) 再更新 bundle 中的元数据（字数统计等）
+    bundle.sections[idx] = { ...metadataRow, word_count: wc };
     const chId = bundle.sections[idx].chapter_id;
     if (chId) recomputeChapterAndVolumeWordCount(bundle, chId);
     // 单次写入:同时更新 per-story 文件中的 stats 字段
@@ -1829,10 +2212,6 @@ export function setSectionContent(id: string, content: string | null): Promise<v
     // 同步更新全局 stats 缓存文件
     writeStoryStats(storyId, bundle.stats);
   });
-}
-
-export function setSectionBBCode(id: string, bbcode: string | null): Promise<void> {
-  return updateSection(id, { bbcode }).then(() => undefined);
 }
 
 export function reorderSections(chapterId: string, orderedIds: string[]): Promise<void> {
@@ -1857,23 +2236,19 @@ export async function moveSections(
   targetChapterId: string | null,
   orderedIds: string[],
 ): Promise<void> {
-  // 可能跨 story,需先扫描找出所有受影响的 storyId
-  const allStoryIds = listStoryIds();
-  // 先找出目标 chapter 所属的 story
-  let targetStoryId: string | null = null;
+  // 目标 chapter 与源 story 都通过实体索引查询，避免遍历整个作品库
+  const targetStoryId: string | null = targetChapterId
+    ? findStoryIdByEntityId(targetChapterId, 'chapters')
+    : null;
   const orderedIdSet = new Set(orderedIds);
-  // 找出所有源 story(包含被移动 section 的 story)
   const sourceStoryIds = new Set<string>();
-  for (const sid of allStoryIds) {
-    const bundle = readStoryFile(sid);
-    if (!bundle) continue;
-    if (targetChapterId && !targetStoryId && bundle.chapters.some((c) => c.id === targetChapterId)) {
-      targetStoryId = sid;
-    }
-    if (bundle.sections.some((s) => orderedIdSet.has(s.id))) {
-      sourceStoryIds.add(sid);
-    }
+  for (const sectionId of orderedIds) {
+    const sid = findStoryIdByEntityId(sectionId, 'sections');
+    if (sid) sourceStoryIds.add(sid);
   }
+  // 目标章节必须存在。若目标为空/已失效，直接 no-op：
+  // 下面的第一阶段会先把节从源作品移除，找不到目标就会永久删除这些节。
+  if (!targetChapterId || !targetStoryId) return;
   // 受影响的所有 storyId(去重排序,避免死锁)
   const affectedStoryIds = Array.from(new Set([...sourceStoryIds, ...(targetStoryId ? [targetStoryId] : [])])).sort();
   if (affectedStoryIds.length === 0) return;
@@ -1894,7 +2269,8 @@ export async function moveSections(
       const remaining: SectionRow[] = [];
       for (const s of bundle.sections) {
         if (orderedIdSet.has(s.id)) {
-          movedSections.push(s);
+          // 先把正文落到侧车（旧数据的内联正文也在此完成迁移），再从源作品移除
+          movedSections.push(persistSectionContentSidecar(s));
         } else {
           remaining.push(s);
         }
@@ -1922,7 +2298,7 @@ export async function moveSections(
       const remaining: SectionRow[] = [];
       for (const s of bundle.sections) {
         if (orderedIdSet.has(s.id)) {
-          movedSections.push(s);
+          movedSections.push(persistSectionContentSidecar(s));
         } else {
           remaining.push(s);
         }
@@ -1978,38 +2354,33 @@ export async function moveSections(
 
 // —— 辅助：根据实体 id 反查 storyId —— //
 
-function findStoryIdByEntityId(entityId: string, entityType: 'world_settings' | 'characters' | 'character_relations' | 'outlines' | 'volumes' | 'chapters' | 'sections'): string | null {
-  const ids = listStoryIds();
-  for (const storyId of ids) {
+function findStoryIdByEntityId(entityId: string, entityType: IndexedEntityType): string | null {
+  if (!entityStoryIndex) buildEntityIndex();
+  const hit = entityStoryIndex?.get(indexKey(entityType, entityId));
+  if (hit) return hit;
+
+  // 索引未命中：可能是索引建立后由外部写入的旧数据，兜底扫描一次并补齐索引
+  for (const storyId of listStoryIds()) {
     const bundle = readStoryFile(storyId);
     if (!bundle) continue;
-    if (entityType === 'sections') {
-      if (bundle.sections.some((r) => r.id === entityId)) return storyId;
-    } else if (entityType === 'chapters') {
-      if (bundle.chapters.some((r) => r.id === entityId)) return storyId;
-    } else if (entityType === 'volumes') {
-      if (bundle.volumes.some((r) => r.id === entityId)) return storyId;
-    } else if (entityType === 'world_settings') {
-      if (bundle.world_settings.some((r) => r.id === entityId)) return storyId;
-    } else if (entityType === 'characters') {
-      if (bundle.characters.some((r) => r.id === entityId)) return storyId;
-    } else if (entityType === 'character_relations') {
-      if (bundle.character_relations.some((r) => r.id === entityId)) return storyId;
-    } else if (entityType === 'outlines') {
-      if (bundle.outlines.some((r) => r.id === entityId)) return storyId;
+    const rows: Array<{ id: string }> =
+      entityType === 'sections' ? bundle.sections
+        : entityType === 'chapters' ? bundle.chapters
+          : entityType === 'volumes' ? bundle.volumes
+            : entityType === 'world_settings' ? bundle.world_settings
+              : entityType === 'characters' ? bundle.characters
+                : entityType === 'character_relations' ? bundle.character_relations
+                  : bundle.outlines;
+    if (rows.some((r) => r.id === entityId)) {
+      refreshStoryIndex(storyId, bundle);
+      return storyId;
     }
   }
   return null;
 }
 
 function findStoryIdByChapterId(chapterId: string): string | null {
-  const ids = listStoryIds();
-  for (const storyId of ids) {
-    const bundle = readStoryFile(storyId);
-    if (!bundle) continue;
-    if (bundle.chapters.some((c) => c.id === chapterId)) return storyId;
-  }
-  return null;
+  return findStoryIdByEntityId(chapterId, 'chapters');
 }
 
 // —— Templates —— //
@@ -2184,6 +2555,8 @@ export function getStoryWithAll(storyId: string): any {
   const bundle = readStoryFile(storyId);
   if (!bundle) return undefined;
   const story = bundle.story;
+  // 正文从侧车补齐（导出 / EPUB / 阅读需要完整内容）
+  const sections = bundle.sections.map(hydrateSectionRow);
   return {
     ...story,
     world_settings: bundle.world_settings,
@@ -2197,9 +2570,9 @@ export function getStoryWithAll(storyId: string): any {
     volumes: bundle.volumes,
     chapters: bundle.chapters.map((ch) => ({
       ...ch,
-      sections: bundle.sections.filter((s) => s.chapter_id === ch.id),
+      sections: sections.filter((s) => s.chapter_id === ch.id),
     })),
-    sections: bundle.sections,
+    sections,
     dice_history: bundle.dice_history || [],
   };
 }

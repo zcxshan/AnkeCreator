@@ -185,5 +185,5 @@ describe('per-story 写入锁 (write-queue)', () => {
 
     // 最终应为 iteration-49
     expect(db.getSectionContent(sid)).toBe('<p>iteration-49</p>');
-  });
+  }, 30000); // 50 次串行写盘在 Windows 上可能超过默认 5s
 });

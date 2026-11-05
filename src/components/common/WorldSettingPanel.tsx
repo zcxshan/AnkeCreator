@@ -97,35 +97,31 @@ export function WorldSettingPanel() {
   };
 
   return (
-    <div className="flex-1 flex overflow-hidden" style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}>
+    <div className="bg-[var(--bg-base)] text-[var(--text-primary)] flex-1 flex overflow-hidden">
       {/* 左侧列表 */}
       <aside
-        className="w-[280px] flex flex-col shrink-0"
-        style={{ background: 'var(--bg-sidebar)', borderRight: '1px solid var(--border-color)' }}
+        className="bg-[var(--bg-sidebar)] border-r border-r-[color:var(--border-color)] w-[280px] flex flex-col shrink-0"
       >
         <div
-          className="flex items-center justify-between px-3 py-2 gap-1"
-          style={{ borderBottom: '1px solid var(--border-color)', background: 'var(--bg-sidebar-header)' }}
+          className="border-b border-b-[color:var(--border-color)] bg-[var(--bg-sidebar-header)] flex items-center justify-between px-3 py-2 gap-1"
         >
-          <div className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--text-primary)' }}><Icon name="globe" size={14} /> 世界观设定</div>
+          <div className="text-[var(--text-primary)] flex items-center gap-1.5 text-sm font-semibold"><Icon name="globe" size={14} /> 世界观设定</div>
           <div className="flex items-center gap-1">
             {selectedIds.size > 0 ? (
               <>
-                <span className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>
+                <span className="text-[var(--text-secondary)] text-[10px]">
                   已选 {selectedIds.size}
                 </span>
                 <button
                   onClick={() => setConfirmBatchDelete(true)}
-                  className="text-xs px-2 py-1 rounded"
-                  style={{ background: 'var(--danger)', color: '#fff' }}
+                  className="bg-[var(--danger)] text-[var(--text-on-accent)] text-xs px-2 py-1 rounded"
                   title="删除所选"
                 >
                   <span className="inline-flex items-center gap-1"><Icon name="trash" size={12} /> 批量删除</span>
                 </button>
                 <button
                   onClick={clearSelection}
-                  className="text-xs px-2 py-1 rounded"
-                  style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                  className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)] text-xs px-2 py-1 rounded"
                 >
                   取消
                 </button>
@@ -135,8 +131,7 @@ export function WorldSettingPanel() {
                 {filtered.length > 0 && (
                   <button
                     onClick={selectAll}
-                    className="text-xs px-2 py-1 rounded"
-                    style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                    className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)] text-xs px-2 py-1 rounded"
                     title="全选"
                   >
                     全选
@@ -146,8 +141,7 @@ export function WorldSettingPanel() {
                 <button
                   onClick={() => activeStoryId && createWorldSetting(activeStoryId)}
                   disabled={!activeStoryId}
-                  className="text-xs px-2 py-1 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
+                  className="bg-[var(--accent)] text-[var(--text-on-accent)] text-xs px-2 py-1 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   title="新建世界观条目"
                 >
                   + 新建
@@ -159,12 +153,12 @@ export function WorldSettingPanel() {
 
         <div className="flex-1 overflow-y-auto p-2 space-y-2">
           {!activeStoryId && (
-            <div className="text-xs italic px-2 py-4" style={{ color: 'var(--text-secondary)' }}>
+            <div className="text-[var(--text-secondary)] text-xs italic px-2 py-4">
               请先选择或创建一个故事
             </div>
           )}
           {activeStoryId && filtered.length === 0 && (
-            <div className="text-xs italic px-2 py-4" style={{ color: 'var(--text-secondary)' }}>
+            <div className="text-[var(--text-secondary)] text-xs italic px-2 py-4">
               暂无条目，点击上方"新建"
             </div>
           )}
@@ -220,15 +214,14 @@ function EmptyHint({ storyId, onCreate }: { storyId: string | null; onCreate: ()
   return (
     <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
       <div className="mb-4 opacity-40 flex justify-center"><Icon name="scroll" size={48} /></div>
-      <div className="text-lg mb-2" style={{ color: 'var(--text-primary)' }}>世界观设定</div>
-      <div className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
+      <div className="text-[var(--text-primary)] text-lg mb-2">世界观设定</div>
+      <div className="text-[var(--text-secondary)] text-sm mb-4">
         {storyId ? '左侧选择条目，或点击下方按钮新建一条设定' : '请先选择一个故事'}
       </div>
       {storyId && (
         <button
           onClick={onCreate}
-          className="text-sm px-3 py-1.5 rounded"
-          style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
+          className="bg-[var(--accent)] text-[var(--text-on-accent)] text-sm px-3 py-1.5 rounded"
         >
           + 新建世界观设定
         </button>
@@ -318,14 +311,12 @@ function WorldSettingCard({
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
         onDragStart={(e) => e.preventDefault()}
-        className="mt-1 shrink-0"
-        style={{ cursor: 'pointer' }}
+        className="cursor-pointer mt-1 shrink-0"
         title="勾选以加入批量删除"
       />
       {/* 拖动手柄 */}
       <span
-        className="shrink-0 select-none text-xs leading-none mt-1"
-        style={{ color: 'var(--text-secondary)', cursor: 'grab' }}
+        className="text-[var(--text-secondary)] cursor-grab shrink-0 select-none text-xs leading-none mt-1"
         title="按住拖动以重排序"
         onClick={(e) => e.stopPropagation()}
       >
@@ -429,7 +420,7 @@ function WorldSettingEditor({ setting }: { setting: WorldSetting }) {
           <u>U</u>
         </button>
 
-        <div className="h-6 w-px" style={{ background: 'var(--border-color)' }} />
+        <div className="bg-[var(--border-color)] h-6 w-px" />
 
         <select
           value={styles.size ?? WORD_DEFAULT_SIZE_PT}
@@ -479,8 +470,7 @@ function WorldSettingEditor({ setting }: { setting: WorldSetting }) {
 
         <button
           onClick={commitContent}
-          className="text-xs px-2 py-1 rounded"
-          style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
+          className="bg-[var(--accent)] text-[var(--text-on-accent)] text-xs px-2 py-1 rounded"
         >
           保存
         </button>
@@ -492,16 +482,14 @@ function WorldSettingEditor({ setting }: { setting: WorldSetting }) {
             useMetaStore.getState().createWorldSettingTemplate({ title: name, content: text });
             useToastStore.getState().showToast('已保存为模板', 'success');
           }}
-          className="text-xs px-2 py-1 rounded border"
-          style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', borderColor: 'var(--border-color)' }}
+          className="bg-[var(--bg-card)] text-[var(--text-primary)] border-[color:var(--border-color)] text-xs px-2 py-1 rounded border"
           title="把当前设定保存为模板"
         >
           存为模板
         </button>
         <button
           onClick={handleDelete}
-          className="text-xs px-2 py-1 rounded"
-          style={{ background: 'var(--danger-soft)', color: 'var(--danger)' }}
+          className="bg-[var(--danger-soft)] text-[var(--danger)] text-xs px-2 py-1 rounded"
         >
           删除
         </button>
@@ -517,8 +505,7 @@ function WorldSettingEditor({ setting }: { setting: WorldSetting }) {
             if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
           }}
           placeholder="世界观设定标题..."
-          className="w-full text-2xl font-bold bg-transparent outline-none py-2 mb-4"
-          style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+          className="border-b border-b-[color:var(--border-color)] text-[var(--text-primary)] w-full text-2xl font-bold bg-transparent outline-none py-2 mb-4"
         />
 
         <div
@@ -531,7 +518,7 @@ function WorldSettingEditor({ setting }: { setting: WorldSetting }) {
           style={{ ...cssStyle, background: 'var(--bg-editor)', borderColor: 'var(--border-color)' }}
           data-placeholder="在这里编写世界观设定..."
         />
-        <div className="text-xs mt-2 font-mono" style={{ color: 'var(--text-secondary)' }}>
+        <div className="text-[var(--text-secondary)] text-xs mt-2 font-mono">
           {setting.content?.length ?? 0} 字 · 已保存
         </div>
       </div>
@@ -633,7 +620,7 @@ function ImportTemplateButton() {
         left: dropdownPos.left,
         minWidth: 320,
         maxHeight: 'min(480px, calc(100vh - 80px))',
-        boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+        boxShadow: 'var(--shadow-pop)',
         zIndex: 9999,
         background: 'var(--bg-card)',
         border: '1px solid var(--border-color)',
@@ -648,32 +635,30 @@ function ImportTemplateButton() {
           placeholder="搜索模板..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full px-2 py-1.5 text-xs rounded border outline-none"
-          style={{ background: 'var(--bg-input)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+          className="bg-[var(--bg-input)] border-[color:var(--border-color)] text-[var(--text-primary)] w-full px-2 py-1.5 text-xs rounded border outline-none"
         />
       </div>
       {/* 模板列表 */}
       {templates.length === 0 ? (
-        <div className="px-3 py-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
+        <div className="text-[var(--text-secondary)] px-3 py-3 text-xs">
           暂无模板，先到首页的「模板库」创建
         </div>
       ) : filtered.length === 0 ? (
-        <div className="px-3 py-4 text-xs flex flex-col items-center gap-2" style={{ color: 'var(--text-secondary)' }}>
-          <span className="flex justify-center" style={{ fontSize: 28 }}><Icon name="search" size={28} /></span>
+        <div className="text-[var(--text-secondary)] px-3 py-4 text-xs flex flex-col items-center gap-2">
+          <span className="text-[28px] flex justify-center"><Icon name="search" size={28} /></span>
           <span>没有找到匹配的模板</span>
         </div>
       ) : (
-        <div className="overflow-y-auto pb-1" style={{ maxHeight: 320, borderRadius: 8 }}>
+        <div className="max-h-[320px] rounded-[var(--radius-md)] overflow-y-auto pb-1">
           {filtered.map((t) => (
             <button
               key={t.id}
               onClick={() => importOne(t)}
-              className="w-full text-left px-3 py-2 transition-colors"
-              style={{ color: 'var(--text-primary)' }}
+              className="text-[var(--text-primary)] w-full text-left px-3 py-2 transition-colors"
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-bg)' }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
             >
-              <div className="inline-flex items-center gap-1 truncate font-bold" style={{ fontSize: 12 }}><Icon name="book" size={12} /> {t.title}</div>
+              <div className="text-[12px] inline-flex items-center gap-1 truncate font-bold"><Icon name="book" size={12} /> {t.title}</div>
               <div
                 style={{
                   fontSize: 11,
@@ -700,8 +685,7 @@ function ImportTemplateButton() {
         ref={btnRef}
         onClick={() => { setOpen((v) => !v); setSearch(''); }}
         disabled={!activeStoryId}
-        className="text-xs px-2 py-1 rounded border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-        style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', borderColor: 'var(--border-color)' }}
+        className="bg-[var(--bg-card)] text-[var(--text-primary)] border-[color:var(--border-color)] text-xs px-2 py-1 rounded border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         title="从模板库导入世界观"
       >
         导入模板

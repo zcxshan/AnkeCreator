@@ -372,23 +372,16 @@ export function SearchSiteSection<T extends SiteResultItem>({
 
   return (
     <section
-      className={flatLayout ? '' : 'rounded-xl overflow-hidden'}
-      style={{
-        background: 'var(--bg-card)',
-        border: flatLayout ? 'none' : '1px solid var(--border-color)',
-      }}
+      className={`search-section ${flatLayout ? 'search-section--flat' : 'rounded-xl overflow-hidden'}`}
     >
       {/* 板块头部 */}
-      <div
-        className="flex items-center gap-3 px-4 py-3 shrink-0"
-        style={{ borderBottom: '1px solid var(--border-color)', background: 'var(--bg-sidebar)' }}
-      >
+      <div className="search-section__header flex items-center gap-3 px-4 py-3 shrink-0">
         <Icon name={icon} size={20} />
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+          <div className="search-section__title text-sm font-semibold">
             {title}
           </div>
-          <div className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+          <div className="search-section__subtitle text-[11px]">
             {subtitle}
             {lastKeyword && ` · 已搜「${lastKeyword || '推荐'}」`}
           </div>
@@ -399,28 +392,11 @@ export function SearchSiteSection<T extends SiteResultItem>({
               type="button"
               onClick={handleExport}
               title="导出当前结果为 JSON"
-              className="px-2 py-1 rounded text-[11px] font-medium transition-colors"
-              style={{
-                background: 'var(--bg-hover)',
-                color: 'var(--text-secondary)',
-                border: '1px solid var(--border-color)',
-                cursor: 'pointer',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'var(--bg-card)'
-                e.currentTarget.style.color = 'var(--accent)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'var(--bg-hover)'
-                e.currentTarget.style.color = 'var(--text-secondary)'
-              }}
+              className="search-export-btn inline-flex items-center gap-1"
             >
-              <span className="inline-flex items-center gap-1"><Icon name="download" size={13} /> 导出</span>
+              <Icon name="download" size={13} /> 导出
             </button>
-            <span
-              className="text-[11px] px-1.5 py-0.5 rounded-full font-medium"
-              style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
-            >
+            <span className="search-count-badge">
               {rawResults.length}
             </span>
           </div>
@@ -437,23 +413,13 @@ export function SearchSiteSection<T extends SiteResultItem>({
             if (e.key === 'Enter') handleSearch()
           }}
           placeholder={matchField === 'author' ? '按作者名搜索' : placeholder}
-          className="flex-1 px-3 py-2 rounded-md text-sm outline-none"
-          style={{
-            border: '1px solid var(--border-color)',
-            background: 'var(--bg-input)',
-            color: 'var(--text-primary)',
-          }}
+          className="search-field flex-1 px-3 py-2 rounded-md text-sm outline-none"
         />
         {/* 匹配模式选择器：精确 / 模糊 / 正则 */}
         <select
           value={matchMode}
           onChange={(e) => setMatchMode(e.target.value as MatchMode)}
-          className="px-2 py-2 rounded-md text-xs outline-none shrink-0 cursor-pointer"
-          style={{
-            border: '1px solid var(--border-color)',
-            background: 'var(--bg-input)',
-            color: 'var(--text-primary)',
-          }}
+          className="search-field px-2 py-2 rounded-md text-xs outline-none shrink-0 cursor-pointer"
           title="匹配模式：精确=子串包含；模糊=多关键词且逻辑；正则=JS正则表达式"
         >
           <option value="exact">精确</option>
@@ -462,18 +428,10 @@ export function SearchSiteSection<T extends SiteResultItem>({
         </select>
         {/* 数量上限输入：0=不限制，控制单次搜索结果条数 */}
         <div
-          className="flex items-center gap-1 shrink-0"
-          style={{
-            border: '1px solid var(--border-color)',
-            borderRadius: 6,
-            background: 'var(--bg-input)',
-          }}
+          className="search-count flex items-center gap-1 shrink-0"
           title="搜索结果条数上限（0=不限制）"
         >
-          <span
-            className="px-1.5 text-[11px]"
-            style={{ color: 'var(--text-secondary)' }}
-          >
+          <span className="search-count__label px-1.5 text-[11px]">
             数量
           </span>
           <input
@@ -486,65 +444,31 @@ export function SearchSiteSection<T extends SiteResultItem>({
                 Math.max(0, Math.min(500, parseInt(e.target.value, 10) || 0)),
               )
             }
-            className="w-14 px-1 py-1.5 text-xs outline-none"
-            style={{ background: 'transparent', color: 'var(--text-primary)' }}
+            className="search-count__input w-14 px-1 py-1.5 text-xs outline-none"
           />
         </div>
         {/* 全部 / 标题 / 作者 切换器 */}
         {matchFieldSwitchable && (
-          <div
-            className="flex shrink-0 rounded-md overflow-hidden"
-            style={{ border: '1px solid var(--border-color)' }}
-          >
-            <button
-              onClick={() => setMatchField('all')}
-              className="px-2.5 py-2 text-xs font-medium"
-              style={{
-                background: matchField === 'all' ? 'var(--accent)' : 'var(--bg-card)',
-                color: matchField === 'all' ? 'var(--text-on-accent, #fff)' : 'var(--text-secondary)',
-                border: 'none',
-                cursor: 'pointer',
-              }}
-            >
-              全部
-            </button>
-            <button
-              onClick={() => setMatchField('title')}
-              className="px-2.5 py-2 text-xs font-medium"
-              style={{
-                background: matchField === 'title' ? 'var(--accent)' : 'var(--bg-card)',
-                color: matchField === 'title' ? 'var(--text-on-accent, #fff)' : 'var(--text-secondary)',
-                border: 'none',
-                cursor: 'pointer',
-              }}
-            >
-              标题
-            </button>
-            <button
-              onClick={() => setMatchField('author')}
-              className="px-2.5 py-2 text-xs font-medium"
-              style={{
-                background: matchField === 'author' ? 'var(--accent)' : 'var(--bg-card)',
-                color: matchField === 'author' ? 'var(--text-on-accent, #fff)' : 'var(--text-secondary)',
-                border: 'none',
-                cursor: 'pointer',
-              }}
-            >
-              作者
-            </button>
+          <div className="search-match-group flex shrink-0 rounded-md overflow-hidden">
+            {([
+              { key: 'all', label: '全部' },
+              { key: 'title', label: '标题' },
+              { key: 'author', label: '作者' },
+            ] as const).map((m) => (
+              <button
+                key={m.key}
+                onClick={() => setMatchField(m.key)}
+                className={`search-match-btn px-2.5 py-2 text-xs font-medium ${matchField === m.key ? 'is-active' : ''}`}
+              >
+                {m.label}
+              </button>
+            ))}
           </div>
         )}
         <button
           onClick={handleSearch}
           disabled={loading || !isElectronAvailable}
-          className="shrink-0 px-4 py-2 rounded-md text-sm font-medium transition-colors"
-          style={{
-            background: loading ? 'var(--bg-hover)' : 'var(--accent)',
-            color: loading ? 'var(--text-secondary)' : 'var(--text-on-accent)',
-            opacity: loading || !isElectronAvailable ? 0.6 : 1,
-            cursor: loading ? 'wait' : 'pointer',
-            border: 'none',
-          }}
+          className="search-submit shrink-0 px-4 py-2 rounded-md text-sm font-medium transition-colors"
         >
           {loading ? '搜索中…' : isCached ? '重新筛选' : '搜索'}
         </button>
@@ -552,11 +476,7 @@ export function SearchSiteSection<T extends SiteResultItem>({
 
       {/* 去重提示 */}
       {isCached && (
-        <div className="px-4 py-1.5 text-[11px] shrink-0 inline-flex items-center gap-1.5" style={{
-          color: 'var(--text-tertiary, #888)',
-          borderTop: '1px solid var(--border-light)',
-          borderBottom: '1px solid var(--border-light)',
-        }}>
+        <div className="search-cache-hint px-4 py-1.5 text-[11px] shrink-0 inline-flex items-center gap-1.5">
           <Icon name="lightbulb" size={12} /> 关键字未变，点击「重新筛选」会基于已下载结果筛选，不会重新爬取
         </div>
       )}
@@ -564,15 +484,13 @@ export function SearchSiteSection<T extends SiteResultItem>({
       {/* 筛选条 */}
       {hasResults && (
         <div
-          className="px-4 py-2 shrink-0"
-          style={{ background: 'var(--bg-card)' }}
+          className="search-filters px-4 py-2 shrink-0"
         >
           <div className="flex items-center gap-2 flex-wrap">
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as any)}
-              className="px-2 py-1 rounded-md text-xs outline-none"
-              style={{ border: '1px solid var(--border-color)', background: 'var(--bg-input)', color: 'var(--text-primary)' }}
+              className="search-select px-2 py-1 rounded-md text-xs outline-none"
             >
               <option value="all">全部状态</option>
               <option value="ongoing">连载中</option>
@@ -582,8 +500,7 @@ export function SearchSiteSection<T extends SiteResultItem>({
             <select
               value={timeRange}
               onChange={(e) => setTimeRange(e.target.value as any)}
-              className="px-2 py-1 rounded-md text-xs outline-none"
-              style={{ border: '1px solid var(--border-color)', background: 'var(--bg-input)', color: 'var(--text-primary)' }}
+              className="search-select px-2 py-1 rounded-md text-xs outline-none"
             >
               <option value="all">全部时间</option>
               <option value="7d">近 7 天</option>
@@ -593,8 +510,7 @@ export function SearchSiteSection<T extends SiteResultItem>({
             <select
               value={sort}
               onChange={(e) => setSort(e.target.value)}
-              className="px-2 py-1 rounded-md text-xs outline-none"
-              style={{ border: '1px solid var(--border-color)', background: 'var(--bg-input)', color: 'var(--text-primary)' }}
+              className="search-select px-2 py-1 rounded-md text-xs outline-none"
             >
               {filterConfig.sortOptions.map((opt) => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -602,53 +518,44 @@ export function SearchSiteSection<T extends SiteResultItem>({
             </select>
             <button
               onClick={() => setAdvancedOpen((v) => !v)}
-              className="px-2 py-1 rounded-md text-xs"
-              style={{
-                border: '1px solid var(--border-color)',
-                background: advancedOpen ? 'var(--accent-soft)' : 'var(--bg-input)',
-                color: advancedOpen ? 'var(--accent)' : 'var(--text-secondary)',
-              }}
+              className={`search-filter-toggle px-2 py-1 rounded-md text-xs ${advancedOpen ? 'is-open' : ''}`}
             >
               {advancedOpen ? '收起高级筛选' : '高级筛选'}
             </button>
-            <span className="text-xs ml-auto" style={{ color: 'var(--text-secondary)' }}>
+            <span className="search-meta text-xs ml-auto">
               {displayedList.length} / {rawResults.length} 条
             </span>
           </div>
 
           {/* 高级筛选面板 */}
           {advancedOpen && (
-            <div className="mt-2 pt-2 flex items-center gap-2 flex-wrap" style={{ borderTop: '1px solid var(--border-color)' }}>
-              <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{filterConfig.numericRangeLabel}:</span>
+            <div className="search-advanced mt-2 pt-2 flex items-center gap-2 flex-wrap">
+              <span className="search-meta text-xs">{filterConfig.numericRangeLabel}:</span>
               <input
                 type="number"
                 placeholder="≥"
                 value={numericMin || ''}
                 onChange={(e) => setNumericMin(e.target.value ? parseInt(e.target.value, 10) : 0)}
-                className="w-16 px-2 py-1 rounded-md text-xs outline-none"
-                style={{ border: '1px solid var(--border-color)', background: 'var(--bg-input)', color: 'var(--text-primary)' }}
+                className="search-field w-16 px-2 py-1 rounded-md text-xs outline-none"
               />
-              <span style={{ color: 'var(--text-muted)' }}>—</span>
+              <span className="text-[var(--text-muted)]">—</span>
               <input
                 type="number"
                 placeholder="≤"
                 value={numericMax || ''}
                 onChange={(e) => setNumericMax(e.target.value ? parseInt(e.target.value, 10) : 0)}
-                className="w-16 px-2 py-1 rounded-md text-xs outline-none"
-                style={{ border: '1px solid var(--border-color)', background: 'var(--bg-input)', color: 'var(--text-primary)' }}
+                className="search-field w-16 px-2 py-1 rounded-md text-xs outline-none"
               />
               <input
                 type="text"
                 placeholder="筛选作者"
                 value={authorFilter}
                 onChange={(e) => setAuthorFilter(e.target.value)}
-                className="w-32 px-2 py-1 rounded-md text-xs outline-none"
-                style={{ border: '1px solid var(--border-color)', background: 'var(--bg-input)', color: 'var(--text-primary)' }}
+                className="search-field w-32 px-2 py-1 rounded-md text-xs outline-none"
               />
               <button
                 onClick={clearAllFilters}
-                className="px-2 py-1 rounded-md text-xs"
-                style={{ border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-secondary)' }}
+                className="search-ghost-btn px-2 py-1 rounded-md text-xs"
               >
                 清空筛选
               </button>
@@ -668,12 +575,7 @@ export function SearchSiteSection<T extends SiteResultItem>({
                         cur.includes(t) ? cur.filter((x) => x !== t) : [...cur, t],
                       )
                     }}
-                    className="px-2 py-0.5 rounded-full text-[11px] font-medium"
-                    style={{
-                      border: `1px solid ${active ? 'var(--accent)' : 'var(--border-color)'}`,
-                      background: active ? 'var(--accent-soft)' : 'var(--bg-input)',
-                      color: active ? 'var(--accent)' : 'var(--text-secondary)',
-                    }}
+                    className={`search-tag px-2 py-0.5 rounded-full text-[11px] font-medium ${active ? 'is-active' : ''}`}
                   >
                     {t}
                   </button>
@@ -687,62 +589,49 @@ export function SearchSiteSection<T extends SiteResultItem>({
       {/* 结果列表区 */}
       <div className={flatLayout ? 'p-2' : 'p-4 max-h-[480px] overflow-y-auto'}>
         {!isElectronAvailable ? (
-          <div className="text-center py-8" style={{ color: 'var(--text-secondary)' }}>
+          <div className="search-empty text-center py-8">
             当前环境不支持搜索（需要桌面版 Electron）
           </div>
         ) : error ? (
           <div
-            className="text-center py-8 px-4 rounded-md"
-            style={{ color: 'var(--error)', background: 'var(--error-bg)' }}
+            className="search-error text-center py-8 px-4 rounded-md"
           >
             <span className="inline-flex items-center gap-1"><Icon name="alert" size={14} /> {error}</span>
           </div>
         ) : loading && !hasResults ? (
           <div className="text-center py-12">
-            <div style={{ marginBottom: '10px' }}><Icon name="hourglass" size={48} /></div>
-            <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>正在抓取…</div>
+            <div className="search-empty__icon"><Icon name="hourglass" size={48} /></div>
+            <div className="search-empty text-sm">正在抓取…</div>
           </div>
         ) : !hasResults && lastKeyword === '' && !error ? (
           <div className="text-center py-12">
-            <div style={{ marginBottom: '10px' }}><Icon name="search" size={48} /></div>
-            <div className="text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
+            <div className="search-empty__icon"><Icon name="search" size={48} /></div>
+            <div className="search-empty text-sm mb-1">
               {placeholder.replace(/[（）()]/g, '').split('，')[0]}
             </div>
-            <div className="text-xs" style={{ color: 'var(--text-muted)' }}>留空关键字可看站点最新内容</div>
+            <div className="search-empty--muted text-xs">留空关键字可看站点最新内容</div>
           </div>
         ) : !hasResults && lastKeyword !== '' && !error ? (
           <div className="text-center py-12">
-            <div style={{ marginBottom: '10px' }}><Icon name="inbox" size={48} /></div>
-            <div className="text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>未找到相关结果</div>
-            <div className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+            <div className="search-empty__icon"><Icon name="inbox" size={48} /></div>
+            <div className="search-empty text-sm mb-1">未找到相关结果</div>
+            <div className="search-empty--muted text-xs mt-1">
               关键词"{lastKeyword}"未匹配到任何内容
             </div>
             <button
               onClick={handleSearch}
-              className="mt-3 px-3 py-1 rounded-md text-xs"
-              style={{
-                border: '1px solid var(--border-color)',
-                background: 'transparent',
-                color: 'var(--text-secondary)',
-                cursor: 'pointer',
-              }}
+              className="search-ghost-btn mt-3 px-3 py-1 rounded-md text-xs"
             >
               重新搜索
             </button>
           </div>
         ) : displayedList.length === 0 ? (
           <div className="text-center py-10">
-            <div style={{ marginBottom: '10px' }}><Icon name="searchX" size={48} /></div>
-            <div style={{ color: 'var(--text-muted)' }}>没有符合筛选条件的结果</div>
+            <div className="search-empty__icon"><Icon name="searchX" size={48} /></div>
+            <div className="search-empty--muted">没有符合筛选条件的结果</div>
             <button
               onClick={clearAllFilters}
-              className="mt-3 px-3 py-1 rounded-md text-xs"
-              style={{
-                border: '1px solid var(--border-color)',
-                background: 'transparent',
-                color: 'var(--text-secondary)',
-                cursor: 'pointer',
-              }}
+              className="search-ghost-btn mt-3 px-3 py-1 rounded-md text-xs"
             >
               清空筛选
             </button>
@@ -760,14 +649,7 @@ export function SearchSiteSection<T extends SiteResultItem>({
                 type="button"
                 onClick={handleLoadMore}
                 disabled={loading}
-                className="px-6 py-2 rounded-md text-sm font-medium transition-colors"
-                style={{
-                  background: loading ? 'var(--bg-hover)' : 'var(--bg-card)',
-                  color: loading ? 'var(--text-secondary)' : 'var(--accent)',
-                  border: '1px solid var(--border-color)',
-                  cursor: loading ? 'wait' : 'pointer',
-                  opacity: loading ? 0.6 : 1,
-                }}
+                className="search-more px-6 py-2 rounded-md text-sm font-medium transition-colors"
               >
                 {loading
                   ? '加载中…'
@@ -785,69 +667,33 @@ export function SearchSiteSection<T extends SiteResultItem>({
 // 卡片组件：骨碌碌 + NGA
 // ============================================================
 
-import type { GululuResult, NgaResult } from '../../../electron/searchAnke'
+import type { GululuResult, NgaResult } from '../../types/search'
 
 export function GululuCard({ item, onOpen }: { item: GululuResult; onOpen: (url: string) => void }) {
   const updatedRelative = formatRelativeTime(item.updatedAtRaw)
   const publishedDate = item.publishedAt || ''
   return (
     <div
-      className="p-4 rounded-xl cursor-pointer transition-all flex gap-3"
-      style={{
-        background: 'var(--bg-card)',
-        border: '1px solid var(--border-color)',
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = 'var(--accent)'
-        e.currentTarget.style.transform = 'translateY(-1px)'
-        e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.08)'
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = 'var(--border-color)'
-        e.currentTarget.style.transform = 'translateY(0)'
-        e.currentTarget.style.boxShadow = 'none'
-      }}
+      className="result-card p-4 rounded-xl flex gap-3"
       onClick={() => onOpen(item.url)}
     >
       <div
-        className="shrink-0 flex items-center justify-center rounded-xl"
-        style={{
-          width: 96,
-          height: 120,
-          background: 'linear-gradient(135deg, rgba(99,102,241,0.2), rgba(168,85,247,0.28))',
-          color: 'var(--accent)',
-          fontSize: '36px',
-        }}
+        className="result-cover shrink-0 flex items-center justify-center rounded-xl"
       >
         <span className="inline-flex items-center"><Icon name="book" size={36} /></span>
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-start gap-2 mb-1.5">
-          <div
-            className="flex-1 text-base font-semibold"
-            style={{
-              color: 'var(--text-primary)',
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
-            }}
-          >
+          <div className="result-title flex-1 text-base font-semibold">
             {item.title}
           </div>
           {item.status === 'ongoing' && (
-            <span
-              className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium"
-              style={{ background: 'rgba(34,197,94,0.15)', color: '#16a34a' }}
-            >
+            <span className="result-badge--success shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium">
               连载中
             </span>
           )}
           {item.status === 'finished' && (
-            <span
-              className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium"
-              style={{ background: 'rgba(99,102,241,0.15)', color: '#4f46e5' }}
-            >
+            <span className="result-badge--indigo shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium">
               已完结
             </span>
           )}
@@ -857,18 +703,14 @@ export function GululuCard({ item, onOpen }: { item: GululuResult; onOpen: (url:
             {item.tags.slice(0, 5).map((t) => (
               <span
                 key={t}
-                className="px-1.5 py-0.5 rounded text-[10px] font-medium"
-                style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}
+                className="result-tag px-1.5 py-0.5 rounded text-[10px] font-medium"
               >
                 {t}
               </span>
             ))}
           </div>
         )}
-        <div
-          className="flex flex-wrap gap-x-3 gap-y-1 text-xs"
-          style={{ color: 'var(--text-secondary)' }}
-        >
+        <div className="result-meta flex flex-wrap gap-x-3 gap-y-1 text-xs">
           <span className="inline-flex items-center gap-1"><Icon name="user" size={12} /> {item.author}</span>
           <span className="inline-flex items-center gap-1"><Icon name="pen" size={12} /> {item.wordCount}</span>
           <span className="inline-flex items-center gap-1"><Icon name="eye" size={12} /> {item.viewCount}</span>
@@ -883,55 +725,32 @@ export function GululuCard({ item, onOpen }: { item: GululuResult; onOpen: (url:
 export function NgaCard({ item, onOpen }: { item: NgaResult; onOpen: (url: string) => void }) {
   return (
     <div
-      className="p-4 rounded-xl cursor-pointer transition-all"
-      style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = 'var(--accent)'
-        e.currentTarget.style.transform = 'translateY(-1px)'
-        e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.08)'
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = 'var(--border-color)'
-        e.currentTarget.style.transform = 'translateY(0)'
-        e.currentTarget.style.boxShadow = 'none'
-      }}
+      className="result-card p-4 rounded-xl"
       onClick={() => onOpen(item.url)}
     >
       <div className="flex items-center gap-2 mb-1.5">
         <span
-          className="text-[10px] px-1.5 py-0.5 rounded font-medium"
-          style={{ background: 'var(--bg-hover)', color: 'var(--text-tertiary, #888)' }}
+          className="result-badge--neutral text-[10px] px-1.5 py-0.5 rounded font-medium"
         >
           NGA · 安科版块
         </span>
         {item.status === 'ongoing' && (
           <span
-            className="px-1.5 py-0.5 rounded text-[10px] font-medium"
-            style={{ background: 'rgba(34,197,94,0.15)', color: '#16a34a' }}
+            className="result-badge--success px-1.5 py-0.5 rounded text-[10px] font-medium"
           >
             连载中
           </span>
         )}
         {item.status === 'finished' && (
           <span
-            className="px-1.5 py-0.5 rounded text-[10px] font-medium"
-            style={{ background: 'rgba(99,102,241,0.15)', color: '#4f46e5' }}
+            className="result-badge--indigo px-1.5 py-0.5 rounded text-[10px] font-medium"
           >
             已完结
           </span>
         )}
       </div>
       <div className="flex items-start gap-2 mb-1.5">
-        <div
-          className="flex-1 text-base font-semibold"
-          style={{
-            color: 'var(--text-primary)',
-            display: '-webkit-box',
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: 'vertical',
-            overflow: 'hidden',
-          }}
-        >
+        <div className="result-title flex-1 text-base font-semibold">
           {item.title}
         </div>
       </div>
@@ -940,18 +759,14 @@ export function NgaCard({ item, onOpen }: { item: NgaResult; onOpen: (url: strin
           {item.tags.slice(0, 5).map((t) => (
             <span
               key={t}
-              className="px-1.5 py-0.5 rounded text-[10px] font-medium"
-              style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}
+              className="result-tag px-1.5 py-0.5 rounded text-[10px] font-medium"
             >
               {t}
             </span>
           ))}
         </div>
       )}
-      <div
-        className="flex flex-wrap gap-x-3 gap-y-1 text-xs"
-        style={{ color: 'var(--text-secondary)' }}
-      >
+      <div className="result-meta flex flex-wrap gap-x-3 gap-y-1 text-xs">
         <span className="inline-flex items-center gap-1"><Icon name="user" size={12} /> {item.author}</span>
         <span className="inline-flex items-center gap-1"><Icon name="hash" size={12} /> {item.floorCount} 楼</span>
         {item.lastReplyAt && <span className="inline-flex items-center gap-1"><Icon name="message" size={12} /> 最后回复 {item.lastReplyAt}</span>}

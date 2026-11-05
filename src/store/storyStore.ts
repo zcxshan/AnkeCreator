@@ -298,8 +298,8 @@ export const useStoryStore = create<StoryState>((set, get) => ({
   permanentlyDeleteStory: async (id) => {
     await db.permanentlyDeleteStory(id);
     // 软删除归档（#1）：作品永久删除后骰子记录保留为归档，供"已删除作品"分组查看
-    const { archiveByStory } = await import('./diceHistoryStore');
-    archiveByStory(id);
+    const { useDiceHistoryStore } = await import('./diceHistoryStore');
+    useDiceHistoryStore.getState().archiveByStory(id);
     set((state) => ({
       trashedStories: state.trashedStories.filter((s) => s.id !== id),
     }));

@@ -17,7 +17,13 @@ import React from 'react';
 const sectionState = {
   sectionId: 'sec-1',
   sectionContent: '<p>test content</p>',
-  setSectionContent: vi.fn(),
+  // 与 content 同步的 BBCode 缓存（由 editorStore 维护）
+  sectionBbcode: null as string | null,
+  // 模拟真实 store：BBCode ←→ 可视化两条路径都写回同一份正文
+  setSectionContent: vi.fn((content: string, bbcode?: string | null) => {
+    sectionState.sectionContent = content;
+    if (bbcode !== undefined) sectionState.sectionBbcode = bbcode;
+  }),
   loadSection: vi.fn(),
   flushSectionContent: vi.fn(),
   flushDebouncedSave: vi.fn(),
@@ -149,7 +155,6 @@ vi.mock('../../db/index', () => ({
   listSections: vi.fn(),
   getSectionContent: vi.fn(),
   setSectionContent: vi.fn(),
-  setSectionBBCode: vi.fn(),
   listVolumes: vi.fn(),
   listChapters: vi.fn(),
   listWorldSettings: vi.fn(),
@@ -246,7 +251,7 @@ describe('EditorPage 接受 volume_id: null 的章节', () => {
     expect(screen.queryByText('请在左侧选择一个节开始编辑')).toBeNull();
     // 富文本编辑器应渲染（这里被 mock 成 data-testid）
     expect(screen.getByTestId('rich-text-editor')).toBeTruthy();
-  });
+  }, 20000); // 首次动态 import 4856 行的 EditorPage，冷启动可能超过默认 5s
 
   it('右侧"节标题"输入框显示 section.title（来自 store，不是 hardcoded 默认）', async () => {
     const { EditorPage } = await import('./EditorPage');
@@ -258,7 +263,7 @@ describe('EditorPage 接受 volume_id: null 的章节', () => {
   });
 });
 
-describe('EditorPage BBCode 视图保留用户内容（不离开即清空）', () => {
+describe('EditorPage 双视图共用同一份正文', () => {
   // 保存初始 state 用于测试隔离
   const initialSections = [{ id: 'sec-1', chapter_id: 'ch-1', title: '我的节', content: '<p>test</p>', order_index: 0 }];
   const initialActiveSectionId = 'sec-1';
@@ -269,6 +274,9 @@ describe('EditorPage BBCode 视图保留用户内容（不离开即清空）', (
     // 重置 sections 和 activeSectionId
     storyState.sections = JSON.parse(JSON.stringify(initialSections)) as any;
     storyState.activeSectionId = initialActiveSectionId;
+    sectionState.sectionId = initialActiveSectionId;
+    sectionState.sectionContent = '<p>test content</p>';
+    sectionState.sectionBbcode = null;
   });
 
   afterEach(() => {
@@ -276,108 +284,120 @@ describe('EditorPage BBCode 视图保留用户内容（不离开即清空）', (
     // 测试结束统一重置
     storyState.sections = JSON.parse(JSON.stringify(initialSections)) as any;
     storyState.activeSectionId = initialActiveSectionId;
+    sectionState.sectionId = initialActiveSectionId;
+    sectionState.sectionContent = '<p>test content</p>';
+    sectionState.sectionBbcode = null;
   });
 
-  it('首次挂载后切到 BBCode 视图：textarea 立即显示 section.bbcode（不再 isFirstMount 跳过）', async () => {
-    const original = storyState.sections[0] as any;
-    original.bbcode = '[b]节内保存的 BBCode[/b]';
-
-    const { EditorPage } = await import('./EditorPage');
-    const { container } = render(<EditorPage onBack={() => {}} />);
-
-    // 切到 BBCode 视图
-    const allButtons = screen.queryAllByRole('button');
-    const bbcodeTab = allButtons.find((b) => /BBcode编辑/.test(b.textContent || ''));
+  async function switchToBBCodeView() {
+    const bbcodeTab = screen.queryAllByRole('button').find((b) => /BBcode编辑/.test(b.textContent || ''));
     if (!bbcodeTab) throw new Error('No "BBcode编辑" tab');
     await act(async () => {
       fireEvent.click(bbcodeTab);
     });
+  }
 
-    // 找 textarea
+  it('切到 BBCode 视图：textarea 显示与正文同步的 BBCode 缓存', async () => {
+    sectionState.sectionBbcode = '[b]节内保存的 BBCode[/b]';
+
+    const { EditorPage } = await import('./EditorPage');
+    const { container } = render(<EditorPage onBack={() => {}} />);
+
+    await switchToBBCodeView();
+
     const ta = container.querySelector('textarea') as HTMLTextAreaElement;
     if (!ta) throw new Error('No textarea in BBCode view');
-
-    // 关键断言：textarea 立即显示 section.bbcode（不再空白）
     expect(ta.value).toBe('[b]节内保存的 BBCode[/b]');
-
-    delete original.bbcode;
   });
 
-  it('BBCode 视图编辑 → 切到 visual → 切回 BBCode：textarea 仍显示用户输入（不被覆盖）', async () => {
+  it('BBCode 视图编辑后自动写回 content（content 为唯一事实来源）', async () => {
     const { EditorPage } = await import('./EditorPage');
     const { container } = render(<EditorPage onBack={() => {}} />);
 
-    // 切到 BBCode 视图
-    const allButtons = screen.queryAllByRole('button');
-    const bbcodeTab = allButtons.find((b) => /BBcode编辑/.test(b.textContent || ''));
-    if (!bbcodeTab) throw new Error('No "BBcode编辑" tab');
+    await switchToBBCodeView();
+
+    const ta = container.querySelector('textarea') as HTMLTextAreaElement;
+    if (!ta) throw new Error('No textarea in BBCode view');
+    const userInput = '[b]手动编辑的 BBCode[/b]';
     await act(async () => {
-      fireEvent.click(bbcodeTab);
+      fireEvent.change(ta, { target: { value: userInput } });
     });
 
-    // 用户输入
+    // 等防抖 300ms 触发 onDebouncedChange → setSectionContent(html, bbcode)
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 350));
+    });
+
+    const calls = (sectionState.setSectionContent as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    const last = calls[calls.length - 1];
+    expect(last[0]).toContain('<b>');
+    expect(last[0]).toContain('手动编辑的 BBCode');
+    expect(last[1]).toBe(userInput);
+  });
+
+  it('BBCode 编辑 → 切到 visual：正文已更新；切回 BBCode 仍显示用户输入', async () => {
+    const { EditorPage } = await import('./EditorPage');
+    const { container } = render(<EditorPage onBack={() => {}} />);
+
+    await switchToBBCodeView();
+
     const ta = container.querySelector('textarea') as HTMLTextAreaElement;
     if (!ta) throw new Error('No textarea in BBCode view');
     const userInput = '[i]用户正在编辑的 BBCode，不要丢[/i]';
     await act(async () => {
       fireEvent.change(ta, { target: { value: userInput } });
     });
-    expect(ta.value).toBe(userInput);
 
-    // 切到 visual 视图（不等防抖）
+    // 不等防抖，直接切到 visual：切换时必须先冲刷草稿
     const visualTab = screen.queryAllByRole('button').find((b) => /可视化编辑/.test(b.textContent || ''));
     if (!visualTab) throw new Error('No "可视化编辑" tab');
     await act(async () => {
       fireEvent.click(visualTab);
     });
 
-    // 切回 BBCode 视图
-    await act(async () => {
-      const backToBBCode = screen.queryAllByRole('button').find((b) => /BBcode编辑/.test(b.textContent || ''));
-      if (!backToBBCode) throw new Error('No "BBcode编辑" tab after switch');
-      fireEvent.click(backToBBCode);
-    });
+    // 关键断言：正文已按草稿转换并写回
+    expect(sectionState.sectionContent).toContain('<i>');
+    expect(sectionState.sectionContent).toContain('用户正在编辑的 BBCode');
+    expect(sectionState.sectionBbcode).toBe(userInput);
 
-    // 关键断言：textarea 仍显示用户输入（不被 section.bbcode 覆盖）
+    // 切回 BBCode 视图：仍显示用户输入（不被重新派生覆盖）
+    await switchToBBCodeView();
     const ta2 = container.querySelector('textarea') as HTMLTextAreaElement;
     expect(ta2.value).toBe(userInput);
   });
 
-  it('切换到不同 section：BBCode 视图的 textarea 重置为新 section 的 bbcode', async () => {
+  it('切换到不同 section：textarea 重置为新 section 的 BBCode 缓存', async () => {
     // 准备两个节
     storyState.sections = [
-      { id: 'sec-1', chapter_id: 'ch-1', title: '节1', content: '<p>1</p>', order_index: 0, bbcode: '[b]节1 BBCode[/b]' } as any,
-      { id: 'sec-2', chapter_id: 'ch-1', title: '节2', content: '<p>2</p>', order_index: 1, bbcode: '[color=red]节2 BBCode[/color]' } as any,
+      { id: 'sec-1', chapter_id: 'ch-1', title: '节1', content: '<p>1</p>', order_index: 0 } as any,
+      { id: 'sec-2', chapter_id: 'ch-1', title: '节2', content: '<p>2</p>', order_index: 1 } as any,
     ];
     storyState.activeSectionId = 'sec-1';
+    sectionState.sectionId = 'sec-1';
+    sectionState.sectionBbcode = '[b]节1 BBCode[/b]';
 
     const { EditorPage } = await import('./EditorPage');
     const { container, rerender } = render(<EditorPage onBack={() => {}} />);
 
-    // 切到 BBCode 视图
-    const allButtons = screen.queryAllByRole('button');
-    const bbcodeTab = allButtons.find((b) => /BBcode编辑/.test(b.textContent || ''));
-    if (!bbcodeTab) throw new Error('No "BBcode编辑" tab');
-    await act(async () => {
-      fireEvent.click(bbcodeTab);
-    });
+    await switchToBBCodeView();
     const ta1 = container.querySelector('textarea') as HTMLTextAreaElement;
     expect(ta1.value).toBe('[b]节1 BBCode[/b]');
 
-    // 切换 active section 到 sec-2
+    // 模拟 store 完成 sec-2 的加载后切换 active section
     await act(async () => {
       storyState.activeSectionId = 'sec-2';
+      sectionState.sectionId = 'sec-2';
+      sectionState.sectionBbcode = '[color=red]节2 BBCode[/color]';
+      sectionState.sectionContent = '<p>2</p>';
     });
     rerender(<EditorPage onBack={() => {}} />);
 
-    // 找新 textarea
     const ta2 = container.querySelector('textarea') as HTMLTextAreaElement;
     expect(ta2.value).toBe('[color=red]节2 BBCode[/color]');
-    // 还原由 afterEach 处理
   });
 });
 
-describe('EditorPage 显式加载按钮（取消自动对照）', () => {
+describe('EditorPage 视图切换自动同步（不再有手动同步按钮）', () => {
   const initialSections = [{ id: 'sec-1', chapter_id: 'ch-1', title: '我的节', content: '<p>test</p>', order_index: 0 }];
   const initialActiveSectionId = 'sec-1';
 
@@ -386,161 +406,48 @@ describe('EditorPage 显式加载按钮（取消自动对照）', () => {
     cleanup();
     storyState.sections = JSON.parse(JSON.stringify(initialSections)) as any;
     storyState.activeSectionId = initialActiveSectionId;
+    sectionState.sectionId = initialActiveSectionId;
     sectionState.sectionContent = '<p>test content</p>';
+    sectionState.sectionBbcode = null;
   });
 
   afterEach(() => {
     cleanup();
     storyState.sections = JSON.parse(JSON.stringify(initialSections)) as any;
     storyState.activeSectionId = initialActiveSectionId;
+    sectionState.sectionId = initialActiveSectionId;
     sectionState.sectionContent = '<p>test content</p>';
+    sectionState.sectionBbcode = null;
   });
 
-  it('BBCode 视图编辑 textarea 不自动触发 setSectionContent（取消自动对照）', async () => {
-    // 监听 setSectionContent：之前会自动调，现在应该不调
-    const setSectionContent = sectionState.setSectionContent as unknown as ReturnType<typeof vi.fn>;
-    setSectionContent.mockClear();
-
-    const { EditorPage } = await import('./EditorPage');
-    const { container } = render(<EditorPage onBack={() => {}} />);
-
-    // 切到 BBCode 视图
-    const allButtons = screen.queryAllByRole('button');
-    const bbcodeTab = allButtons.find((b) => /BBcode编辑/.test(b.textContent || ''));
-    if (!bbcodeTab) throw new Error('No "BBcode编辑" tab');
-    await act(async () => {
-      fireEvent.click(bbcodeTab);
-    });
-
-    // 改 textarea 内容
-    const ta = container.querySelector('textarea') as HTMLTextAreaElement;
-    if (!ta) throw new Error('No textarea in BBCode view');
-    await act(async () => {
-      fireEvent.change(ta, { target: { value: '[b]手动编辑的 BBCode[/b]' } });
-    });
-
-    // 等防抖 300ms
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 350));
-    });
-
-    // 关键断言：setSectionContent 整个测试期间没被自动调过
-    // （自动对照被取消：BBCode 视图编辑只持久化 section.bbcode，不应触发 setSectionContent）
-    // 备注：初始化的 useSectionEditor / loadSection 等可能调用，但都跟用户 BBCode 编辑无关
-    // 我们用 mock.calls 中查找参数是"BBCode 转换产物"的 —— 之前会是 <b>手动编辑的 BBCode</b>
-    const autoConvertedCall = setSectionContent.mock.calls.find(
-      (args) => typeof args[0] === 'string' && args[0].includes('手动编辑的 BBCode')
-    );
-    expect(autoConvertedCall).toBeUndefined();
-  });
-
-  it('BBCode 视图"同步到可视化"按钮：把 bbcodeDraft 转成 visual 内容写入 sectionContent', async () => {
-    const original = storyState.sections[0] as any;
-    original.bbcode = '[b]从 BBCode 加载[/b]';
-
-    const { EditorPage } = await import('./EditorPage');
-    const { container } = render(<EditorPage onBack={() => {}} />);
-
-    // 切到 BBCode 视图
-    const allButtons = screen.queryAllByRole('button');
-    const bbcodeTab = allButtons.find((b) => /BBcode编辑/.test(b.textContent || ''));
-    if (!bbcodeTab) throw new Error('No "BBcode编辑" tab');
-    await act(async () => {
-      fireEvent.click(bbcodeTab);
-    });
-
-    // 找"同步到可视化"按钮
-    const syncBtn = screen.queryAllByRole('button').find((b) => /同步到可视化/.test(b.textContent || ''));
-    if (!syncBtn) throw new Error('No "同步到可视化" button');
-
-    // 记录 setSectionContent 调用前的状态
-    const setSectionContent = sectionState.setSectionContent as unknown as ReturnType<typeof vi.fn>;
-    setSectionContent.mockClear();
-
-    await act(async () => {
-      fireEvent.click(syncBtn);
-    });
-
-    // 同步按钮改为弹二次确认弹窗，需点击"确认覆盖"才会实际执行同步
-    const confirmBtn = await screen.findByRole('button', { name: /确认覆盖/ });
-    await act(async () => {
-      fireEvent.click(confirmBtn);
-    });
-
-    // 关键断言：setSectionContent 被调用，参数包含 <b> 从 BBCode 加载 </b>
-    expect(setSectionContent).toHaveBeenCalled();
-    const lastCallArg = setSectionContent.mock.calls[setSectionContent.mock.calls.length - 1][0];
-    expect(lastCallArg).toContain('<b>');
-    expect(lastCallArg).toContain('从 BBCode 加载');
-    expect(lastCallArg).toContain('</b>');
-
-    delete original.bbcode;
-  });
-
-  it('visual 视图"同步到BBCode"按钮：把 sectionContent 转成 BBCode 写入 bbcodeDraft + setSectionBBCode', async () => {
-    // 设置 visual 内容
+  it('可视化 → BBCode：textarea 自动显示由正文派生的 BBCode', async () => {
     sectionState.sectionContent = '<b>visual 转换</b>';
+    sectionState.sectionBbcode = null;
 
     const { EditorPage } = await import('./EditorPage');
     const { container } = render(<EditorPage onBack={() => {}} />);
 
-    // 默认在 visual 视图，找"同步到BBCode"按钮
-    const syncBtn = screen.queryAllByRole('button').find((b) => /同步到BBCode/.test(b.textContent || ''));
-    if (!syncBtn) throw new Error('No "同步到BBCode" button');
-
-    await act(async () => {
-      fireEvent.click(syncBtn);
-    });
-
-    // 同步按钮改为弹二次确认弹窗，需点击"确认覆盖"才会实际执行同步
-    const confirmBtn = await screen.findByRole('button', { name: /确认覆盖/ });
-    await act(async () => {
-      fireEvent.click(confirmBtn);
-    });
-
-    // 切到 BBCode 视图查看 textarea
     const bbcodeTab = screen.queryAllByRole('button').find((b) => /BBcode编辑/.test(b.textContent || ''));
     if (!bbcodeTab) throw new Error('No "BBcode编辑" tab');
     await act(async () => {
       fireEvent.click(bbcodeTab);
     });
 
-    // 关键断言：textarea.value 包含转换后的 [b]visual 转换[/b]
     const ta = container.querySelector('textarea') as HTMLTextAreaElement;
     expect(ta).toBeTruthy();
     expect(ta.value).toContain('[b]');
     expect(ta.value).toContain('visual 转换');
     expect(ta.value).toContain('[/b]');
-
-    // 清理
-    sectionState.sectionContent = '<p>test content</p>';
   });
 
-  it('bbcodeDraft 为空时点"同步到可视化"给 toast 提示，不抛错', async () => {
-    const original = storyState.sections[0] as any;
-    original.bbcode = '';
-
+  it('工具栏不再渲染"同步到BBCode / 同步到可视化"按钮', async () => {
     const { EditorPage } = await import('./EditorPage');
     render(<EditorPage onBack={() => {}} />);
 
-    // 切到 BBCode 视图
-    const allButtons = screen.queryAllByRole('button');
-    const bbcodeTab = allButtons.find((b) => /BBcode编辑/.test(b.textContent || ''));
-    if (!bbcodeTab) throw new Error('No "BBcode编辑" tab');
-    await act(async () => {
-      fireEvent.click(bbcodeTab);
-    });
-
-    // 找"同步到可视化"按钮
-    const syncBtn = screen.queryAllByRole('button').find((b) => /同步到可视化/.test(b.textContent || ''));
-    if (!syncBtn) throw new Error('No "同步到可视化" button');
-
-    // 不应抛错
-    expect(() => {
-      fireEvent.click(syncBtn);
-    }).not.toThrow();
-
-    delete original.bbcode;
+    const syncButtons = screen
+      .queryAllByRole('button')
+      .filter((b) => /同步到BBCode|同步到可视化/.test(b.textContent || ''));
+    expect(syncButtons.length).toBe(0);
   });
 });
 
@@ -553,6 +460,9 @@ describe('EditorPage BBCode 语法校验（集成 bbcodeValidator）', () => {
     cleanup();
     storyState.sections = JSON.parse(JSON.stringify(initialSections)) as any;
     storyState.activeSectionId = initialActiveSectionId;
+    sectionState.sectionId = initialActiveSectionId;
+    sectionState.sectionBbcode = null;
+    sectionState.sectionContent = '<p>test content</p>';
   });
 
   afterEach(() => {
@@ -643,6 +553,7 @@ describe('EditorPage 阅读模式入口', () => {
     ])) as any;
     storyState.activeSectionId = 'sec-1';
     sectionState.sectionContent = '<p>test content</p>';
+    sectionState.sectionBbcode = null;
     originalInnerWidth = window.innerWidth;
   });
 
@@ -694,6 +605,7 @@ describe('Phase E - BBCode 视图 Ctrl+Z / Ctrl+Y 拦截', () => {
     storyState.sections = JSON.parse(JSON.stringify(initialSections)) as any;
     storyState.activeSectionId = initialActiveSectionId;
     sectionState.sectionContent = '<p>test content</p>';
+    sectionState.sectionBbcode = null;
     // 重置 history mock 状态
     historyState.current = '';
     historyState.past = [];

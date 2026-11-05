@@ -32,8 +32,11 @@ export async function listStories(): Promise<Story[]> {
   } else if (isBrowserDBAvailable()) {
     return BROWSER_DB.listStories()
   }
+  // 内存 SQL 引擎只支持简单等值 WHERE，这里在 JS 层过滤软删除标记
   return Promise.resolve(
-    allSQL<Story>('SELECT * FROM stories ORDER BY updated_at DESC').map(rowToStory),
+    allSQL<Story>('SELECT * FROM stories ORDER BY updated_at DESC')
+      .filter((s) => !s.is_deleted)
+      .map(rowToStory),
   )
 }
 
@@ -155,8 +158,11 @@ export async function restoreStory(id: string): Promise<void> {
     return
   }
   const now = nowISO()
+  // 注意：内存 SQL 引擎不认识 SET 中的 NULL 字面量，必须用占位参数
   runSQL(
-    'UPDATE stories SET is_deleted = NULL, deleted_at = NULL, updated_at = ? WHERE id = ?',
+    'UPDATE stories SET is_deleted = ?, deleted_at = ?, updated_at = ? WHERE id = ?',
+    null,
+    null,
     now,
     id,
   )
@@ -196,10 +202,12 @@ export async function listTrashedStories(): Promise<Story[]> {
   } else if (isBrowserDBAvailable()) {
     return BROWSER_DB.listTrashedStories()
   }
+  // 同上：内存 SQL 引擎不支持 `is_deleted = 1` 字面量 WHERE，改为 JS 过滤
   return Promise.resolve(
-    allSQL<Story>('SELECT * FROM stories WHERE is_deleted = 1 ORDER BY deleted_at DESC').map(
-      rowToStory,
-    ),
+    allSQL<Story>('SELECT * FROM stories')
+      .filter((s) => !!s.is_deleted)
+      .sort((a, b) => String(b.deleted_at || '').localeCompare(String(a.deleted_at || '')))
+      .map(rowToStory),
   )
 }
 

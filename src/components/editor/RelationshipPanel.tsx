@@ -102,16 +102,14 @@ export function RelationshipPanel({ storyId }: Props) {
     <div className="flex flex-col h-full overflow-hidden">
       {/* 顶部操作栏 */}
       <div
-        className="px-3 py-2 flex items-center justify-between flex-shrink-0"
-        style={{ borderBottom: '1px solid var(--border-color)' }}
+        className="border-b border-b-[color:var(--border-color)] px-3 py-2 flex items-center justify-between flex-shrink-0"
       >
-        <div className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>
+        <div className="text-[var(--text-primary)] text-xs font-semibold">
           人物关系
         </div>
         <button
           onClick={startCreate}
-          className="text-xs px-2 py-1 rounded"
-          style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
+          className="bg-[var(--accent)] text-[var(--text-on-accent)] text-xs px-2 py-1 rounded"
         >
           + 新建
         </button>
@@ -120,16 +118,14 @@ export function RelationshipPanel({ storyId }: Props) {
       {/* 编辑/新建表单 */}
       {(isCreating || editingId) && (
         <div
-          className="px-3 py-2 flex flex-col gap-2 text-xs"
-          style={{ borderBottom: '1px solid var(--border-color)', background: 'var(--bg-base)' }}
+          className="border-b border-b-[color:var(--border-color)] bg-[var(--bg-base)] px-3 py-2 flex flex-col gap-2 text-xs"
         >
           <div>
-            <div className="mb-1" style={{ color: 'var(--text-secondary)' }}>源角色</div>
+            <div className="text-[var(--text-secondary)] mb-1">源角色</div>
             <select
               value={draft.source_id}
               onChange={(e) => setDraft((d) => ({ ...d, source_id: e.target.value }))}
-              className="w-full px-2 py-1 rounded"
-              style={{ background: 'var(--bg-input)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+              className="bg-[var(--bg-input)] border border-[color:var(--border-color)] text-[var(--text-primary)] w-full px-2 py-1 rounded"
             >
               <option value="">（请选择）</option>
               {characters.map((c) => (
@@ -138,23 +134,21 @@ export function RelationshipPanel({ storyId }: Props) {
             </select>
           </div>
           <div>
-            <div className="mb-1" style={{ color: 'var(--text-secondary)' }}>关系名</div>
+            <div className="text-[var(--text-secondary)] mb-1">关系名</div>
             <input
               type="text"
               value={draft.relation}
               onChange={(e) => setDraft((d) => ({ ...d, relation: e.target.value }))}
               placeholder="如：朋友、兄妹、师徒"
-              className="w-full px-2 py-1 rounded"
-              style={{ background: 'var(--bg-input)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+              className="bg-[var(--bg-input)] border border-[color:var(--border-color)] text-[var(--text-primary)] w-full px-2 py-1 rounded"
             />
           </div>
           <div>
-            <div className="mb-1" style={{ color: 'var(--text-secondary)' }}>目标角色</div>
+            <div className="text-[var(--text-secondary)] mb-1">目标角色</div>
             <select
               value={draft.target_id}
               onChange={(e) => setDraft((d) => ({ ...d, target_id: e.target.value }))}
-              className="w-full px-2 py-1 rounded"
-              style={{ background: 'var(--bg-input)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+              className="bg-[var(--bg-input)] border border-[color:var(--border-color)] text-[var(--text-primary)] w-full px-2 py-1 rounded"
             >
               <option value="">（请选择）</option>
               {characters.map((c) => (
@@ -163,28 +157,25 @@ export function RelationshipPanel({ storyId }: Props) {
             </select>
           </div>
           <div>
-            <div className="mb-1" style={{ color: 'var(--text-secondary)' }}>备注（可选）</div>
+            <div className="text-[var(--text-secondary)] mb-1">备注（可选）</div>
             <textarea
               value={draft.note}
               onChange={(e) => setDraft((d) => ({ ...d, note: e.target.value }))}
               rows={2}
-              className="w-full px-2 py-1 rounded"
-              style={{ background: 'var(--bg-input)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+              className="bg-[var(--bg-input)] border border-[color:var(--border-color)] text-[var(--text-primary)] w-full px-2 py-1 rounded"
             />
           </div>
           <div className="flex gap-2">
             <button
               onClick={handleSave}
               disabled={!draft.source_id || !draft.target_id}
-              className="flex-1 px-2 py-1 rounded disabled:opacity-50"
-              style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
+              className="bg-[var(--accent)] text-[var(--text-on-accent)] flex-1 px-2 py-1 rounded disabled:opacity-50"
             >
               保存
             </button>
             <button
               onClick={cancelEdit}
-              className="flex-1 px-2 py-1 rounded"
-              style={{ background: 'var(--bg-button)', color: 'var(--text-primary)' }}
+              className="bg-[var(--bg-button)] text-[var(--text-primary)] flex-1 px-2 py-1 rounded"
             >
               取消
             </button>
@@ -195,11 +186,11 @@ export function RelationshipPanel({ storyId }: Props) {
       {/* 关系列表 */}
       <div className="flex-1 overflow-y-auto">
         {characters.length === 0 ? (
-          <div className="px-3 py-6 text-xs text-center" style={{ color: 'var(--text-secondary)' }}>
+          <div className="text-[var(--text-secondary)] px-3 py-6 text-xs text-center">
             请先添加人物角色
           </div>
         ) : sortedRelations.length === 0 ? (
-          <div className="px-3 py-6 text-xs text-center" style={{ color: 'var(--text-secondary)' }}>
+          <div className="text-[var(--text-secondary)] px-3 py-6 text-xs text-center">
             还没有关系，点击"+ 新建"开始
           </div>
         ) : (
@@ -211,36 +202,33 @@ export function RelationshipPanel({ storyId }: Props) {
               return (
                 <li
                   key={r.id}
-                  className="px-3 py-2 text-xs"
-                  style={{ borderBottom: '1px solid var(--border-color)' }}
+                  className="border-b border-b-[color:var(--border-color)] px-3 py-2 text-xs"
                 >
                   <div className="flex items-center gap-2">
-                    <span style={{ color: 'var(--text-primary)' }}>
+                    <span className="text-[var(--text-primary)]">
                       {src?.name || '（已删除的角色）'}
                     </span>
-                    <span style={{ color: 'var(--accent)' }}>—{r.relation}→</span>
-                    <span style={{ color: 'var(--text-primary)' }}>
+                    <span className="text-[var(--accent)]">—{r.relation}→</span>
+                    <span className="text-[var(--text-primary)]">
                       {dst?.name || '（已删除的角色）'}
                     </span>
                     <div className="ml-auto flex gap-1">
                       <button
                         onClick={() => (isEditing ? cancelEdit() : startEdit(r))}
-                        className="px-1.5 py-0.5 rounded"
-                        style={{ background: 'var(--bg-button)', color: 'var(--text-secondary)' }}
+                        className="bg-[var(--bg-button)] text-[var(--text-secondary)] px-1.5 py-0.5 rounded"
                       >
                         {isEditing ? '取消' : '编辑'}
                       </button>
                       <button
                         onClick={() => handleDelete(r.id)}
-                        className="px-1.5 py-0.5 rounded"
-                        style={{ background: 'var(--bg-button)', color: 'var(--text-secondary)' }}
+                        className="bg-[var(--bg-button)] text-[var(--text-secondary)] px-1.5 py-0.5 rounded"
                       >
                         删除
                       </button>
                     </div>
                   </div>
                   {r.note && (
-                    <div className="mt-1 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                    <div className="text-[var(--text-secondary)] mt-1 leading-relaxed">
                       {r.note}
                     </div>
                   )}

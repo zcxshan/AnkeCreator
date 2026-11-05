@@ -76,12 +76,12 @@ export function registerStructureIpc(): void {
 
   // ---- Section content (富文本正文) ----
   ipcMain.handle('db:get-section-content', (_e, id: string) => db.getSectionContent(id))
-  ipcMain.handle('db:set-section-content', async (_e, id: string, content: string | null) => {
-    await db.setSectionContent(id, content)
-    return true
-  })
-  ipcMain.handle('db:set-section-bbcode', async (_e, id: string, bbcode: string | null) => {
-    await db.setSectionBBCode(id, bbcode)
-    return true
-  })
+  ipcMain.handle('db:get-section-bbcode', (_e, id: string) => db.getSectionBBCode(id))
+  ipcMain.handle(
+    'db:set-section-content',
+    async (_e, id: string, content: string | null, bbcode?: string | null) => {
+      await db.setSectionContent(id, content, bbcode)
+      return true
+    },
+  )
 }

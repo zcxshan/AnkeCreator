@@ -1,18 +1,18 @@
-import { useState, useMemo, useRef, useEffect, useCallback, useDeferredValue, memo } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useStoryStore } from '../../store/storyStore';
 import { useEditorStore } from '../../store/editorStore';
+import { flushDebouncedSave } from '../../store/editorStore';
 import { useEditorHistoryStore } from '../../store/editorHistoryStore';
 import { useDiceStore } from '../../store/diceStore';
 import {
   useDiceHistoryStore,
   buildDiceHistoryRecord,
-  type DiceHistoryRecord,
 } from '../../store/diceHistoryStore';
-import type { Section, WorldSetting, DiceBlockPayloadV2 } from '../../types';
-import { NGA_IMAGE_SIZES, NGA_DEFAULT_IMAGE_SIZE } from '../../types';
+import type { Section, DiceBlockPayloadV2 } from '../../types';
+import { NGA_DEFAULT_IMAGE_SIZE } from '../../types';
 import * as db from '../../db/index';
-import { useMetaStore } from '../../store/metaStore';
 import { useSectionEditor } from '../../hooks/useSectionEditor';
+import { useStructureSync } from '../../hooks/useStructureSync';
 import { DirectoryTree } from '../common/DirectoryTree';
 import { Icon, type IconName } from '../common/Icon';
 import { DiceConfigDialog } from '../dice/DiceConfigDialog';
@@ -21,36 +21,24 @@ import { CharacterPanel } from '../character/CharacterEditor';
 import { type RichTextEditorCommands } from '../../editor/tiptap/TiptapEditorPane';
 import { VisualEditorPane } from '../editor/VisualEditorPane';
 import { WordCount, computeSectionWordCount } from '../editor/WordCount';
-import { isDiceCardInEditor } from '../../editor';
-import { createDiceId, rollExpression } from '../../utils/diceEngine';
-import { playDiceRollSound } from '../../utils/diceSound';
-import { RelationshipPanel } from '../editor/RelationshipPanel';
+import { isDiceCardInEditor } from '../../editor/tiptap/diceLookup';
+import { createDiceId } from '../../utils/diceEngine';
 import { OutlineTree } from '../outline/OutlineTree';
 import { OutlineEditor } from '../outline/OutlineEditor';
 import { SyncDialog } from '../common/SyncDialog';
 import { ConfirmDialog } from '../common/ConfirmDialog';
-import { InputDialog } from '../common/InputDialog';
 import { useToastStore } from '../../store/toastStore';
 import { useSettingStore } from '../../store/settingStore';
-import { uploadImagesWithProgress, ensureLocalWarning, type UploadProgressEvent } from '../../utils/uploadImage';
 import { UploadProgressDialog } from '../common/UploadProgressDialog';
 import { LocalModeBanner } from '../common/LocalModeBanner';
-import {
-  computeDiff,
-  buildOutlineStructure,
-  buildDirectoryStructure,
-} from '../../utils/structureSync';
-import type { DiffItem } from '../../utils/structureSync';
-import { htmlToNGABBCode } from '../../utils/ngaHtmlToBBCode';
-import { bbcodeToHtml } from '../../utils/ngaBBCodeToHtml';
 import { validateBBCode, type BBCodeError } from '../../utils/bbcodeValidator';
-import { parseOutlineContent } from '../../types';
+import { bbcodeToHtml } from '../../utils/ngaBBCodeToHtml';
+import { htmlToNGABBCode } from '../../utils/ngaHtmlToBBCode';
+import { exportSectionAsImages } from '../../utils/sectionImageExport';
 import { isCapacitor, isElectron } from '../../utils/platform';
-import { ContextMenu } from '../common/ContextMenu';
-import { SearchPanel } from '../editor/SearchPanel';
-import { GlobalSearchPanel } from '../editor/GlobalSearchPanel';
-import { CompactImageLibraryPanel } from '../editor/CompactImageLibraryPanel';
-import { toPng } from 'html-to-image';
+import { BBCodeEditor } from '../editor/BBCodeEditor';
+import { RightPanel } from '../editor/EditorRightPanel';
+import { EditorBreadcrumb, BottomStatusBar } from '../editor/EditorStatusBar';
 
 interface EditorPageProps {
   onBack: () => void;
@@ -155,12 +143,7 @@ function ResizeHandle({ onResize, side }: { onResize: (delta: number) => void; s
 
   return (
     <div
-      className="shrink-0 hover:opacity-100 transition-opacity opacity-40"
-      style={{
-        width: 4,
-        cursor: 'col-resize',
-        background: 'var(--border-color)',
-      }}
+      className="w-[4px] cursor-col-resize bg-[var(--border-color)] shrink-0 hover:opacity-100 transition-opacity opacity-40"
       onMouseDown={onMouseDown}
       onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent)'; e.currentTarget.style.opacity = '1'; }}
       onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--border-color)'; e.currentTarget.style.opacity = ''; }}
@@ -202,17 +185,15 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
     reorderSections,
     moveChapters,
     moveSections,
-    createOutlineVolume,
-    createOutlineChapter,
-    renameOutline,
-    deleteOutline,
-    updateOutline,
   } = useStoryStore();
 
   // 用 selector 订阅，避免每次 store 更新都触发整个 EditorPage 重渲染。
   // sectionContent / canUndo / canRedo 已下沉到 VisualEditorPane（编辑器独立订阅）。
   const sectionLoading = useEditorStore((s) => s.sectionLoading);
   const setSectionContent = useEditorStore((s) => s.setSectionContent);
+  // BBCode 视图初始化需要：当前节是否已加载完成 + 与 content 同步的 BBCode 缓存
+  const storeSectionId = useEditorStore((s) => s.sectionId);
+  const storeSectionBbcode = useEditorStore((s) => s.sectionBbcode);
 
   const [view, setView] = useState<EditorView>('directory');
   const [rightPanelTab, setRightPanelTab] = useState<
@@ -225,6 +206,37 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
   // 搜索面板需要访问的编辑器 DOM ref
   const bbcodeTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const visualEditorRef = useRef<HTMLDivElement | null>(null);
+
+  const [bbcodeDraft, setBbcodeDraft] = useState('');
+  // BBCode 草稿的同步引用：切节/切视图时需要拿到最新值（state 更新可能滞后于事件）
+  const bbcodeDraftRef = useRef('');
+  // 只有用户真正改过草稿才回写正文，避免"仅打开 BBCode 视图"就发生有损回转
+  const bbcodeDirtyRef = useRef(false);
+  const setBbcodeDraftValue = useCallback((value: string) => {
+    bbcodeDraftRef.current = value;
+    setBbcodeDraft(value);
+  }, []);
+  const handleBbcodeChange = useCallback(
+    (value: string) => {
+      bbcodeDirtyRef.current = true;
+      setBbcodeDraftValue(value);
+    },
+    [setBbcodeDraftValue],
+  );
+  // 把 BBCode 草稿写回正文（content 是唯一事实来源，BBCode 由 content 派生）
+  // 返回是否真的写入（目标节已不是当前编辑节时拒绝写入，避免串节）
+  const commitBbcodeDraftToContent = useCallback((sectionId: string, bb: string): boolean => {
+    if (useEditorStore.getState().sectionId !== sectionId) return false;
+    try {
+      useEditorStore.getState().setSectionContent(bbcodeToHtml(bb ?? ''), bb);
+      return true;
+    } catch (e) {
+      useToastStore
+        .getState()
+        .showToast(`BBCode 解析失败，正文未更新：${(e as Error).message}`, 'error');
+      return false;
+    }
+  }, []);
 
   // Phase E — 子卡点 3.2：BBCode 视图 Ctrl+Z/Y 拦截
   // BBCode 视图用原生 textarea，浏览器内置 undo 每次切节重置，无法跨节撤销。
@@ -240,12 +252,15 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
       if (editorMode === 'visual') {
         setSectionContent(restored.html);
       } else {
-        setBbcodeDraft(restored.html);
+        setBbcodeDraftValue(restored.html);
+        bbcodeDirtyRef.current = false;
+        if (activeSectionId && bbcodeDraftSectionIdRef.current === activeSectionId) {
+          commitBbcodeDraftToContent(activeSectionId, restored.html);
+        }
       }
     },
-    [editorMode],
+    [editorMode, activeSectionId, setSectionContent, setBbcodeDraftValue, commitBbcodeDraftToContent],
   );
-  const [bbcodeDraft, setBbcodeDraft] = useState('');
   // BBCode 语法校验错误（实时显示在编辑器下方，非阻塞）
   // v35: 改为 BBCodeError[] (含行号)，支持点击跳转
   const [bbcodeErrors, setBbcodeErrors] = useState<BBCodeError[]>([]);
@@ -273,43 +288,51 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
     const lineHeight = 20;
     ta.scrollTop = Math.max(0, (line - 1) * lineHeight - ta.clientHeight / 3);
   }, []);
-  // BBCode → HTML 防抖定时器
-  const bbcodeDebounceRef = useRef<number | null>(null);
-
-  // 切换到 BBCode 视图时：从 section.bbcode 读取（不再 htmlToNGABBCode 回转）
-  // 取消自动对照 —— BBCode 视图与可视化视图是两个独立的内容源
-  //
-  // 关键设计：
-  // - bbcodeDraftSectionIdRef 跟踪当前 bbcodeDraft 来自哪个 section
-  // - mode 切换（visual ↔ bbcode）不动 bbcodeDraft，避免覆盖用户编辑
-  // - section 切换（点侧栏另一个节）才重置 bbcodeDraft
-  // - 首次挂载时按 editorMode 决定是否同步加载
-  const isFirstMount = useRef(true);
+  // v35: 实时语法校验（非阻塞），内容相同时保持原数组引用，避免无意义重渲染
+  const updateBbcodeErrors = useCallback((bb: string) => {
+    const result = validateBBCode(bb);
+    setBbcodeErrors((prev) => {
+      if (
+        prev.length === result.errors.length &&
+        prev.every((e, i) => e.message === result.errors[i].message && e.line === result.errors[i].line)
+      ) {
+        return prev;
+      }
+      return result.errors;
+    });
+  }, []);
+  // BBCode 防抖回调：仅当用户真实编辑过草稿才写回正文，避免"只查看"触发有损回转
+  const handleBbcodeDebouncedChange = useCallback(
+    (bb: string) => {
+      updateBbcodeErrors(bb);
+      if (!bbcodeDirtyRef.current) return;
+      bbcodeDirtyRef.current = false;
+      if (activeSectionId && bbcodeDraftSectionIdRef.current === activeSectionId) {
+        commitBbcodeDraftToContent(activeSectionId, bb);
+      }
+    },
+    [activeSectionId, commitBbcodeDraftToContent, updateBbcodeErrors],
+  );
+  // BBCode 草稿归属的节 id：切节时据此判断草稿是否属于上一节
   const bbcodeDraftSectionIdRef = useRef<string | null>(null);
 
+  // 切节前把上一节的 BBCode 草稿写回 content。
+  // 该 effect 必须注册在 useSectionEditor 之前，保证先于 loadSection 执行。
+  const prevActiveSectionIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (isFirstMount.current) {
-      isFirstMount.current = false;
-      if (editorMode === 'bbcode') {
-        const sid = (section as any)?.id ?? null;
-        const raw = (section as any)?.bbcode;
-        setBbcodeDraft(raw ? String(raw) : '');
-        bbcodeDraftSectionIdRef.current = sid;
-      }
-      return;
-    }
-    // section 切换由 useEffect on [section.id] 负责
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editorMode]);
+    const prev = prevActiveSectionIdRef.current;
+    prevActiveSectionIdRef.current = activeSectionId;
+    if (!prev || prev === activeSectionId) return;
+    if (editorMode !== 'bbcode') return;
+    if (bbcodeDraftSectionIdRef.current !== prev) return;
+    // 只回写真正编辑过的草稿；仅浏览过则直接放弃草稿，避免有损回转
+    if (bbcodeDirtyRef.current && !commitBbcodeDraftToContent(prev, bbcodeDraftRef.current)) return;
+    // 已落盘：先清空草稿，等新节正文加载完成后回填，避免显示上一节内容
+    setBbcodeDraftValue('');
+    bbcodeDirtyRef.current = false;
+    bbcodeDraftSectionIdRef.current = null;
+  }, [activeSectionId, editorMode, commitBbcodeDraftToContent, setBbcodeDraftValue]);
 
-  // 卸载时清理防抖定时器
-  useEffect(() => {
-    return () => {
-      if (bbcodeDebounceRef.current !== null) {
-        window.clearTimeout(bbcodeDebounceRef.current);
-      }
-    };
-  }, []);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState('');
   const richTextEditorCommandsRef = useRef<RichTextEditorCommands | null>(null);
@@ -395,141 +418,8 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
   }, [isMobile, mobilePanelOpen]);
 
   // 同步对话框状态（支持双向：目录→大纲、大纲→目录）
-  const [syncDialogOpen, setSyncDialogOpen] = useState(false);
-  const [syncDialogSource, setSyncDialogSource] = useState<'directory' | 'outline'>('directory');
-  const [volumeDiffs, setVolumeDiffs] = useState<DiffItem[]>([]);
-  const [chapterDiffs, setChapterDiffs] = useState<DiffItem[]>([]);
-
-  // 同步按钮二次确认（防止误覆盖辛苦写的内容）—— 安卓 + Windows 都生效
-  const [syncConfirmOpen, setSyncConfirmOpen] = useState(false);
-  const [syncConfirmKind, setSyncConfirmKind] = useState<'visual-to-bbcode' | 'bbcode-to-visual'>('visual-to-bbcode');
-
-  const handleOpenSyncDialog = (source: 'directory' | 'outline' = 'directory') => {
-    if (!activeStoryId) return;
-    const outlineStruct = buildOutlineStructure(outlines);
-    const dirStruct = buildDirectoryStructure(volumes, chapters, outlines);
-    const { volumes: volDiffs, chapters: chDiffs } = computeDiff(
-      source,
-      outlineStruct,
-      dirStruct,
-    );
-    setSyncDialogSource(source);
-    setVolumeDiffs(volDiffs);
-    setChapterDiffs(chDiffs);
-    setSyncDialogOpen(true);
-  };
-
-  const handleApplySync = async (confirmedVolDiffs: DiffItem[], confirmedChDiffs: DiffItem[]) => {
-    if (!activeStoryId) return;
-
-    if (syncDialogSource === 'directory') {
-      // === 目录 → 大纲：新增缺失的 outline，删除多余的 outline ===
-      const outlineVolumeIdByDirId: Record<string, string> = {};
-      for (const d of confirmedVolDiffs.filter((d) => d.selected)) {
-        if (d.kind === 'add') {
-          const id = await createOutlineVolume(d.title);
-          outlineVolumeIdByDirId[d.sourceId || ''] = id;
-          if (d.sourceId) {
-            updateOutline(id, { target_id: d.sourceId });
-          }
-        } else if (d.kind === 'remove') {
-          if (d.destId) deleteOutline(d.destId);
-        } else if (d.kind === 'conflict') {
-          if (d.keep === 'source') {
-            if (d.destId) renameOutline(d.destId, d.title);
-          } else {
-            if (d.sourceId) renameVolume(d.sourceId, d.otherTitle || d.title);
-          }
-        }
-      }
-      for (const d of confirmedChDiffs.filter((d) => d.selected)) {
-        if (d.kind === 'add') {
-          const chapter = d.sourceId ? chapters.find((c) => c.id === d.sourceId) : null;
-          const parentDirVolumeId = chapter?.volume_id || null;
-          let parentOutlineVolumeId: string | null = null;
-          if (parentDirVolumeId) {
-            const parentOutline = outlines.find((o) => {
-              const p = parseOutlineContent(o.content);
-              return p.target_type === 'volume' && p.target_id === parentDirVolumeId;
-            });
-            if (parentOutline) parentOutlineVolumeId = parentOutline.id;
-            if (!parentOutlineVolumeId && outlineVolumeIdByDirId[parentDirVolumeId]) {
-              parentOutlineVolumeId = outlineVolumeIdByDirId[parentDirVolumeId];
-            }
-          }
-          if (parentOutlineVolumeId) {
-            const newId = await createOutlineChapter(parentOutlineVolumeId, d.title);
-            if (d.sourceId) {
-              updateOutline(newId, { target_id: d.sourceId });
-            }
-          } else {
-            // 没有归属的卷，创建一个卷作为容器
-            const containerId = await createOutlineVolume(`未归卷容器`);
-            const newId = await createOutlineChapter(containerId, d.title);
-            if (d.sourceId) {
-              updateOutline(newId, { target_id: d.sourceId });
-            }
-          }
-        } else if (d.kind === 'remove') {
-          if (d.destId) deleteOutline(d.destId);
-        } else if (d.kind === 'conflict') {
-          if (d.keep === 'source') {
-            if (d.destId) renameOutline(d.destId, d.title);
-          } else {
-            if (d.sourceId) renameChapter(d.sourceId, d.otherTitle || d.title);
-          }
-        }
-      }
-    } else {
-      // === 大纲 → 目录：新增缺失的 volume/chapter，删除多余的 volume/chapter ===
-      const dirVolumeIdByOutlineId: Record<string, string> = {};
-      for (const d of confirmedVolDiffs.filter((d) => d.selected)) {
-        if (d.kind === 'add') {
-          const newVolId = await createVolume(activeStoryId, d.title);
-          dirVolumeIdByOutlineId[d.sourceId || ''] = newVolId;
-          if (d.sourceId) updateOutline(d.sourceId, { target_id: newVolId });
-        } else if (d.kind === 'remove') {
-          if (d.destId) deleteVolume(d.destId);
-        } else if (d.kind === 'conflict') {
-          if (d.keep === 'source') {
-            if (d.destId) renameVolume(d.destId, d.title);
-          } else {
-            if (d.sourceId) renameOutline(d.sourceId, d.otherTitle || d.title);
-          }
-        }
-      }
-      for (const d of confirmedChDiffs.filter((d) => d.selected)) {
-        if (d.kind === 'add') {
-          const outline = d.sourceId ? outlines.find((o) => o.id === d.sourceId) : null;
-          const payload = outline ? parseOutlineContent(outline.content) : null;
-          const parentOutlineId = payload?.parent_outline_id;
-          let parentVolumeId: string | null = null;
-          if (parentOutlineId) {
-            const parentOutline = outlines.find((o) => o.id === parentOutlineId);
-            if (parentOutline) {
-              const parentPayload = parseOutlineContent(parentOutline.content);
-              parentVolumeId = parentPayload.target_id || null;
-            }
-            if (!parentVolumeId && dirVolumeIdByOutlineId[parentOutlineId]) {
-              parentVolumeId = dirVolumeIdByOutlineId[parentOutlineId];
-            }
-          }
-          const newChapterId = await createChapter(activeStoryId, d.title, parentVolumeId);
-          if (d.sourceId && outline) updateOutline(d.sourceId, { target_id: newChapterId });
-        } else if (d.kind === 'remove') {
-          if (d.destId) deleteChapter(d.destId);
-        } else if (d.kind === 'conflict') {
-          if (d.keep === 'source') {
-            if (d.destId) renameChapter(d.destId, d.title);
-          } else {
-            if (d.sourceId) renameOutline(d.sourceId, d.otherTitle || d.title);
-          }
-        }
-      }
-    }
-
-    setSyncDialogOpen(false);
-  };
+  // 目录 ↔ 大纲同步（状态与差异应用见 hooks/useStructureSync）
+  const structureSync = useStructureSync();
 
   // 节切换自动保存 / 加载逻辑（使用 useSectionEditor hook）
   useSectionEditor(activeSectionId);
@@ -624,329 +514,63 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
     richTextEditorCommandsRef.current?.setSelectedImageSize(size);
   }, []);
 
-  // section 切换时重置 bbcodeDraft（mode 切换不动；只在 section.id 实际变化时刷新）
+  // BBCode 视图初始化：等当前节正文加载完成后，用同一份正文（或已同步的 BBCode 缓存）填充草稿
   useEffect(() => {
     if (editorMode !== 'bbcode') return;
-    const sid = (section as any)?.id ?? null;
-    if (bbcodeDraftSectionIdRef.current === sid) return;
-    const raw = (section as any)?.bbcode;
-    setBbcodeDraft(raw ? String(raw) : '');
-    bbcodeDraftSectionIdRef.current = sid;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [(section as any)?.id, editorMode]);
+    if (!activeSectionId || storeSectionId !== activeSectionId) return;
+    if (bbcodeDraftSectionIdRef.current === activeSectionId) return;
+    const bb =
+      storeSectionBbcode ??
+      htmlToNGABBCode(useEditorStore.getState().sectionContent ?? '');
+    setBbcodeDraftValue(bb);
+    bbcodeDirtyRef.current = false;
+    bbcodeDraftSectionIdRef.current = activeSectionId;
+  }, [editorMode, activeSectionId, storeSectionId, storeSectionBbcode, setBbcodeDraftValue]);
 
-  // ===== 同步按钮实际执行逻辑（用户点"确认覆盖"后调用）=====
-  // 把当前可视化内容转成 BBCode，覆盖 bbcodeDraft + 持久化
-  const doSyncVisualToBbcode = () => {
-    const el = visualEditorRef.current;
-    const html = (el && el.innerHTML && el.innerHTML !== '<br>')
-      ? el.innerHTML
-      : (useEditorStore.getState().sectionContent ?? '');
-    try {
-      const bb = htmlToNGABBCode(html);
-      setBbcodeDraft(bb);
-      // 标记当前 section 的 bbcodeDraft 已初始化，避免切到 BBCode 视图时被 useEffect 覆盖
-      bbcodeDraftSectionIdRef.current = section?.id ?? null;
-      if (activeSectionId) {
-        void db.setSectionBBCode(activeSectionId, bb);
+  // 视图切换：content 是唯一事实来源，切换时双向自动同步，不再需要手动"同步"按钮
+  const handleSwitchEditorMode = useCallback(
+    async (mode: 'visual' | 'bbcode') => {
+      if (mode === editorMode) return;
+      if (mode === 'bbcode') {
+        // 可视化 → BBCode：先把防抖中的正文落盘（保存时同步派生 BBCode）
+        await flushDebouncedSave();
+        const st = useEditorStore.getState();
+        const bb = st.sectionBbcode ?? htmlToNGABBCode(st.sectionContent ?? '');
+        setBbcodeDraftValue(bb);
+        bbcodeDirtyRef.current = false;
+        bbcodeDraftSectionIdRef.current = st.sectionId;
+        setEditorMode('bbcode');
+        return;
       }
-      useToastStore.getState().showToast('已将可视化内容同步到 BBCode', 'success');
-    } catch (e) {
-      useToastStore.getState().showToast(`同步失败：${(e as Error).message}`, 'error');
-    }
-  };
+      // BBCode → 可视化：仅当草稿被用户改动过才写回 content，避免只浏览就发生有损回转
+      if (
+        activeSectionId &&
+        bbcodeDraftSectionIdRef.current === activeSectionId &&
+        bbcodeDirtyRef.current
+      ) {
+        commitBbcodeDraftToContent(activeSectionId, bbcodeDraftRef.current);
+        await flushDebouncedSave();
+      }
+      bbcodeDirtyRef.current = false;
+      setEditorMode('visual');
+    },
+    [editorMode, activeSectionId, commitBbcodeDraftToContent, setBbcodeDraftValue],
+  );
 
-  // 把当前 BBCode 转成 HTML，覆盖可视化编辑区
-  const doSyncBbcodeToVisual = () => {
-    const bb = bbcodeDraft ?? '';
-    try {
-      const html = bbcodeToHtml(bb);
-      setSectionContent(html);
-      // 强制同步 RichTextEditor 的 div.innerHTML（避免 useEffect 异步覆盖）
-      requestAnimationFrame(() => {
-        const ve = visualEditorRef.current;
-        if (ve) {
-          ve.innerHTML = html === '' ? '<br>' : html;
-        }
-      });
-      useToastStore.getState().showToast('已将 BBCode 同步到可视化视图', 'success');
-    } catch (e) {
-      useToastStore.getState().showToast(`同步失败：${(e as Error).message}`, 'error');
-    }
-  };
-
-  // 当前节导出为图片（使用 html-to-image 的 toPng）
-  // 清晰度策略：
-  //  1) 单图 ≤ MAX_IMAGE_HEIGHT：直接导出，skipAutoScale: true 保证清晰
-  //  2) 单图 > MAX_IMAGE_HEIGHT：按顶级子节点拆分为多张图
-  //  3) 字数 > MAX_IMAGE_CHARS * 3：拒绝导出 + 中文提示最大长度
-  //  4) 导出前临时把 zoom 设为 1（避免用户缩放影响清晰度），finally 恢复
-  //  5) 失败时通过 classifyError 识别错误类型，给出针对性中文提示 + 解决方案
-  // 导出图片最大清晰高度（pixelRatio 2x 下 canvas 上限 16384px，留余量）
-  const MAX_IMAGE_HEIGHT = 8000;
-  // 导出图片最大字数（粗略限制，约 8000-10000 字）
-  const MAX_IMAGE_CHARS = 10000;
-  // 多图下载间隔，避免浏览器拦截（ms）
-  const CHUNK_DOWNLOAD_INTERVAL = 200;
-
+  // 当前节导出为图片：单图 / 自动拆分 / 超限拒绝（实现见 utils/sectionImageExport）
   const handleExportSectionAsImage = async () => {
     const el = visualEditorRef.current;
     if (!el) return;
-    const html = el.innerHTML;
-    if (!html.trim() || html === '<br>') {
-      useToastStore.getState().showToast('当前节没有内容可导出', 'info');
-      return;
-    }
-
-    // 错误分类函数（针对 html-to-image 库常见错误）
-    const classifyError = (
-      err: unknown,
-      ctx?: { totalChars?: number },
-    ): string => {
-      const msg = (err as any)?.message || String(err) || '';
-      const lower = msg.toLowerCase();
-      // 0. 内容过长（用户主动提示的场景）
-      if (msg.includes('内容过长') || msg.includes('字数超限')) {
-        return `导出失败：内容过长\n\n当前字数：${ctx?.totalChars ?? '?'} 字\n最大支持：${MAX_IMAGE_CHARS} 字\n\n建议：\n1) 把这一节拆分成多个小节\n2) 删除冗余内容\n3) 简化复杂样式（如移除 backdrop-filter）`;
-      }
-      // 1. Canvas 尺寸超限
-      if (
-        (lower.includes('canvas') &&
-          (lower.includes('size') || lower.includes('limit') || lower.includes('exceed'))) ||
-        lower.includes('maximum') ||
-        lower.includes('too large')
-      ) {
-        return '导出失败：画布尺寸超限\n\n当前内容过长导致画布超过浏览器上限（通常 16384 像素）。\n\n建议：\n1) 把这一节拆分成多个小节\n2) 减少大尺寸图片（>2000px 宽）\n3) 移除复杂样式（如 backdrop-filter）';
-      }
-      // 2. 跨域 / CORS 图片加载失败
-      if (
-        lower.includes('tainted') ||
-        lower.includes('cross-origin') ||
-        lower.includes('cors')
-      ) {
-        return '导出失败：图片跨域加载失败\n\n编辑器中包含跨域图片，被浏览器安全策略阻止。\n\n请：\n1) 把图片下载到本地后重新插入\n2) 或使用同源图片';
-      }
-      // 3. 不支持的颜色函数（oklch/lab）
-      if (
-        lower.includes('oklch') ||
-        lower.includes('oklab') ||
-        lower.includes('color(')
-      ) {
-        return '导出失败：样式不兼容\n\n检测到不兼容的颜色函数（如 oklch / lab）。\n\n建议：把颜色改为传统 #hex 或 rgb() 格式';
-      }
-      // 4. 节点过多 / 内存不足
-      if (
-        lower.includes('node') ||
-        lower.includes('too many') ||
-        lower.includes('memory')
-      ) {
-        return '导出失败：内容过大\n\nDOM 节点过多或内存不足。\n\n建议：\n1) 把这一节拆分成多个小节\n2) 减少嵌入的骰子卡 / 图片块\n3) 删除过时的隐藏内容';
-      }
-      // 5. 字体加载失败
-      if (lower.includes('font') || lower.includes('typeface')) {
-        return '导出失败：字体加载失败\n\n自定义字体未加载完。\n\n建议：等待字体加载完成后再试';
-      }
-      // 6. CSP / 安全策略
-      if (
-        lower.includes('unsafe') ||
-        lower.includes('security') ||
-        lower.includes('unsafe-eval')
-      ) {
-        return '导出失败：样式触发安全策略\n\n包含 unsafe-eval 或其他被 CSP 拦截的样式。';
-      }
-      // 7. SVG / XML 转换失败
-      if (lower.includes('svg') || lower.includes('xml')) {
-        return '导出失败：SVG 转换失败\n\n包含复杂的 SVG 内容无法转为 PNG。';
-      }
-      // 8. 通用失败：把原始消息带出来
-      if (msg) {
-        return `导出失败：${msg}\n\n可能原因：\n1) 内容过长（>${MAX_IMAGE_CHARS} 字）\n2) 复杂样式（filter / backdrop-filter）\n3) 跨域图片\n\n建议：拆分节、简化样式、移除跨域图片`;
-      }
-      return '导出失败：未知错误\n\n可能是内容过长、样式不兼容或浏览器内存不足。\n\n建议：\n1) 把这一节拆分成多个小节\n2) 简化样式（去掉 filter、backdrop-filter）\n3) 移除跨域图片';
-    };
-
-    // 1. 估算内容总高度和字数
-    const totalHeight = el.scrollHeight;
-    const totalText = el.textContent || '';
-    const totalChars = totalText.length;
-
-    // 2. 临时移除 zoom（避免用户缩放影响清晰度），finally 恢复
-    const originalZoom = el.style.zoom;
-    el.style.zoom = '1';
-
     setExportingImage(true);
     try {
-      // 3. 决策：单图 / 拆分 / 拒绝
-      if (totalHeight <= MAX_IMAGE_HEIGHT) {
-        // 单图清晰导出（禁用自动缩放）
-        const dataUrl = await toPng(el, {
-          backgroundColor: getComputedStyle(el).backgroundColor || '#ffffff',
-          pixelRatio: 2,
-          skipAutoScale: true,
-        });
-        downloadImage(dataUrl, `${section?.title || '当前节'}.png`);
-        useToastStore.getState().showToast('已导出为图片', 'success');
-        return;
-      }
-
-      // 字数严重超限（即使拆分也太多），直接拒绝并给出最大长度
-      if (totalChars > MAX_IMAGE_CHARS * 3) {
-        useToastStore.getState().showToast(
-          `内容过长（${totalChars} 字）。\n\n最大支持约 ${MAX_IMAGE_CHARS} 字，超出后图片可能不清晰。\n\n建议：\n1) 把这一节拆分成多个小节\n2) 删除冗余内容\n3) 简化复杂样式（如移除 backdrop-filter）`,
-          'error',
-          10000,
-        );
-        return;
-      }
-
-      // 4. 拆分导出（按顶级子节点）
-      const chunks = splitIntoChunks(el, MAX_IMAGE_HEIGHT);
-      if (chunks.length === 0) {
-        useToastStore.getState().showToast('无法拆分内容', 'error');
-        return;
-      }
-
-      // 5. 检测是否存在过大的子节点（超过 MAX_IMAGE_HEIGHT）
-      const oversizedChildren = Array.from(el.children).filter(
-        (c) => c.getBoundingClientRect().height > MAX_IMAGE_HEIGHT,
-      );
-      if (oversizedChildren.length > 0) {
-        useToastStore.getState().showToast(
-          `内容中存在过大的子节点（如大图片、长无断行文本），无法在保证清晰度前提下导出。\n\n最大单图高度：${MAX_IMAGE_HEIGHT}px。请考虑：\n1) 把大图缩小到合理尺寸\n2) 给长无断行文本加上空格或换行`,
-          'error',
-          10000,
-        );
-        return;
-      }
-
-      // 6. 下载多张图
-      const title = section?.title || '当前节';
-      let successCount = 0;
-      let failCount = 0;
-      for (let i = 0; i < chunks.length; i++) {
-        try {
-          const dataUrl = await toPng(chunks[i], {
-            backgroundColor:
-              getComputedStyle(chunks[i]).backgroundColor || '#ffffff',
-            pixelRatio: 2,
-            skipAutoScale: true,
-          });
-          downloadImage(dataUrl, `${title}-part${i + 1}.png`);
-          successCount++;
-        } catch (chunkErr) {
-          console.error(`[exportImage] chunk ${i + 1} 失败:`, chunkErr);
-          failCount++;
-        } finally {
-          // 清理 off-screen 容器
-          try {
-            chunks[i].remove();
-          } catch {
-            // 容器可能已被移除
-          }
-        }
-        // 间隔避免浏览器拦截多次下载
-        if (i < chunks.length - 1) {
-          await new Promise((resolve) =>
-            setTimeout(resolve, CHUNK_DOWNLOAD_INTERVAL),
-          );
-        }
-      }
-
-      if (successCount > 0 && failCount === 0) {
-        useToastStore.getState().showToast(
-          chunks.length === 1
-            ? '已导出为图片'
-            : `已拆分为 ${chunks.length} 张图片导出完成`,
-          'success',
-        );
-      } else if (successCount > 0) {
-        useToastStore.getState().showToast(
-          `部分导出成功：${successCount} 张成功，${failCount} 张失败`,
-          'info',
-          8000,
-        );
-      } else {
-        useToastStore.getState().showToast(
-          classifyError(new Error('所有分块都导出失败'), { totalChars }),
-          'error',
-          8000,
-        );
-      }
-    } catch (e) {
-      console.error('[exportImage] 完整错误对象:', e);
-      const friendlyMsg = classifyError(e, { totalChars });
-      useToastStore.getState().showToast(friendlyMsg, 'error', 8000);
+      const result = await exportSectionAsImages(el, { title: section?.title || '当前节' });
+      useToastStore
+        .getState()
+        .showToast(result.message, result.type, result.duration ? { duration: result.duration } : undefined);
     } finally {
-      // 恢复原始 zoom
-      el.style.zoom = originalZoom;
       setExportingImage(false);
     }
   };
-
-  // --- 导出图片辅助函数（handleExportSectionAsImage 内部使用） ---
-
-  // 按顶级子节点拆分内容为多组（不修改原 DOM）
-  function splitIntoChunks(
-    el: HTMLElement,
-    maxHeight: number,
-  ): HTMLElement[] {
-    const children = Array.from(el.children) as HTMLElement[];
-    if (children.length === 0) return [el];
-
-    const chunks: HTMLElement[] = [];
-    let currentContainer: HTMLElement | null = null;
-    let currentHeight = 0;
-
-    for (const child of children) {
-      const childHeight = child.getBoundingClientRect().height;
-      if (currentHeight + childHeight > maxHeight && currentContainer) {
-        // 当前 chunk 满了，关闭它
-        chunks.push(currentContainer);
-        currentContainer = null;
-        currentHeight = 0;
-      }
-      if (!currentContainer) {
-        // 创建新 chunk（off-screen 容器）
-        currentContainer = createOffscreenContainer(el);
-      }
-      // clone 子节点加入 chunk
-      const clone = child.cloneNode(true) as HTMLElement;
-      currentContainer.appendChild(clone);
-      currentHeight += childHeight;
-    }
-    if (currentContainer) chunks.push(currentContainer);
-
-    return chunks;
-  }
-
-  // 创建 off-screen 容器（与原容器样式一致，避免编辑区样式影响）
-  function createOffscreenContainer(template: HTMLElement): HTMLElement {
-    const div = document.createElement('div');
-    const cs = getComputedStyle(template);
-    div.style.cssText = `
-      position: fixed;
-      top: -99999px;
-      left: -99999px;
-      width: ${template.clientWidth}px;
-      background: ${cs.backgroundColor};
-      color: ${cs.color};
-      font-family: ${cs.fontFamily};
-      font-size: ${cs.fontSize};
-      line-height: ${cs.lineHeight};
-      padding: ${cs.padding};
-      box-sizing: border-box;
-    `;
-    document.body.appendChild(div);
-    return div;
-  }
-
-  // 触发浏览器下载图片
-  function downloadImage(dataUrl: string, filename: string) {
-    const link = document.createElement('a');
-    link.download = filename;
-    link.href = dataUrl;
-    link.click();
-  }
 
   // 稳定 onDiceRolled 引用，避免 RichTextEditor 的 useEffect 频繁卸载/重建骰子卡片交互
   const handleDiceRolled = useCallback(
@@ -995,12 +619,18 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
 
   // 当前编辑节字数：改用 800ms 轮询读取 store（不订阅），避免每次按键触发 EditorPage 重渲染。
   // 输入时 UI 立即响应，字数显示低频更新，长文档输入不卡顿。
+  // 性能优化：内容未变化时跳过全量解析（大文档下 JSON.parse 失败回退 + TreeWalker
+  // 每次都要花数毫秒，轮询期间空转纯属浪费）。
+  const lastCountedContentRef = useRef<string | null>(null);
   useEffect(() => {
     if (!section) return;
+    lastCountedContentRef.current = null; // 切节后强制重算一次
     const timer = window.setInterval(() => {
       if (useEditorStore.getState().sectionLoading) return; // 切节加载中跳过，防旧内容写入新节 stats
       const content = useEditorStore.getState().sectionContent;
       if (!content) return;
+      if (content === lastCountedContentRef.current) return;
+      lastCountedContentRef.current = content;
       let words = 0;
       try {
         const json = JSON.parse(content);
@@ -1057,21 +687,18 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
         <>
           {/* 移动端第一行：极简顶栏（非 sticky，随 body 滚动） */}
           <header
-            className="shrink-0 flex items-center gap-2 px-3 py-1.5"
-            style={{ background: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)' }}
+            className="bg-[var(--bg-card)] border-b border-b-[color:var(--border-color)] shrink-0 flex items-center gap-2 px-3 py-1.5"
           >
-            <button
+            <button aria-label="打开目录"
               onClick={() => setLeftDrawerOpen(true)}
-              className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg"
-              style={{ color: 'var(--text-secondary)' }}
+              className="text-[var(--text-secondary)] shrink-0 w-8 h-8 flex items-center justify-center rounded-lg"
               title="打开目录"
             >
               <Icon name="menu" size={16} />
             </button>
             <button
               onClick={onBack}
-              className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg"
-              style={{ color: 'var(--text-secondary)' }}
+              className="text-[var(--text-secondary)] shrink-0 w-8 h-8 flex items-center justify-center rounded-lg"
               title="返回"
             >
               ←
@@ -1087,8 +714,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                     if (e.key === 'Enter') handleTitleEditCommit();
                     if (e.key === 'Escape') setIsEditingTitle(false);
                   }}
-                  className="text-sm font-semibold px-2 py-1 rounded outline-none w-full"
-                  style={{ border: '1px solid var(--accent)', color: 'var(--text-primary)', background: 'var(--bg-card)' }}
+                  className="border border-[color:var(--accent)] text-[var(--text-primary)] bg-[var(--bg-card)] text-sm font-semibold px-2 py-1 rounded outline-none w-full"
                 />
               ) : (
                 <button
@@ -1098,8 +724,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                       setIsEditingTitle(true);
                     }
                   }}
-                  className="text-left text-sm font-semibold px-2 py-1 rounded truncate block w-full"
-                  style={{ color: 'var(--text-primary)' }}
+                  className="text-[var(--text-primary)] text-left text-sm font-semibold px-2 py-1 rounded truncate block w-full"
                   title="点击重命名作品"
                 >
                   {story?.title || '未命名作品'}
@@ -1107,20 +732,17 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
               )}
             </div>
             <span
-              className="shrink-0 text-[11px] px-2 py-0.5 rounded-md flex items-center gap-1"
-              style={{ color: 'var(--text-secondary)', background: 'var(--bg-hover)' }}
+              className="text-[var(--text-secondary)] bg-[var(--bg-hover)] shrink-0 text-[11px] px-2 py-0.5 rounded-md flex items-center gap-1"
             >
               <span
-                className="w-1.5 h-1.5 rounded-full"
-                style={{ background: 'var(--accent)' }}
+                className="bg-[var(--accent)] w-1.5 h-1.5 rounded-full"
               />
               <WordCount variant="compact" />
             </span>
             {section && view === 'directory' && (
               <button
                 onClick={() => setFocusMode(true)}
-                className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg"
-                style={{ color: 'var(--text-secondary)' }}
+                className="text-[var(--text-secondary)] shrink-0 w-8 h-8 flex items-center justify-center rounded-lg"
                 title="全屏编辑"
               >
                 ⤢
@@ -1129,9 +751,9 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
             {onOpenReader && (
               <button
                 onClick={onOpenReader}
-                className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg"
-                style={{ color: 'var(--text-secondary)' }}
+                className="text-[var(--text-secondary)] shrink-0 w-8 h-8 flex items-center justify-center rounded-lg"
                 title="阅读模式"
+                aria-label="阅读模式"
               >
                 <Icon name="bookText" size={14} />
               </button>
@@ -1139,8 +761,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
           </header>
           {/* 移动端第二行：全宽 tab bar（4 个视图等分，确保全部可见） */}
           <nav
-            className="shrink-0 grid grid-cols-4 border-b"
-            style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)' }}
+            className="bg-[var(--bg-card)] border-[color:var(--border-color)] shrink-0 grid grid-cols-4 border-b"
           >
             {(['世界观', '目录', '大纲', '人物'] as const).map((label, idx) => {
               const key: EditorView = ['info', 'directory', 'outline', 'character'][idx] as EditorView;
@@ -1167,13 +788,11 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
         </>
       ) : (
       <header
-        className="shrink-0 flex items-center gap-2 md:gap-4 px-3 md:px-4 py-2 md:py-2.5"
-        style={{ background: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)' }}
+        className="bg-[var(--bg-card)] border-b border-b-[color:var(--border-color)] shrink-0 flex items-center gap-2 md:gap-4 px-3 md:px-4 py-2 md:py-2.5"
       >
-        <button
+        <button aria-label="返回"
           onClick={onBack}
-          className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg transition-colors"
-          style={{ color: 'var(--text-secondary)' }}
+          className="text-[var(--text-secondary)] shrink-0 w-8 h-8 flex items-center justify-center rounded-lg transition-colors"
           onMouseEnter={(e) => {
             e.currentTarget.style.background = 'var(--bg-hover)';
             e.currentTarget.style.color = 'var(--text-primary)';
@@ -1190,11 +809,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
         {onOpenReader && (
           <button
             onClick={onOpenReader}
-            className="shrink-0 h-9 px-3 flex items-center gap-1.5 rounded-lg transition-colors"
-            style={{
-              color: 'var(--text-secondary)',
-              fontSize: 13,
-            }}
+            className="text-[var(--text-secondary)] text-[13px] shrink-0 h-9 px-3 flex items-center gap-1.5 rounded-lg transition-colors"
             onMouseEnter={(e) => {
               e.currentTarget.style.background = 'var(--bg-hover)';
               e.currentTarget.style.color = 'var(--text-primary)';
@@ -1221,8 +836,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                 if (e.key === 'Enter') handleTitleEditCommit();
                 if (e.key === 'Escape') setIsEditingTitle(false);
               }}
-              className="text-sm font-semibold px-2 py-1 rounded outline-none w-full"
-              style={{ border: '1px solid var(--accent)', color: 'var(--text-primary)', background: 'var(--bg-card)' }}
+              className="border border-[color:var(--accent)] text-[var(--text-primary)] bg-[var(--bg-card)] text-sm font-semibold px-2 py-1 rounded outline-none w-full"
             />
           ) : (
             <button
@@ -1232,8 +846,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                   setIsEditingTitle(true);
                 }
               }}
-              className="text-left text-sm font-semibold px-2 py-1 rounded transition-colors truncate block w-full"
-              style={{ color: 'var(--text-primary)' }}
+              className="text-[var(--text-primary)] text-left text-sm font-semibold px-2 py-1 rounded transition-colors truncate block w-full"
               onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hover)')}
               onMouseLeave={(e) => (e.currentTarget.style.background = '')}
               title="点击重命名作品"
@@ -1278,8 +891,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                 </span>
                 {active && (
                   <span
-                    className="absolute bottom-0 left-1/2 -translate-x-1/2 w-6 h-0.5 rounded-full"
-                    style={{ background: 'var(--accent)' }}
+                    className="bg-[var(--accent)] absolute bottom-0 left-1/2 -translate-x-1/2 w-6 h-0.5 rounded-full"
                   />
                 )}
               </button>
@@ -1289,12 +901,10 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
 
         <div className="shrink-0 flex items-center gap-1 md:gap-1.5">
           <span
-            className="text-xs px-2 py-1 rounded-md flex items-center gap-1"
-            style={{ color: 'var(--text-secondary)', background: 'var(--bg-hover)' }}
+            className="text-[var(--text-secondary)] bg-[var(--bg-hover)] text-xs px-2 py-1 rounded-md flex items-center gap-1"
           >
             <span
-              className="w-1.5 h-1.5 rounded-full"
-              style={{ background: 'var(--accent)' }}
+              className="bg-[var(--accent)] w-1.5 h-1.5 rounded-full"
             />
             <WordCount />
           </span>
@@ -1374,7 +984,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                     moveSections(targetChapterId, orderedIds)
                   }
                   onReorderSections={reorderSections}
-                  onSyncToOutline={handleOpenSyncDialog}
+                  onSyncToOutline={structureSync.openDialog}
                 />
               </div>
 
@@ -1409,37 +1019,8 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                   <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative">
                     {!(isMobile && keyboardOpen) && (
                       <div
-                        className="shrink-0 flex items-center gap-2 px-3 py-1.5 text-xs"
-                        style={{
-                          background: 'var(--bg-card)',
-                          borderBottom: '1px solid var(--border-color)',
-                          color: 'var(--text-secondary)',
-                        }}
+                        className="bg-[var(--bg-card)] border-b border-b-[color:var(--border-color)] text-[var(--text-secondary)] shrink-0 flex items-center gap-2 px-3 py-1.5 text-xs"
                       >
-                        <button
-                          type="button"
-                          onClick={() => {
-                            // 优先用真实 DOM（避免 store 滞后于最后一次 onInput）
-                            const el = visualEditorRef.current;
-                            const html = (el && el.innerHTML && el.innerHTML !== '<br>')
-                              ? el.innerHTML
-                              : (useEditorStore.getState().sectionContent ?? '');
-                            if (!html.trim() || html === '<br>') {
-                              useToastStore.getState().showToast('当前节没有可视化内容可同步', 'info');
-                              return;
-                            }
-                            // 弹二次确认，防止误覆盖辛苦写的内容
-                            setSyncConfirmKind('visual-to-bbcode');
-                            setSyncConfirmOpen(true);
-                          }}
-                          className="px-2 py-1 rounded text-xs ancke-btn"
-                          title="把当前可视化内容同步到 BBCode 字段（覆盖当前 BBCode）"
-                        >
-                          <span className="inline-flex items-center gap-1">
-                            <Icon name="refresh" size={14} />
-                            同步到BBCode
-                          </span>
-                        </button>
                         <button
                           type="button"
                           onClick={handleExportSectionAsImage}
@@ -1466,59 +1047,10 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                   </div>
                 ) : (
                   <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative">
-                    {!(isMobile && keyboardOpen) && (
-                      <div
-                        className="shrink-0 flex items-center gap-2 px-3 py-1.5 text-xs"
-                        style={{
-                          background: 'var(--bg-card)',
-                          borderBottom: '1px solid var(--border-color)',
-                          color: 'var(--text-secondary)',
-                        }}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const bb = bbcodeDraft ?? '';
-                            if (!bb.trim()) {
-                              useToastStore.getState().showToast('当前节没有 BBCode 内容可同步', 'info');
-                              return;
-                            }
-                            // 弹二次确认，防止误覆盖辛苦写的内容
-                            setSyncConfirmKind('bbcode-to-visual');
-                            setSyncConfirmOpen(true);
-                          }}
-                          className="px-2 py-1 rounded text-xs ancke-btn"
-                          title="把当前 BBCode 同步到可视化视图（覆盖当前 visual 编辑）"
-                        >
-                          <span className="inline-flex items-center gap-1">
-                            <Icon name="refresh" size={14} />
-                            同步到可视化
-                          </span>
-                        </button>
-                      </div>
-                    )}
                     <BBCodeEditor
                       value={bbcodeDraft}
-                      onChange={setBbcodeDraft}
-                      onDebouncedChange={(bb) => {
-                        // 取消自动对照：BBCode 编辑只持久化 section.bbcode，不自动写回 section.content
-                        // 可视化视图需用户主动点"同步到可视化"按钮才会同步
-                        if (activeSectionId) {
-                          void db.setSectionBBCode(activeSectionId, bb);
-                        }
-                        // 实时语法校验（非阻塞：仅显示错误，不阻止编辑/保存）
-                        const result = validateBBCode(bb);
-                        setBbcodeErrors((prev) => {
-                          // v35: 比较 message + line
-                          if (
-                            prev.length === result.errors.length &&
-                            prev.every((e, i) => e.message === result.errors[i].message && e.line === result.errors[i].line)
-                          ) {
-                            return prev;
-                          }
-                          return result.errors;
-                        });
-                      }}
+                      onChange={handleBbcodeChange}
+                      onDebouncedChange={handleBbcodeDebouncedChange}
                       onUndo={() => handleUndoRedoForBBCode('undo')}
                       onRedo={() => handleUndoRedoForBBCode('redo')}
                       textareaRef={bbcodeTextareaRef}
@@ -1528,32 +1060,25 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                       }}
                     />
                     {bbcodeErrors.length > 0 && (
-                      <div style={{ borderTop: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>
+                      <div className="border-t border-t-[color:var(--border-color)] bg-[var(--bg-card)]">
                         {/* v35: 展开/折叠按钮 */}
                         <div
                           onClick={() => setBbcodeErrorsExpanded(prev => !prev)}
-                          style={{ padding: '6px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+                          className="py-[6px] px-[12px] cursor-pointer flex items-center gap-[6px]"
                         >
-                          <span style={{ color: '#dc2626', fontSize: 12, userSelect: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <span className="text-[var(--tone-danger)] text-[12px] select-none inline-flex items-center gap-[6px]">
                             <Icon name={bbcodeErrorsExpanded ? 'chevronDown' : 'chevronRight'} size={12} /> BBCode 语法错误（{bbcodeErrors.length} 个）
                           </span>
                         </div>
                         {/* v35: 最大高度 + 滚动条 + 点击跳转 */}
                         {bbcodeErrorsExpanded && (
-                          <div style={{ maxHeight: 200, overflowY: 'auto', padding: '0 12px 6px' }}>
+                          <div className="max-h-[200px] overflow-y-auto pt-[0px] px-[12px] pb-[6px]">
                             {bbcodeErrors.map((err, i) => (
                               <div
                                 key={i}
                                 onClick={() => jumpToBbcodeLine(err.line)}
-                                style={{
-                                  color: '#dc2626',
-                                  fontSize: 12,
-                                  marginTop: 2,
-                                  cursor: 'pointer',
-                                  padding: '2px 4px',
-                                  borderRadius: 3,
-                                }}
-                                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(220, 38, 38, 0.08)'; }}
+                                className="text-[var(--tone-danger)] text-[12px] mt-[2px] cursor-pointer py-[2px] px-[4px] rounded-[var(--radius-chip)]"
+                                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--tone-danger-soft)'; }}
                                 onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                                 title="点击跳转到对应行"
                               >
@@ -1567,8 +1092,8 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                   </div>
                 )}
                 {sectionLoading && (
-                  <div className="absolute inset-0 flex items-center justify-center z-10" style={{ background: 'rgba(0,0,0,0.08)' }}>
-                    <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                  <div className="bg-[var(--scrim-soft)] absolute inset-0 flex items-center justify-center z-10">
+                    <div className="text-[var(--text-secondary)] flex items-center gap-2 text-sm">
                       <div className="animate-spin w-4 h-4 border-2 border-current border-t-transparent rounded-full" />
                       加载中...
                     </div>
@@ -1577,8 +1102,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
               </div>
             ) : (
               <div
-                className="flex-1 flex items-center justify-center text-xs"
-                style={{ background: 'var(--bg-card)', color: 'var(--text-secondary)' }}
+                className="bg-[var(--bg-card)] text-[var(--text-secondary)] flex-1 flex items-center justify-center text-xs"
               >
                 请在左侧选择一个节开始编辑
               </div>
@@ -1589,7 +1113,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
           {section && !(isMobile && keyboardOpen) && (
             <BottomStatusBar
               editorMode={editorMode}
-              onSwitchMode={setEditorMode}
+              onSwitchMode={handleSwitchEditorMode}
             />
           )}
           </div>
@@ -1597,23 +1121,24 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
           {/* ===== 安卓版：右侧面板默认折叠（只露 tab 头，点击展开，不盖编辑区） ===== */}
           {isMobile && (
             <aside
-              className="shrink-0 flex flex-col border-t"
-              style={{ borderColor: 'var(--border-color)', background: 'var(--bg-card)' }}
+              className="border-[color:var(--border-color)] bg-[var(--bg-card)] shrink-0 flex flex-col border-t"
             >
               {/* 移动端面板头：4 图标 tab（切换内容并自动展开）+ 独立▼/▲折叠按钮 */}
-              <div className="shrink-0 flex items-center border-b" style={{ borderColor: 'var(--border-color)' }}>
+              <div className="border-[color:var(--border-color)] shrink-0 flex items-center border-b">
                 <div className="flex-1 grid grid-cols-5">
                   {([
-                    { key: 'properties', icon: 'settings' },
-                    { key: 'world', icon: 'globe' },
-                    { key: 'character', icon: 'user' },
-                    { key: 'dice', icon: 'dices' },
-                    { key: 'gallery', icon: 'image' },
+                    { key: 'properties', icon: 'settings', label: '属性' },
+                    { key: 'world', icon: 'globe', label: '世界观' },
+                    { key: 'character', icon: 'user', label: '人物' },
+                    { key: 'dice', icon: 'dices', label: '骰子' },
+                    { key: 'gallery', icon: 'image', label: '图库' },
                   ] as const).map((t) => {
                     const active = rightPanelTab === t.key;
                     return (
                       <button
                         key={t.key}
+                        aria-label={t.label}
+                        title={t.label}
                         onClick={() => {
                           setRightPanelTab(t.key);
                           if (!mobilePanelOpen) setMobilePanelOpen(true);
@@ -1632,11 +1157,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                 {/* 独立展开/折叠按钮 */}
                 <button
                   onClick={() => setMobilePanelOpen(!mobilePanelOpen)}
-                  className="shrink-0 w-10 flex items-center justify-center py-2.5"
-                  style={{
-                    color: 'var(--text-secondary)',
-                    borderLeft: '1px solid var(--border-color)',
-                  }}
+                  className="text-[var(--text-secondary)] border-l border-l-[color:var(--border-color)] shrink-0 w-10 flex items-center justify-center py-2.5"
                   title={mobilePanelOpen ? '收起面板' : '展开面板'}
                 >
                   {mobilePanelOpen ? '▼' : '▲'}
@@ -1711,13 +1232,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
             <button
               onClick={() => setRightSidebarCollapsed(false)}
               title="展开右侧面板"
-              className="shrink-0 flex items-center justify-center w-6 border-l"
-              style={{
-                background: 'var(--bg-card)',
-                borderColor: 'var(--border-color)',
-                color: 'var(--text-secondary)',
-                cursor: 'pointer',
-              }}
+              className="bg-[var(--bg-card)] border-[color:var(--border-color)] text-[var(--text-secondary)] cursor-pointer shrink-0 flex items-center justify-center w-6 border-l"
               onMouseEnter={(e) => {
                 e.currentTarget.style.background = 'var(--bg-hover)';
                 e.currentTarget.style.color = 'var(--accent)';
@@ -1738,20 +1253,17 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
               onClick={() => setLeftDrawerOpen(false)}
             >
               <div
-                className="mobile-drawer-panel-left absolute left-0 top-0 bottom-0 w-[85%] max-w-[320px] shadow-2xl flex flex-col"
-                style={{ background: 'var(--bg-card)' }}
+                className="bg-[var(--bg-card)] mobile-drawer-panel-left absolute left-0 top-0 bottom-0 w-[85%] max-w-[320px] shadow-2xl flex flex-col"
                 onClick={(e) => e.stopPropagation()}
               >
                 {/* 抽屉头部：关闭按钮 + 标题 */}
                 <div
-                  className="shrink-0 flex items-center justify-between px-3 py-2 border-b"
-                  style={{ borderColor: 'var(--border-color)' }}
+                  className="border-[color:var(--border-color)] shrink-0 flex items-center justify-between px-3 py-2 border-b"
                 >
-                  <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>目录</div>
-                  <button
+                  <div className="text-[var(--text-primary)] text-sm font-semibold">目录</div>
+                  <button aria-label="关闭"
                     onClick={() => setLeftDrawerOpen(false)}
-                    className="w-11 h-11 flex items-center justify-center rounded-lg"
-                    style={{ color: 'var(--text-secondary)' }}
+                    className="text-[var(--text-secondary)] w-11 h-11 flex items-center justify-center rounded-lg"
                   >
                     <Icon name="x" size={14} />                  </button>
                 </div>
@@ -1814,7 +1326,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                       moveSections(targetChapterId, orderedIds)
                     }
                     onReorderSections={reorderSections}
-                    onSyncToOutline={handleOpenSyncDialog}
+                    onSyncToOutline={structureSync.openDialog}
                   />
                 </div>
               </div>
@@ -1833,17 +1345,14 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
             }}
           />
           <main
-            className="flex-1 flex flex-col overflow-hidden"
-            style={{ borderLeft: '1px solid var(--border-color)', background: 'var(--bg-page)', minHeight: 0 }}
+            className="border-l border-l-[color:var(--border-color)] bg-[var(--bg-page)] min-h-[0px] flex-1 flex flex-col overflow-hidden"
           >
             <div
-              className="shrink-0 flex items-center justify-end gap-2 px-4 py-2 border-b"
-              style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)' }}
+              className="bg-[var(--bg-card)] border-[color:var(--border-color)] shrink-0 flex items-center justify-end gap-2 px-4 py-2 border-b"
             >
               <button
-                onClick={() => handleOpenSyncDialog('outline')}
-                className="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
-                style={{ background: 'var(--bg-card)', color: 'var(--accent)', border: '1px solid var(--accent-soft)' }}
+                onClick={() => structureSync.openDialog('outline')}
+                className="bg-[var(--bg-card)] text-[var(--accent)] border border-[color:var(--accent-soft)] px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
                 onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--accent-soft)')}
                 onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--bg-card)')}
               >
@@ -1853,9 +1362,8 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                 </span>
               </button>
               <button
-                onClick={() => handleOpenSyncDialog('directory')}
-                className="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
-                style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                onClick={() => structureSync.openDialog('directory')}
+                className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)] px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
                 onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hover)')}
                 onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--bg-card)')}
               >
@@ -1873,8 +1381,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
       {/* Toast 提示 */}
       {toast && (
         <div
-          className="absolute left-1/2 top-6 z-50 -translate-x-1/2 px-4 py-2 rounded-lg shadow-lg text-xs font-medium"
-          style={{ background: 'var(--text-primary)', color: 'var(--bg-card)' }}
+          className="bg-[var(--text-primary)] text-[var(--bg-card)] absolute left-1/2 top-6 z-50 -translate-x-1/2 px-4 py-2 rounded-lg shadow-lg text-xs font-medium"
         >
           {toast}
         </div>
@@ -1892,35 +1399,12 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
 
       {/* 同步对话框（支持大纲→目录 和 目录→大纲 两个方向） */}
       <SyncDialog
-        open={syncDialogOpen}
-        onClose={() => setSyncDialogOpen(false)}
-        source={syncDialogSource}
-        volumeDiffs={volumeDiffs}
-        chapterDiffs={chapterDiffs}
-        onConfirm={handleApplySync}
-      />
-
-      {/* 同步按钮二次确认：防止误点覆盖辛苦写的内容（安卓 + Windows 都生效） */}
-      <ConfirmDialog
-        open={syncConfirmOpen}
-        title="同步确认"
-        danger
-        message={
-          syncConfirmKind === 'visual-to-bbcode'
-            ? '将用当前可视化内容覆盖 BBCode 字段，原有的 BBCode 内容会被替换。确定继续？'
-            : '将用当前 BBCode 内容覆盖可视化编辑区，原有的可视化内容会被替换。确定继续？'
-        }
-        confirmText="确认覆盖"
-        cancelText="取消"
-        onConfirm={() => {
-          setSyncConfirmOpen(false);
-          if (syncConfirmKind === 'visual-to-bbcode') {
-            doSyncVisualToBbcode();
-          } else {
-            doSyncBbcodeToVisual();
-          }
-        }}
-        onCancel={() => setSyncConfirmOpen(false)}
+        open={structureSync.open}
+        onClose={structureSync.close}
+        source={structureSync.source}
+        volumeDiffs={structureSync.volumeDiffs}
+        chapterDiffs={structureSync.chapterDiffs}
+        onConfirm={structureSync.applySync}
       />
 
       {/* ===== 移动端全屏专注编辑模式 =====
@@ -1931,26 +1415,23 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
           style={{ height: focusModeViewportHeight, background: 'var(--bg-page)' }}
         >
           <header
-            className="shrink-0 flex items-center gap-2 px-3 py-2"
-            style={{ background: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)' }}
+            className="bg-[var(--bg-card)] border-b border-b-[color:var(--border-color)] shrink-0 flex items-center gap-2 px-3 py-2"
           >
             <button
               onClick={() => setFocusMode(false)}
-              className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg"
-              style={{ color: 'var(--text-secondary)' }}
+              className="text-[var(--text-secondary)] shrink-0 w-8 h-8 flex items-center justify-center rounded-lg"
               title="退出全屏"
             >
               ←
             </button>
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+              <div className="text-[var(--text-primary)] text-sm font-semibold truncate">
                 {activeVolume?.title || '未命名卷'} - {activeChapter.title} - {section.title}
               </div>
             </div>
-            <button
+            <button aria-label="退出全屏"
               onClick={() => setFocusMode(false)}
-              className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg"
-              style={{ color: 'var(--text-secondary)' }}
+              className="text-[var(--text-secondary)] shrink-0 w-8 h-8 flex items-center justify-center rounded-lg"
               title="退出全屏"
             >
               <Icon name="x" size={14} />
@@ -1970,22 +1451,8 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
             ) : (
               <BBCodeEditor
                 value={bbcodeDraft}
-                onChange={setBbcodeDraft}
-                onDebouncedChange={(bb) => {
-                  if (activeSectionId) {
-                    void db.setSectionBBCode(activeSectionId, bb);
-                  }
-                  const result = validateBBCode(bb);
-                  setBbcodeErrors((prev) => {
-                    if (
-                      prev.length === result.errors.length &&
-                      prev.every((e, i) => e === result.errors[i])
-                    ) {
-                      return prev;
-                    }
-                    return result.errors;
-                  });
-                }}
+                onChange={handleBbcodeChange}
+                onDebouncedChange={handleBbcodeDebouncedChange}
                 onUndo={() => handleUndoRedoForBBCode('undo')}
                 onRedo={() => handleUndoRedoForBBCode('redo')}
                 textareaRef={bbcodeTextareaRef}
@@ -2001,2849 +1468,3 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
   );
 }
 
-// ========== 右侧栏：属性 / 世界观 / 人物 / 骰点记录 四 Tab 切换 ==========
-// memo 包裹：EditorPage 重渲染时跳过（其 props 均为稳定引用 / 内部自行订阅 store）
-
-const RightPanel = memo(function RightPanel({
-  activeTab,
-  setActiveTab,
-  section,
-  onRenameSection,
-  onJumpToDice,
-  onRestoreDice,
-  onInsertUnrolledDice,
-  onCheckDiceExists,
-  selectedImage,
-  onSetImageSize,
-  richTextEditorCommandsRef,
-  onShowToast,
-  width,
-  editorMode,
-  bbcodeTextareaRef,
-  visualEditorRef,
-  bbcodeValue,
-  onBBCodeChange,
-  hideHeader,
-  onCollapse,
-}: {
-  activeTab: 'properties' | 'world' | 'character' | 'dice' | 'gallery';
-  setActiveTab: (tab: 'properties' | 'world' | 'character' | 'dice' | 'gallery') => void;
-  section: Section | undefined;
-  onRenameSection: (newTitle: string) => void;
-  onJumpToDice: (sectionId: string, payloadSnapshot: string) => void;
-  onRestoreDice: (sectionId: string, payloadSnapshot: string) => void;
-  onInsertUnrolledDice: (sectionId: string, payloadSnapshot: string) => void;
-  onCheckDiceExists: (sectionId: string, payloadSnapshot: string) => boolean;
-  selectedImage: { width: number; height: number; src?: string; dataSize?: string } | null;
-  onSetImageSize: (size: string) => void;
-  richTextEditorCommandsRef: React.MutableRefObject<RichTextEditorCommands | null>;
-  onShowToast?: (msg: string) => void;
-  width?: number;
-  editorMode: 'visual' | 'bbcode';
-  bbcodeTextareaRef: React.RefObject<HTMLTextAreaElement | null>;
-  visualEditorRef: React.RefObject<HTMLDivElement | null>;
-  bbcodeValue: string;
-  onBBCodeChange: (v: string) => void;
-  hideHeader?: boolean;
-  onCollapse?: () => void;
-}) {
-  const [imageSizeNga, setImageSizeNga] = useState<string>('original');
-  const [imageUrl, setImageUrl] = useState<string>('');
-  const activeStoryId = useStoryStore((s) => s.activeStoryId);
-  // 搜索模式：'current' = 当前节内搜索（SearchPanel）；'global' = 全作品搜索（GlobalSearchPanel）
-  const [searchMode, setSearchMode] = useState<'current' | 'global'>('current');
-  // 跨节搜索（GlobalSearchPanel）跳转时携带的 query；SearchPanel 消费后清空
-  const [pendingSearchQuery, setPendingSearchQuery] = useState('');
-  // 全作品搜索跳转：切换到对应作品 + 节，并切回当前节搜索便于继续编辑
-  const setActiveStory = useStoryStore((s) => s.setActiveStory);
-  const setActiveSection = useStoryStore((s) => s.setActiveSection);
-  // 需求5:快速跳转 - 响应式订阅当前节的保存滚动位置
-  const currentSectionId = section?.id ?? '';
-  const savedScrollTop = useEditorStore((s) =>
-    currentSectionId ? s.sectionScrollPositions[currentSectionId] : undefined,
-  );
-  const hasLastPosition = savedScrollTop !== undefined;
-  const handleGlobalSearchNavigate = useCallback(
-    async (storyId: string, sectionId: string, searchQuery?: string) => {
-      const curStoryId = useStoryStore.getState().activeStoryId;
-      // 同作品：直接切节（省一次 setActiveStory 数据清空 + 重新加载 + 闪屏）
-      if (storyId === curStoryId) {
-        setActiveSection(sectionId);
-      } else {
-        // 跨作品：先 await 加载完新 story 数据，再切节
-        // （否则 setActiveSection 找不到 section，activeChapterId 也会被 loadStoryData 用 chapters[0] 覆盖）
-        await setActiveStory(storyId);
-        setActiveSection(sectionId);
-      }
-      setActiveTab('properties');
-      setSearchMode('current');
-      // 把跨节搜索的 query 传给 SearchPanel，自动填入并 doFind 到第一个匹配
-      setPendingSearchQuery(searchQuery || '');
-    },
-    [setActiveStory, setActiveSection, setActiveTab],
-  );
-
-  // 当选中图片变化时，同步输入框的值
-  useEffect(() => {
-    if (selectedImage) {
-      setImageSizeNga(selectedImage.dataSize || 'original');
-      setImageUrl(selectedImage.src || '');
-    }
-  }, [selectedImage?.dataSize, selectedImage?.src]);
-  const tabs: {
-    key: 'properties' | 'world' | 'character' | 'dice' | 'gallery';
-    label: string;
-    icon: IconName;
-  }[] = [
-    { key: 'properties', label: '属性', icon: 'settings' },
-    { key: 'world', label: '世界观', icon: 'globe' },
-    { key: 'character', label: '人物', icon: 'user' },
-    { key: 'dice', label: '骰点', icon: 'dices' },
-    { key: 'gallery', label: '图库', icon: 'image' },
-  ];
-
-  return (
-    <aside
-      className="shrink-0 flex flex-col overflow-hidden overflow-y-auto"
-      style={{
-        width: width ?? '100%',
-        background: 'var(--bg-card)',
-        borderLeft: width !== undefined ? '1px solid var(--border-color)' : 'none',
-      }}
-    >
-      {/* Tab 头部（hideHeader 时隐藏，由外部提供 tab 头） */}
-      {!hideHeader && (
-      <div className="shrink-0 flex items-stretch border-b" style={{ borderColor: 'var(--border-color)' }}>
-        {tabs.map((t) => {
-          const active = activeTab === t.key;
-          return (
-            <button
-              key={t.key}
-              onClick={() => setActiveTab(t.key)}
-              className="flex-1 flex items-center justify-center px-2 h-9 text-xs font-medium transition-colors shrink-0 whitespace-nowrap"
-              style={{
-                color: active ? 'var(--accent)' : 'var(--text-secondary)',
-                background: active ? 'var(--accent-soft)' : 'var(--bg-card)',
-                borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
-              }}
-            >
-              <span className="inline-flex items-center gap-1">
-                <Icon name={t.icon} size={16} />
-                <span>{t.label}</span>
-              </span>
-            </button>
-          );
-        })}
-        {onCollapse && (
-          <button
-            onClick={onCollapse}
-            title="折叠右侧面板"
-            className="shrink-0 flex items-center justify-center w-7 h-9 text-xs transition-colors"
-            style={{
-              color: 'var(--text-secondary)',
-              background: 'var(--bg-card)',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'var(--bg-hover)';
-              e.currentTarget.style.color = 'var(--accent)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'var(--bg-card)';
-              e.currentTarget.style.color = 'var(--text-secondary)';
-            }}
-          >
-            <Icon name="chevronRight" size={14} />
-          </button>
-        )}
-      </div>
-      )}
-
-      {/* Tab 内容 */}
-      <div className="flex-1 overflow-y-auto">
-        {activeTab === 'properties' && (
-          <div className="p-4 space-y-4">
-            {/* 快速骰子面板：表达式投掷 + 复制骰点文本，无历史记录 */}
-            <QuickDicePanel />
-            {section ? (
-              <>
-                <div>
-                  <div className="text-[10px] font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>节标题</div>
-                  <input
-                    defaultValue={section.title}
-                    onBlur={(e) => onRenameSection(e.target.value.trim() || section.title)}
-                    className="w-full px-2 py-1.5 text-xs rounded-md border outline-none"
-                    style={{ borderColor: 'var(--border-color)', background: 'var(--bg-input)', color: 'var(--text-primary)' }}
-                  />
-                </div>
-                <div className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>
-                  创建: {section.created_at?.slice(0, 10) || '-'}
-                  <br />
-                  更新: {section.updated_at?.slice(0, 10) || '-'}
-                </div>
-              </>
-            ) : (
-              <div className="text-xs text-center py-8" style={{ color: 'var(--text-secondary)' }}>
-                选择一节开始编辑
-              </div>
-            )}
-
-            {/* 选中图片时显示尺寸编辑区 */}
-            {selectedImage && (
-              <div className="pt-4 border-t" style={{ borderColor: 'var(--border-color)' }}>
-                <div className="text-[11px] font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>
-                  <span className="inline-flex items-center gap-1">
-                    <Icon name="image" size={14} />
-                    图片属性
-                  </span>
-                </div>
-                {/* NGA 尺寸选择 */}
-                <div className="mb-3">
-                  <div className="text-[10px] mb-1" style={{ color: 'var(--text-secondary)' }}>
-                    尺寸预设（点击切换）
-                  </div>
-                  <div className="grid grid-cols-5 gap-1">
-                    {NGA_IMAGE_SIZES.map((s) => {
-                      const active = imageSizeNga === s.value;
-                      return (
-                        <button
-                          key={s.value}
-                          onClick={() => {
-                            setImageSizeNga(s.value);
-                            onSetImageSize(s.value);
-                          }}
-                          className="text-[10px] px-2 py-1.5 rounded-md transition-colors"
-                          style={{
-                            background: active ? 'var(--accent-bg)' : 'var(--bg-hover)',
-                            color: active ? 'var(--accent)' : 'var(--text-primary)',
-                            border: `1px solid ${active ? 'var(--accent)' : 'var(--border-color)'}`,
-                            fontWeight: active ? 600 : 400,
-                          }}
-                        >
-                          {s.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-                {/* URL */}
-                <div className="mb-2">
-                  <div className="text-[10px] mb-1" style={{ color: 'var(--text-secondary)' }}>
-                    图片 URL
-                  </div>
-                  <input
-                    value={imageUrl}
-                    onChange={(e) => setImageUrl(e.target.value)}
-                    onBlur={() => {
-                      if (imageUrl.trim()) {
-                        richTextEditorCommandsRef.current?.updateSelectedImageSrc(imageUrl.trim());
-                      }
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && imageUrl.trim()) {
-                        richTextEditorCommandsRef.current?.updateSelectedImageSrc(imageUrl.trim());
-                      }
-                    }}
-                    className="w-full px-2 py-1.5 text-xs rounded-md border outline-none transition-colors"
-                    style={{
-                      borderColor: 'var(--border-color)',
-                      background: 'var(--bg-input)',
-                      color: 'var(--text-primary)',
-                    }}
-                    placeholder="图片链接地址"
-                  />
-                </div>
-                <div className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>
-                  提示：点击上方尺寸预设调整大小，导出时会拼接到图片 URL 后缀。
-                </div>
-              </div>
-            )}
-
-            {/* 搜索面板：常驻显示在属性面板内 */}
-            <div
-              className="pt-4 border-t"
-              style={{ borderColor: 'var(--border-color)' }}
-            >
-              {/* 搜索模式切换 Tab */}
-              <div
-                className="flex gap-1 mb-2"
-                style={{ borderBottom: '1px solid var(--border-color)' }}
-              >
-                {(['current', 'global'] as const).map((mode) => {
-                  const active = searchMode === mode;
-                  return (
-                    <button
-                      key={mode}
-                      type="button"
-                      onClick={() => setSearchMode(mode)}
-                      style={{
-                        padding: '4px 10px',
-                        fontSize: 12,
-                        fontWeight: active ? 600 : 400,
-                        background: active ? 'var(--bg-hover)' : 'transparent',
-                        color: active ? 'var(--accent)' : 'var(--text-secondary)',
-                        border: 'none',
-                        borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {mode === 'current' ? '当前节' : (
-                        <span className="inline-flex items-center gap-1">
-                          <Icon name="globe" size={14} />
-                          全作品
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-              {searchMode === 'current' ? (
-                <SearchPanel
-                  editorMode={editorMode}
-                  bbcodeTextareaRef={bbcodeTextareaRef}
-                  visualEditorRef={visualEditorRef}
-                  bbcodeValue={bbcodeValue}
-                  onBBCodeChange={onBBCodeChange}
-                  initialQuery={pendingSearchQuery}
-                  onInitialQueryConsumed={() => setPendingSearchQuery('')}
-                />
-              ) : (
-                <GlobalSearchPanel
-                  onNavigate={handleGlobalSearchNavigate}
-                  currentStoryId={activeStoryId}
-                />
-              )}
-            </div>
-            {/* ===== 需求5:快速跳转 ===== */}
-            <div className="pt-4 border-t" style={{ borderColor: 'var(--border-color)' }}>
-              <div
-                className="text-[11px] font-semibold mb-3"
-                style={{ color: 'var(--text-primary)' }}
-              >
-                <span className="inline-flex items-center gap-1">
-                  <Icon name="rocket" size={14} />
-                  快速跳转
-                </span>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  className="flex-1 px-2 py-2 text-xs rounded-md transition-colors ancke-btn"
-                  onClick={() => richTextEditorCommandsRef.current?.scrollToTop()}
-                >
-                  <span className="inline-flex items-center gap-1">
-                    <Icon name="arrowUp" size={14} />
-                    顶部
-                  </span>
-                </button>
-                <button
-                  className="flex-1 px-2 py-2 text-xs rounded-md transition-colors ancke-btn"
-                  onClick={() => richTextEditorCommandsRef.current?.scrollToBottom()}
-                >
-                  <span className="inline-flex items-center gap-1">
-                    <Icon name="arrowDown" size={14} />
-                    底部
-                  </span>
-                </button>
-                <button
-                  className="flex-1 px-2 py-2 text-xs rounded-md transition-colors ancke-btn"
-                  style={{
-                    color: hasLastPosition ? 'var(--text-primary)' : 'var(--text-muted)',
-                    opacity: hasLastPosition ? 1 : 0.5,
-                    cursor: hasLastPosition ? 'pointer' : 'not-allowed',
-                  }}
-                  disabled={!hasLastPosition}
-                  onClick={() => {
-                    if (savedScrollTop !== undefined) {
-                      richTextEditorCommandsRef.current?.setScrollTop(savedScrollTop);
-                    }
-                  }}
-                >
-                  <span className="inline-flex items-center gap-1">
-                    <Icon name="pin" size={14} />
-                    上次位置
-                  </span>
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-        {activeTab === 'world' && <CompactWorldSettingPanel onShowToast={onShowToast} />}
-        {activeTab === 'character' && (
-          <CompactCharacterPanel
-            richTextEditorCommandsRef={richTextEditorCommandsRef}
-            onShowToast={onShowToast}
-          />
-        )}
-        {activeTab === 'dice' && (
-            <DiceHistoryPanel
-              storyId={activeStoryId}
-              onJumpToDice={onJumpToDice}
-              onRestoreDice={onRestoreDice}
-              onInsertUnrolledDice={onInsertUnrolledDice}
-              onCheckDiceExists={onCheckDiceExists}
-            />
-          )}
-        {activeTab === 'gallery' && (
-          <CompactImageLibraryPanel
-            onInsertImage={(url) => {
-              if (richTextEditorCommandsRef.current) {
-                richTextEditorCommandsRef.current.insertImage(url, NGA_DEFAULT_IMAGE_SIZE);
-                onShowToast?.('已插入图片');
-              } else {
-                onShowToast?.('没有可用的编辑器');
-              }
-            }}
-          />
-        )}
-      </div>
-    </aside>
-  );
-});
-
-// ========== 快速骰子面板（properties tab 顶部） ==========
-
-type QuickResult = { total: number; detail: string; allRolls: number[] };
-
-const QUICK_DICE_PRESETS = ['1d100', '1d20', '2d6', '1d6+3'];
-
-function QuickDicePanel() {
-  const [expr, setExpr] = useState('1d100');
-  const [result, setResult] = useState<QuickResult | null>(null);
-  const [isRolling, setIsRolling] = useState(false);
-  const [displayTotal, setDisplayTotal] = useState<number | null>(null);
-  const [lastExpr, setLastExpr] = useState('');
-  const inputRef = useRef<HTMLInputElement | null>(null);
-
-  const doRoll = (expression: string) => {
-    const trimmed = expression.trim();
-    if (!trimmed) {
-      useToastStore.getState().showToast('请输入骰子表达式', 'warning');
-      return;
-    }
-    if (isRolling) return;
-
-    let r: QuickResult;
-    try {
-      const res = rollExpression(trimmed);
-      r = { total: res.total, detail: res.detail, allRolls: res.allRolls };
-    } catch (err) {
-      useToastStore.getState().showToast(
-        `表达式错误：${(err as Error).message || '无法解析'}`,
-        'error',
-      );
-      return;
-    }
-
-    // 音效（仅在设置开启时）
-    if (useSettingStore.getState().soundEnabled) {
-      void playDiceRollSound();
-    }
-
-    setLastExpr(trimmed);
-    setIsRolling(true);
-
-    // 渐进减速数字滚动（800ms）
-    const tickDelays = [50, 50, 50, 50, 50, 50, 75, 75, 75, 75, 100, 100];
-    const maxValue = 100;
-    let tickIdx = 0;
-    const tickFn = () => {
-      const v = Math.floor(Math.random() * maxValue) + 1;
-      setDisplayTotal(v);
-      if (tickIdx < tickDelays.length) {
-        window.setTimeout(tickFn, tickDelays[tickIdx]);
-        tickIdx++;
-      } else {
-        setDisplayTotal(r.total);
-        setResult(r);
-        setIsRolling(false);
-      }
-    };
-    tickFn();
-  };
-
-  const handleCopy = () => {
-    if (!result) return;
-    const text = `[${lastExpr || expr.trim()}=${result.total}]`;
-    const ok = () => useToastStore.getState().showToast('已复制：' + text, 'success');
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(text).then(ok, () => fallbackCopy(text, ok));
-    } else {
-      fallbackCopy(text, ok);
-    }
-  };
-
-  const fallbackCopy = (text: string, ok: () => void) => {
-    try {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.left = '-9999px';
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-      ok();
-    } catch {
-      useToastStore.getState().showToast('复制失败', 'error');
-    }
-  };
-
-  return (
-    <div
-      className="rounded-lg border p-3"
-      style={{ borderColor: 'var(--border-color)', background: 'var(--bg-base)' }}
-    >
-      <div className="text-xs font-semibold mb-2 flex items-center gap-1" style={{ color: 'var(--text-primary)' }}>
-        <Icon name="dices" size={14} />
-        快速骰子
-      </div>
-      <div className="flex gap-2 mb-2">
-        <input
-          ref={inputRef}
-          type="text"
-          value={expr}
-          onChange={(e) => setExpr(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              doRoll(expr);
-            }
-          }}
-          disabled={isRolling}
-          placeholder="1d100、2d6+3..."
-          className="flex-1 min-w-0 px-2 py-1 text-xs rounded-md outline-none disabled:opacity-50"
-          style={{
-            border: '1px solid var(--border-color)',
-            background: 'var(--bg-input)',
-            color: 'var(--text-primary)',
-          }}
-        />
-        <button
-          onClick={() => doRoll(expr)}
-          disabled={isRolling}
-          className={`px-3 py-1 text-xs rounded-md font-medium disabled:opacity-60 disabled:cursor-not-allowed ${isRolling ? 'anke-dice-playground-press' : ''}`}
-          style={{
-            background: 'var(--accent)',
-            color: 'var(--text-on-accent)',
-            border: '1px solid var(--accent)',
-          }}
-        >
-          投
-        </button>
-      </div>
-      <div className="flex flex-wrap gap-1 mb-2">
-        {QUICK_DICE_PRESETS.map((p) => (
-          <button
-            key={p}
-            onClick={() => {
-              setExpr(p);
-              doRoll(p);
-            }}
-            disabled={isRolling}
-            className="text-[10px] px-1.5 py-0.5 rounded disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{
-              background: 'var(--bg-hover)',
-              color: 'var(--text-secondary)',
-              border: '1px solid var(--border-color)',
-            }}
-          >
-            {p}
-          </button>
-        ))}
-      </div>
-      {(result || isRolling) && (
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-baseline gap-1 min-w-0">
-            <span
-              className={`inline-flex items-center ${isRolling ? 'anke-dice-playground-spin' : ''}`}
-              style={{ display: 'inline-flex' }}
-            >
-              <Icon name="dices" size={16} />
-            </span>
-            <span
-              className="text-[10px] font-mono truncate"
-              style={{ color: 'var(--text-secondary)' }}
-            >
-              {isRolling ? expr.trim() : lastExpr}
-            </span>
-            <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
-              =
-            </span>
-            <span
-              className="text-lg font-bold tabular-nums"
-              style={{ color: 'var(--accent)' }}
-            >
-              {isRolling ? displayTotal : result?.total}
-            </span>
-          </div>
-          {!isRolling && result && (
-            <button
-              onClick={handleCopy}
-              className="text-[10px] px-2 py-1 rounded border shrink-0"
-              style={{
-                borderColor: 'var(--accent)',
-                color: 'var(--accent)',
-                background: 'transparent',
-                cursor: 'pointer',
-              }}
-              title="复制骰点文本"
-            >
-              <span className="inline-flex items-center gap-1">
-                <Icon name="copy" size={12} />
-                复制
-              </span>
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ========== 骰点历史记录面板 ==========
-
-type DiceGroupMode = 'flat' | 'time' | 'story';
-
-interface DiceGroup {
-  key: string;
-  title: string;
-  records: DiceHistoryRecord[];
-}
-
-// P1-1: 抽离为独立 memo 组件，避免无关重渲染
-// - 自定义 memo 比较：仅当 record 或 diceExists 变化时才重渲染
-// - 回调（onRemove/onInsert/onRestore/onJump）是闭包，捕获 ref 或 store.getState()，即使引用变化也能正确工作
-// - formatTime 移入组件内部，避免父组件每次 render 重建
-interface DiceRecordItemProps {
-  record: DiceHistoryRecord;
-  diceExists: boolean;
-  onRemove: (id: string) => void;
-  onInsertUnrolledDice: (sectionId: string, payloadSnapshot: string) => void;
-  onRestoreDice: (sectionId: string, payloadSnapshot: string) => void;
-  onJumpToDice: (sectionId: string, payloadSnapshot: string) => void;
-}
-
-const DiceRecordItem = memo(function DiceRecordItem({
-  record: r,
-  diceExists,
-  onRemove,
-  onInsertUnrolledDice,
-  onRestoreDice,
-  onJumpToDice,
-}: DiceRecordItemProps) {
-  const formatTime = (ts: number): string => {
-    try {
-      const d = new Date(ts);
-      const pad = (n: number) => String(n).padStart(2, '0');
-      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-    } catch {
-      return String(ts);
-    }
-  };
-
-  return (
-    <div
-      className="relative p-3 rounded-lg border transition-colors"
-      style={{ borderColor: 'var(--border-color)', background: 'var(--bg-base)' }}
-    >
-      {/* 单条删除 */}
-      <button
-        onClick={() => onRemove(r.id)}
-        className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center rounded text-[12px] leading-none"
-        style={{ color: 'var(--text-muted)', background: 'transparent' }}
-        title="删除该条记录"
-        onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--danger, #d33)'; }}
-        onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
-      >
-        ×
-      </button>
-      <div className="text-[10px] mb-1" style={{ color: 'var(--text-secondary)' }}>
-        {formatTime(r.timestamp)}
-      </div>
-      <div className="flex items-center gap-2 mb-1">
-        <div className="text-xs font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
-          {r.diceName}
-        </div>
-        <div
-          className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0"
-          style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
-        >
-          {r.diceType}
-        </div>
-      </div>
-      <div className="text-xs font-mono mb-1" style={{ color: 'var(--accent)' }}>
-        结果: {r.result}
-      </div>
-      {r.resultDetail && r.resultDetail !== r.result && (
-        <div className="text-[11px] mb-2 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-          {r.resultDetail}
-        </div>
-      )}
-      <div className="flex items-center justify-between pt-2 mt-1" style={{ borderTop: '1px solid var(--border-color)' }}>
-        <div className="text-[10px] truncate flex-1 pr-2" style={{ color: 'var(--text-secondary)' }}>
-          → {r.sectionTitle || '(未命名节)'}
-        </div>
-        <div className="flex items-center gap-1 shrink-0">
-          <button
-            onClick={() => onInsertUnrolledDice(r.sectionId, r.payloadSnapshot)}
-            className="text-[10px] px-2 py-1 rounded-md font-medium border"
-            style={{ borderColor: 'var(--accent)', color: 'var(--accent)', background: 'transparent' }}
-            title="在当前光标插入一个相同格式未掷骰的骰子"
-          >
-            插入
-          </button>
-          <button
-            onClick={() => onRestoreDice(r.sectionId, r.payloadSnapshot)}
-            disabled={diceExists}
-            className="text-[10px] px-2 py-1 rounded-md font-medium border disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{ borderColor: 'var(--accent)', color: 'var(--accent)', background: 'transparent' }}
-            title={diceExists ? '该骰子仍在编辑区，无需恢复' : '在编辑区重新插入一个相同的骰子'}
-          >
-            恢复
-          </button>
-          <button
-            onClick={() => onJumpToDice(r.sectionId, r.payloadSnapshot)}
-            className="text-[10px] px-2 py-1 rounded-md font-medium"
-            style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
-          >
-            跳转
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}, (prev, next) => {
-  // 自定义比较：仅当 record 引用或 diceExists 变化时才重渲染
-  // 回调函数引用变化不触发重渲染（它们是闭包，内部用 ref/store.getState() 保证正确性）
-  return prev.record === next.record && prev.diceExists === next.diceExists;
-});
-
-function DiceHistoryPanel({
-  storyId,
-  onJumpToDice,
-  onRestoreDice,
-  onInsertUnrolledDice,
-  onCheckDiceExists,
-}: {
-  storyId?: string | null;
-  onJumpToDice: (sectionId: string, payloadSnapshot: string) => void;
-  onRestoreDice: (sectionId: string, payloadSnapshot: string) => void;
-  onInsertUnrolledDice: (sectionId: string, payloadSnapshot: string) => void;
-  onCheckDiceExists: (sectionId: string, payloadSnapshot: string) => boolean;
-}) {
-  const allRecords = useDiceHistoryStore((s) => s.records);
-  const clearAll = useDiceHistoryStore((s) => s.clearAll);
-  const removeRecord = useDiceHistoryStore((s) => s.removeRecord);
-  const stories = useStoryStore((s) => s.stories);
-  // 独立订阅 sectionContent（不再经父组件透传），右栏在内容写入时也不随整页重渲染
-  const sectionContent = useEditorStore((s) => s.sectionContent);
-  const [pendingClearDice, setPendingClearDice] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  // useDeferredValue: 搜索防抖，避免每次按键都触发 groups useMemo 重算（200+ 条记录时卡顿）
-  // 输入框 value 仍用 searchQuery（保证输入响应），groups/空状态用 deferredSearchQuery
-  const deferredSearchQuery = useDeferredValue(searchQuery);
-  const [groupMode, setGroupMode] = useState<DiceGroupMode>('time');
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-
-  // storyId → title 映射（用于「作品」分组标题）
-  const storyNameMap = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const s of stories) m.set(s.id, s.title);
-    return m;
-  }, [stories]);
-
-  // P1-1 性能优化：用 useDeferredValue + useMemo 缓存「骰子是否仍在编辑区」结果
-  // - deferredSectionContent 滞后于 sectionContent，避免用户在编辑器输入时频繁触发 DOM 查询
-  // - onCheckDiceExistsRef 避免 onCheckDiceExists 内联函数变化导致 useMemo 失效
-  // - existingDiceMap 仅在 deferredSectionContent 或 allRecords 变化时重算，不再每 render 调 N 次 DOM 查询
-  const deferredSectionContent = useDeferredValue(sectionContent ?? '');
-  const onCheckDiceExistsRef = useRef(onCheckDiceExists);
-  onCheckDiceExistsRef.current = onCheckDiceExists;
-  const existingDiceMap = useMemo(() => {
-    const map = new Map<string, boolean>();
-    for (const r of allRecords) {
-      map.set(r.id, onCheckDiceExistsRef.current(r.sectionId, r.payloadSnapshot));
-    }
-    return map;
-    // onCheckDiceExistsRef 是 ref，不需要作为依赖
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deferredSectionContent, allRecords]);
-
-  // 范围 + 搜索过滤 + 分组
-  const groups = useMemo<DiceGroup[]>(() => {
-    // 0. 归档记录（已删除作品的）单独分出：统一归入「已删除作品」组，不混入当前分组
-    const archived = allRecords.filter((r) => r.isArchived);
-    // 1. 范围过滤：「作品」模式取全部；其他模式仅当前作品（均不含归档记录）
-    let list = allRecords.filter((r) => !r.isArchived);
-    if (groupMode !== 'story') {
-      list = storyId ? list.filter((r) => r.storyId === storyId) : [];
-    }
-    // 2. 搜索过滤（大小写不敏感，用 deferredSearchQuery 防抖）
-    const q = deferredSearchQuery.trim().toLowerCase();
-    const matches = (r: DiceHistoryRecord) =>
-      [r.diceName, r.diceType, r.result, r.resultDetail, r.sectionTitle]
-        .join(' ')
-        .toLowerCase()
-        .includes(q);
-    if (q) {
-      list = list.filter(matches);
-    }
-    // 3. 分组（当前/未归档记录）
-    const result: DiceGroup[] = [];
-    if (groupMode === 'flat') {
-      result.push({ key: 'all', title: '全部记录', records: list });
-    } else if (groupMode === 'time') {
-      const now = new Date();
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-      const yesterdayStart = todayStart - 86400000;
-      const weekStart = todayStart - 6 * 86400000;
-      const buckets: Record<string, { title: string; records: DiceHistoryRecord[] }> = {
-        today: { title: '今天', records: [] },
-        yesterday: { title: '昨天', records: [] },
-        week: { title: '本周', records: [] },
-        earlier: { title: '更早', records: [] },
-      };
-      for (const r of list) {
-        if (r.timestamp >= todayStart) buckets.today.records.push(r);
-        else if (r.timestamp >= yesterdayStart) buckets.yesterday.records.push(r);
-        else if (r.timestamp >= weekStart) buckets.week.records.push(r);
-        else buckets.earlier.records.push(r);
-      }
-      for (const k of ['today', 'yesterday', 'week', 'earlier'] as const) {
-        if (buckets[k].records.length > 0) result.push({ key: k, title: buckets[k].title, records: buckets[k].records });
-      }
-    } else {
-      // story 分组
-      const byStory = new Map<string, DiceHistoryRecord[]>();
-      for (const r of list) {
-        const key = r.storyId || '__unknown__';
-        const arr = byStory.get(key) || [];
-        arr.push(r);
-        byStory.set(key, arr);
-      }
-      for (const [sid, recs] of byStory.entries()) {
-        result.push({
-          key: sid,
-          title: sid === '__unknown__' ? '未知作品' : (storyNameMap.get(sid) || '未知作品'),
-          records: recs,
-        });
-      }
-    }
-    // 4. 「已删除作品」归档组（仅当搜索过滤后非空才显示）
-    const archivedFiltered = q ? archived.filter(matches) : archived;
-    if (archivedFiltered.length > 0) {
-      result.push({ key: '__archived__', title: '已删除作品', records: archivedFiltered });
-    }
-    return result;
-  }, [allRecords, storyId, groupMode, deferredSearchQuery, storyNameMap]);
-
-  const toggleCollapse = (key: string) => {
-    setCollapsedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
-
-  const totalCount = groups.reduce((sum, g) => sum + g.records.length, 0);
-
-  // P1-1: 稳定的 removeRecord 回调，避免 DiceRecordItem 因回调变化重渲染
-  const handleRemove = useCallback((id: string) => {
-    removeRecord(id);
-    useToastStore.getState().showToast('已删除该条记录', 'success');
-  }, [removeRecord]);
-
-  const groupBtn = (mode: DiceGroupMode, label: string) => {
-    const active = groupMode === mode;
-    return (
-      <button
-        onClick={() => setGroupMode(mode)}
-        className="px-2 py-1 text-[10px] font-medium"
-        style={{
-          background: active ? 'var(--accent)' : 'var(--bg-card)',
-          color: active ? 'var(--text-on-accent, #fff)' : 'var(--text-secondary)',
-          border: 'none',
-          cursor: 'pointer',
-        }}
-      >
-        {label}
-      </button>
-    );
-  };
-
-  return (
-    <div className="p-3 flex flex-col h-full">
-      {/* 顶部工具栏：搜索框 + 分组切换 */}
-      <div className="flex items-center gap-2 mb-2 shrink-0">
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="搜索骰子名/类型/结果/节..."
-          className="flex-1 min-w-0 px-2 py-1 text-xs rounded-md outline-none"
-          style={{
-            border: '1px solid var(--border-color)',
-            background: 'var(--bg-input)',
-            color: 'var(--text-primary)',
-          }}
-        />
-        <div
-          className="flex shrink-0 rounded-md overflow-hidden"
-          style={{ border: '1px solid var(--border-color)' }}
-        >
-          {groupBtn('story', '作品')}
-          {groupBtn('time', '时间')}
-          {groupBtn('flat', '平铺')}
-        </div>
-      </div>
-      <div className="flex items-center justify-between mb-2 shrink-0">
-        <div className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>
-          骰点历史 <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>共 {totalCount} 条</span>
-        </div>
-        {totalCount > 0 && (
-          <button
-            onClick={() => setPendingClearDice(true)}
-            className="text-[10px] px-2 py-1 rounded-md border transition-colors"
-            style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--danger)'; e.currentTarget.style.borderColor = 'var(--danger)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
-          >
-            清空
-          </button>
-        )}
-      </div>
-
-      {totalCount === 0 ? (
-        <div className="flex-1 flex items-center justify-center text-xs py-16" style={{ color: 'var(--text-secondary)' }}>
-          {deferredSearchQuery ? '没有匹配的记录' : '还没有骰点记录，去正文编辑器掷一次骰子试试。'}
-        </div>
-      ) : (
-        <div className="flex-1 overflow-y-auto space-y-3 pr-1">
-          {groups.map((g) => {
-            const collapsed = collapsedGroups.has(g.key);
-            // 「已删除作品」归档组在任何分组模式下都显示标题，与当前作品记录区分
-            const showHeader = groupMode !== 'flat' || g.key === '__archived__';
-            return (
-              <div key={g.key}>
-                {showHeader && (
-                  <div
-                    onClick={() => toggleCollapse(g.key)}
-                    className="flex items-center gap-1 px-1 py-1 cursor-pointer text-[11px] font-semibold select-none"
-                    style={{ color: 'var(--text-primary)' }}
-                  >
-                    <Icon name={collapsed ? 'chevronRight' : 'chevronDown'} size={12} />
-                    <span>{g.title}</span>
-                    <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>({g.records.length})</span>
-                  </div>
-                )}
-                {!collapsed && (
-                  <div className="space-y-2 mt-1">
-                    {g.records.map((r) => (
-                      <DiceRecordItem
-                        key={r.id}
-                        record={r}
-                        diceExists={existingDiceMap.get(r.id) ?? false}
-                        onRemove={handleRemove}
-                        onInsertUnrolledDice={onInsertUnrolledDice}
-                        onRestoreDice={onRestoreDice}
-                        onJumpToDice={onJumpToDice}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {pendingClearDice && (
-        <ConfirmDialog
-          open={true}
-          title="清空确认"
-          message="确定清空全部骰点记录？此操作不可撤销。"
-          danger
-          onConfirm={() => {
-            clearAll();
-            useToastStore.getState().showToast('已清空', 'success');
-            setPendingClearDice(false);
-          }}
-          onCancel={() => setPendingClearDice(false)}
-        />
-      )}
-    </div>
-  );
-}
-
-// ========== 紧凑型世界观设定面板 ==========
-
-function CompactWorldSettingPanel({
-  onShowToast,
-}: {
-  onShowToast?: (msg: string) => void;
-}) {
-  const activeStoryId = useStoryStore((s) => s.activeStoryId);
-  const worldSettings = useMetaStore((s) => s.worldSettings);
-  const editingWorldId = useMetaStore((s) => s.editingWorldId);
-  const createWorldSetting = useMetaStore((s) => s.createWorldSetting);
-  const deleteWorldSetting = useMetaStore((s) => s.deleteWorldSetting);
-  const setEditingWorldId = useMetaStore((s) => s.setEditingWorldId);
-
-  const editing = worldSettings.find((w) => w.id === editingWorldId) ?? null;
-
-  // 多选状态（紧凑面板不显示拖动）
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [pendingBatchDelete, setPendingBatchDelete] = useState<{ ids: string[]; names: string[] } | null>(null);
-
-  // useMemo: 缓存过滤+排序结果，避免每次 render 都重算（条目多时卡顿）
-  const filtered = useMemo(
-    () =>
-      activeStoryId
-        ? worldSettings
-            .filter((w) => w.story_id === activeStoryId)
-            .slice()
-            .sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
-        : [],
-    [activeStoryId, worldSettings],
-  );
-
-  const toggleSelect = (id: string) => {
-    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  };
-  const clearSelection = () => setSelectedIds([]);
-  const handleBatchDelete = async () => {
-    if (!pendingBatchDelete) return;
-    const target = pendingBatchDelete;
-    setPendingBatchDelete(null);
-    let deleted = 0;
-    for (const id of target.ids) {
-      await deleteWorldSetting(id);
-      deleted++;
-    }
-    useToastStore.getState().showToast(`已批量删除 ${deleted} 条世界观`, 'success');
-    clearSelection();
-  };
-
-  return (
-    <div className="flex flex-col h-full" style={{ background: 'var(--bg-card)' }}>
-      {/* 顶部工具条 */}
-      <div
-        className="shrink-0 flex items-center justify-between px-3 py-2 border-b"
-        style={{ background: 'var(--bg-toolbar)', borderColor: 'var(--border-color)' }}
-      >
-        <div className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>世界观设定</div>
-        {selectedIds.length > 0 ? (
-          <div className="flex items-center gap-1">
-            <span className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>已选 {selectedIds.length}</span>
-            <button
-              onClick={() => {
-                const names = filtered.filter((w) => selectedIds.includes(w.id)).map((w) => w.title || '未命名');
-                setPendingBatchDelete({ ids: [...selectedIds], names });
-              }}
-              className="text-[10px] px-2 py-1 rounded transition-colors ancke-btn ancke-btn-danger"
-              title="删除所选"
-            >
-              <span className="inline-flex items-center gap-1">
-                <Icon name="trash" size={12} />
-                批量删除
-              </span>
-            </button>
-            <button
-              onClick={clearSelection}
-              className="text-[10px] px-2 py-1 rounded transition-colors"
-              style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
-            >
-              取消
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={() => activeStoryId && createWorldSetting(activeStoryId)}
-            disabled={!activeStoryId}
-            className="text-[10px] px-2 py-1 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
-          >
-            + 新建
-          </button>
-        )}
-      </div>
-
-      {/* 条目列表 */}
-      <div className="shrink-0 p-2 border-b max-h-40 overflow-y-auto space-y-1" style={{ borderColor: 'var(--border-color)' }}>
-        {!activeStoryId && (
-          <div className="text-[10px] italic px-2 py-3 text-center" style={{ color: 'var(--text-secondary)' }}>请先选择一个故事</div>
-        )}
-        {activeStoryId && filtered.length === 0 && (
-          <div className="text-[10px] italic px-2 py-3 text-center" style={{ color: 'var(--text-secondary)' }}>
-            暂无条目，点击上方"新建"
-          </div>
-        )}
-        {activeStoryId && filtered.length > 0 && (
-          <div className="space-y-1">
-            {filtered.map((ws) => {
-              const isActive = ws.id === editingWorldId;
-              const isSel = selectedIds.includes(ws.id);
-              return (
-                <div
-                  key={ws.id}
-                  className="w-full text-left px-2 py-1.5 text-xs rounded transition-colors border flex items-start gap-1"
-                  style={{
-                    background: isSel
-                      ? 'var(--accent-bg)'
-                      : isActive
-                      ? 'var(--accent-soft)'
-                      : 'transparent',
-                    color: isSel || isActive ? 'var(--accent)' : 'var(--text-primary)',
-                    borderColor: isSel || isActive ? 'var(--accent)' : 'transparent',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isSel && !isActive) e.currentTarget.style.background = 'var(--bg-hover)';
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isSel && !isActive) e.currentTarget.style.background = 'transparent';
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={isSel}
-                    onChange={() => toggleSelect(ws.id)}
-                    onClick={(e) => e.stopPropagation()}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onDragStart={(e) => e.preventDefault()}
-                    style={{ marginTop: 2, cursor: 'pointer' }}
-                    title="勾选以加入批量删除"
-                  />
-                  <button
-                    onClick={() => setEditingWorldId(isActive ? null : ws.id)}
-                    className="flex-1 text-left"
-                  >
-                    <div className="font-medium truncate">{ws.title || '未命名'}</div>
-                    <div className="text-[10px] truncate" style={{ color: 'var(--text-secondary)' }}>
-                      {(ws.content || '').slice(0, 50)}
-                    </div>
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* 编辑区 */}
-      <div className="flex-1 overflow-y-auto">
-        {editing ? (
-          <WorldSettingEditorInline setting={editing} onShowToast={onShowToast} />
-        ) : (
-          <div className="p-6">
-            <div className="anke-card flex flex-col items-center gap-2 px-6 py-10 text-center" style={{ borderStyle: 'dashed' }}>
-              <Icon name="scroll" size={48} className="opacity-40" />
-              <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>选择或新建一个世界观条目</div>
-              <div className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>点击上方列表中的条目进行编辑</div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {pendingBatchDelete && (
-        <ConfirmDialog
-          open={true}
-          title="批量删除世界观"
-          message={`确定删除以下 ${pendingBatchDelete.ids.length} 条世界观？${pendingBatchDelete.names.length <= 5 ? `\n• ${pendingBatchDelete.names.join('\n• ')}` : ''}\n此操作不可撤销。`}
-          danger
-          onConfirm={handleBatchDelete}
-          onCancel={() => setPendingBatchDelete(null)}
-        />
-      )}
-    </div>
-  );
-}
-
-// 简易内嵌版世界观编辑器（文本标题 + 富文本内容）
-function WorldSettingEditorInline({ setting, onShowToast }: { setting: WorldSetting; onShowToast?: (msg: string) => void }) {
-  const updateWorldSetting = useMetaStore((s) => s.updateWorldSetting);
-  const deleteWorldSetting = useMetaStore((s) => s.deleteWorldSetting);
-  const setEditingWorldId = useMetaStore((s) => s.setEditingWorldId);
-
-  const [title, setTitle] = useState(setting.title || '');
-  const [content, setContent] = useState(setting.content || '');
-  const [pendingDelete, setPendingDelete] = useState(false);
-
-  useEffect(() => {
-    setTitle(setting.title || '');
-    setContent(setting.content || '');
-  }, [setting.id]);
-
-  const handleSave = () => {
-    updateWorldSetting(setting.id, { title, content });
-  };
-
-  const handleDelete = () => {
-    setPendingDelete(true);
-  };
-
-  return (
-    <div className="p-3 space-y-3" style={{ background: 'var(--bg-card)' }}>
-      <div>
-        <label className="block text-[10px] font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>标题</label>
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          onBlur={handleSave}
-          className="w-full px-2 py-1.5 text-xs rounded-md border outline-none"
-          style={{ borderColor: 'var(--border-color)', background: 'var(--bg-input)', color: 'var(--text-primary)' }}
-          placeholder="例如：主要角色设定"
-        />
-      </div>
-      <div>
-        <label className="block text-[10px] font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>内容</label>
-        <textarea
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          onBlur={handleSave}
-          rows={12}
-          className="w-full px-2 py-2 text-xs rounded-md border outline-none resize-y leading-relaxed"
-          style={{ borderColor: 'var(--border-color)', background: 'var(--bg-input)', color: 'var(--text-primary)' }}
-          placeholder="在此编辑世界观设定..."
-        />
-      </div>
-      <div className="flex items-center justify-end gap-2 pt-1">
-        <button
-          onClick={() => {
-            const tplName = (title || '未命名世界观模板').trim();
-            handleSave();
-            useMetaStore.getState().createWorldSettingTemplate({
-              title: tplName,
-              content,
-            });
-          }}
-          className="px-2 py-1 text-[10px] rounded-md transition-colors"
-          style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
-          onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-          onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-card)'}
-          title="把当前世界观设定保存为模板"
-        >
-          存为模板
-        </button>
-        <button
-          onClick={handleDelete}
-          className="px-2 py-1 text-[10px] rounded-md transition-colors"
-          style={{ background: 'var(--danger-soft)', color: 'var(--danger)' }}
-        >
-          删除条目
-        </button>
-      </div>
-
-      {pendingDelete && (
-        <ConfirmDialog
-          open={true}
-          title="删除确认"
-          message={`确定删除"${title || '未命名'}"？此操作不可撤销。`}
-          danger
-          onConfirm={() => {
-            deleteWorldSetting(setting.id);
-            setEditingWorldId(null);
-            useToastStore.getState().showToast('已删除', 'success');
-            setPendingDelete(false);
-          }}
-          onCancel={() => setPendingDelete(false)}
-        />
-      )}
-    </div>
-  );
-}
-
-// ========== 紧凑型人物角色面板 ==========
-
-function CompactCharacterPanel({
-  richTextEditorCommandsRef,
-  onShowToast,
-}: {
-  richTextEditorCommandsRef: React.MutableRefObject<RichTextEditorCommands | null>;
-  onShowToast?: (msg: string) => void;
-}) {
-  const activeStoryId = useStoryStore((s) => s.activeStoryId);
-  const [panelTab, setPanelTab] = useState<'by-character' | 'by-variant' | 'relation'>('by-character');
-
-  return (
-    <div className="flex flex-col h-full" style={{ background: 'var(--bg-card)' }}>
-      {/* === 主导航 Tab：按人物 / 按差分 / 关系 === */}
-      <div
-        className="shrink-0 flex border-b"
-        style={{ borderColor: 'var(--border-color)', background: 'var(--bg-toolbar)' }}
-      >
-        {[
-          { key: 'by-character', label: '按人物', icon: 'user' as IconName },
-          { key: 'by-variant', label: '按差分', icon: 'layoutGrid' as IconName },
-          { key: 'relation', label: '关系', icon: 'link' as IconName },
-        ].map((t) => {
-          const active = panelTab === t.key;
-          return (
-            <button
-              key={t.key}
-              onClick={() => setPanelTab(t.key as 'by-character' | 'by-variant' | 'relation')}
-              className="flex-1 py-2 text-xs font-medium transition-colors"
-              style={{
-                color: active ? 'var(--accent)' : 'var(--text-secondary)',
-                background: active ? 'var(--bg-card)' : 'transparent',
-                borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
-              }}
-            >
-              <span className="inline-flex items-center gap-1">
-                <Icon name={t.icon} size={16} />
-                <span>{t.label}</span>
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      {panelTab === 'by-character' && (
-        <ByCharacterContent
-          richTextEditorCommandsRef={richTextEditorCommandsRef}
-          onShowToast={onShowToast}
-        />
-      )}
-
-      {panelTab === 'by-variant' && (
-        <ByVariantContent
-          richTextEditorCommandsRef={richTextEditorCommandsRef}
-          onShowToast={onShowToast}
-        />
-      )}
-
-      {panelTab === 'relation' && activeStoryId && (
-        <RelationshipPanel storyId={activeStoryId} />
-      )}
-    </div>
-  );
-}
-
-/**
- * 「按人物」面板：原角色卡片列表 + 编辑区
- */
-function ByCharacterContent({
-  richTextEditorCommandsRef,
-  onShowToast,
-}: {
-  richTextEditorCommandsRef: React.MutableRefObject<RichTextEditorCommands | null>;
-  onShowToast?: (msg: string) => void;
-}) {
-  const activeStoryId = useStoryStore((s) => s.activeStoryId);
-  const characters = useMetaStore((s) => s.characters);
-  const editingCharacterId = useMetaStore((s) => s.editingCharacterId);
-  const createCharacter = useMetaStore((s) => s.createCharacter);
-  const setEditingCharacter = useMetaStore((s) => s.setEditingCharacter);
-  const deleteCharacter = useMetaStore((s) => s.deleteCharacter);
-
-  const editing = characters.find((c) => c.id === editingCharacterId) ?? null;
-
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [pendingBatchDelete, setPendingBatchDelete] = useState<{ ids: string[]; names: string[] } | null>(null);
-
-  // useMemo: 缓存过滤+排序结果，避免每次 render 都重算（人物多时卡顿）
-  const filtered = useMemo(
-    () =>
-      activeStoryId
-        ? characters
-            .filter((c) => c.story_id === activeStoryId)
-            .slice()
-            .sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
-        : [],
-    [activeStoryId, characters],
-  );
-
-  const toggleSelect = (id: string) => {
-    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  };
-  const clearSelection = () => setSelectedIds([]);
-  const handleBatchDelete = async () => {
-    if (!pendingBatchDelete) return;
-    const target = pendingBatchDelete;
-    setPendingBatchDelete(null);
-    let deleted = 0;
-    for (const id of target.ids) {
-      await deleteCharacter(id);
-      deleted++;
-    }
-    useToastStore.getState().showToast(`已批量删除 ${deleted} 个角色`, 'success');
-    clearSelection();
-  };
-
-  const handleInsertVariant = (variantName: string, url: string) => {
-    if (!richTextEditorCommandsRef.current) {
-      onShowToast?.('没有可用的编辑器');
-      return;
-    }
-    richTextEditorCommandsRef.current.insertImage(url, NGA_DEFAULT_IMAGE_SIZE);
-    onShowToast?.(`已插入差分：${variantName}`);
-  };
-
-  return (
-    <div className="flex flex-col h-full" style={{ background: 'var(--bg-card)' }}>
-      {/* 顶部工具条 */}
-      <div
-        className="shrink-0 flex items-center justify-between px-3 py-2 border-b"
-        style={{ background: 'var(--bg-toolbar)', borderColor: 'var(--border-color)' }}
-      >
-        <div className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>人物角色</div>
-        {selectedIds.length > 0 ? (
-          <div className="flex items-center gap-1">
-            <span className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>已选 {selectedIds.length}</span>
-            <button
-              onClick={() => {
-                const names = filtered.filter((c) => selectedIds.includes(c.id)).map((c) => c.name || '未命名');
-                setPendingBatchDelete({ ids: [...selectedIds], names });
-              }}
-              className="text-[10px] px-2 py-1 rounded transition-colors ancke-btn ancke-btn-danger"
-              title="删除所选"
-            >
-              <span className="inline-flex items-center gap-1">
-                <Icon name="trash" size={12} />
-                批量删除
-              </span>
-            </button>
-            <button
-              onClick={clearSelection}
-              className="text-[10px] px-2 py-1 rounded transition-colors"
-              style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
-            >
-              取消
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={() => activeStoryId && createCharacter(activeStoryId)}
-            disabled={!activeStoryId}
-            className="text-[10px] px-2 py-1 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
-          >
-            + 新建角色
-          </button>
-        )}
-      </div>
-
-      {/* 角色卡片列表 */}
-      <div
-        className="shrink-0 p-2 border-b max-h-48 overflow-y-auto"
-        style={{ borderColor: 'var(--border-color)' }}
-      >
-        {!activeStoryId && (
-          <div className="text-[10px] italic px-2 py-3 text-center" style={{ color: 'var(--text-secondary)' }}>请先选择一个故事</div>
-        )}
-        {activeStoryId && filtered.length === 0 && (
-          <div className="text-[10px] italic px-2 py-3 text-center" style={{ color: 'var(--text-secondary)' }}>
-            暂无角色，点击上方"新建"
-          </div>
-        )}
-        {activeStoryId && filtered.length > 0 && (
-          <div className="space-y-1.5">
-            {filtered.map((ch) => {
-              const isActive = ch.id === editingCharacterId;
-              const isSel = selectedIds.includes(ch.id);
-              const variants = ch.variants || [];
-              return (
-                <div
-                  key={ch.id}
-                  className="rounded-lg transition-colors border relative overflow-hidden"
-                  style={{
-                    background: isSel ? 'var(--accent-bg)' : isActive ? 'var(--accent-bg)' : 'var(--bg-page)',
-                    color: isSel || isActive ? 'var(--accent)' : 'var(--text-primary)',
-                    borderColor: isSel || isActive ? 'var(--accent)' : 'var(--border-color)',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isSel && !isActive) e.currentTarget.style.background = 'var(--bg-hover)';
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isSel && !isActive) e.currentTarget.style.background = 'var(--bg-page)';
-                  }}
-                >
-                  {/* 选中态左侧色条 */}
-                  {(isActive || isSel) && (
-                    <div
-                      style={{
-                        position: 'absolute',
-                        left: 0,
-                        top: 0,
-                        bottom: 0,
-                        width: 3,
-                        background: 'var(--accent)',
-                      }}
-                    />
-                  )}
-                  <div className="flex items-center gap-2 px-2.5 py-2">
-                    <input
-                      type="checkbox"
-                      checked={isSel}
-                      onChange={() => toggleSelect(ch.id)}
-                      onClick={(e) => e.stopPropagation()}
-                      onMouseDown={(e) => e.stopPropagation()}
-                      onDragStart={(e) => e.preventDefault()}
-                      style={{ cursor: 'pointer' }}
-                      title="勾选以加入批量删除"
-                    />
-                    <button
-                      onClick={() => setEditingCharacter(isActive ? null : ch.id)}
-                      className="flex-1 flex items-center gap-2.5 text-left"
-                    >
-                      {ch.avatar ? (
-                        <img
-                          src={ch.avatar}
-                          alt={ch.name}
-                          loading="lazy"
-                          className="w-9 h-9 rounded-full shrink-0 object-cover"
-                          onError={(e) => {
-                            (e.currentTarget as HTMLImageElement).style.display = 'none';
-                          }}
-                        />
-                      ) : (
-                        <div
-                          className="w-9 h-9 rounded-full shrink-0 flex items-center justify-center"
-                          style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
-                        >
-                          <Icon name="user" size={16} />
-                        </div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <div className="text-xs font-semibold truncate">{ch.name || '未命名'}</div>
-                        <div className="text-[10px] truncate mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-                          {(ch.personality || '暂无角色描述').slice(0, 30)}
-                        </div>
-                      </div>
-                      {variants.length > 0 && (
-                        <span
-                          className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0"
-                          style={{
-                            background: 'var(--bg-tag, var(--bg-hover))',
-                            color: 'var(--text-secondary)',
-                          }}
-                        >
-                          差分 {variants.length}
-                        </span>
-                      )}
-                    </button>
-                  </div>
-                  {/* 差分缩略图条 */}
-                  {variants.length > 0 && (
-                    <div className="flex flex-wrap gap-1 px-2.5 pb-2">
-                      {variants.map((v) => (
-                        <button
-                          key={v.id}
-                          onClick={() => handleInsertVariant(v.name, v.url)}
-                          className="w-7 h-7 rounded border overflow-hidden shrink-0 transition relative"
-                          style={{ borderColor: 'var(--border-color)' }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.outline = '2px solid var(--accent)';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.outline = '';
-                          }}
-                          title={`点击插入差分：${v.name}`}
-                        >
-                          <img
-                            src={v.url}
-                            alt={v.name}
-                            loading="lazy"
-                            className="absolute inset-0 w-full h-full object-cover"
-                            onError={(e) => {
-                              const img = e.currentTarget as HTMLImageElement;
-                              img.style.display = 'none';
-                              const fallback = img.parentElement?.querySelector('.img-fallback') as HTMLElement | null;
-                              if (fallback) fallback.style.display = 'flex';
-                              console.warn('[VariantImage] 加载失败:', v.url);
-                            }}
-                          />
-                          <div
-                            className="img-fallback absolute inset-0 hidden items-center justify-center text-[10px] font-semibold"
-                            style={{ color: 'var(--text-muted, #999)' }}
-                          >
-                            {(v.name || '?').charAt(0)}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* 编辑区 */}
-      <div className="flex-1 overflow-y-auto">
-        {editing ? (
-          <CharacterEditorInline character={editing} onShowToast={onShowToast} richTextEditorCommandsRef={richTextEditorCommandsRef} />
-        ) : (
-          <div className="p-6">
-            <div className="anke-card flex flex-col items-center gap-2 px-6 py-10 text-center" style={{ borderStyle: 'dashed' }}>
-              <Icon name="palette" size={48} className="opacity-40" />
-              <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>选择或新建一个角色</div>
-              <div className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>点击上方列表中的角色进行编辑</div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {pendingBatchDelete && (
-        <ConfirmDialog
-          open={true}
-          title="批量删除角色"
-          message={`确定删除以下 ${pendingBatchDelete.ids.length} 个角色？${pendingBatchDelete.names.length <= 5 ? `\n• ${pendingBatchDelete.names.join('\n• ')}` : ''}\n此操作不可撤销。`}
-          danger
-          onConfirm={handleBatchDelete}
-          onCancel={() => setPendingBatchDelete(null)}
-        />
-      )}
-    </div>
-  );
-}
-
-/**
- * 「按差分」面板：作品所有人物的所有差分平铺/分组展示，点击插入到光标位置
- * - 顶部子导航：全部 / 按人物
- * - 「全部」：所有差分混合在 4 列网格
- * - 「按人物」：按人物分组，每个分区内是 4 列网格
- */
-function ByVariantContent({
-  richTextEditorCommandsRef,
-  onShowToast,
-}: {
-  richTextEditorCommandsRef: React.MutableRefObject<RichTextEditorCommands | null>;
-  onShowToast?: (msg: string) => void;
-}) {
-  const activeStoryId = useStoryStore((s) => s.activeStoryId);
-  const characters = useMetaStore((s) => s.characters);
-  const [subTab, setSubTab] = useState<'all' | 'grouped'>('all');
-
-  // useMemo: 缓存过滤+排序结果，避免每次 render 都重算（人物多时卡顿）
-  const filteredChars = useMemo(
-    () =>
-      activeStoryId
-        ? characters
-            .filter((c) => c.story_id === activeStoryId)
-            .slice()
-            .sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
-        : [],
-    [activeStoryId, characters],
-  );
-
-  // 拍平所有差分（带所属人物名）—— 依赖 filteredChars，缓存避免每次 render 重算 flatMap
-  const allVariants = useMemo(
-    () =>
-      filteredChars.flatMap((ch) =>
-        (ch.variants || []).map((v) => ({
-          ...v,
-          characterName: ch.name || '未命名',
-          characterId: ch.id,
-        })),
-      ),
-    [filteredChars],
-  );
-
-  const handleInsert = (variantName: string, url: string, charName: string) => {
-    if (!richTextEditorCommandsRef.current) {
-      onShowToast?.('没有可用的编辑器');
-      return;
-    }
-    richTextEditorCommandsRef.current.insertImage(url, NGA_DEFAULT_IMAGE_SIZE);
-    onShowToast?.(`已插入差分：${charName} · ${variantName}`);
-  };
-
-  return (
-    <div className="flex flex-col h-full">
-      {/* 子导航：全部 / 按人物 */}
-      <div
-        className="shrink-0 flex items-center gap-1 px-3 py-2 border-b"
-        style={{ borderColor: 'var(--border-color)' }}
-      >
-        {[
-          { key: 'all', label: `全部（${allVariants.length}）` },
-          { key: 'grouped', label: '按人物' },
-        ].map((t) => {
-          const active = subTab === t.key;
-          return (
-            <button
-              key={t.key}
-              onClick={() => setSubTab(t.key as 'all' | 'grouped')}
-              className="text-[10px] px-2.5 py-1 rounded-md transition-colors"
-              style={{
-                background: active ? 'var(--accent)' : 'var(--bg-toolbar)',
-                color: active ? 'var(--text-on-accent)' : 'var(--text-secondary)',
-                border: '1px solid',
-                borderColor: active ? 'var(--accent)' : 'var(--border-color)',
-              }}
-            >
-              {t.label}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* 差分网格 */}
-      <div className="flex-1 overflow-y-auto p-3">
-        {!activeStoryId && (
-          <div
-            className="text-[10px] italic py-6 text-center"
-            style={{ color: 'var(--text-secondary)' }}
-          >
-            请先选择一个故事
-          </div>
-        )}
-        {activeStoryId && allVariants.length === 0 && (
-          <div
-            className="text-[10px] italic py-6 text-center"
-            style={{ color: 'var(--text-secondary)' }}
-          >
-            暂无差分
-          </div>
-        )}
-
-        {/* 全部子 tab：平铺网格 */}
-        {activeStoryId && allVariants.length > 0 && subTab === 'all' && (
-          <div className="grid grid-cols-4 gap-2">
-            {allVariants.map((v) => (
-              <VariantThumbnail
-                key={v.id}
-                variant={v}
-                onClick={() => handleInsert(v.name, v.url, v.characterName)}
-              />
-            ))}
-          </div>
-        )}
-
-        {/* 按人物子 tab：分组 */}
-        {activeStoryId && allVariants.length > 0 && subTab === 'grouped' && (
-          <div className="space-y-4">
-            {filteredChars
-              .filter((c) => (c.variants || []).length > 0)
-              .map((ch) => (
-                <div key={ch.id}>
-                  <div
-                    className="text-[11px] font-semibold mb-1.5 flex items-baseline gap-1.5"
-                    style={{ color: 'var(--text-primary)' }}
-                  >
-                    <span>{ch.name || '未命名'}</span>
-                    <span
-                      className="text-[10px] font-normal"
-                      style={{ color: 'var(--text-muted, #999)' }}
-                    >
-                      {(ch.variants || []).length} 个差分
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-4 gap-2">
-                    {(ch.variants || []).map((v) => (
-                      <VariantThumbnail
-                        key={v.id}
-                        variant={{ ...v, characterName: ch.name || '未命名' }}
-                        onClick={() => handleInsert(v.name, v.url, ch.name || '未命名')}
-                      />
-                    ))}
-                  </div>
-                </div>
-              ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/** 差分缩略图：方形 + 下方差分名标签；hover 高亮 */
-function VariantThumbnail({
-  variant,
-  onClick,
-}: {
-  variant: {
-    id: string;
-    name: string;
-    url: string;
-    characterName: string;
-  };
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="rounded-md border overflow-hidden transition"
-      style={{ borderColor: 'var(--border-color)', background: 'var(--bg-page)' }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = 'var(--accent)';
-        e.currentTarget.style.boxShadow = '0 0 0 2px var(--accent-soft, rgba(37,99,235,0.15))';
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = 'var(--border-color)';
-        e.currentTarget.style.boxShadow = '';
-      }}
-      title={`点击插入：${variant.characterName} · ${variant.name}`}
-    >
-      <div className="aspect-square w-full relative overflow-hidden" style={{ background: 'var(--bg-toolbar)' }}>
-        <img
-          src={variant.url}
-          alt={variant.name}
-          className="absolute inset-0 w-full h-full object-cover"
-          loading="lazy"
-          onError={(e) => {
-            const img = e.currentTarget as HTMLImageElement;
-            img.style.display = 'none';
-            const fallback = img.parentElement?.querySelector('.img-fallback') as HTMLElement | null;
-            if (fallback) fallback.style.display = 'flex';
-            console.warn('[VariantImage] 加载失败:', variant.url);
-          }}
-        />
-        <div
-          className="img-fallback absolute inset-0 hidden items-center justify-center text-base font-semibold"
-          style={{ color: 'var(--text-muted, #999)' }}
-        >
-          {(variant.name || '?').charAt(0)}
-        </div>
-      </div>
-      <div
-        className="text-[9px] px-1 py-0.5 truncate"
-        style={{ color: 'var(--text-secondary)' }}
-      >
-        {variant.name}
-      </div>
-    </button>
-  );
-}
-
-// P1-3: 抽离属性行为独立 memo 组件，避免单个属性编辑触发全部属性行重渲染
-// - editingVal 是 string 原始值，memo 比较生效
-// - 回调用 useCallback 稳定化，避免引用变化导致重渲染
-interface AttributeRowProps {
-  attrKey: string;
-  editingVal: string;
-  onEditingChange: (key: string, val: string) => void;
-  onCommit: (key: string, val: string) => void;
-  onDelete: (key: string) => void;
-}
-
-const AttributeRow = memo(function AttributeRow({
-  attrKey,
-  editingVal,
-  onEditingChange,
-  onCommit,
-  onDelete,
-}: AttributeRowProps) {
-  return (
-    <div
-      className="flex items-center gap-2 px-2 py-1 rounded border"
-      style={{ borderColor: 'var(--border-color)' }}
-    >
-      <span className="text-[10px] font-medium w-16 shrink-0 truncate" style={{ color: 'var(--text-primary)' }}>
-        {attrKey}
-      </span>
-      <input
-        value={editingVal}
-        onChange={(e) => onEditingChange(attrKey, e.target.value)}
-        onBlur={() => onCommit(attrKey, editingVal)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            onCommit(attrKey, editingVal);
-            (e.target as HTMLInputElement).blur();
-          }
-        }}
-        className="flex-1 text-[10px] px-1.5 py-0.5 rounded border outline-none"
-        style={{
-          background: 'var(--bg-input)',
-          borderColor: 'var(--border-color)',
-          color: 'var(--text-primary)',
-        }}
-      />
-      <button
-        onClick={() => onDelete(attrKey)}
-        className="text-[10px] px-1 transition-colors"
-        style={{ color: 'var(--danger)' }}
-        title="删除此属性"
-      >x</button>
-    </div>
-  );
-});
-
-// 简易内嵌版角色编辑器
-function CharacterEditorInline({
-  character,
-  onShowToast,
-  richTextEditorCommandsRef,
-}: {
-  character: {
-    id: string;
-    name: string;
-    personality?: string;
-    notes?: string;
-    avatar?: string;
-    variants?: { id: string; name: string; url: string; order_index: number }[];
-    attributes?: Record<string, string | number>;
-  };
-  onShowToast?: (msg: string) => void;
-  richTextEditorCommandsRef?: React.MutableRefObject<RichTextEditorCommands | null>;
-}) {
-  const updateCharacter = useMetaStore((s) => s.updateCharacter);
-  const deleteCharacter = useMetaStore((s) => s.deleteCharacter);
-  const setEditingCharacter = useMetaStore((s) => s.setEditingCharacter);
-  const addVariant = useMetaStore((s) => s.addCharacterVariant);
-  const updateVariant = useMetaStore((s) => s.updateCharacterVariant);
-  const deleteVariant = useMetaStore((s) => s.deleteCharacterVariant);
-  const reorderVariants = useMetaStore((s) => s.reorderCharacterVariants);
-
-  // 属性相关状态
-  const [attributes, setAttributes] = useState<Record<string, string | number>>(character.attributes || {});
-  // 编辑中的属性值：key=属性名, value=正在输入的值；blur 后清空
-  // 修复：原先在 .map() 回调里调 useState 违反 Rules of Hooks，会触发 React error #310
-  const [editingAttrs, setEditingAttrs] = useState<Record<string, string>>({});
-
-  const updateAttributes = (next: Record<string, string | number>) => {
-    setAttributes(next);
-    updateCharacter(character.id, { attributes: next });
-  };
-
-  // P1-3: 稳定的属性行回调，用 functional setState 避免闭包 stale，使 AttributeRow memo 生效
-  // - handleAttrEditingChange: 输入时仅更新 editingAttrs（不影响 attributes，其他行不重渲染）
-  // - handleAttrCommit: blur/Enter 时提交到 attributes + store，并清空 editingAttrs[key]
-  // - handleAttrDelete: 从 attributes 删除 key + 同步 store
-  const handleAttrEditingChange = useCallback((key: string, val: string) => {
-    setEditingAttrs((prev) => ({ ...prev, [key]: val }));
-  }, []);
-  const handleAttrCommit = useCallback((key: string, val: string) => {
-    setAttributes((prev) => {
-      const next = { ...prev, [key]: val };
-      updateCharacter(character.id, { attributes: next });
-      return next;
-    });
-    setEditingAttrs((prev) => {
-      if (!(key in prev)) return prev;
-      const next = { ...prev };
-      delete next[key];
-      return next;
-    });
-  }, [character.id, updateCharacter]);
-  const handleAttrDelete = useCallback((key: string) => {
-    setAttributes((prev) => {
-      const next = { ...prev };
-      delete next[key];
-      updateCharacter(character.id, { attributes: next });
-      return next;
-    });
-  }, [character.id, updateCharacter]);
-
-  const [name, setName] = useState(character.name || '');
-  const [personality, setPersonality] = useState(character.personality || '');
-  const [notes, setNotes] = useState(character.notes || '');
-  const [avatar, setAvatar] = useState(character.avatar || '');
-  const avatarFileRef = useRef<HTMLInputElement | null>(null);
-  const variantFileRef = useRef<HTMLInputElement | null>(null);
-
-  const [newVariantName, setNewVariantName] = useState('');
-  const [newVariantUrl, setNewVariantUrl] = useState('');
-  const [pendingDelete, setPendingDelete] = useState(false);
-  const [pendingDeleteVariant, setPendingDeleteVariant] = useState<{ id: string; name: string } | null>(null);
-  const [pendingNewAttr, setPendingNewAttr] = useState(false);
-  const [newAttrName, setNewAttrName] = useState('');
-
-  // 订阅本地上传总开关：关闭时把上传按钮置灰
-  const imageStoreMode = useSettingStore((s) => s.imageStoreMode);
-  const localUploadEnabled = useSettingStore((s) => s.localUploadEnabled);
-  const localUploadDisabledReason = '本地上传未启用，请到设置 → 图片存储模式 → 启用本地上传';
-  const isLocalUploadDisabled = !localUploadEnabled;
-
-  // 上传进度弹窗状态
-  const [uploadTasks, setUploadTasks] = useState<UploadProgressEvent[]>([]);
-  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
-
-  useEffect(() => {
-    setName(character.name || '');
-    setPersonality(character.personality || '');
-    setNotes(character.notes || '');
-    setAvatar(character.avatar || '');
-    setAttributes(character.attributes || {});
-    setEditingAttrs({});  // 切换人物时清空编辑状态
-  }, [character.id]);
-
-  const handleSave = () => {
-    updateCharacter(character.id, { name, personality, notes, avatar });
-  };
-
-  const handleDelete = () => {
-    setPendingDelete(true);
-  };
-
-  const handleAvatarFile = async (file: File) => {
-    // 检查本地上传总开关（默认关闭）
-    if (!useSettingStore.getState().localUploadEnabled) {
-      useToastStore
-        .getState()
-        .showToast('本地上传未启用，请到设置 → 图片存储模式 → 启用本地上传', 'error');
-      return;
-    }
-    // 本地模式：先弹警告（统一由全局 store 管理）
-    const confirmed = await ensureLocalWarning();
-    if (!confirmed) return;
-    setUploadTasks([
-      {
-        taskId: `${Date.now()}_0`,
-        fileName: file.name || 'avatar',
-        status: 'pending',
-        progress: 0,
-      },
-    ]);
-    setUploadDialogOpen(true);
-    const [res] = await uploadImagesWithProgress([file], (e) => {
-      setUploadTasks((prev) =>
-        prev.map((t) => (t.taskId === e.taskId ? { ...t, ...e } : t)),
-      );
-    });
-    if (res.ok && res.url) {
-      setAvatar(res.url);
-      updateCharacter(character.id, { avatar: res.url });
-      useToastStore.getState().showToast('头像已更新', 'success');
-    } else {
-      useToastStore
-        .getState()
-        .showToast(`图片上传失败：${res.error || '未知错误'}，请检查网络后重新选择`, 'error');
-    }
-  };
-
-  const handleVariantFile = async (file: File) => {
-    // 检查本地上传总开关（默认关闭）
-    if (!useSettingStore.getState().localUploadEnabled) {
-      useToastStore
-        .getState()
-        .showToast('本地上传未启用，请到设置 → 图片存储模式 → 启用本地上传', 'error');
-      return;
-    }
-    // 本地模式：先弹警告
-    const confirmed = await ensureLocalWarning();
-    if (!confirmed) return;
-    setUploadTasks([
-      {
-        taskId: `${Date.now()}_0`,
-        fileName: file.name || 'variant',
-        status: 'pending',
-        progress: 0,
-      },
-    ]);
-    setUploadDialogOpen(true);
-    const [res] = await uploadImagesWithProgress([file], (e) => {
-      setUploadTasks((prev) =>
-        prev.map((t) => (t.taskId === e.taskId ? { ...t, ...e } : t)),
-      );
-    });
-    if (res.ok && res.url) {
-      setNewVariantUrl(res.url);
-      // 默认差分名 = 图片文件名（去后缀）
-      const defaultName = file.name.replace(/\.[^.]+$/, '');
-      if (defaultName) setNewVariantName(defaultName);
-      useToastStore.getState().showToast('差分图片就绪', 'success');
-    } else {
-      useToastStore
-        .getState()
-        .showToast(`图片上传失败：${res.error || '未知错误'}，请检查网络后重新选择`, 'error');
-    }
-  };
-
-  const handleAddVariant = () => {
-    const url = newVariantUrl.trim();
-    if (!url) return;
-    const vname = newVariantName.trim() || `差分 ${(character.variants || []).length + 1}`;
-    addVariant(character.id, { name: vname, url });
-    setNewVariantName('');
-    setNewVariantUrl('');
-  };
-
-  const moveVariant = (id: string, dir: -1 | 1) => {
-    const list = [...(character.variants || [])];
-    const i = list.findIndex((v) => v.id === id);
-    if (i < 0) return;
-    const j = i + dir;
-    if (j < 0 || j >= list.length) return;
-    [list[i], list[j]] = [list[j], list[i]];
-    reorderVariants(character.id, list.map((v) => v.id));
-  };
-
-  const inputStyle = { 
-    background: 'var(--bg-input)', 
-    borderColor: 'var(--border-color)', 
-    color: 'var(--text-primary)' 
-  } as React.CSSProperties;
-  const labelColor = 'var(--text-secondary)';
-
-  return (
-    <div className="p-3 space-y-3" style={{ background: 'var(--bg-card)' }}>
-      {/* 头像 */}
-      <div className="flex items-start gap-3">
-        <div
-          className="shrink-0 w-16 h-16 rounded-lg flex items-center justify-center text-2xl cursor-pointer overflow-hidden border"
-          style={{
-            background: 'var(--bg-page)',
-            borderColor: 'var(--border-color)',
-            opacity: isLocalUploadDisabled ? 0.45 : 1,
-            cursor: isLocalUploadDisabled ? 'not-allowed' : 'pointer',
-          }}
-          onClick={() => {
-            if (isLocalUploadDisabled) {
-              useToastStore.getState().showToast(localUploadDisabledReason, 'error');
-              return;
-            }
-            avatarFileRef.current?.click();
-          }}
-          title={isLocalUploadDisabled ? localUploadDisabledReason : '点击更换头像'}
-        >
-          {avatar ? (
-            <img
-              src={avatar}
-              alt={name}
-              loading="lazy"
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                (e.currentTarget as HTMLImageElement).style.display = 'none';
-              }}
-            />
-          ) : (
-            <span className="inline-flex items-center justify-center" style={{ color: 'var(--text-secondary)' }}>
-              <Icon name="user" size={14} />
-            </span>
-          )}
-        </div>
-        <input
-          ref={avatarFileRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) handleAvatarFile(file);
-            e.target.value = '';
-          }}
-        />
-        <div className="flex-1 space-y-2">
-          <div>
-            <label className="block text-[10px] font-medium mb-1" style={{ color: labelColor }}>姓名</label>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onBlur={handleSave}
-              className="w-full px-2 py-1.5 text-xs rounded-md border outline-none"
-              style={{ ...inputStyle, outline: 'none' }}
-              placeholder="角色姓名"
-            />
-          </div>
-          <div>
-            <label className="block text-[10px] font-medium mb-1" style={{ color: labelColor }}>性格/特征</label>
-            <input
-              value={personality}
-              onChange={(e) => setPersonality(e.target.value)}
-              onBlur={handleSave}
-              className="w-full px-2 py-1.5 text-xs rounded-md border outline-none"
-              style={inputStyle}
-              placeholder="例如：开朗、冷静、勇敢"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* 描述 */}
-      <div>
-        <label className="block text-[10px] font-medium mb-1" style={{ color: labelColor }}>备注/详情</label>
-        <textarea
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          onBlur={handleSave}
-          rows={4}
-          className="w-full px-2 py-2 text-xs rounded-md border outline-none resize-y leading-relaxed"
-          style={inputStyle}
-          placeholder="背景、外貌、技能等详细描述..."
-        />
-      </div>
-
-      {/* 属性展示（可编辑） */}
-      <div>
-        <div className="flex items-center justify-between mb-1">
-          <label className="block text-[10px] font-medium" style={{ color: labelColor }}>角色属性</label>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px]" style={{ color: labelColor }}>
-              {Object.keys(attributes || {}).length} 项
-            </span>
-            <button
-              onClick={() => setPendingNewAttr(true)}
-              className="text-[10px] px-2 py-0.5 rounded transition-colors font-medium inline-flex items-center gap-0.5"
-              style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
-              title="添加新属性"
-            >
-              + 添加属性
-            </button>
-          </div>
-        </div>
-        {Object.keys(attributes || {}).length === 0 ? (
-          <div className="text-[10px] italic text-center py-2" style={{ color: labelColor }}>暂无属性，点击上方添加</div>
-        ) : (
-          <div className="space-y-1">
-            {Object.entries(attributes || {}).map(([key, value]) => (
-              <AttributeRow
-                key={key}
-                attrKey={key}
-                editingVal={editingAttrs[key] ?? String(value)}
-                onEditingChange={handleAttrEditingChange}
-                onCommit={handleAttrCommit}
-                onDelete={handleAttrDelete}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* 差分管理 */}
-      <div>
-        <div className="flex items-center justify-between mb-1">
-          <label className="block text-[10px] font-medium" style={{ color: labelColor }}>
-            人物差分（表情/姿势/服饰等图片变体）
-          </label>
-          <span className="text-[10px]" style={{ color: labelColor }}>
-            {(character.variants || []).length} 个
-          </span>
-        </div>
-
-        {(character.variants || []).length === 0 && (
-          <div className="text-[10px] italic text-center py-1 mb-1" style={{ color: labelColor }}>
-            暂无差分
-          </div>
-        )}
-
-        <div className="space-y-1 mb-2">
-          {(character.variants || []).map((v, idx) => (
-            <div
-              key={v.id}
-              className="flex items-center gap-1.5 px-1.5 py-1 rounded border"
-              style={{ borderColor: 'var(--border-color)' }}
-            >
-              <div
-                className="w-8 h-8 rounded shrink-0 relative overflow-hidden"
-                style={{ background: 'var(--bg-input)', border: '1px solid var(--border-color)' }}
-              >
-                <img
-                  src={v.url}
-                  alt={v.name}
-                  loading="lazy"
-                  className="absolute inset-0 w-full h-full object-cover"
-                  onError={(e) => {
-                    const img = e.currentTarget as HTMLImageElement;
-                    img.style.display = 'none';
-                    const fallback = img.parentElement?.querySelector('.img-fallback') as HTMLElement | null;
-                    if (fallback) fallback.style.display = 'flex';
-                    console.warn('[VariantImage] 加载失败:', v.url);
-                  }}
-                />
-                <div
-                  className="img-fallback absolute inset-0 hidden items-center justify-center text-[10px] font-semibold"
-                  style={{ color: 'var(--text-muted, #999)' }}
-                >
-                  {(v.name || '?').charAt(0)}
-                </div>
-              </div>
-              <input
-                value={v.name}
-                onChange={(e) => updateVariant(v.id, { name: e.target.value })}
-                placeholder="差分名称"
-                className="flex-1 min-w-0 px-1.5 py-1 text-[10px] rounded border outline-none"
-                style={inputStyle}
-              />
-              <input
-                value={v.url}
-                onChange={(e) => updateVariant(v.id, { url: e.target.value })}
-                placeholder="图片 URL"
-                className="flex-1 min-w-0 px-1.5 py-1 text-[10px] rounded border outline-none"
-                style={inputStyle}
-              />
-              <button
-                onClick={() => moveVariant(v.id, -1)}
-                disabled={idx === 0}
-                className="text-[10px] px-1 py-0.5 rounded border disabled:opacity-30"
-                style={{ 
-                  background: 'var(--bg-base)', 
-                  color: 'var(--text-secondary)', 
-                  borderColor: 'var(--border-color)' 
-                }}
-                title="上移"
-              >
-                ↑
-              </button>
-              <button
-                onClick={() => moveVariant(v.id, 1)}
-                disabled={idx === (character.variants || []).length - 1}
-                className="text-[10px] px-1 py-0.5 rounded border disabled:opacity-30"
-                style={{ 
-                  background: 'var(--bg-base)', 
-                  color: 'var(--text-secondary)', 
-                  borderColor: 'var(--border-color)' 
-                }}
-                title="下移"
-              >
-                ↓
-              </button>
-              <button
-                onClick={() => {
-                  if (richTextEditorCommandsRef?.current) {
-                    richTextEditorCommandsRef.current.insertImage(v.url, NGA_DEFAULT_IMAGE_SIZE);
-                    onShowToast?.(`已插入差分：${v.name}`);
-                  }
-                }}
-                disabled={!richTextEditorCommandsRef?.current}
-                className="text-[10px] px-1 py-0.5 rounded border transition-colors disabled:opacity-30"
-                style={{ background: 'var(--accent-bg)', color: 'var(--accent)', borderColor: 'var(--accent)' }}
-                title="插入到编辑器"
-              >
-                插入
-              </button>
-              <button
-                onClick={() => {
-                  setPendingDeleteVariant({ id: v.id, name: v.name });
-                }}
-                className="text-[10px] px-1 py-0.5 rounded"
-                style={{ background: 'var(--danger-soft)', color: 'var(--danger)' }}
-                title="删除"
-              >
-                <Icon name="x" size={14} />
-              </button>
-            </div>
-          ))}
-        </div>
-
-        <div className="flex items-center gap-1.5">
-          <input
-            value={newVariantName}
-            onChange={(e) => setNewVariantName(e.target.value)}
-            placeholder="差分名称（可空）"
-            className="w-28 px-1.5 py-1 text-[10px] rounded border outline-none"
-            style={inputStyle}
-          />
-          <input
-            value={newVariantUrl}
-            onChange={(e) => setNewVariantUrl(e.target.value)}
-            placeholder="图片 URL 或上传"
-            className="flex-1 min-w-0 px-1.5 py-1 text-[10px] rounded border outline-none"
-            style={inputStyle}
-          />
-          <button
-            onClick={() => {
-              if (isLocalUploadDisabled) {
-                useToastStore.getState().showToast(localUploadDisabledReason, 'error');
-                return;
-              }
-              variantFileRef.current?.click();
-            }}
-            disabled={isLocalUploadDisabled}
-            className="text-[10px] px-1.5 py-1 rounded border"
-            style={{
-              background: 'var(--bg-sidebar)',
-              color: 'var(--text-primary)',
-              borderColor: 'var(--border-color)',
-              opacity: isLocalUploadDisabled ? 0.45 : 1,
-              cursor: isLocalUploadDisabled ? 'not-allowed' : 'pointer',
-            }}
-            title={isLocalUploadDisabled ? localUploadDisabledReason : '上传'}
-          >
-            <Icon name="folder" size={14} />
-          </button>
-          <input
-            ref={variantFileRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) handleVariantFile(file);
-              e.target.value = '';
-            }}
-          />
-          <button
-            onClick={handleAddVariant}
-            disabled={!newVariantUrl.trim()}
-            className="text-[10px] px-2 py-1 rounded disabled:opacity-40"
-            style={{ background: 'var(--success)', color: 'var(--text-on-accent)' }}
-          >
-            + 添加
-          </button>
-        </div>
-      </div>
-
-      {/* 操作 */}
-      <div className="flex items-center justify-between pt-1">
-        <button
-          onClick={handleDelete}
-          className="px-2 py-1 text-[10px] rounded-md transition-colors"
-          style={{ background: 'var(--danger-soft)', color: 'var(--danger)' }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'var(--danger)';
-            e.currentTarget.style.color = 'var(--text-on-accent)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'var(--danger-soft)';
-            e.currentTarget.style.color = 'var(--danger)';
-          }}
-        >
-          <span className="inline-flex items-center gap-1">
-            <Icon name="trash" size={14} />
-            删除角色
-          </span>
-        </button>
-        <button
-          onClick={handleSave}
-          className="px-2 py-1 text-[10px] rounded-md transition-colors"
-          style={{ background: 'var(--accent-bg)', color: 'var(--accent)', border: '1px solid var(--accent)' }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'var(--accent)';
-            e.currentTarget.style.color = 'var(--text-on-accent)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'var(--accent-bg)';
-            e.currentTarget.style.color = 'var(--accent)';
-          }}
-        >
-          <span className="inline-flex items-center gap-1">
-            <Icon name="check" size={14} />
-            保存
-          </span>
-        </button>
-      </div>
-
-      {pendingDelete && (
-        <ConfirmDialog
-          open={true}
-          title="删除确认"
-          message={`确定删除角色"${name || '未命名'}"？此操作不可撤销。`}
-          danger
-          onConfirm={() => {
-            deleteCharacter(character.id);
-            setEditingCharacter(null);
-            useToastStore.getState().showToast('已删除', 'success');
-            setPendingDelete(false);
-          }}
-          onCancel={() => setPendingDelete(false)}
-        />
-      )}
-
-      {pendingDeleteVariant && (
-        <ConfirmDialog
-          open={true}
-          title="删除确认"
-          message={`确定删除差分"${pendingDeleteVariant.name}"？`}
-          danger
-          onConfirm={() => {
-            deleteVariant(pendingDeleteVariant.id);
-            setPendingDeleteVariant(null);
-          }}
-          onCancel={() => setPendingDeleteVariant(null)}
-        />
-      )}
-
-      {pendingNewAttr && (
-        <InputDialog
-          open={true}
-          title="添加属性"
-          placeholder="属性名（如：HP、力量、职业…）"
-          defaultValue={newAttrName}
-          confirmText="添加"
-          onConfirm={(value: string) => {
-            const k = value.trim();
-            if (!k) {
-              setPendingNewAttr(false);
-              return;
-            }
-            if (attributes[k] !== undefined) {
-              onShowToast?.(`属性"${k}"已存在`);
-              return;
-            }
-            updateAttributes({ ...attributes, [k]: '' });
-            setNewAttrName('');
-            setPendingNewAttr(false);
-          }}
-          onCancel={() => {
-            setNewAttrName('');
-            setPendingNewAttr(false);
-          }}
-        />
-      )}
-
-      {/* 上传进度弹窗 */}
-      <UploadProgressDialog
-        open={uploadDialogOpen}
-        tasks={uploadTasks}
-        onClose={() => setUploadDialogOpen(false)}
-      />
-    </div>
-  );
-}
-
-interface BottomStatusBarProps {
-  editorMode: 'visual' | 'bbcode';
-  onSwitchMode: (mode: 'visual' | 'bbcode') => void;
-}
-
-// ========== 节编辑区上方面包屑（卷·章·节路径） ==========
-// 性能优化:memo 包裹,避免父组件 re-render 时无谓刷新
-const EditorBreadcrumb = memo(function EditorBreadcrumb({
-  volumeIdx,
-  volumeTitle,
-  chapterIdx,
-  chapterTitle,
-  sectionTitle,
-}: {
-  volumeIdx: number;
-  volumeTitle: string;
-  chapterIdx: number;
-  chapterTitle: string;
-  sectionTitle: string;
-}) {
-  return (
-    <div
-      className="shrink-0 flex items-center gap-1.5 px-4 py-1.5 text-[11px] flex-wrap"
-      style={{
-        background: 'var(--bg-card)',
-        borderBottom: '1px solid var(--border-color)',
-        color: 'var(--text-secondary)',
-      }}
-    >
-      <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
-        {volumeTitle || '未命名卷'}
-      </span>
-      <span style={{ color: 'var(--border-color)' }}>›</span>
-      <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
-        {chapterTitle || '未命名章'}
-      </span>
-      <span style={{ color: 'var(--border-color)' }}>›</span>
-      <span className="font-semibold" style={{ color: 'var(--accent)' }}>
-        {sectionTitle || '未命名节'}
-      </span>
-    </div>
-  );
-});
-
-function BottomStatusBar({
-  editorMode,
-  onSwitchMode,
-}: BottomStatusBarProps) {
-  const selectionStats = useEditorStore((s) => s.selectionStats);
-  const cursorStyles = useEditorStore((s) => s.cursorStyles) ?? {};
-  const tabStyle = (active: boolean): CSSProperties => ({
-    padding: '6px 14px',
-    fontSize: 12,
-    fontWeight: 500,
-    border: 'none',
-    borderRadius: 6,
-    cursor: 'pointer',
-    transition: 'all 0.15s',
-    background: active ? 'var(--accent)' : 'var(--bg-hover)',
-    color: active ? 'var(--text-on-accent)' : 'var(--text-secondary)',
-  });
-
-  // 解析当前样式为标签文字（Word 风格格式查看器）
-  const styleLabels: string[] = [];
-  if (cursorStyles.bold) styleLabels.push('粗');
-  if (cursorStyles.italic) styleLabels.push('斜');
-  if (cursorStyles.underline) styleLabels.push('下划');
-  if (cursorStyles.strike) styleLabels.push('删');
-  if (cursorStyles.sup) styleLabels.push('上标');
-  if (cursorStyles.sub) styleLabels.push('下标');
-  // 字体名（去掉引号，截短）
-  const fontName = cursorStyles.fontFamily
-    ? cursorStyles.fontFamily.replace(/['"]/g, '').split(',')[0]?.trim() || ''
-    : '';
-  // 字号（去掉 px/pt）
-  const fontSize = cursorStyles.fontSize
-    ? cursorStyles.fontSize.replace(/px|pt|%/g, '').trim()
-    : '';
-  // 颜色（短写：#ff0000 → 红 / 标签）
-  const colorLabel = (() => {
-    const c = cursorStyles.color;
-    if (!c) return '';
-    if (c === '#000000' || c === 'rgb(0, 0, 0)' || c === 'black') return '黑';
-    if (c === '#ff0000' || c === 'red') return '红';
-    if (c === '#0000ff' || c === 'blue') return '蓝';
-    if (c === '#008000' || c === 'green') return '绿';
-    if (c === '#ffff00' || c === 'yellow') return '黄';
-    if (c === '#ffa500' || c === 'orange') return '橙';
-    if (c === '#800080' || c === 'purple') return '紫';
-    if (c === '#ffffff' || c === 'white') return '白';
-    return c;
-  })();
-  const hasAnyStyle = styleLabels.length > 0 || fontName || fontSize || colorLabel;
-  const hasSelection = !!selectionStats;
-
-  return (
-    <footer
-      className="shrink-0 flex items-center justify-between px-4 py-2 text-xs"
-      style={{ background: 'var(--bg-card)', borderTop: '1px solid var(--border-color)' }}
-    >
-      {/* 左侧：视图切换 */}
-      <div
-        className="flex items-center gap-1 p-0.5 rounded-lg"
-        style={{ background: 'var(--bg-hover)' }}
-      >
-        <button
-          onClick={() => onSwitchMode('visual')}
-          style={tabStyle(editorMode === 'visual')}
-          onMouseEnter={(e) => {
-            if (editorMode !== 'visual') {
-              e.currentTarget.style.color = 'var(--text-primary)';
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (editorMode !== 'visual') {
-              e.currentTarget.style.color = 'var(--text-secondary)';
-            }
-          }}
-        >
-          <span className="inline-flex items-center gap-1">
-            <Icon name="palette" size={14} />
-            可视化编辑
-          </span>
-        </button>
-        <button
-          onClick={() => onSwitchMode('bbcode')}
-          style={tabStyle(editorMode === 'bbcode')}
-          onMouseEnter={(e) => {
-            if (editorMode !== 'bbcode') {
-              e.currentTarget.style.color = 'var(--text-primary)';
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (editorMode !== 'bbcode') {
-              e.currentTarget.style.color = 'var(--text-secondary)';
-            }
-          }}
-        >
-          <span className="inline-flex items-center gap-1">
-            <Icon name="pen" size={14} />
-            BBcode编辑
-          </span>
-        </button>
-      </div>
-
-      {/* 右侧：当前视图模式提示 + 快捷提示 */}
-      <div className="flex items-center gap-3" style={{ color: 'var(--text-secondary)' }}>
-        {selectionStats && (
-          <span style={{ color: 'var(--accent)' }}>
-            选中：{selectionStats.words} 字{selectionStats.dice > 0 ? ` · ${selectionStats.dice} 原子块` : ''}
-          </span>
-        )}
-        {/* 当前样式（Word 风格格式查看器） */}
-        {hasAnyStyle && (
-          <span
-            style={{
-              color: 'var(--text-primary)',
-              background: 'var(--bg-hover)',
-              padding: '2px 8px',
-              borderRadius: 4,
-              maxWidth: 360,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-            title={hasSelection ? '选区起点处的样式' : '光标处样式'}
-          >
-            {hasSelection ? '选区样式' : '光标样式'}：
-            {styleLabels.length > 0 && (
-              <span style={{ color: 'var(--accent)' }}>[{styleLabels.join('/')}]</span>
-            )}
-            {fontName && <span> {fontName}</span>}
-            {fontSize && <span> {fontSize}px</span>}
-            {colorLabel && <span> {colorLabel}</span>}
-          </span>
-        )}
-        <span className="hidden md:inline">
-          {editorMode === 'visual' ? (
-            <span className="inline-flex items-center gap-1">
-              <Icon name="lightbulb" size={14} />
-              可直接使用工具栏富文本编辑
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1">
-              <Icon name="lightbulb" size={14} />
-              可直接 Ctrl+V 粘贴 BBCode；编辑后切回可视化查看效果
-            </span>
-          )}
-        </span>
-      </div>
-    </footer>
-  );
-}
-
-// ========== BBCode 视图编辑器：受控 textarea + 300ms 防抖回写 ==========
-function BBCodeEditor({
-  value,
-  onChange,
-  onDebouncedChange,
-  onUndo,
-  onRedo,
-  textareaRef: externalTextareaRef,
-  onSearchOpen,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  onDebouncedChange: (v: string) => void;
-  onUndo: () => void;
-  onRedo: () => void;
-  textareaRef?: React.RefObject<HTMLTextAreaElement | null>;
-  onSearchOpen?: () => void;
-}) {
-  const localRef = useRef<number | null>(null);
-  const internalTextareaRef = useRef<HTMLTextAreaElement>(null);
-  const textareaRef = externalTextareaRef ?? internalTextareaRef;
-  // 自定义右键菜单（与可视化视图一致：复制/粘贴/在当前节搜索）
-  const [ctxMenu, setCtxMenu] = useState<{
-    x: number;
-    y: number;
-    hasSelection: boolean;
-  } | null>(null);
-
-  useEffect(() => {
-    if (localRef.current !== null) {
-      window.clearTimeout(localRef.current);
-    }
-    localRef.current = window.setTimeout(() => {
-      onDebouncedChange(value);
-    }, 300);
-    return () => {
-      if (localRef.current !== null) {
-        window.clearTimeout(localRef.current);
-      }
-    };
-  }, [value, onDebouncedChange]);
-
-  // 拦截 Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z，走自定义历史栈
-  // 不拦截 Ctrl+V / Ctrl+X / Ctrl+A（保留粘贴/剪切/全选等默认行为）
-  // Ctrl+F 打开节内搜索
-  // Tab 键：插入 4 个空格（NGA BBCode 不识别 \t）
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // Tab 键：插入 4 个普通空格，避免焦点切换
-    if (e.key === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey) {
-      e.preventDefault();
-      const ta = textareaRef.current;
-      if (!ta) return;
-      const start = ta.selectionStart;
-      const end = ta.selectionEnd;
-      const insert = '    ';
-      const newValue = value.slice(0, start) + insert + value.slice(end);
-      onChange(newValue);
-      // 恢复光标位置（在 React 更新后）
-      requestAnimationFrame(() => {
-        if (textareaRef.current) {
-          textareaRef.current.selectionStart = textareaRef.current.selectionEnd = start + insert.length;
-        }
-      });
-      return;
-    }
-    const ctrl = e.ctrlKey || e.metaKey;
-    if (!ctrl) return;
-    const key = e.key.toLowerCase();
-    if (key === 'f') {
-      e.preventDefault();
-      onSearchOpen?.();
-      return;
-    }
-    if (key === 'z' && !e.shiftKey) {
-      e.preventDefault();
-      onUndo();
-      return;
-    }
-    if (key === 'y' || (key === 'z' && e.shiftKey)) {
-      e.preventDefault();
-      onRedo();
-      return;
-    }
-  };
-
-  return (
-    <div
-      className="flex-1 min-h-0 overflow-hidden p-3"
-      style={{ background: 'var(--bg-input)' }}
-    >
-      <textarea
-        ref={textareaRef}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onKeyDown={handleKeyDown}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          const ta = textareaRef.current;
-          const hasSelection = !!(ta && ta.selectionStart !== ta.selectionEnd);
-          setCtxMenu({ x: e.clientX, y: e.clientY, hasSelection });
-        }}
-        spellCheck={false}
-        placeholder="在此直接编辑 BBCode 文本（或 Ctrl+V 粘贴 NGA 帖子的 BBCode）…"
-        className="w-full h-full p-3 rounded-lg outline-none resize-none font-mono text-sm leading-relaxed"
-        style={{
-          background: 'var(--bg-card)',
-          color: 'var(--text-primary)',
-          border: '1px solid var(--border-color)',
-        }}
-      />
-      {ctxMenu && (
-        <ContextMenu
-          x={ctxMenu.x}
-          y={ctxMenu.y}
-          onClose={() => setCtxMenu(null)}
-          items={[
-            {
-              label: '复制',
-              disabled: !ctxMenu.hasSelection,
-              onClick: () => {
-                const ta = textareaRef.current;
-                if (!ta) return;
-                const text = ta.value.substring(ta.selectionStart, ta.selectionEnd);
-                if (!text) return;
-                navigator.clipboard
-                  .writeText(text)
-                  .then(() => {
-                    useToastStore.getState().showToast('已复制', 'success');
-                  })
-                  .catch(() => {
-                    ta.focus();
-                    document.execCommand('copy');
-                  });
-                setCtxMenu(null);
-              },
-            },
-            {
-              label: '粘贴',
-              onClick: async () => {
-                try {
-                  const text = await navigator.clipboard.readText();
-                  if (!text) {
-                    setCtxMenu(null);
-                    return;
-                  }
-                  const ta = textareaRef.current;
-                  if (!ta) return;
-                  ta.focus();
-                  const start = ta.selectionStart;
-                  const end = ta.selectionEnd;
-                  const newVal = ta.value.substring(0, start) + text + ta.value.substring(end);
-                  onChange(newVal);
-                  // 粘贴后光标移到插入内容末尾（下一帧执行，确保 value 已更新）
-                  requestAnimationFrame(() => {
-                    if (textareaRef.current) {
-                      textareaRef.current.selectionStart = textareaRef.current.selectionEnd =
-                        start + text.length;
-                    }
-                  });
-                } catch (err) {
-                  useToastStore
-                    .getState()
-                    .showToast('粘贴失败：' + (err as Error).message, 'error');
-                }
-                setCtxMenu(null);
-              },
-            },
-            {
-              label: '在当前节中搜索',
-              onClick: () => {
-                setCtxMenu(null);
-                onSearchOpen?.();
-              },
-            },
-          ]}
-        />
-      )}
-    </div>
-  );
-}

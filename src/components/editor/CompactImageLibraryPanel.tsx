@@ -101,18 +101,17 @@ export function CompactImageLibraryPanel({ onInsertImage }: CompactImageLibraryP
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* 面包屑 + 返回上级 */}
-      <div className="flex items-center gap-1 px-2 py-1.5 border-b" style={{ borderColor: 'var(--border-color)' }}>
+      <div className="border-[color:var(--border-color)] flex items-center gap-1 px-2 py-1.5 border-b">
         {breadcrumb.length > 1 && (
           <button
             onClick={handleGoUp}
-            className="px-1.5 py-0.5 text-xs rounded shrink-0"
-            style={{ color: 'var(--text-secondary)' }}
+            className="text-[var(--text-secondary)] px-1.5 py-0.5 text-xs rounded shrink-0"
             title="返回上级"
           >
             ←
           </button>
         )}
-        <div className="flex items-center gap-0.5 overflow-x-auto text-xs flex-1" style={{ color: 'var(--text-secondary)' }}>
+        <div className="text-[var(--text-secondary)] flex items-center gap-0.5 overflow-x-auto text-xs flex-1">
           {breadcrumb.map((b, idx) => (
             <span key={`${b.id ?? 'root'}-${idx}`} className="flex items-center gap-0.5 shrink-0">
               {idx > 0 && <span>/</span>}
@@ -131,11 +130,11 @@ export function CompactImageLibraryPanel({ onInsertImage }: CompactImageLibraryP
       {/* 内容区 */}
       <div className="flex-1 overflow-y-auto p-2">
         {loading ? (
-          <div className="flex items-center justify-center h-16 text-xs" style={{ color: 'var(--text-secondary)' }}>
+          <div className="text-[var(--text-secondary)] flex items-center justify-center h-16 text-xs">
             加载中...
           </div>
         ) : folders.length === 0 && items.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-16 text-xs" style={{ color: 'var(--text-secondary)' }}>
+          <div className="text-[var(--text-secondary)] flex flex-col items-center justify-center h-16 text-xs">
             <span className="flex justify-center text-xl mb-1"><Icon name="inbox" size={24} /></span>
             空
           </div>
@@ -149,8 +148,7 @@ export function CompactImageLibraryPanel({ onInsertImage }: CompactImageLibraryP
                     <button
                       key={f.id}
                       onClick={() => handleEnterFolder(f)}
-                      className="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors"
-                      style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
+                      className="bg-[var(--bg-hover)] text-[var(--text-primary)] flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors"
                       onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-bg)'; }}
                       onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
                     >
@@ -168,8 +166,7 @@ export function CompactImageLibraryPanel({ onInsertImage }: CompactImageLibraryP
                   <button
                     key={item.id}
                     onClick={() => onInsertImage(item.url)}
-                    className="group relative aspect-square rounded overflow-hidden border cursor-pointer transition-all"
-                    style={{ background: 'var(--bg-hover)', borderColor: 'var(--border-color)' }}
+                    className="bg-[var(--bg-hover)] border-[color:var(--border-color)] group relative aspect-square rounded overflow-hidden border cursor-pointer transition-all"
                     onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; }}
                     onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; }}
                     title={`插入：${item.filename}`}

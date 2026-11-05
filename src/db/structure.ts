@@ -345,6 +345,10 @@ export async function updateSection(
   }
   const now = nowISO()
   const updates: Record<string, unknown> = { ...patch, updated_at: now }
+  // 与 Electron 后端一致：正文变更时重算本节字数
+  if (patch.content !== undefined) {
+    updates.word_count = countWordsInHtml(patch.content)
+  }
   doUpdate('sections', id, updates)
   return Promise.resolve(getSQL<Section>('SELECT * FROM sections WHERE id = ?', id))
 }
@@ -362,34 +366,50 @@ export async function getSectionContent(sectionId: string): Promise<string | nul
   return Promise.resolve(row ? row.content || null : null)
 }
 
-export async function setSectionContent(sectionId: string, content: string | null): Promise<void> {
+/** 读取节的 BBCode 缓存（用于 BBCode 视图初始化；不存在时返回 null，由调用方按需派生） */
+export async function getSectionBBCode(sectionId: string): Promise<string | null> {
   if (window.dbAPI) {
-    await window.dbAPI.setSectionContent(sectionId, content)
+    return window.dbAPI.getSectionBBCode(sectionId)
+  } else if (isBrowserDBAvailable()) {
+    return BROWSER_DB.getSectionBBCode(sectionId)
+  }
+  const row = getSQL<{ bbcode: string | null }>(
+    'SELECT bbcode FROM sections WHERE id = ?',
+    sectionId,
+  )
+  return Promise.resolve(row ? row.bbcode || null : null)
+}
+
+/**
+ * 写入节正文。`bbcode` 显式传入时与 content 同一次写入（单事实来源 = content，
+ * BBCode 是同一份数据派生的缓存），保证切换视图永远一致。
+ */
+export async function setSectionContent(
+  sectionId: string,
+  content: string | null,
+  bbcode?: string | null,
+): Promise<void> {
+  if (window.dbAPI) {
+    await window.dbAPI.setSectionContent(sectionId, content, bbcode)
     return
   } else if (isBrowserDBAvailable()) {
-    await BROWSER_DB.setSectionContent(sectionId, content)
+    await BROWSER_DB.setSectionContent(sectionId, content, bbcode)
     return
   }
   const now = nowISO()
   const wc = countWordsInHtml(content)
-  runSQL('UPDATE sections SET content = ?, word_count = ?, updated_at = ? WHERE id = ?', content, wc, now, sectionId)
-  return Promise.resolve()
-}
-
-/**
- * 设置节的原始 BBCode 文本（来自"收集安科"导入的节；BBCode 视图优先用本字段）
- * 与 setSectionContent 独立：用户编辑 BBCode 视图时同时更新两字段，保证切换视图不丢内容
- */
-export async function setSectionBBCode(sectionId: string, bbcode: string | null): Promise<void> {
-  if (window.dbAPI) {
-    await window.dbAPI.setSectionBBCode?.(sectionId, bbcode)
-    return
-  } else if (isBrowserDBAvailable()) {
-    await BROWSER_DB.setSectionBBCode?.(sectionId, bbcode)
-    return
+  if (bbcode === undefined) {
+    runSQL('UPDATE sections SET content = ?, word_count = ?, updated_at = ? WHERE id = ?', content, wc, now, sectionId)
+  } else {
+    runSQL(
+      'UPDATE sections SET content = ?, bbcode = ?, word_count = ?, updated_at = ? WHERE id = ?',
+      content,
+      bbcode,
+      wc,
+      now,
+      sectionId,
+    )
   }
-  const now = nowISO()
-  runSQL('UPDATE sections SET bbcode = ?, updated_at = ? WHERE id = ?', bbcode, now, sectionId)
   return Promise.resolve()
 }
 
@@ -437,6 +457,8 @@ export async function moveSections(
     await BROWSER_DB.moveSections(targetChapterId, orderedIds)
     return
   }
+  // 与 Electron 后端一致：没有有效目标章时整体 no-op
+  if (!targetChapterId) return Promise.resolve()
   const now = nowISO()
   orderedIds.forEach((id, i) => {
     runSQL(

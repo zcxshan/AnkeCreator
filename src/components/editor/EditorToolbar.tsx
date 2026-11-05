@@ -43,7 +43,7 @@ import {
   isItalicFullyActive,
   isUnderlineFullyActive,
   isStrikeFullyActive,
-} from '../../editor';
+} from '../../editor/tiptap/selectionPredicates';
 import { createAnkeToolbarCommands, type AnkeToolbarCommands } from '../../editor/tiptap/toolbarCommands';
 import { useEditorStore } from '../../store/editorStore';
 import { useSettingStore } from '../../store/settingStore';
@@ -101,7 +101,7 @@ const toolbarBtn: React.CSSProperties = {
   border: '1px solid transparent',
   background: 'transparent',
   color: 'var(--text-primary)',
-  borderRadius: 4,
+  borderRadius: 'var(--radius-sm)',
   cursor: 'pointer',
   display: 'inline-flex',
   alignItems: 'center',
@@ -130,7 +130,7 @@ const selectNga: React.CSSProperties = {
   border: '1px solid var(--border-color)',
   background: 'var(--bg-card)',
   color: 'var(--text-primary)',
-  borderRadius: 4,
+  borderRadius: 'var(--radius-sm)',
   cursor: 'pointer',
   lineHeight: 1,
   transition: 'border-color 0.15s, box-shadow 0.15s',
@@ -142,7 +142,7 @@ const fontSizeGroupStyle: React.CSSProperties = {
   alignItems: 'center',
   gap: 3,
   padding: '2px 6px',
-  borderRadius: 6,
+  borderRadius: 'var(--radius-control)',
   background: 'var(--bg-input, var(--bg-card))',
   border: '1px solid var(--border-color)',
   transition: 'border-color 0.15s',
@@ -167,9 +167,9 @@ const popoverPanel: React.CSSProperties = {
   zIndex: 50,
   background: 'var(--bg-card)',
   border: '1px solid var(--border-color)',
-  borderRadius: 6,
+  borderRadius: 'var(--radius-control)',
   padding: 8,
-  boxShadow: '0 6px 20px rgba(0,0,0,0.15)',
+  boxShadow: 'var(--shadow-tooltip)',
   display: 'flex',
   flexDirection: 'column',
   gap: 6,
@@ -181,7 +181,7 @@ const popoverInput: React.CSSProperties = {
   padding: '0 8px',
   fontSize: 12,
   border: '1px solid var(--border-color)',
-  borderRadius: 4,
+  borderRadius: 'var(--radius-sm)',
   background: 'var(--bg-input)',
   color: 'var(--text-primary)',
   outline: 'none',
@@ -233,13 +233,7 @@ function ToolbarBtn({
 function GroupDivider() {
   return (
     <span
-      style={{
-        display: 'inline-block',
-        width: 1,
-        height: 16,
-        background: 'var(--border-color)',
-        margin: '0 6px',
-      }}
+      className="inline-block w-[1px] h-[16px] bg-[var(--border-color)] my-[0px] mx-[6px]"
     />
   );
 }
@@ -712,38 +706,19 @@ export function EditorToolbar({
 
   return (
     <div
-      className="mobile-toolbar-root"
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        padding: '6px 12px',
-        background: 'var(--bg-toolbar)',
-        borderBottom: '1px solid var(--border-color)',
-        position: 'relative',
-      }}
+      className="flex flex-col py-[6px] px-[12px] bg-[var(--bg-toolbar)] border-b border-b-[color:var(--border-color)] relative mobile-toolbar-root"
     >
       <input
         type="file"
         accept="image/*"
         ref={fileInputRef}
         onChange={handleFile}
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          width: 1,
-          height: 1,
-          opacity: 0,
-          overflow: 'hidden',
-          border: 0,
-          padding: 0,
-          pointerEvents: 'none',
-        }}
+        className="absolute top-0 left-0 w-[1px] h-[1px] opacity-[0] overflow-hidden border-[0px] p-[0px] pointer-events-none"
       />
 
       {/* 折叠状态下：仅显示一个右对齐的展开按钮，不占用完整行高 */}
       {styleRowCollapsed && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '2px 0' }}>
+        <div className="flex justify-end py-[2px]">
           <ToolbarBtn
             title="展开所有样式工具"
             onClick={() => setStyleRowCollapsed((v) => !v)}
@@ -842,7 +817,7 @@ export function EditorToolbar({
 
         <div style={groupContainer}>
           {/* 颜色：24 色，NGA 标准，带色块下拉 */}
-          <div style={{ position: 'relative' }} ref={colorPickerRef}>
+          <div className="relative" ref={colorPickerRef}>
             <ToolbarBtn
               title="文字颜色"
               onClick={() => setColorPickerOpen((v) => !v)}
@@ -853,12 +828,12 @@ export function EditorToolbar({
                   display: 'inline-block',
                   width: 12,
                   height: 12,
-                  borderRadius: 3,
+                  borderRadius: 'var(--radius-chip)',
                   // 改动 2：暗色模式下当前色为黑色时，按钮上显示白色（与下拉弹窗一致）
                   background: (() => {
                     const found = NGA_COLORS.find((c) => c.value === activeColorNgaName);
-                    if (!found) return isDark ? '#fff' : '#000';
-                    if (found.value === 'black' && isDark) return '#ffffff';
+                    if (!found) return 'var(--text-primary)';
+                    if (found.value === 'black' && isDark) return 'var(--text-primary)';
                     return found.cssColor;
                   })(),
                   border: '1px solid var(--border-color)',
@@ -880,8 +855,8 @@ export function EditorToolbar({
                   const displayColor = effectiveCssColor;
                   // 防御性边框：暗色背景下所有色块加亮色细边，避免相近色混淆
                   const baseBorder = isDark
-                    ? 'rgba(255,255,255,0.25)'
-                    : 'rgba(0,0,0,0.1)';
+                    ? 'var(--on-accent-border)'
+                    : 'var(--swatch-border)';
                   return (
                     <button
                       key={c.value}
@@ -895,7 +870,7 @@ export function EditorToolbar({
                       style={{
                         width: 28,
                         height: 28,
-                        borderRadius: 4,
+                        borderRadius: 'var(--radius-sm)',
                         background: displayColor,
                         border:
                           c.value === activeColorNgaName
@@ -942,15 +917,15 @@ export function EditorToolbar({
                 width: 48,
                 fontSize: 12,
                 padding: '3px 4px',
-                borderRadius: 4,
-                border: '1px solid var(--border-color, #e5e7eb)',
-                background: 'var(--bg-card, #fff)',
-                color: 'var(--text-primary, #111)',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--border-color)',
+                background: 'var(--bg-card)',
+                color: 'var(--text-primary)',
                 transition: 'border-color 0.15s, box-shadow 0.15s',
               }}
               onFocus={(e) => {
                 e.currentTarget.style.borderColor = 'var(--accent)';
-                e.currentTarget.style.boxShadow = '0 0 0 2px var(--accent-bg, rgba(37,99,235,0.15))';
+                e.currentTarget.style.boxShadow = '0 0 0 2px var(--accent-bg)';
               }}
               onBlur={() => {
                 // 失焦时把越界值钳到 20-500，再应用到选区
@@ -998,7 +973,7 @@ export function EditorToolbar({
               }}
               title="拖动调整字号 20%-500%"
             />
-            <span style={{ fontSize: 11, color: 'var(--text-muted, #999)', marginRight: 2 }}>%</span>
+            <span className="text-[11px] text-[var(--text-muted)] mr-[2px]">%</span>
           </div>
 
           {/* 字体：16 字体 */}
@@ -1103,7 +1078,7 @@ export function EditorToolbar({
       {!styleRowCollapsed && (
       <div style={rowContainer}>
         {/* 图片 + 尺寸下拉 */}
-        <div style={{ position: 'relative' }} ref={imageSizeRef}>
+        <div className="relative" ref={imageSizeRef}>
           <ToolbarBtn
             title="插入图片（带尺寸）"
             onClick={() => setImageSizeOpen((v) => !v)}
@@ -1113,21 +1088,14 @@ export function EditorToolbar({
           </ToolbarBtn>
           {imageSizeOpen && (
             <div style={{ ...popoverPanel, top: 30, left: 0, minWidth: 220 }}>
-              <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+              <div className="text-[11px] text-[var(--text-secondary)]">
                 插入尺寸（导出时拼到 URL 后缀）
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div className="flex flex-col gap-[4px]">
                 {NGA_IMAGE_SIZES.map((s) => (
                   <label
                     key={s.value}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      fontSize: 12,
-                      color: 'var(--text-primary)',
-                      cursor: 'pointer',
-                    }}
+                    className="flex items-center gap-[6px] text-[12px] text-[var(--text-primary)] cursor-pointer"
                   >
                     <input
                       type="radio"
@@ -1137,7 +1105,7 @@ export function EditorToolbar({
                     />
                     {s.label}
                     {s.suffix && (
-                      <code style={{ fontSize: 10, color: 'var(--text-secondary)' }}>
+                      <code className="text-[10px] text-[var(--text-secondary)]">
                         {s.suffix}
                       </code>
                     )}
@@ -1145,11 +1113,11 @@ export function EditorToolbar({
                 ))}
               </div>
               {/* 对齐方式 */}
-              <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border-color)' }}>
-                <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>
+              <div className="mt-[8px] pt-[8px] border-t border-t-[color:var(--border-color)]">
+                <div className="text-[11px] text-[var(--text-secondary)] mb-[6px]">
                   对齐方式（作用于选中图片）
                 </div>
-                <div style={{ display: 'flex', gap: 4 }}>
+                <div className="flex gap-[4px]">
                   <ToolbarBtn
                     onClick={() => {
                       if (ttCmd) {
@@ -1185,7 +1153,7 @@ export function EditorToolbar({
                   </ToolbarBtn>
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', marginTop: 8 }}>
+              <div className="flex gap-[4px] justify-end mt-[8px]">
                 <ToolbarBtn
                   onClick={handlePickFile}
                   disabled={isLocalUploadDisabled}
@@ -1220,7 +1188,7 @@ export function EditorToolbar({
         <GroupDivider />
 
         {/* 表情 */}
-        <div style={{ position: 'relative' }} ref={smileyRef}>
+        <div className="relative" ref={smileyRef}>
           <ToolbarBtn
             title="插入表情 [s:表情包名:表情]"
             onClick={() => setSmileyOpen((v) => !v)}
@@ -1230,7 +1198,7 @@ export function EditorToolbar({
           </ToolbarBtn>
           {smileyOpen && (
             <div style={{ ...popoverPanel, top: 30, left: 0 }}>
-              <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+              <div className="text-[11px] text-[var(--text-secondary)]">
                 表情包名 / 表情名
               </div>
               <input
@@ -1249,7 +1217,7 @@ export function EditorToolbar({
                   if (e.key === 'Enter') handleSmileyConfirm();
                 }}
               />
-              <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+              <div className="flex gap-[4px] justify-end">
                 <ToolbarBtn onClick={handleSmileyConfirm}>插入</ToolbarBtn>
                 <ToolbarBtn onClick={() => setSmileyOpen(false)}>取消</ToolbarBtn>
               </div>
@@ -1271,7 +1239,7 @@ export function EditorToolbar({
         </ToolbarBtn>
 
         {/* 折叠 */}
-        <div style={{ position: 'relative' }} ref={collapseRef}>
+        <div className="relative" ref={collapseRef}>
           <ToolbarBtn
             btnRef={collapseBtnRef}
             title="折叠 (Ctrl+Shift+C)"
@@ -1282,7 +1250,7 @@ export function EditorToolbar({
           </ToolbarBtn>
           {collapseOpen && (
             <div style={{ ...popoverPanel, top: 30, left: 0 }}>
-              <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+              <div className="text-[11px] text-[var(--text-secondary)]">
                 折叠标题（可空）
               </div>
               <input
@@ -1295,7 +1263,7 @@ export function EditorToolbar({
                   if (e.key === 'Enter') handleCollapseConfirm();
                 }}
               />
-              <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+              <div className="flex gap-[4px] justify-end">
                 <ToolbarBtn onClick={handleCollapseConfirm}>插入</ToolbarBtn>
                 <ToolbarBtn onClick={() => setCollapseOpen(false)}>取消</ToolbarBtn>
               </div>
@@ -1304,7 +1272,7 @@ export function EditorToolbar({
         </div>
 
         {/* 表格（行/列 popover，默认 3x3） */}
-        <div style={{ position: 'relative' }} ref={tableRef}>
+        <div className="relative" ref={tableRef}>
           <ToolbarBtn
             title="插入表格（自定义行/列）"
             onClick={() => setTableOpen((v) => !v)}
@@ -1314,11 +1282,11 @@ export function EditorToolbar({
           </ToolbarBtn>
           {tableOpen && (
             <div style={{ ...popoverPanel, top: 30, left: 0, minWidth: 220 }}>
-              <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+              <div className="text-[11px] text-[var(--text-secondary)]">
                 行 / 列（默认 3×3）
               </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <label style={{ fontSize: 12 }}>行</label>
+              <div className="flex gap-[8px] items-center">
+                <label className="text-[12px]">行</label>
                 <input
                   type="number"
                   min={1}
@@ -1331,7 +1299,7 @@ export function EditorToolbar({
                   }
                   style={{ ...popoverInput, width: 60 }}
                 />
-                <label style={{ fontSize: 12 }}>列</label>
+                <label className="text-[12px]">列</label>
                 <input
                   type="number"
                   min={1}
@@ -1345,7 +1313,7 @@ export function EditorToolbar({
                   style={{ ...popoverInput, width: 60 }}
                 />
               </div>
-              <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+              <div className="flex gap-[4px] justify-end">
                 <ToolbarBtn onClick={handleTableConfirm}>插入</ToolbarBtn>
                 <ToolbarBtn onClick={() => setTableOpen(false)}>取消</ToolbarBtn>
               </div>
@@ -1367,7 +1335,7 @@ export function EditorToolbar({
         </ToolbarBtn>
 
         {/* 链接 */}
-        <div style={{ position: 'relative' }} ref={linkRef}>
+        <div className="relative" ref={linkRef}>
           <ToolbarBtn
             title="插入链接 [url=链接]文字[/url]"
             onClick={() => setLinkOpen((v) => !v)}
@@ -1377,7 +1345,7 @@ export function EditorToolbar({
           </ToolbarBtn>
           {linkOpen && (
             <div style={{ ...popoverPanel, top: 30, left: 0 }}>
-              <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>链接地址</div>
+              <div className="text-[11px] text-[var(--text-secondary)]">链接地址</div>
               <input
                 autoFocus
                 value={linkUrl}
@@ -1385,7 +1353,7 @@ export function EditorToolbar({
                 placeholder="https://..."
                 style={popoverInput}
               />
-              <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>显示文字（可空）</div>
+              <div className="text-[11px] text-[var(--text-secondary)]">显示文字（可空）</div>
               <input
                 value={linkLabel}
                 onChange={(e) => setLinkLabel(e.target.value)}
@@ -1395,7 +1363,7 @@ export function EditorToolbar({
                   if (e.key === 'Enter') handleLinkConfirm();
                 }}
               />
-              <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+              <div className="flex gap-[4px] justify-end">
                 <ToolbarBtn onClick={handleLinkConfirm}>插入</ToolbarBtn>
                 <ToolbarBtn onClick={() => setLinkOpen(false)}>取消</ToolbarBtn>
               </div>
@@ -1472,12 +1440,7 @@ export function EditorToolbar({
 
         {showUrlBox && (
           <div
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-              marginLeft: 8,
-            }}
+            className="inline-flex items-center gap-[4px] ml-[8px]"
           >
             <input
               type="text"
@@ -1487,15 +1450,7 @@ export function EditorToolbar({
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleUrlConfirm();
               }}
-              style={{
-                height: 24,
-                padding: '0 8px',
-                fontSize: 12,
-                border: '1px solid var(--border-color)',
-                borderRadius: 4,
-                minWidth: 240,
-                background: 'var(--bg-card)',
-              }}
+              className="h-[24px] py-[0px] px-[8px] text-[12px] border border-[color:var(--border-color)] rounded-[var(--radius-sm)] min-w-[240px] bg-[var(--bg-card)]"
             />
             <ToolbarBtn onClick={handleUrlConfirm}>插入</ToolbarBtn>
             <ToolbarBtn onClick={() => setShowUrlBox(false)}>取消</ToolbarBtn>

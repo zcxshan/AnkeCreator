@@ -163,7 +163,7 @@ export function GlobalSearchPanel({ onNavigate, currentStoryId }: GlobalSearchPa
   const handleClickHit = async (hit: Hit) => {
     // onNavigate 现在是 async（跨作品时 await setActiveStory），用 try/catch 防止错误冒泡
     try {
-      await onNavigate(hit.storyId, hit.sectionId, query);
+      await onNavigate(hit.storyId, hit.sectionId);
     } catch (e) {
       console.error('[GlobalSearchPanel] navigate failed:', e);
     }
@@ -179,13 +179,13 @@ export function GlobalSearchPanel({ onNavigate, currentStoryId }: GlobalSearchPa
   })();
 
   return (
-    <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
+    <div className="p-[12px] flex flex-col gap-[8px]">
+      <div className="text-[11px] text-[var(--text-muted)] mb-[2px] flex items-center gap-[4px]">
         <Icon name="globe" size={12} /> 全作品搜索 · 扫描所有作品的所有节
       </div>
 
       {/* 搜索框 */}
-      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+      <div className="flex gap-[4px] items-center">
         <input
           ref={inputRef}
           type="text"
@@ -200,7 +200,7 @@ export function GlobalSearchPanel({ onNavigate, currentStoryId }: GlobalSearchPa
             flex: 1,
             padding: '5px 8px',
             border: '1px solid var(--border-color)',
-            borderRadius: 4,
+            borderRadius: 'var(--radius-sm)',
             background: 'var(--bg-input, var(--bg-card))',
             color: 'var(--text-primary)',
             fontSize: 13,
@@ -215,7 +215,7 @@ export function GlobalSearchPanel({ onNavigate, currentStoryId }: GlobalSearchPa
             padding: '4px 10px',
             background: 'var(--accent)',
             border: '1px solid var(--accent)',
-            borderRadius: 4,
+            borderRadius: 'var(--radius-sm)',
             color: 'var(--text-on-accent)',
             cursor: !query.trim() || loading ? 'not-allowed' : 'pointer',
             fontSize: 12,
@@ -228,21 +228,14 @@ export function GlobalSearchPanel({ onNavigate, currentStoryId }: GlobalSearchPa
       </div>
 
       {/* 状态文本 */}
-      <div style={{ fontSize: 11, color: 'var(--text-muted)', minHeight: 14 }}>
+      <div className="text-[11px] text-[var(--text-muted)] min-h-[14px]">
         {statusText}
       </div>
 
       {/* 结果列表 */}
       {hits.length > 0 && (
         <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 4,
-            maxHeight: 360,
-            overflowY: 'auto',
-            paddingRight: 4,
-          }}
+          className="flex flex-col gap-[4px] max-h-[360px] overflow-y-auto pr-[4px]"
         >
           {hits.map((hit, i) => {
             const isCurrent = hit.storyId === currentStoryId;
@@ -256,7 +249,7 @@ export function GlobalSearchPanel({ onNavigate, currentStoryId }: GlobalSearchPa
                   padding: '6px 8px',
                   background: isCurrent ? 'var(--bg-hover)' : 'transparent',
                   border: '1px solid var(--border-color)',
-                  borderRadius: 4,
+                  borderRadius: 'var(--radius-sm)',
                   cursor: 'pointer',
                   color: 'var(--text-primary)',
                   transition: 'background 0.1s',
@@ -269,43 +262,23 @@ export function GlobalSearchPanel({ onNavigate, currentStoryId }: GlobalSearchPa
                 }}
               >
                 <div
-                  style={{
-                    fontSize: 11,
-                    color: 'var(--text-secondary)',
-                    marginBottom: 2,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    flexWrap: 'wrap',
-                  }}
+                  className="text-[11px] text-[var(--text-secondary)] mb-[2px] flex items-center gap-[4px] flex-wrap"
                 >
                   <span>{hit.storyTitle}</span>
-                  <span style={{ color: 'var(--text-muted)' }}>›</span>
+                  <span className="text-[var(--text-muted)]">›</span>
                   <span>{hit.chapterTitle}</span>
-                  <span style={{ color: 'var(--text-muted)' }}>›</span>
-                  <span style={{ fontWeight: 500 }}>{hit.sectionTitle}</span>
+                  <span className="text-[var(--text-muted)]">›</span>
+                  <span className="font-medium">{hit.sectionTitle}</span>
                   {isCurrent && (
                     <span
-                      style={{
-                        fontSize: 10,
-                        padding: '0 4px',
-                        background: 'var(--accent)',
-                        color: 'var(--text-on-accent)',
-                        borderRadius: 2,
-                      }}
+                      className="text-[10px] py-[0px] px-[4px] bg-[var(--accent)] text-[var(--text-on-accent)] rounded-[var(--radius-tight)]"
                     >
                       当前
                     </span>
                   )}
                   {hit.field === 'title' && (
                     <span
-                      style={{
-                        fontSize: 10,
-                        padding: '0 4px',
-                        background: 'var(--bg-hover)',
-                        color: 'var(--text-secondary)',
-                        borderRadius: 2,
-                      }}
+                      className="text-[10px] py-[0px] px-[4px] bg-[var(--bg-hover)] text-[var(--text-secondary)] rounded-[var(--radius-tight)]"
                     >
                       标题命中
                     </span>

@@ -39,6 +39,7 @@ process.env.APP_ROOT = tmpDir;
 import * as db from '../db-main';
 
 const storiesDir = path.join(tmpDir, 'data', 'stories');
+const sectionsDir = path.join(tmpDir, 'data', 'sections');
 const statsFilePath = path.join(tmpDir, 'data', 'story_stats.json');
 if (!fs.existsSync(storiesDir)) fs.mkdirSync(storiesDir, { recursive: true });
 
@@ -46,6 +47,11 @@ function cleanup() {
   if (fs.existsSync(storiesDir)) {
     for (const f of fs.readdirSync(storiesDir)) {
       try { fs.unlinkSync(path.join(storiesDir, f)); } catch {}
+    }
+  }
+  if (fs.existsSync(sectionsDir)) {
+    for (const f of fs.readdirSync(sectionsDir)) {
+      try { fs.unlinkSync(path.join(sectionsDir, f)); } catch {}
     }
   }
   try { if (fs.existsSync(statsFilePath)) fs.unlinkSync(statsFilePath); } catch {}
@@ -103,7 +109,10 @@ describe('setSectionContent 单次 read-modify-write', () => {
     // 读取 story bundle,验证所有字段已更新
     const bundle = JSON.parse(fs.readFileSync(path.join(storiesDir, `${story.id}.json`), 'utf-8'));
     const section = bundle.sections.find((s: any) => s.id === sec.id);
-    expect(section.content).toBe('<p>12345678</p>');
+    // 正文只存侧车，bundle 内是元数据
+    const sidecar = JSON.parse(fs.readFileSync(path.join(sectionsDir, `${sec.id}.json`), 'utf-8'));
+    expect(sidecar.content).toBe('<p>12345678</p>');
+    expect(section.content).toBeNull();
     expect(section.word_count).toBe(8); // 8 字符
 
     const chapter = bundle.chapters.find((c: any) => c.id === ch.id);
@@ -146,6 +155,8 @@ describe('setSectionContent 单次 read-modify-write', () => {
 
     const bundle = JSON.parse(fs.readFileSync(path.join(storiesDir, `${story.id}.json`), 'utf-8'));
     const section = bundle.sections.find((s: any) => s.id === sec.id);
+    const sidecar = JSON.parse(fs.readFileSync(path.join(sectionsDir, `${sec.id}.json`), 'utf-8'));
+    expect(sidecar.content).toBeNull();
     expect(section.content).toBeNull();
     expect(section.word_count).toBe(0);
     expect(bundle.stats.word_count).toBe(0);

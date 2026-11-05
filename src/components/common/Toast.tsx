@@ -4,27 +4,27 @@ import { useToastStore } from '../../store/toastStore';
 // 颜色映射
 const typeStyles: Record<string, { bg: string; border: string; textColor: string; icon: string }> = {
   success: {
-    bg: 'rgba(34, 197, 94, 0.12)',
-    border: '1px solid rgba(34, 197, 94, 0.4)',
-    textColor: '#16a34a',
+    bg: 'var(--tone-success-soft)',
+    border: '1px solid var(--tone-success-border)',
+    textColor: 'var(--tone-success)',
     icon: '✓',
   },
   error: {
-    bg: 'rgba(239, 68, 68, 0.12)',
-    border: '1px solid rgba(239, 68, 68, 0.4)',
-    textColor: '#dc2626',
+    bg: 'var(--tone-danger-veil)',
+    border: '1px solid var(--tone-danger-border-strong)',
+    textColor: 'var(--tone-danger)',
     icon: '✕',
   },
   warning: {
-    bg: 'rgba(245, 158, 11, 0.12)',
-    border: '1px solid rgba(245, 158, 11, 0.4)',
-    textColor: '#d97706',
+    bg: 'var(--tone-warn-veil)',
+    border: '1px solid var(--tone-warn-glow)',
+    textColor: 'var(--tone-warn-ink)',
     icon: '!',
   },
   info: {
-    bg: 'rgba(59, 130, 246, 0.12)',
-    border: '1px solid rgba(59, 130, 246, 0.4)',
-    textColor: '#2563eb',
+    bg: 'var(--tone-info-veil)',
+    border: '1px solid var(--tone-info-border-strong)',
+    textColor: 'var(--tone-info)',
     icon: 'ℹ',
   },
 };
@@ -77,8 +77,8 @@ function ToastItem({
         padding: '10px 14px',
         background: style.bg,
         border: style.border,
-        borderRadius: 8,
-        boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+        borderRadius: 'var(--radius-md)',
+        boxShadow: 'var(--shadow-card)',
         minWidth: 220,
         maxWidth: 460,
         animation: 'toastFadeIn 0.2s ease-out',
@@ -93,9 +93,9 @@ function ToastItem({
           justifyContent: 'center',
           width: 20,
           height: 20,
-          borderRadius: 10,
+          borderRadius: 'var(--radius-toolbar)',
           background: style.textColor,
-          color: '#fff',
+          color: 'var(--text-on-accent)',
           fontSize: 12,
           fontWeight: 700,
           flexShrink: 0,
@@ -104,12 +104,7 @@ function ToastItem({
         {style.icon}
       </span>
       <span
-        style={{
-          color: 'var(--text-primary)',
-          flex: 1,
-          wordBreak: 'break-word',
-          lineHeight: 1.4,
-        }}
+        className="text-[var(--text-primary)] flex-[1] break-words leading-[1.4]"
       >
         {message}
       </span>
@@ -123,7 +118,7 @@ function ToastItem({
             marginLeft: 6,
             padding: '4px 10px',
             border: '1px solid var(--border-color)',
-            borderRadius: 4,
+            borderRadius: 'var(--radius-sm)',
             background: 'transparent',
             color: style.textColor,
             cursor: 'pointer',
@@ -138,17 +133,7 @@ function ToastItem({
       <button
         onClick={() => onHide(id)}
         aria-label="关闭"
-        style={{
-          marginLeft: 2,
-          padding: 2,
-          border: 'none',
-          background: 'transparent',
-          color: 'var(--text-secondary)',
-          cursor: 'pointer',
-          fontSize: 14,
-          opacity: 0.6,
-          flexShrink: 0,
-        }}
+        className="ml-[2px] p-[2px] border-none bg-transparent text-[var(--text-secondary)] cursor-pointer text-[14px] opacity-[0.6] shrink-0"
         onMouseEnter={(e) => {
           (e.currentTarget as HTMLButtonElement).style.opacity = '1';
         }}
@@ -185,7 +170,7 @@ export function ToastContainer() {
       }}
     >
       {toasts.map((t) => (
-        <div key={t.id} style={{ pointerEvents: 'auto' }}>
+        <div key={t.id} className="pointer-events-auto">
           <ToastItem
             id={t.id}
             message={t.message}

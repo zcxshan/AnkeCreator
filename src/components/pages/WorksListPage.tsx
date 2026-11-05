@@ -1,9 +1,26 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useStoryStore } from '../../store/storyStore';
 import { useToastStore } from '../../store/toastStore';
 import * as db from '../../db/index';
-import { Icon } from '../common/Icon';
-import { WorkCard, type WorkSummary } from '../common/WorkCard';
+import type { WorkSummary } from '../common/WorkCard';
+import {
+  WorksEmptyState,
+  WorksNoMatchState,
+  WorksLoadingState,
+  WorksErrorState,
+  WorksGridView,
+  TrashView,
+} from '../works/WorksViews';
+import {
+  WorksHeader,
+  type WorksCategory,
+  type WorksFilterKey,
+} from '../works/WorksHeader';
+import {
+  NewStoryDialog,
+  RenameStoryDialog,
+  ImportProgressDialog,
+} from '../works/WorksDialogs';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { InputDialog } from '../common/InputDialog';
 import { EpubExportProgressDialog } from '../common/EpubExportProgressDialog'
@@ -14,7 +31,6 @@ import {
 import { AddToFavoriteDialog } from '../common/AddToFavoriteDialog';
 import { validateImportFormat, ensureDefaultVolumeAndChapter } from '../../utils/storyImport';
 import { useDiceHistoryStore } from '../../store/diceHistoryStore';
-import { isCapacitor } from '../../utils/platform';
 import * as favoritesDb from '../../db/favorites';
 import type { Favorite } from '../../types/story';
 
@@ -25,13 +41,9 @@ interface WorksListPageProps {
   onOpenReader?: (storyId: string) => void;
 }
 
-type FilterKey = 'all' | 'trash';
+type FilterKey = WorksFilterKey;
 
-interface Category {
-  key: FilterKey;
-  label: string;
-  count: number;
-}
+type Category = WorksCategory;
 
 function compareWorks(a: WorkSummary, b: WorkSummary): number {
   const pinA = a.is_pinned ? 1 : 0;
@@ -53,15 +65,10 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
   const [showNewModal, setShowNewModal] = useState(false);
-  const [newStoryTitle, setNewStoryTitle] = useState('');
-  const [newStoryDescription, setNewStoryDescription] = useState('');
-  const [renameTargetId, setRenameTargetId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState('');
-  const gridRef = useRef<HTMLDivElement | null>(null);
+  const [pendingRename, setPendingRename] = useState<WorkSummary | null>(null);
   const dragIdRef = useRef<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [confirmState, setConfirmState] = useState<null | { type: 'soft-delete' | 'permanent-delete' | 'clear-trash' | 'duplicate'; work?: WorkSummary }>(null);
-  const [pendingRename, setPendingRename] = useState<WorkSummary | null>(null);
   // 修改简介弹窗目标
   const [pendingEditDescription, setPendingEditDescription] = useState<WorkSummary | null>(null);
   const [importState, setImportState] = useState<null | { originalTitle: string; description?: string; data: any }>(null);
@@ -133,13 +140,18 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
   // 聚合所有作品的展示数据
   const [works, setWorks] = useState<WorkSummary[]>([]);
   const [worksLoading, setWorksLoading] = useState(false);
+  const [worksError, setWorksError] = useState<string | null>(null);
+  // 列表加载代次：切换作品库时让旧请求的结果失效
+  const loadWorksTokenRef = useRef(0);
 
-  useEffect(() => {
-    let cancelled = false;
-    const loadWorks = async () => {
-      setWorksLoading(true);
+  const loadWorks = useCallback(async () => {
+    const token = ++loadWorksTokenRef.current;
+    setWorksLoading(true);
+    setWorksError(null);
+    try {
       // 一次性聚合查询：3 次文件读 vs 原来 N×M 次（消灭 N+1）
       const storiesWithStats = await db.listStoriesWithStats();
+      if (token !== loadWorksTokenRef.current) return;
       const diceRecords = useDiceHistoryStore.getState().records;
       const result: WorkSummary[] = storiesWithStats.map((story: any) => ({
         ...story,
@@ -148,14 +160,20 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
         sectionCount: story.sectionCount || 0,
         chapterCount: story.chapterCount || 0,
       }));
-      if (!cancelled) {
-        setWorks(result);
-        setWorksLoading(false);
-      }
-    };
-    loadWorks();
-    return () => { cancelled = true; };
-  }, [stories]);
+      setWorks(result);
+    } catch (e) {
+      if (token !== loadWorksTokenRef.current) return;
+      console.error('[WorksListPage] 加载作品列表失败：', e);
+      setWorksError((e as Error)?.message || String(e));
+    } finally {
+      if (token === loadWorksTokenRef.current) setWorksLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadWorks();
+    return () => { loadWorksTokenRef.current += 1; };
+  }, [loadWorks, stories]);
 
   // 简化筛选：仅全部 / 回收站
   // 从 Story[] 派生为 WorkSummary[]，为 TrashCard 提供所需字段
@@ -264,13 +282,11 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
     dragIdRef.current = null;
   };
 
-  const handleCreateStory = async () => {
-    const title = newStoryTitle.trim() || `未命名作品 ${new Date().toLocaleDateString()}`;
+  const handleCreateStory = async (rawTitle: string, description: string) => {
+    const title = rawTitle.trim() || `未命名作品 ${new Date().toLocaleDateString()}`;
     const { createStory } = useStoryStore.getState();
-    const storyId = await createStory(title, newStoryDescription.trim());
+    const storyId = await createStory(title, description.trim());
     setShowNewModal(false);
-    setNewStoryTitle('');
-    setNewStoryDescription('');
     setActiveStory(storyId);
     onOpenStory(storyId);
   };
@@ -619,8 +635,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
     const relCount = Array.isArray(data.character_relations) ? data.character_relations.length : 0;
     const outlineCount = Array.isArray(data.outlines) ? data.outlines.length : 0;
     // 批量模式下结构创建只用 3-4 个 tick（批量卷/章/节），而非 volumeCount+chapterCount+sectionCount 个
-    const useBulkForStructure = !!(db.bulkCreateVolumes && db.bulkCreateChapters && db.bulkCreateSections)
-      && Array.isArray(data.volumes) && data.volumes.length > 0
+    const useBulkForStructure = Array.isArray(data.volumes) && data.volumes.length > 0
       && Array.isArray(data.chapters) && data.chapters.length > 0;
     const structureTicks = useBulkForStructure
       ? 4 // 上限：1 外层 + 1 批量卷 + 1 批量章 + 1 批量节
@@ -801,581 +816,134 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
     }
   };
 
+  /** 批量模式下勾选/取消勾选；非批量模式无操作 */
+  const handleToggleSelect = (id: string) => {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedIds(next);
+  };
+
+  /** 打开作品：批量模式改为勾选；否则先切数据再跳转（避免编辑器渲染旧作品数据） */
+  const handleOpenWork = (id: string) => {
+    if (batchMode) {
+      handleToggleSelect(id);
+      return;
+    }
+    void (async () => {
+      await setActiveStory(id);
+      onOpenStory(id);
+    })();
+  };
+
   return (
-    <div className="min-h-full w-full flex flex-col" style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}>
+    <div className="bg-[var(--bg-base)] text-[var(--text-primary)] min-h-full w-full flex flex-col">
       {/* 顶部栏（sticky 在 TitleBar 下方 32px 处，z-40） */}
-      <header
-        className="sticky top-8 z-40 backdrop-blur"
-        style={{ background: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)' }}
-      >
-        <div className="max-w-6xl mx-auto px-6 sm:px-8 py-4 flex items-center gap-2">
-          <button
-            onClick={onBack}
-            className="w-9 h-9 flex items-center justify-center rounded-lg transition-colors"
-            style={{ color: 'var(--text-secondary)' }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'var(--bg-hover)';
-              e.currentTarget.style.color = 'var(--text-primary)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = '';
-              e.currentTarget.style.color = 'var(--text-secondary)';
-            }}
-            title="返回"
-          >
-            <Icon name="back" size={16} />
-          </button>
-          <div className="flex items-center gap-2 min-w-0">
-            <h1 className="text-base font-semibold tracking-tight" style={{ color: 'var(--text-primary)' }}>我的安科作品</h1>
-            <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>共 {works.length} 部</span>
-          </div>
-
-          {isCapacitor ? (
-            // 移动端：折叠按钮菜单
-            <div className="ml-auto relative">
-              <button
-                onClick={() => setActionMenuOpen((v) => !v)}
-                className="px-3 py-2 text-xs rounded-lg font-medium transition-colors inline-flex items-center gap-1.5"
-                style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
-                title="操作"
-              >
-                <Icon name="menu" size={20} />
-                <span>操作</span>
-              </button>
-              {actionMenuOpen && (
-                <>
-                  {/* 点击遮罩关闭菜单 */}
-                  <div
-                    className="fixed inset-0 z-30"
-                    onClick={() => setActionMenuOpen(false)}
-                  />
-                  <div
-                    className="absolute right-0 top-full mt-1 z-40 min-w-[180px] rounded-lg shadow-lg overflow-hidden"
-                    style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
-                  >
-                    {onShowAuthor && (
-                      <button
-                        onClick={() => { setActionMenuOpen(false); onShowAuthor(); }}
-                        className="w-full px-4 py-2.5 text-left text-[13px] transition-colors inline-flex items-center gap-2"
-                        style={{ color: 'var(--text-secondary)' }}
-                        onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.background = ''; e.currentTarget.style.color = 'var(--text-secondary)'; }}
-                      >
-                        <Icon name="bot" size={14} />
-                        <span>关于作者</span>
-                      </button>
-                    )}
-                    <button
-                      onClick={() => { setActionMenuOpen(false); setActiveFilter('trash'); }}
-                      className="w-full px-4 py-2.5 text-left text-[13px] transition-colors inline-flex items-center gap-2"
-                      style={{ color: 'var(--text-secondary)' }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = ''; e.currentTarget.style.color = 'var(--text-secondary)'; }}
-                    >
-                      <Icon name="trash" size={14} />
-                      <span>回收站{trashedStories.length > 0 ? `(${trashedStories.length})` : ''}</span>
-                    </button>
-                    <button
-                      onClick={() => { setActionMenuOpen(false); setShowNewModal(true); }}
-                      className="w-full px-4 py-2.5 text-left text-[13px] font-medium transition-colors inline-flex items-center gap-2"
-                      style={{ color: 'var(--accent)' }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = ''; }}
-                    >
-                      <span>+</span>
-                      <span>新建安科</span>
-                    </button>
-                    <button
-                      onClick={() => { setActionMenuOpen(false); handleImportStory(); }}
-                      className="w-full px-4 py-2.5 text-left text-[13px] transition-colors inline-flex items-center gap-2"
-                      style={{ color: 'var(--text-primary)' }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = ''; }}
-                    >
-                      <Icon name="download" size={14} />
-                      <span>导入作品</span>
-                    </button>
-                    <button
-                      onClick={() => { setActionMenuOpen(false); setBatchMode(!batchMode); setSelectedIds(new Set()); }}
-                      className="w-full px-4 py-2.5 text-left text-[13px] transition-colors inline-flex items-center gap-2"
-                      style={{ color: 'var(--text-primary)', background: batchMode ? 'var(--accent-soft)' : 'transparent' }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = batchMode ? 'var(--accent-soft)' : ''; }}
-                    >
-                      <Icon name="box" size={14} />
-                      <span>{batchMode ? '取消批量' : '批量导出'}</span>
-                    </button>
-                    {batchMode && (
-                      <button
-                        onClick={() => { setActionMenuOpen(false); handleBatchExport(); }}
-                        disabled={selectedIds.size === 0}
-                        className="w-full px-4 py-2.5 text-left text-[13px] font-medium transition-colors inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                        style={{ color: 'var(--text-on-accent)', background: 'var(--accent)' }}
-                      >
-                        <Icon name="upload" size={14} />
-                        <span>导出选中 ({selectedIds.size})</span>
-                      </button>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-          ) : (
-            <>
-              {onShowAuthor && (
-                <button
-                  onClick={onShowAuthor}
-                  className="ml-auto text-sm transition-colors"
-                  style={{ color: 'var(--text-secondary)' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; }}
-                >
-                  关于作者
-                </button>
-              )}
-
-              <div className="anke-card ml-auto flex items-center gap-2 flex-wrap px-3 py-2">
-                <button
-                  onClick={() => setActiveFilter('trash')}
-                  className="px-3 py-2 text-xs rounded-lg transition-colors inline-flex items-center gap-1.5"
-                  style={{ color: 'var(--text-secondary)' }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = ''}
-                  title="回收站"
-                >
-                  <Icon name="trash" size={14} />
-                  <span>回收站{trashedStories.length > 0 ? `(${trashedStories.length})` : ''}</span>
-                </button>
-                <button
-                  onClick={() => setShowNewModal(true)}
-                  className="px-4 py-2 text-xs rounded-lg font-medium transition-colors inline-flex items-center gap-1.5"
-                  style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
-                  onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
-                  onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
-                >
-                  <span className="text-base leading-none">+</span>
-                  <span>新建安科</span>
-                </button>
-                <button
-                  onClick={handleImportStory}
-                  className="px-4 py-2 text-xs rounded-lg font-medium transition-colors inline-flex items-center gap-1.5"
-                  style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.background = 'var(--bg-hover)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.background = 'var(--bg-card)'; }}
-                >
-                  <Icon name="download" size={14} />
-                  <span>导入作品</span>
-                </button>
-                <button
-                  onClick={() => { setBatchMode(!batchMode); setSelectedIds(new Set()); }}
-                  className="anke-btn"
-                  style={{ background: batchMode ? 'var(--accent-soft)' : undefined, color: batchMode ? 'var(--accent)' : undefined, borderColor: batchMode ? 'var(--accent)' : undefined }}
-                >
-                  <Icon name="box" size={14} />
-                  <span>{batchMode ? '取消批量' : '批量导出'}</span>
-                </button>
-                {batchMode && (
-                  <button
-                    onClick={handleBatchExport}
-                    disabled={selectedIds.size === 0}
-                    className="px-4 py-2 text-xs rounded-lg font-medium transition-colors inline-flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                    style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
-                    onMouseEnter={(e) => { if (selectedIds.size > 0) e.currentTarget.style.opacity = '0.9'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
-                  >
-                    <Icon name="upload" size={14} />
-                    <span>导出选中 ({selectedIds.size})</span>
-                  </button>
-                )}
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* 筛选栏 */}
-        <div className="max-w-6xl mx-auto px-6 sm:px-8 pb-4 flex items-center gap-3">
-          <div className="flex items-center gap-1.5 overflow-x-auto flex-1 min-w-0 scrollbar-hide">
-            {categories.map((cat) => {
-              const active = activeFilter === cat.key;
-              const isFavorite = cat.key.startsWith('fav:');
-              const favId = isFavorite ? cat.key.slice(4) : null;
-              // 收藏夹的 count 显示为该收藏夹内的作品数
-              const count = isFavorite
-                ? works.filter((w) => favoriteStoryIds.has(w.id) || true).filter((w) => w.id).length // 永远重渲染
-                : cat.count;
-              return (
-                <div key={cat.key} className="relative shrink-0">
-                  <button
-                    onClick={() => setActiveFilter(cat.key)}
-                    onContextMenu={(e) => {
-                      if (!isFavorite) return;
-                      e.preventDefault();
-                      setFavoriteMenuOpenId(favId);
-                    }}
-                    className="px-3.5 py-1.5 rounded-full text-xs font-medium inline-flex items-center gap-1.5 transition-all"
-                    style={{
-                      background: active ? 'var(--text-primary)' : 'var(--bg-card)',
-                      color: active ? 'var(--bg-card)' : 'var(--text-secondary)',
-                      border: `1px solid ${active ? 'transparent' : 'var(--border-color)'}`,
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!active) e.currentTarget.style.color = 'var(--text-primary)';
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!active) e.currentTarget.style.color = 'var(--text-secondary)';
-                    }}
-                  >
-                    {isFavorite && <Icon name="folder" size={12} />}
-                    <span>{cat.label}</span>
-                    <span
-                      className="text-[10px] px-1.5 py-0.5 rounded-full"
-                      style={{
-                        background: active ? 'rgba(255,255,255,0.2)' : 'var(--bg-hover)',
-                        color: active ? 'var(--bg-card)' : 'var(--text-secondary)',
-                      }}
-                    >
-                      {isFavorite ? favoriteStoryIds.size : cat.count}
-                    </span>
-                  </button>
-                  {/* 收藏夹右键菜单 */}
-                  {isFavorite && favoriteMenuOpenId === favId && (
-                    <div
-                      className="absolute top-full left-0 mt-1 min-w-[120px] rounded-lg shadow-xl border py-1 z-30"
-                      style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)' }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <button
-                        className="w-full px-3 py-1.5 text-left text-[13px] hover:bg-[var(--bg-hover)]"
-                        style={{ color: 'var(--text-primary)' }}
-                        onClick={() => {
-                          const f = favorites.find((x) => x.id === favId);
-                          if (f) setRenameFavoriteTarget(f);
-                          setFavoriteMenuOpenId(null);
-                        }}
-                      >
-                        <span className="inline-flex items-center gap-1">
-                          <Icon name="pen" size={14} />
-                          <span>重命名</span>
-                        </span>
-                      </button>
-                      <button
-                        className="w-full px-3 py-1.5 text-left text-[13px] hover:bg-[var(--bg-hover)]"
-                        style={{ color: 'var(--danger)' }}
-                        onClick={() => {
-                          const f = favorites.find((x) => x.id === favId);
-                          if (f) setDeleteFavoriteTarget(f);
-                          setFavoriteMenuOpenId(null);
-                        }}
-                      >
-                        <span className="inline-flex items-center gap-1">
-                          <Icon name="trash" size={14} />
-                          <span>删除（仅空）</span>
-                        </span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-            {/* 新建收藏夹按钮 */}
-            <button
-              onClick={() => setShowNewFavorite(true)}
-              className="shrink-0 px-3.5 py-1.5 rounded-full text-xs font-medium inline-flex items-center gap-1 transition-all"
-              style={{
-                background: 'transparent',
-                color: 'var(--text-secondary)',
-                border: '1px dashed var(--border-color)',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = 'var(--accent)';
-                e.currentTarget.style.borderColor = 'var(--accent)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = 'var(--text-secondary)';
-                e.currentTarget.style.borderColor = 'var(--border-color)';
-              }}
-              title="新建收藏夹"
-            >
-              <span className="text-base leading-none">+</span>
-              <span>新建收藏夹</span>
-            </button>
-          </div>
-
-          <div className="relative shrink-0">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs" style={{ color: 'var(--text-secondary)' }}>
-              <Icon name="search" size={12} />
-            </span>
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="搜索作品..."
-              className="w-48 sm:w-56 pl-8 pr-3 py-1.5 text-xs rounded-full outline-none transition-all"
-              style={{
-                background: 'var(--bg-input)',
-                border: '1px solid var(--border-color)',
-                color: 'var(--text-primary)',
-              }}
-            />
-          </div>
-        </div>
-      </header>
-
+      <WorksHeader
+        totalCount={works.length}
+        trashCount={trashedStories.length}
+        categories={categories}
+        activeFilter={activeFilter}
+        favoriteStoryIds={favoriteStoryIds}
+        favorites={favorites}
+        favoriteMenuOpenId={favoriteMenuOpenId}
+        search={search}
+        batchMode={batchMode}
+        selectedCount={selectedIds.size}
+        actionMenuOpen={actionMenuOpen}
+        canShowAuthor={!!onShowAuthor}
+        onBack={onBack}
+        onShowAuthor={onShowAuthor}
+        onOpenTrash={() => setActiveFilter('trash')}
+        onNewStory={() => setShowNewModal(true)}
+        onImportStory={handleImportStory}
+        onToggleBatch={() => {
+          setBatchMode(!batchMode);
+          setSelectedIds(new Set());
+        }}
+        onBatchExport={handleBatchExport}
+        onFilterChange={setActiveFilter}
+        onFavoriteMenuOpen={setFavoriteMenuOpenId}
+        onRenameFavorite={setRenameFavoriteTarget}
+        onDeleteFavorite={setDeleteFavoriteTarget}
+        onNewFavorite={() => setShowNewFavorite(true)}
+        onSearchChange={setSearch}
+        onActionMenuOpenChange={setActionMenuOpen}
+      />
       {/* 主区域 */}
       <main className="flex-1 max-w-6xl mx-auto w-full px-6 sm:px-8 py-8">
         {activeFilter === 'trash' ? (
-          <>
-            <div className="flex items-center gap-3 mb-6">
-              <h2 className="text-lg font-semibold inline-flex items-center gap-2" style={{ color: 'var(--text-primary)' }}><Icon name="trash" size={16} /><span>回收站</span></h2>
-              <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{trashedStories.length} 个作品</span>
-              {trashedStories.length > 0 && (
-                <button
-                  onClick={() => setConfirmState({ type: 'clear-trash' })}
-                  className="ml-auto px-3 py-1.5 text-xs rounded-lg transition-colors"
-                  style={{ background: 'var(--danger-soft)', color: 'var(--danger)' }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'var(--danger)';
-                    e.currentTarget.style.color = 'var(--text-on-accent)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'var(--danger-soft)';
-                    e.currentTarget.style.color = 'var(--danger)';
-                  }}
-                >
-                  清空回收站
-                </button>
-              )}
-            </div>
-            {trashedStories.length === 0 ? (
-              <div className="text-center py-16 text-sm" style={{ color: 'var(--text-secondary)' }}>回收站为空</div>
-            ) : (
-              <div className="space-y-3">
-                {filteredWorks.map((work) => (
-                  <TrashCard
-                    key={work.id}
-                    work={work}
-                    onRestore={() => restoreFromTrash(work)}
-                    onPermanentDelete={() => permanentDelete(work)}
-                  />
-                ))}
-              </div>
-            )}
-          </>
+          <TrashView
+            totalCount={trashedStories.length}
+            works={filteredWorks}
+            onClearTrash={() => setConfirmState({ type: 'clear-trash' })}
+            onRestore={restoreFromTrash}
+            onPermanentDelete={permanentDelete}
+          />
+        ) : worksError ? (
+          <WorksErrorState message={worksError} onRetry={() => void loadWorks()} />
+        ) : worksLoading && works.length === 0 ? (
+          <WorksLoadingState />
         ) : works.length === 0 ? (
-          <EmptyState />
+          <WorksEmptyState />
         ) : filteredWorks.length === 0 ? (
-          <div className="text-center py-20 text-sm" style={{ color: 'var(--text-secondary)' }}>
-            <div className="text-4xl mb-3"><Icon name="search" size={36} /></div>
-            没有找到匹配的作品，换个关键词试试吧
-          </div>
+          <WorksNoMatchState />
         ) : (
-          <div
-            ref={gridRef}
-            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5"
+          <WorksGridView
+            works={filteredWorks}
+            batchMode={batchMode}
+            selectedIds={selectedIds}
+            onToggleSelect={handleToggleSelect}
+            dragId={dragIdRef.current}
+            dragOverId={dragOverId}
             onDragStart={handleGridDragStart}
             onDragOver={handleGridDragOver}
             onDragLeave={handleGridDragLeave}
             onDrop={handleGridDrop}
             onDragEnd={handleGridDragEnd}
-          >
-            {filteredWorks.map((work) => (
-              <div
-                key={work.id}
-                style={{
-                  transform: dragOverId === work.id ? 'translateY(-4px) scale(1.02)' : undefined,
-                  transition: 'transform 150ms ease',
-                  opacity: dragIdRef.current === work.id ? 0.6 : 1,
-                  boxShadow: dragOverId === work.id ? '0 0 0 2px var(--accent)' : undefined,
-                  borderRadius: '1rem',
-                  position: 'relative',
-                }}
-              >
-                {batchMode && (
-                  <div
-                    className="absolute top-2 left-2 z-30"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const next = new Set(selectedIds);
-                      if (next.has(work.id)) next.delete(work.id);
-                      else next.add(work.id);
-                      setSelectedIds(next);
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(work.id)}
-                      onChange={(e) => {
-                        e.stopPropagation();
-                        const next = new Set(selectedIds);
-                        if (e.target.checked) next.add(work.id);
-                        else next.delete(work.id);
-                        setSelectedIds(next);
-                      }}
-                      style={{ width: '20px', height: '20px', cursor: 'pointer', accentColor: 'var(--accent)' }}
-                    />
-                  </div>
-                )}
-                <WorkCard
-                  work={work}
-                  onOpen={(id) => {
-                    if (batchMode) {
-                      const next = new Set(selectedIds);
-                      if (next.has(id)) next.delete(id);
-                      else next.add(id);
-                      setSelectedIds(next);
-                      return;
-                    }
-                    // Fix #2：必须 await setActiveStory 完成数据切换后再跳转
-                    // 否则编辑器挂载时会渲染旧作品的数据（chapters/sections 未清空）
-                    void (async () => {
-                      await setActiveStory(id);
-                      onOpenStory(id);
-                    })();
-                  }}
-                  onDelete={(id) => {
-                    const w = works.find((x) => x.id === id);
-                    if (w) moveToTrash(w);
-                  }}
-                  onRename={(id) => {
-                    const w = works.find((x) => x.id === id);
-                    if (w) setPendingRename(w);
-                  }}
-                  onEditDescription={(id) => {
-                    const w = works.find((x) => x.id === id);
-                    if (w) setPendingEditDescription(w);
-                  }}
-                  onExport={(id) => handleExportStory(id)}
-                  onPinned={(id) => togglePinned(id)}
-                  onMoveToFavorite={(id) => handleOpenMoveToFavorite(id)}
-                  onExportEpub={(id) => handleExportEpub(id)}
-                  onReader={onOpenReader ? (id) => onOpenReader(id) : undefined}
-                />
-              </div>
-            ))}
-          </div>
+            onOpen={handleOpenWork}
+            onDelete={(id) => {
+              const w = works.find((x) => x.id === id);
+              if (w) moveToTrash(w);
+            }}
+            onRename={(id) => {
+              const w = works.find((x) => x.id === id);
+              if (w) setPendingRename(w);
+            }}
+            onEditDescription={(id) => {
+              const w = works.find((x) => x.id === id);
+              if (w) setPendingEditDescription(w);
+            }}
+            onExport={(id) => handleExportStory(id)}
+            onPinned={(id) => togglePinned(id)}
+            onMoveToFavorite={(id) => handleOpenMoveToFavorite(id)}
+            onExportEpub={(id) => handleExportEpub(id)}
+            onReader={onOpenReader ? (id) => onOpenReader(id) : undefined}
+          />
         )}
       </main>
 
-      <footer className="text-center py-6 text-xs" style={{ color: 'var(--text-secondary)' }}>
+      <footer className="text-[var(--text-secondary)] text-center py-6 text-xs">
         用骰子编织故事 · Anke Creator
       </footer>
 
       {/* 新建作品弹窗 */}
-      {showNewModal && (
-        <Modal title="新建安科作品" onClose={() => setShowNewModal(false)}>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>作品标题</label>
-              <input
-                autoFocus
-                type="text"
-                value={newStoryTitle}
-                onChange={(e) => setNewStoryTitle(e.target.value)}
-                placeholder="给你的安科起个名字"
-                className="w-full px-3.5 py-2.5 text-sm rounded-lg border outline-none transition-all"
-                style={{
-                  background: 'var(--bg-input)',
-                  borderColor: 'var(--border-color)',
-                  color: 'var(--text-primary)'
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleCreateStory();
-                }}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>作品简介（可选）</label>
-              <textarea
-                rows={3}
-                value={newStoryDescription}
-                onChange={(e) => setNewStoryDescription(e.target.value)}
-                placeholder="一句话介绍这个安科世界…"
-                className="w-full px-3.5 py-2.5 text-sm rounded-lg border outline-none transition-all resize-y"
-                style={{
-                  background: 'var(--bg-input)',
-                  borderColor: 'var(--border-color)',
-                  color: 'var(--text-primary)'
-                }}
-              />
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                onClick={() => setShowNewModal(false)}
-                className="px-4 py-2 text-sm rounded-lg transition-colors"
-                style={{
-                  background: 'var(--bg-card)',
-                  color: 'var(--text-primary)',
-                  border: '1px solid var(--border-color)'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-                onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-card)'}
-              >
-                取消
-              </button>
-              <button
-                onClick={handleCreateStory}
-                className="px-4 py-2 text-sm rounded-lg transition-colors"
-                style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
-                onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
-                onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
-              >
-                创建并进入
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
+      <NewStoryDialog
+        open={showNewModal}
+        onClose={() => setShowNewModal(false)}
+        onCreate={handleCreateStory}
+      />
 
       {/* 重命名弹窗 */}
       {pendingRename && (
-        <Modal title={`重命名「${pendingRename.title}」`} onClose={() => setPendingRename(null)}>
-          <div className="space-y-4">
-            <input
-              autoFocus
-              type="text"
-              defaultValue={pendingRename.title}
-              onChange={(e) => setRenameValue(e.target.value)}
-              placeholder="作品标题"
-              className="w-full px-3.5 py-2.5 text-sm rounded-lg border outline-none transition-all"
-              style={{
-                background: 'var(--bg-input)',
-                borderColor: 'var(--border-color)',
-                color: 'var(--text-primary)'
-              }}
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setPendingRename(null)}
-                className="px-4 py-2 text-sm rounded-lg transition-colors"
-                style={{
-                  background: 'var(--bg-card)',
-                  color: 'var(--text-primary)',
-                  border: '1px solid var(--border-color)'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-                onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-card)'}
-              >
-                取消
-              </button>
-              <button
-                onClick={() => {
-                  const v = renameValue.trim();
-                  if (v) {
-                    renameStory(pendingRename.id, v);
-                    showToast(`已重命名为「${v}」`, 'success');
-                  }
-                  setPendingRename(null);
-                }}
-                className="px-4 py-2 text-sm rounded-lg transition-colors"
-                style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
-                onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
-                onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
-              >
-                保存
-              </button>
-            </div>
-          </div>
-        </Modal>
+        <RenameStoryDialog
+          work={pendingRename}
+          onClose={() => setPendingRename(null)}
+          onRename={(id, title) => {
+            renameStory(id, title);
+            showToast(`已重命名为「${title}」`, 'success');
+          }}
+        />
       )}
 
       {/* 修改简介弹窗（多行文本，最多 500 字） */}
@@ -1455,33 +1023,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
           onCancel={() => setImportState(null)}
         />
       )}
-      {importProgress && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)' }}>
-          <div
-            className="rounded-2xl p-6 w-96 max-w-[90vw]"
-            style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
-          >
-            <div className="text-sm font-medium mb-3" style={{ color: 'var(--text-primary)' }}>
-              正在导入作品...
-            </div>
-            <div className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
-              {importProgress.message}
-            </div>
-            <div className="h-2 rounded-full overflow-hidden mb-2" style={{ background: 'var(--bg-hover)' }}>
-              <div
-                className="h-full transition-all"
-                style={{
-                  width: `${importProgress.total > 0 ? Math.round((importProgress.current / importProgress.total) * 100) : 0}%`,
-                  background: 'var(--accent)',
-                }}
-              />
-            </div>
-            <div className="text-xs text-right" style={{ color: 'var(--text-secondary)' }}>
-              {importProgress.current}/{importProgress.total}
-            </div>
-          </div>
-        </div>
-      )}
+      {importProgress && <ImportProgressDialog progress={importProgress} />}
       {/* EPUB 导出选项弹窗 */}
       <EpubExportOptionsDialog
         open={epubOptionsOpen}
@@ -1588,79 +1130,6 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
   );
 }
 
-/** 空状态 —— 还没有任何作品时展示 */
-function EmptyState() {
-  return (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <div className="relative mb-6">
-        <div className="w-32 h-32 rounded-full flex items-center justify-center"
-          style={{ background: 'linear-gradient(135deg, var(--accent-soft) 0%, var(--accent-bg) 100%)' }}
-        >
-          <Icon name="dices" size={56} />
-        </div>
-        <div className="absolute -top-2 -right-2 w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'var(--accent-bg)' }}>
-          <Icon name="sparkles" size={14} />
-        </div>
-        <div className="absolute -bottom-1 -left-3 w-8 h-8 rounded-full flex items-center justify-center text-lg" style={{ background: 'var(--accent-soft)' }}>
-          <Icon name="bookText" size={14} />
-        </div>
-      </div>
-      <h2 className="text-lg font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
-        还没有安科作品，点击上方"新建安科"开始第一个作品吧
-      </h2>
-      <p className="text-sm max-w-md" style={{ color: 'var(--text-secondary)' }}>
-        从一张白纸开始，用骰子决定命运，让故事由此展开。
-      </p>
-    </div>
-  );
-}
-
-/** 通用弹窗组件 */
-function Modal({
-  children,
-  onClose,
-  title,
-}: {
-  children: React.ReactNode;
-  onClose: () => void;
-  title: string;
-}) {
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm p-4"
-      style={{ background: 'var(--bg-overlay)' }}
-      onClick={onClose}
-    >
-      <div
-        className="rounded-2xl shadow-xl w-full max-w-md p-6 border"
-        style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)' }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between mb-5">
-          <h3 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>{title}</h3>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-lg transition-colors"
-            style={{ color: 'var(--text-secondary)' }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'var(--bg-hover)';
-              e.currentTarget.style.color = 'var(--text-primary)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = '';
-              e.currentTarget.style.color = 'var(--text-secondary)';
-            }}
-            aria-label="关闭"
-          >
-            <Icon name="x" size={14} />
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}
-
 /** 基于 HTML 字符串统计字数（用于 contenteditable 编辑器） */
 export function countWordsFromHtml(html: string): { words: number; dice: number } {
   if (!html) return { words: 0, dice: 0 };
@@ -1733,43 +1202,4 @@ export function countWordsAndDice(json: any): { words: number; dice: number } {
   };
   walk(json);
   return { words, dice };
-}
-
-function TrashCard({ work, onRestore, onPermanentDelete }: { work: WorkSummary; onRestore: () => void; onPermanentDelete: () => void }) {
-  return (
-    <div
-      className="anke-card flex items-center gap-4 px-4 py-3"
-    >
-      <Icon name="bookText" size={24} />
-      <div className="flex-1 min-w-0">
-        <div className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{work.title}</div>
-      </div>
-      <button
-        onClick={onRestore}
-        className="px-3 py-1.5 text-xs rounded-lg transition-colors"
-        style={{ background: 'var(--accent-bg)', color: 'var(--accent)', border: '1px solid var(--accent)' }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = 'var(--accent)';
-          e.currentTarget.style.color = 'var(--text-on-accent)';
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = 'var(--accent-bg)';
-          e.currentTarget.style.color = 'var(--accent)';
-        }}
-      >还原</button>
-      <button
-        onClick={onPermanentDelete}
-        className="px-3 py-1.5 text-xs rounded-lg transition-colors"
-        style={{ background: 'var(--danger-soft)', color: 'var(--danger)' }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = 'var(--danger)';
-          e.currentTarget.style.color = 'var(--text-on-accent)';
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = 'var(--danger-soft)';
-          e.currentTarget.style.color = 'var(--danger)';
-        }}
-      >彻底删除</button>
-    </div>
-  );
 }

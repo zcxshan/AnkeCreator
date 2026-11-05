@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
 import type { Favorite } from '../../types/story';
 import { Icon } from './Icon';
+import { Modal } from './Modal';
 
 export type AddToFavoriteMode = 'multi' | 'single';
 
@@ -54,18 +54,6 @@ export function AddToFavoriteDialog({
     }
   }, [open, storyId, initialCheckedIds]);
 
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [open, onClose]);
-
   if (!open) return null;
 
   const isSingle = mode === 'single';
@@ -84,57 +72,33 @@ export function AddToFavoriteDialog({
     onToggle(fav.id, inFav);
   };
 
-  return createPortal(
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 9000,
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      labelledBy="add-to-favorite-dialog-title"
+      contentStyle={{
+        background: 'var(--bg-card)',
+        borderRadius: 'var(--radius-toolbar)',
+        boxShadow: 'var(--shadow-modal)',
+        padding: '20px 24px 18px',
+        width: 380,
+        maxWidth: '90vw',
+        maxHeight: '70vh',
         display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'rgba(0,0,0,0.45)',
-        animation: 'addFavFade 0.15s ease-out',
+        flexDirection: 'column',
+        animation: 'modalSlideIn 0.18s ease-out',
+        border: '1px solid var(--border-color)',
       }}
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label="加入收藏夹"
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: 'var(--bg-card, #fff)',
-          borderRadius: 10,
-          boxShadow: '0 12px 40px rgba(0,0,0,0.2)',
-          padding: '20px 24px 18px',
-          width: 380,
-          maxWidth: '90vw',
-          maxHeight: '70vh',
-          display: 'flex',
-          flexDirection: 'column',
-          animation: 'addFavSlideIn 0.18s ease-out',
-          border: '1px solid var(--border-color, #e5e7eb)',
-        }}
-      >
         <h3
-          style={{
-            margin: 0,
-            marginBottom: 4,
-            fontSize: 15,
-            fontWeight: 600,
-            color: 'var(--text-primary, #111)',
-          }}
+          id="add-to-favorite-dialog-title"
+          className="m-[0px] mb-[4px] text-[15px] font-semibold text-[var(--text-primary)]"
         >
           {isSingle ? '移动到收藏夹' : '加入收藏夹'}
         </h3>
         <p
-          style={{
-            margin: 0,
-            marginBottom: 12,
-            fontSize: 12,
-            color: 'var(--text-secondary, #888)',
-          }}
+          className="m-[0px] mb-[12px] text-[12px] text-[var(--text-secondary)]"
         >
           {isSingle
             ? '选中的收藏夹作为作品唯一归属（不选 = 移出所有）'
@@ -143,31 +107,17 @@ export function AddToFavoriteDialog({
 
         {favorites.length === 0 ? (
           <div
-            style={{
-              padding: '24px 12px',
-              textAlign: 'center',
-              color: 'var(--text-secondary, #888)',
-              fontSize: 13,
-            }}
+            className="py-[24px] px-[12px] text-center text-[var(--text-secondary)] text-[13px]"
           >
             <div className="flex justify-center mb-2"><Icon name="folder" size={32} /></div>
-            <div style={{ marginBottom: 12 }}>还没有收藏夹</div>
+            <div className="mb-[12px]">还没有收藏夹</div>
             {onCreateNew && (
               <button
                 onClick={() => {
                   onClose();
                   onCreateNew();
                 }}
-                style={{
-                  padding: '6px 16px',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  border: '1px solid rgba(37,99,235,0.2)',
-                  borderRadius: 6,
-                  background: 'rgba(37,99,235,0.10)',
-                  color: '#2563eb',
-                  cursor: 'pointer',
-                }}
+                className="py-[6px] px-[16px] text-[13px] font-semibold border border-[color:var(--tone-info-border)] rounded-[var(--radius-control)] bg-[var(--tone-info-veil)] text-[var(--tone-info)] cursor-pointer"
               >
                 去新建收藏夹
               </button>
@@ -175,12 +125,7 @@ export function AddToFavoriteDialog({
           </div>
         ) : (
           <div
-            style={{
-              overflowY: 'auto',
-              border: '1px solid var(--border-color, #e5e7eb)',
-              borderRadius: 6,
-              background: 'var(--bg-base, #fafafa)',
-            }}
+            className="overflow-y-auto border border-[color:var(--border-color)] rounded-[var(--radius-control)] bg-[var(--bg-base)]"
           >
             {favorites.map((fav) => {
               const inFav = checkedIds.has(fav.id);
@@ -199,19 +144,19 @@ export function AddToFavoriteDialog({
                     padding: '10px 12px',
                     fontSize: 13,
                     textAlign: 'left',
-                    background: inFav ? 'rgba(37,99,235,0.06)' : 'transparent',
-                    color: 'var(--text-primary, #111)',
+                    background: inFav ? 'var(--tone-info-soft)' : 'transparent',
+                    color: 'var(--text-primary)',
                     border: 'none',
-                    borderBottom: '1px solid var(--border-color, #e5e7eb)',
+                    borderBottom: '1px solid var(--border-color)',
                     cursor: 'pointer',
                     transition: 'background 0.12s',
                   }}
                   onMouseEnter={(e) => {
-                    if (!inFav) e.currentTarget.style.background = 'var(--bg-hover, #f3f4f6)';
+                    if (!inFav) e.currentTarget.style.background = 'var(--bg-hover)';
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.background = inFav
-                      ? 'rgba(37,99,235,0.06)'
+                      ? 'var(--tone-info-soft)'
                       : 'transparent';
                   }}
                 >
@@ -224,10 +169,10 @@ export function AddToFavoriteDialog({
                       height: indicatorSize,
                       borderRadius: indicatorRadius,
                       border: inFav
-                        ? `1.5px solid #2563eb`
-                        : '1.5px solid var(--border-color, #d1d5db)',
-                      background: inFav ? '#2563eb' : 'transparent',
-                      color: '#fff',
+                        ? `1.5px solid var(--tone-info)`
+                        : '1.5px solid var(--border-color)',
+                      background: inFav ? 'var(--tone-info)' : 'transparent',
+                      color: 'var(--text-on-accent)',
                       fontSize: 12,
                       lineHeight: 1,
                       flexShrink: 0,
@@ -240,11 +185,7 @@ export function AddToFavoriteDialog({
                     {fav.name}
                   </span>
                   <span
-                    style={{
-                      fontSize: 11,
-                      color: 'var(--text-secondary, #888)',
-                      flexShrink: 0,
-                    }}
+                    className="text-[11px] text-[var(--text-secondary)] shrink-0"
                   >
                     {isSingle
                       ? (inFav ? '当前归属' : '点击移动')
@@ -257,41 +198,15 @@ export function AddToFavoriteDialog({
         )}
 
         <div
-          style={{
-            display: 'flex',
-            justifyContent: 'flex-end',
-            marginTop: 14,
-          }}
+          className="flex justify-end mt-[14px]"
         >
           <button
             onClick={onClose}
-            style={{
-              padding: '7px 18px',
-              fontSize: 13,
-              border: '1px solid var(--border-color, #e5e7eb)',
-              borderRadius: 6,
-              background: 'transparent',
-              color: 'var(--text-primary, #111)',
-              cursor: 'pointer',
-            }}
+            className="py-[7px] px-[18px] text-[13px] border border-[color:var(--border-color)] rounded-[var(--radius-control)] bg-transparent text-[var(--text-primary)] cursor-pointer"
           >
             关闭
           </button>
         </div>
-      </div>
-      <style>
-        {`
-          @keyframes addFavFade {
-            from { opacity: 0; }
-            to { opacity: 1; }
-          }
-          @keyframes addFavSlideIn {
-            from { opacity: 0; transform: translateY(-8px) scale(0.98); }
-            to { opacity: 1; transform: translateY(0) scale(1); }
-          }
-        `}
-      </style>
-    </div>,
-    document.body
+    </Modal>
   );
 }

@@ -1,8 +1,8 @@
-import { useEffect, useMemo } from 'react';
-import { createPortal } from 'react-dom';
+import { useMemo } from 'react';
 import { useSettingStore } from '../../store/settingStore';
 import type { UploadProgressEvent } from '../../utils/uploadImage';
 import { Icon } from './Icon';
+import { Modal } from './Modal';
 
 interface UploadProgressDialogProps {
   open: boolean;
@@ -30,18 +30,6 @@ export function UploadProgressDialog({
 }: UploadProgressDialogProps) {
   const mode = useSettingStore((s) => s.imageStoreMode);
 
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [open, onClose]);
-
   const stats = useMemo(() => {
     const total = tasks.length;
     const success = tasks.filter((t) => t.status === 'success').length;
@@ -57,191 +45,77 @@ export function UploadProgressDialog({
 
   const modeLabel = mode === 'local' ? '本地保存' : '远端图床';
 
-  return createPortal(
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 9000,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'rgba(0,0,0,0.45)',
-        animation: 'modalFade 0.15s ease-out',
-      }}
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      labelledBy="upload-progress-dialog-title"
+      contentClassName="w-[90vw] max-w-[480px] min-w-[380px] max-h-[70vh] flex flex-col px-6 pt-5 pb-4"
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: 'var(--bg-card, #fff)',
-          borderRadius: 10,
-          boxShadow: '0 12px 40px rgba(0,0,0,0.2)',
-          padding: '20px 24px 16px',
-          minWidth: 380,
-          maxWidth: 480,
-          width: '90vw',
-          maxHeight: '70vh',
-          display: 'flex',
-          flexDirection: 'column',
-          animation: 'modalSlideIn 0.18s ease-out',
-          border: '1px solid var(--border-color, #e5e7eb)',
-        }}
-      >
-        {/* 标题 */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginBottom: 4,
-          }}
+      {/* 标题 */}
+      <div className="flex items-center justify-between mb-1">
+        <h3
+          id="upload-progress-dialog-title"
+          className="m-0 text-[15px] font-semibold text-[var(--text-primary)]"
         >
-          <h3
-            style={{
-              margin: 0,
-              fontSize: 15,
-              fontWeight: 600,
-              color: 'var(--text-primary, #111)',
-            }}
-          >
-            图片上传进度
-          </h3>
-          <button
-            onClick={onClose}
-            style={{
-              width: 24,
-              height: 24,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 16,
-              background: 'transparent',
-              border: 'none',
-              borderRadius: 4,
-              color: 'var(--text-secondary, #666)',
-              cursor: 'pointer',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'var(--bg-hover, rgba(0,0,0,0.05))';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'transparent';
-            }}
-            title="关闭"
-          >
-            <Icon name="x" size={14} />
-          </button>
-        </div>
-
-        {/* 副标题：模式 + 统计 */}
-        <div
-          style={{
-            fontSize: 12,
-            color: 'var(--text-secondary, #666)',
-            marginBottom: 12,
-          }}
+          图片上传进度
+        </h3>
+        <button
+          aria-label="关闭"
+          onClick={onClose}
+          title="关闭"
+          className="w-6 h-6 flex items-center justify-center text-base bg-transparent border-0 rounded-[var(--radius-sm)] text-[var(--text-secondary)] cursor-pointer hover:bg-[var(--bg-hover)]"
         >
-          模式：<span style={{ fontWeight: 600 }}>{modeLabel}</span>
-          {stats.total > 0 && (
-            <>
-              {' · '}
-              总数 {stats.total}（成功 {stats.success} / 失败 {stats.failed}
-              {stats.inProgress > 0 ? ` / 进行中 ${stats.inProgress}` : ''}）
-            </>
-          )}
-        </div>
-
-        {/* 任务列表 */}
-        <div
-          style={{
-            flex: 1,
-            overflowY: 'auto',
-            minHeight: 60,
-            maxHeight: 360,
-            border: '1px solid var(--border-color, #e5e7eb)',
-            borderRadius: 6,
-            padding: tasks.length > 0 ? '8px' : 0,
-          }}
-        >
-          {tasks.length === 0 ? (
-            <div
-              style={{
-                textAlign: 'center',
-                color: 'var(--text-muted, #999)',
-                fontSize: 12,
-                padding: '24px 0',
-              }}
-            >
-              暂无任务
-            </div>
-          ) : (
-            tasks.map((task) => (
-              <TaskItem key={task.taskId} task={task} />
-            ))
-          )}
-        </div>
-
-        {/* 底部按钮 */}
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'flex-end',
-            gap: 8,
-            marginTop: 14,
-          }}
-        >
-          {stats.failed > 0 && onRetryFailed && (
-            <button
-              onClick={onRetryFailed}
-              style={{
-                padding: '7px 16px',
-                fontSize: 12,
-                border: '1px solid var(--accent, #2563eb)55',
-                borderRadius: 6,
-                background: 'transparent',
-                color: 'var(--accent, #2563eb)',
-                cursor: 'pointer',
-              }}
-            >
-              重试失败项
-            </button>
-          )}
-          <button
-            onClick={onClose}
-            disabled={stats.inProgress > 0}
-            style={{
-              padding: '7px 18px',
-              fontSize: 12,
-              fontWeight: 600,
-              border: '1px solid var(--border-color, #e5e7eb)',
-              borderRadius: 6,
-              background: 'var(--bg-hover, rgba(0,0,0,0.04))',
-              color: 'var(--text-primary, #111)',
-              cursor: stats.inProgress > 0 ? 'not-allowed' : 'pointer',
-              opacity: stats.inProgress > 0 ? 0.5 : 1,
-            }}
-          >
-            {stats.allDone ? '完成' : '关闭'}
-          </button>
-        </div>
+          <Icon name="x" size={14} />
+        </button>
       </div>
-      <style>
-        {`
-          @keyframes modalFade {
-            from { opacity: 0; }
-            to { opacity: 1; }
-          }
-          @keyframes modalSlideIn {
-            from { opacity: 0; transform: translateY(-8px) scale(0.98); }
-            to { opacity: 1; transform: translateY(0) scale(1); }
-          }
-        `}
-      </style>
-    </div>,
-    document.body,
+
+      {/* 副标题：模式 + 统计 */}
+      <div className="text-xs text-[var(--text-secondary)] mb-3">
+        模式：<span className="font-semibold">{modeLabel}</span>
+        {stats.total > 0 && (
+          <>
+            {' · '}
+            总数 {stats.total}（成功 {stats.success} / 失败 {stats.failed}
+            {stats.inProgress > 0 ? ` / 进行中 ${stats.inProgress}` : ''}）
+          </>
+        )}
+      </div>
+
+      {/* 任务列表 */}
+      <div
+        className={`flex-1 overflow-y-auto min-h-[60px] max-h-[360px] border border-[var(--border-color)] rounded-[var(--radius-control)] ${tasks.length > 0 ? 'p-2' : 'p-0'}`}
+      >
+        {tasks.length === 0 ? (
+          <div className="text-center text-[var(--text-muted)] text-xs py-6">
+            暂无任务
+          </div>
+        ) : (
+          tasks.map((task) => (
+            <TaskItem key={task.taskId} task={task} />
+          ))
+        )}
+      </div>
+
+      {/* 底部按钮 */}
+      <div className="flex justify-end gap-2 mt-3.5">
+        {stats.failed > 0 && onRetryFailed && (
+          <button
+            onClick={onRetryFailed}
+            className="px-4 py-[7px] text-xs rounded-[var(--radius-control)] border border-[color:var(--accent)] bg-transparent text-[var(--accent)] cursor-pointer hover:bg-[var(--accent-bg)]"
+          >
+            重试失败项
+          </button>
+        )}
+        <button
+          onClick={onClose}
+          disabled={stats.inProgress > 0}
+          className={`px-[18px] py-[7px] text-xs font-semibold rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--bg-hover)] text-[var(--text-primary)] ${stats.inProgress > 0 ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+        >
+          {stats.allDone ? '完成' : '关闭'}
+        </button>
+      </div>
+    </Modal>
   );
 }
 
@@ -253,10 +127,10 @@ function TaskItem({ task }: { task: UploadProgressEvent }) {
 
   // 进度条颜色
   const barColor = isSuccess
-    ? 'var(--success, #10b981)'
+    ? 'var(--success)'
     : isFailed
-      ? 'var(--danger, #dc2626)'
-      : 'var(--accent, #2563eb)';
+      ? 'var(--danger)'
+      : 'var(--accent)';
 
   // 状态文字
   let statusText: string;
@@ -266,104 +140,56 @@ function TaskItem({ task }: { task: UploadProgressEvent }) {
   else statusText = '等待中';
 
   const statusColor = isSuccess
-    ? 'var(--success, #10b981)'
+    ? 'var(--success)'
     : isFailed
-      ? 'var(--danger, #dc2626)'
-      : 'var(--text-secondary, #666)';
+      ? 'var(--danger)'
+      : 'var(--text-secondary)';
+
+  const iconBg = isSuccess
+    ? 'var(--tone-success-soft)'
+    : isFailed
+      ? 'var(--tone-danger-veil)'
+      : 'var(--tone-info-veil)';
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-        padding: '8px 6px',
-        borderBottom: '1px solid var(--border-color, rgba(0,0,0,0.05))',
-      }}
-    >
+    <div className="flex items-center gap-2.5 px-1.5 py-2 border-b border-[var(--border-color)]">
       {/* 图标 */}
       <div
-        style={{
-          width: 28,
-          height: 28,
-          flexShrink: 0,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderRadius: 4,
-          background: isSuccess
-            ? 'rgba(16,185,129,0.1)'
-            : isFailed
-              ? 'rgba(220,38,38,0.1)'
-              : 'rgba(37,99,235,0.1)',
-          color: barColor,
-          fontSize: 14,
-        }}
+        className="w-7 h-7 shrink-0 flex items-center justify-center rounded-[var(--radius-sm)] text-sm"
+        style={{ background: iconBg, color: barColor }}
       >
         {isSuccess ? <Icon name="check" size={16} /> : isFailed ? <Icon name="x" size={16} /> : <Icon name="hourglass" size={16} />}
       </div>
 
       {/* 文件名 + 进度条 + 状态 */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 8,
-            marginBottom: 4,
-          }}
-        >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center justify-between gap-2 mb-1">
           <span
-            style={{
-              fontSize: 12,
-              color: 'var(--text-primary, #111)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              flex: 1,
-              minWidth: 0,
-            }}
+            className="text-xs text-[var(--text-primary)] overflow-hidden text-ellipsis whitespace-nowrap flex-1 min-w-0"
             title={task.fileName}
           >
             {task.fileName}
           </span>
           <span
-            style={{
-              fontSize: 11,
-              color: statusColor,
-              flexShrink: 0,
-            }}
+            className="text-[11px] shrink-0"
+            style={{ color: statusColor }}
           >
             {statusText}
           </span>
         </div>
         {/* 进度条 */}
-        <div
-          style={{
-            height: 4,
-            background: 'var(--bg-hover, rgba(0,0,0,0.08))',
-            borderRadius: 2,
-            overflow: 'hidden',
-          }}
-        >
+        <div className="h-1 bg-[var(--bg-hover)] rounded-[var(--radius-tight)] overflow-hidden">
           <div
+            className="h-full"
             style={{
               width: `${task.progress}%`,
-              height: '100%',
               background: barColor,
               transition: isUploading ? 'width 0.3s ease' : 'none',
             }}
           />
         </div>
         {isSuccess && task.host && (
-          <div
-            style={{
-              fontSize: 10,
-              color: 'var(--text-muted, #999)',
-              marginTop: 3,
-            }}
-          >
+          <div className="text-[10px] text-[var(--text-muted)] mt-1">
             目标：{task.host}
           </div>
         )}

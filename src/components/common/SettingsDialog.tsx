@@ -1,14 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { useSettingStore, type ImageStoreMode } from '../../store/settingStore';
 import { useToastStore } from '../../store/toastStore';
 import { isElectron } from '../../utils/platform';
 import { Icon } from './Icon';
+import { Modal } from './Modal';
+import { askConfirm } from './confirmPrompt';
 
 interface SettingsDialogProps {
   open: boolean;
   onClose: () => void;
 }
+
+const CLOSE_BTN_CLASS =
+  'w-6 h-6 flex items-center justify-center text-base bg-transparent border-0 rounded-[var(--radius-sm)] text-[var(--text-secondary)] cursor-pointer hover:bg-[var(--bg-hover)]';
 
 /**
  * 设置弹窗
@@ -102,7 +106,13 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
       showToast('内置音效不可删除', 'error');
       return;
     }
-    if (!window.confirm(`确定删除「${name}」？\n此操作不可恢复。`)) return;
+    const confirmed = await askConfirm({
+      title: '删除音效',
+      message: `确定删除「${name}」？\n此操作不可恢复。`,
+      confirmText: '删除',
+      danger: true,
+    });
+    if (!confirmed) return;
     try {
       const res = await window.electronAPI.deleteDiceSound(name);
       if (res.ok) {
@@ -127,138 +137,183 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     }
   }, [open, ngaCookies]);
 
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handler);
-    setTimeout(() => closeBtnRef.current?.focus(), 10);
-    return () => window.removeEventListener('keydown', handler);
-  }, [open, onClose]);
-
-  if (!open) return null;
-
   const handleModeChange = (next: ImageStoreMode) => {
     setMode(next);
   };
 
-  return createPortal(
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 9000,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'rgba(0,0,0,0.45)',
-        animation: 'modalFade 0.15s ease-out',
-      }}
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: 'var(--bg-card, #fff)',
-          borderRadius: 10,
-          boxShadow: '0 12px 40px rgba(0,0,0,0.2)',
-          width: 'min(90vw, 520px)',
-          maxHeight: '85vh',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-          animation: 'modalSlideIn 0.18s ease-out',
-          border: '1px solid var(--border-color, #e5e7eb)',
-        }}
-      >
-        {/* 标题 */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '20px 24px 4px',
-          }}
-        >
-          <h3
-            style={{
-              margin: 0,
-              fontSize: 15,
-              fontWeight: 600,
-              color: 'var(--text-primary, #111)',
-            }}
-          >
-            设置
-          </h3>
-          <button
-            onClick={onClose}
-            ref={closeBtnRef}
-            style={{
-              width: 24,
-              height: 24,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 16,
-              background: 'transparent',
-              border: 'none',
-              borderRadius: 4,
-              color: 'var(--text-secondary, #666)',
-              cursor: 'pointer',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'var(--bg-hover, rgba(0,0,0,0.05))';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'transparent';
-            }}
-            title="关闭"
-          >
-            <Icon name="x" size={14} />
-          </button>
-        </div>
+  // ===== 数据目录 + 自动快照 =====
+  const [dataInfo, setDataInfo] = useState<{
+    dataDir: string;
+    defaultDataDir?: string;
+    custom?: boolean;
+    fallback: boolean;
+    snapshots: Array<{ name: string; createdAt: string; storyFiles: number; sectionFiles: number; totalBytes: number }>;
+  } | null>(null);
+  const [snapshotBusy, setSnapshotBusy] = useState(false);
 
-        {/* 内容区（可滚动） */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '4px 24px 8px' }}>
+  const refreshDataInfo = async () => {
+    if (!isElectron || !window.electronAPI?.getDataInfo) return;
+    try {
+      const res = await window.electronAPI.getDataInfo();
+      if (res?.ok) {
+        setDataInfo({
+          dataDir: res.dataDir || '',
+          defaultDataDir: res.defaultDataDir || '',
+          custom: !!res.custom,
+          fallback: !!res.fallback,
+          snapshots: res.snapshots || [],
+        });
+      }
+    } catch (e) {
+      console.error('读取数据目录信息失败:', e);
+    }
+  };
+
+  useEffect(() => {
+    if (open && isElectron) {
+      void refreshDataInfo();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const handleOpenDataDir = async () => {
+    if (!isElectron || !window.electronAPI?.openDataDirectory) {
+      showToast('打开数据目录仅在桌面端支持', 'error');
+      return;
+    }
+    try {
+      const res = await window.electronAPI.openDataDirectory();
+      if (!res?.ok) showToast(`打开失败：${res?.error || '未知错误'}`, 'error');
+    } catch (e) {
+      showToast(`打开失败：${(e as Error).message}`, 'error');
+    }
+  };
+
+  const handleMigrateDataDir = async () => {
+    if (!isElectron || !window.electronAPI?.pickDataDir || !window.electronAPI?.migrateDataDir) {
+      showToast('迁移数据目录仅在桌面端支持', 'error');
+      return;
+    }
+    try {
+      const picked = await window.electronAPI.pickDataDir();
+      if (!picked?.ok || !picked.dir) {
+        if (!picked?.canceled) showToast(`选择目录失败：${picked?.error || '未知错误'}`, 'error');
+        return;
+      }
+      const confirmed = await askConfirm({
+        title: '迁移数据目录',
+        message:
+          `将把当前全部数据复制到：\n${picked.dir}\n\n` +
+          '目标目录必须为空。迁移完成后应用会自动重启，原目录数据会保留作为备份，可确认无误后手动删除。',
+        confirmText: '迁移并重启',
+        danger: true,
+      });
+      if (!confirmed) return;
+      setSnapshotBusy(true);
+      const res = await window.electronAPI.migrateDataDir(picked.dir);
+      if (res?.ok) {
+        showToast('迁移完成，应用即将重启…', 'success');
+      } else {
+        showToast(`迁移失败：${res?.error || '未知错误'}`, 'error');
+        setSnapshotBusy(false);
+      }
+    } catch (e) {
+      showToast(`迁移失败：${(e as Error).message}`, 'error');
+      setSnapshotBusy(false);
+    }
+  };
+
+  const handleCreateSnapshot = async () => {
+    if (!isElectron || !window.electronAPI?.createSnapshot) {
+      showToast('备份仅在桌面端支持', 'error');
+      return;
+    }
+    setSnapshotBusy(true);
+    try {
+      const res = await window.electronAPI.createSnapshot();
+      if (res?.ok) {
+        showToast('已创建快照', 'success');
+        await refreshDataInfo();
+      } else {
+        showToast(`创建快照失败：${res?.error || '未知错误'}`, 'error');
+      }
+    } catch (e) {
+      showToast(`创建快照失败：${(e as Error).message}`, 'error');
+    } finally {
+      setSnapshotBusy(false);
+    }
+  };
+
+  const handleRestoreSnapshot = async (name: string) => {
+    if (!isElectron || !window.electronAPI?.restoreSnapshot) return;
+    const confirmed = await askConfirm({
+      title: '恢复快照',
+      message:
+        `将用快照「${name}」覆盖当前所有作品与正文。\n\n` +
+        '恢复前会自动把当前数据备份到 data/backup/。恢复完成后应用会自动重启。',
+      confirmText: '恢复并重启',
+      danger: true,
+    });
+    if (!confirmed) return;
+    setSnapshotBusy(true);
+    try {
+      const res = await window.electronAPI.restoreSnapshot(name);
+      if (res?.ok) {
+        showToast('已恢复快照，应用即将重启…', 'success');
+      } else {
+        showToast(`恢复失败：${res?.error || '未知错误'}`, 'error');
+        setSnapshotBusy(false);
+      }
+    } catch (e) {
+      showToast(`恢复失败：${(e as Error).message}`, 'error');
+      setSnapshotBusy(false);
+    }
+  };
+
+  const formatBytes = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      initialFocusRef={closeBtnRef}
+      labelledBy="settings-dialog-title"
+      contentClassName="w-[min(90vw,520px)] max-h-[85vh] flex flex-col overflow-hidden"
+    >
+      <div className="flex items-center justify-between px-6 pt-5 pb-1">
+        <h3 id="settings-dialog-title" className="m-0 text-[15px] font-semibold text-[var(--text-primary)]">
+          设置
+        </h3>
+        <button
+          aria-label="关闭"
+          onClick={onClose}
+          ref={closeBtnRef}
+          className={CLOSE_BTN_CLASS}
+          title="关闭"
+        >
+          <Icon name="x" size={14} />
+        </button>
+      </div>
+
+      {/* 内容区（可滚动） */}
+      <div className="flex-1 overflow-y-auto px-6 pt-1 pb-2">
         {/* 分组：图片存储模式 */}
         <Section title="图片存储模式">
           {/* 本地上传总开关（统一控制 4 个上传入口） */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              padding: '4px 6px 10px',
-              borderBottom: '1px dashed var(--border-color)',
-              marginBottom: 10,
-            }}
-          >
+          <div className="flex items-center gap-2.5 px-1.5 pt-1 pb-2.5 border-b border-dashed border-[var(--border-color)] mb-2.5">
             <ToggleSwitch
               label="启用本地上传"
               checked={localUploadEnabled}
               onChange={setLocalUploadEnabled}
             />
-            <span
-              style={{
-                fontSize: 11,
-                color: localUploadEnabled ? 'var(--accent, #2563eb)' : 'var(--text-muted, #999)',
-              }}
-            >
+            <span className={`text-[11px] ${localUploadEnabled ? 'text-[var(--accent)]' : 'text-[var(--text-muted)]'}`}>
               {localUploadEnabled ? '已开启' : '默认关闭'}
             </span>
-            <span
-              style={{
-                fontSize: 10,
-                color: 'var(--text-muted, #999)',
-                marginLeft: 'auto',
-              }}
-            >
+            <span className="text-[10px] text-[var(--text-muted)] ml-auto">
               控制编辑器/角色/模板页的本地上传
             </span>
           </div>
@@ -271,20 +326,13 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
             disabled={!localUploadEnabled}
           />
           {mode === 'local' && (
-            <div
-              style={{
-                padding: '4px 6px 8px',
-                fontSize: 11,
-                lineHeight: 1.6,
-                color: 'var(--text-muted, #999)',
-              }}
-            >
+            <div className="px-1.5 pt-1 pb-2 text-[11px] leading-relaxed text-[var(--text-muted)]">
               本地模式保存的图片（local:// 协议）在 NGA 论坛
-              <b style={{ color: 'var(--danger, #dc2626)' }}>无法被识别</b>
+              <b className="text-[var(--danger)]">无法被识别</b>
               ，导出时自动替换为占位符
               <br />
               远端图床（uguu.se 等）有
-              <b style={{ color: 'var(--danger, #dc2626)' }}>时限限制</b>
+              <b className="text-[var(--danger)]">时限限制</b>
               ，图片可能在数月/数年后失效
               <br />
               推荐：把图片上传到 NGA 后，复制 NGA 的图片 URL 直接粘贴到编辑器
@@ -292,14 +340,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
           )}
           {/* 重置图片警告标记（用户曾勾「不再提示」时可恢复） */}
           {mode === 'local' && (
-            <div
-              style={{
-                padding: '4px 6px 8px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-              }}
-            >
+            <div className="px-1.5 pt-1 pb-2 flex items-center gap-2">
               <SettingsBtn
                 variant="ghost"
                 onClick={() => {
@@ -314,7 +355,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
               >
                 <span className="inline-flex items-center gap-1"><Icon name="refresh" size={13} /> 重置图片警告</span>
               </SettingsBtn>
-              <span className="text-[10px]" style={{ color: 'var(--text-muted, #999)' }}>
+              <span className="text-[10px] text-[var(--text-muted)]">
                 如果之前勾过「不再提示」，点此恢复
               </span>
             </div>
@@ -323,73 +364,30 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
 
         {/* 分组：音效 */}
         <Section title="音效">
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              padding: '4px 6px 10px',
-              borderBottom: '1px dashed var(--border-color)',
-              marginBottom: 10,
-            }}
-          >
+          <div className="flex items-center gap-2.5 px-1.5 pt-1 pb-2.5 border-b border-dashed border-[var(--border-color)] mb-2.5">
             <ToggleSwitch
               label={<span className="inline-flex items-center gap-1.5"><Icon name="volume" size={14} /> 启用掷骰音效</span>}
               checked={soundEnabled}
               onChange={setSoundEnabled}
             />
-            <span
-              style={{
-                fontSize: 11,
-                color: soundEnabled ? 'var(--accent, #2563eb)' : 'var(--text-muted, #999)',
-              }}
-            >
+            <span className={`text-[11px] ${soundEnabled ? 'text-[var(--accent)]' : 'text-[var(--text-muted)]'}`}>
               {soundEnabled ? '已开启' : '已关闭'}
             </span>
-            <span
-              style={{
-                fontSize: 10,
-                color: 'var(--text-muted, #999)',
-                marginLeft: 'auto',
-              }}
-            >
+            <span className="text-[10px] text-[var(--text-muted)] ml-auto">
               关闭后掷骰不再发出声音
             </span>
           </div>
 
           {/* 音效选择器 + 上传/删除 */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              flexWrap: 'wrap',
-              padding: '4px 6px 6px',
-            }}
-          >
-            <span
-              style={{
-                fontSize: 13,
-                fontWeight: 500,
-                color: 'var(--text-primary, #111)',
-              }}
-            >
+          <div className="flex items-center gap-2.5 flex-wrap px-1.5 pt-1 pb-1.5">
+            <span className="text-[13px] font-medium text-[var(--text-primary)]">
               <span className="inline-flex items-center gap-1.5"><Icon name="music" size={14} /> 音效选择</span>
             </span>
             <select
               value={diceSoundName}
               onChange={(e) => setDiceSoundName(e.target.value)}
               disabled={!soundEnabled}
-              style={{
-                fontSize: 12,
-                padding: '4px 8px',
-                borderRadius: 6,
-                border: '1px solid var(--border-color, #e5e7eb)',
-                background: 'var(--bg-input, #fff)',
-                color: 'var(--text-primary, #111)',
-                cursor: soundEnabled ? 'pointer' : 'not-allowed',
-                opacity: soundEnabled ? 1 : 0.5,
-              }}
+              className={`text-xs px-2 py-1 rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] ${soundEnabled ? 'cursor-pointer opacity-100' : 'cursor-not-allowed opacity-50'}`}
             >
               {availableDiceSounds.map((name) => (
                 <option key={name} value={name}>{name}</option>
@@ -416,79 +414,39 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
               ref={fileInputRef}
               type="file"
               accept=".mp3,audio/mpeg"
-              style={{ display: 'none' }}
+              className="hidden"
               onChange={handleFileSelected}
             />
           </div>
           {/* 已加载音效列表（带删除按钮） */}
           {isElectron && availableDiceSounds.length > 0 && (
-            <div
-              style={{
-                padding: '0 6px 10px',
-                maxHeight: 140,
-                overflowY: 'auto',
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 10,
-                  color: 'var(--text-muted, #999)',
-                  marginBottom: 4,
-                }}
-              >
+            <div className="px-1.5 pb-2.5 max-h-[140px] overflow-y-auto">
+              <div className="text-[10px] text-[var(--text-muted)] mb-1">
                 已加载 {availableDiceSounds.length} 个音效（点击切换，右侧删除用户上传的）
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <div className="flex flex-col gap-0.5">
                 {availableDiceSounds.map((name) => {
                   const isBuiltin = name.toLowerCase() === 'dice-roll.mp3';
                   const isSelected = name === diceSoundName;
                   return (
                     <div
                       key={name}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        padding: '3px 6px',
-                        borderRadius: 4,
-                        background: isSelected ? 'var(--accent-bg, rgba(37,99,235,0.08))' : 'transparent',
-                        fontSize: 11,
-                      }}
+                      className={`flex items-center gap-1.5 px-1.5 py-[3px] rounded-[var(--radius-sm)] text-[11px] ${isSelected ? 'bg-[var(--accent-bg)]' : 'bg-transparent'}`}
                     >
                       <button
                         onClick={() => setDiceSoundName(name)}
                         disabled={!soundEnabled}
-                        style={{
-                          flex: 1,
-                          textAlign: 'left',
-                          background: 'transparent',
-                          border: 'none',
-                          cursor: soundEnabled ? 'pointer' : 'not-allowed',
-                          color: isSelected ? 'var(--accent, #2563eb)' : 'var(--text-primary)',
-                          fontWeight: isSelected ? 600 : 400,
-                          padding: 0,
-                          fontSize: 11,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
+                        className={`flex-1 text-left bg-transparent border-0 p-0 text-[11px] overflow-hidden text-ellipsis whitespace-nowrap ${soundEnabled ? 'cursor-pointer' : 'cursor-not-allowed'} ${isSelected ? 'text-[var(--accent)] font-semibold' : 'text-[var(--text-primary)] font-normal'}`}
                       >
                         {isSelected ? <Icon name="play" size={10} className="inline-block align-[-1px] mr-1" /> : <span className="inline-block w-[10px] mr-1" />}{name}
-                        {isBuiltin && <span style={{ color: 'var(--text-muted)', fontSize: 10, marginLeft: 4 }}>(内置)</span>}
+                        {isBuiltin && <span className="text-[var(--text-muted)] text-[10px] ml-1">(内置)</span>}
                       </button>
                       {!isBuiltin && (
                         <button
+                          aria-label="删除"
                           onClick={() => handleDeleteSound(name)}
                           title={`删除 ${name}`}
-                          style={{
-                            fontSize: 11,
-                            padding: '1px 6px',
-                            border: '1px solid var(--border-color)',
-                            borderRadius: 3,
-                            background: 'transparent',
-                            cursor: 'pointer',
-                            color: 'var(--danger, #dc2626)',
-                          }}
+                          className="text-[11px] px-1.5 py-px border border-[var(--border-color)] rounded-[var(--radius-chip)] bg-transparent cursor-pointer text-[var(--danger)]"
                         >
                           <Icon name="trash" size={13} />
                         </button>
@@ -499,49 +457,121 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
               </div>
             </div>
           )}
-          <div
-            style={{
-              fontSize: 10,
-              color: 'var(--text-muted, #999)',
-              padding: '0 6px 10px',
-              lineHeight: 1.6,
-            }}
-          >
-            上传的 mp3 存于本地数据目录 <code style={{ background: 'var(--bg-hover)', padding: '0 4px', borderRadius: 3 }}>sounds/</code> 子目录，重启应用后保留。
+          <div className="text-[10px] text-[var(--text-muted)] px-1.5 pb-2.5 leading-relaxed">
+            上传的 mp3 存于本地数据目录 <code className="bg-[var(--bg-hover)] px-1 rounded-[var(--radius-chip)]">sounds/</code> 子目录，重启应用后保留。
             <br />
             仅支持 .mp3 格式，文件 ≤ 5MB，内置 dice-roll.mp3 不可覆盖/删除。
           </div>
         </Section>
 
-        {/* 分组：数据管理（说明文字） */}
-        <Section title="数据管理">
-          <div
-            style={{
-              padding: '4px 6px',
-              fontSize: 11,
-              lineHeight: 1.6,
-              color: 'var(--text-secondary)',
-            }}
-          >
-            <b>卸载行为：</b>应用卸载时会先询问「是否已导出重要数据」，确认后再询问「是否同时清空个人数据」。
-            <br />
-            <b>更新行为：</b>覆盖安装（更新版本）时，所有数据自动保留在原位置，无需重新导出。
-            <br />
-            主动清空所有本地数据的功能（设置按钮）已移除。如需清空，请到安装目录下手动删除 <code style={{ background: 'var(--bg-input)', padding: '0 4px', borderRadius: 3 }}>data/</code> 文件夹。
-          </div>
+        {/* 分组：数据目录与快照备份 */}
+        <Section title="数据目录与备份">
+          {!isElectron ? (
+            <div className="px-1.5 pt-1 text-[11px] text-[var(--text-secondary)]">
+              浏览器模式的数据保存在本机 IndexedDB 中，快照备份仅在桌面端可用。
+            </div>
+          ) : (
+            <>
+              <div className="px-1.5 pt-1 pb-2.5 border-b border-dashed border-[var(--border-color)]">
+                <div className="text-[11px] text-[var(--text-secondary)] mb-1.5">
+                  当前数据目录（作品、正文、图片、模板都在这里）：
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <code
+                    className="flex-1 min-w-[220px] px-2 py-[5px] text-[11px] font-mono bg-[var(--bg-input)] border border-[var(--border-color)] rounded-[var(--radius-sm)] text-[var(--text-primary)] break-all"
+                    title={dataInfo?.dataDir || ''}
+                  >
+                    {dataInfo?.dataDir || '读取中…'}
+                  </code>
+                  <SettingsBtn variant="ghost" onClick={handleOpenDataDir}>
+                    <span className="inline-flex items-center gap-1"><Icon name="folder" size={13} /> 打开目录</span>
+                  </SettingsBtn>
+                  <SettingsBtn
+                    variant="ghost"
+                    onClick={handleMigrateDataDir}
+                    disabled={snapshotBusy}
+                  >
+                    <span className="inline-flex items-center gap-1"><Icon name="arrowLeftRight" size={13} /> 迁移位置…</span>
+                  </SettingsBtn>
+                </div>
+                {dataInfo?.custom && (
+                  <div className="mt-2 px-2 py-1.5 text-[11px] leading-relaxed text-[var(--text-secondary)] bg-[var(--bg-input)] rounded-[var(--radius-sm)]">
+                    当前使用自定义数据目录。默认位置：{dataInfo.defaultDataDir || '—'}
+                  </div>
+                )}
+                {dataInfo?.fallback && (
+                  <div className="mt-2 px-2 py-1.5 text-[11px] leading-relaxed text-[var(--warning)] bg-[var(--tone-warn-soft)] rounded-[var(--radius-sm)]">
+                    安装目录无写权限，数据已自动回退到 %APPDATA% 目录。迁移或备份时请以上方路径为准。
+                  </div>
+                )}
+              </div>
+
+              <div className="px-1.5 pt-2.5 pb-1.5">
+                <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                  <span className="text-xs font-medium text-[var(--text-primary)]">
+                    自动快照
+                  </span>
+                  <span className="text-[10px] text-[var(--text-muted)]">
+                    每日启动自动备份，保留最近 7 份
+                  </span>
+                  <SettingsBtn
+                    variant="primary"
+                    onClick={handleCreateSnapshot}
+                    disabled={snapshotBusy}
+                    className="ml-auto"
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      <Icon name="save" size={13} /> {snapshotBusy ? '处理中…' : '立即备份'}
+                    </span>
+                  </SettingsBtn>
+                </div>
+
+                {dataInfo && dataInfo.snapshots.length > 0 ? (
+                  <div className="flex flex-col gap-1 max-h-[180px] overflow-y-auto">
+                    {dataInfo.snapshots.map((snap) => (
+                      <div
+                        key={snap.name}
+                        className="flex items-center gap-2 px-2 py-[5px] rounded-[var(--radius-sm)] bg-[var(--bg-input)] border border-[var(--border-color)]"
+                      >
+                        <span className="text-[11px] text-[var(--text-primary)] flex-1">
+                          {snap.name}
+                        </span>
+                        <span className="text-[10px] text-[var(--text-muted)]">
+                          {snap.storyFiles} 作品 / {snap.sectionFiles} 正文 / {formatBytes(snap.totalBytes)}
+                        </span>
+                        <SettingsBtn
+                          variant="ghost"
+                          onClick={() => handleRestoreSnapshot(snap.name)}
+                          disabled={snapshotBusy}
+                          title={`恢复到 ${snap.name}`}
+                        >
+                          <span className="inline-flex items-center gap-1"><Icon name="refresh" size={12} /> 恢复</span>
+                        </SettingsBtn>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-[var(--text-muted)] py-0.5 pb-1.5">
+                    还没有快照。点「立即备份」创建一份，或下次启动时自动生成。
+                  </div>
+                )}
+              </div>
+
+              <div className="px-1.5 pt-1.5 pb-1 text-[10px] leading-relaxed text-[var(--text-muted)] border-t border-dashed border-[var(--border-color)]">
+                <b>卸载行为：</b>应用卸载时会先询问「是否已导出重要数据」，确认后再询问「是否同时清空个人数据」。
+                <br />
+                <b>更新行为：</b>覆盖安装（更新版本）时，所有数据自动保留在原位置，无需重新导出。
+                <br />
+                如需彻底清空，请先「打开目录」并手动删除 <code className="bg-[var(--bg-input)] px-1 rounded-[var(--radius-chip)]">data/</code> 文件夹。
+              </div>
+            </>
+          )}
         </Section>
 
         {/* 分组：NGA 登录态（可选） */}
         <Section title="NGA 登录态（可选）">
           <div>
-            <div
-              style={{
-                fontSize: 11,
-                color: 'var(--text-secondary)',
-                marginBottom: 6,
-                lineHeight: 1.5,
-              }}
-            >
+            <div className="text-[11px] text-[var(--text-secondary)] mb-1.5 leading-normal">
               粘贴 NGA Cookie 后，可访问"饼干/扣扣"等登录受限内容。
               <br />
               获取方式：浏览器登录 NGA → DevTools → Network → 任意请求 → 复制 Cookie。
@@ -551,43 +581,16 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
               value={cookieDraft}
               onChange={(e) => setCookieDraft(e.target.value)}
               placeholder="ngaPassportCid=xxx; ngaPassportUid=xxx; ngaPassportToken=xxx"
-              style={{
-                width: '100%',
-                padding: '8px 10px',
-                fontSize: 11,
-                fontFamily: 'ui-monospace, SFMono-Regular, monospace',
-                borderRadius: 4,
-                background: 'var(--bg-input)',
-                border: '1px solid var(--border-color)',
-                color: 'var(--text-primary)',
-                resize: 'vertical',
-                outline: 'none',
-              }}
-              onFocus={(e) => {
-                e.currentTarget.style.borderColor = 'var(--accent)';
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.borderColor = 'var(--border-color)';
-              }}
+              className="w-full px-2.5 py-2 text-[11px] font-mono rounded-[var(--radius-sm)] bg-[var(--bg-input)] border border-[var(--border-color)] text-[var(--text-primary)] resize-y outline-none focus:border-[var(--accent)]"
             />
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                marginTop: 8,
-              }}
-            >
+            <div className="flex items-center gap-2 mt-2">
               <SettingsBtn
                 variant="primary"
                 onClick={() => {
                   if (cookieDraft === ngaCookies) return;
                   setNgaCookies(cookieDraft);
                 }}
-                style={{
-                  cursor: cookieDraft === ngaCookies ? 'not-allowed' : 'pointer',
-                  opacity: cookieDraft === ngaCookies ? 0.5 : 1,
-                }}
+                disabled={cookieDraft === ngaCookies}
               >
                 保存 Cookie
               </SettingsBtn>
@@ -598,84 +601,37 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                   clearNgaCookies();
                   setCookieDraft('');
                 }}
-                style={{
-                  cursor: !ngaCookies ? 'not-allowed' : 'pointer',
-                  opacity: !ngaCookies ? 0.5 : 1,
-                }}
+                disabled={!ngaCookies}
               >
                 清除
               </SettingsBtn>
               {ngaCookies && (
-                <span
-                  style={{
-                    fontSize: 11,
-                    color: 'var(--success, #10b981)',
-                  }}
-                >
+                <span className="text-[11px] text-[var(--success)]">
                   <span className="inline-flex items-center gap-1"><Icon name="check" size={13} /> 已配置</span>
                 </span>
               )}
             </div>
           </div>
         </Section>
-        </div>
-
-        {/* 底部按钮 */}
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'flex-end',
-            gap: 8,
-            padding: '12px 24px 16px',
-            borderTop: '1px solid var(--border-color)',
-          }}
-        >
-          <SettingsBtn variant="primary" onClick={onClose}>
-            完成
-          </SettingsBtn>
-        </div>
       </div>
-      <style>
-        {`
-          @keyframes modalFade {
-            from { opacity: 0; }
-            to { opacity: 1; }
-          }
-          @keyframes modalSlideIn {
-            from { opacity: 0; transform: translateY(-8px) scale(0.98); }
-            to { opacity: 1; transform: translateY(0) scale(1); }
-          }
-        `}
-      </style>
-    </div>,
-    document.body,
+
+      {/* 底部按钮 */}
+      <div className="flex justify-end gap-2 px-6 pt-3 pb-4 border-t border-[var(--border-color)]">
+        <SettingsBtn variant="primary" onClick={onClose}>
+          完成
+        </SettingsBtn>
+      </div>
+    </Modal>
   );
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div style={{ marginTop: 18 }}>
-      <div
-        style={{
-          fontSize: 12,
-          fontWeight: 600,
-          color: 'var(--text-secondary, #666)',
-          marginBottom: 8,
-          letterSpacing: '0.02em',
-        }}
-      >
+    <div className="mt-[18px]">
+      <div className="text-xs font-semibold text-[var(--text-secondary)] mb-2 tracking-[0.02em]">
         {title}
       </div>
-      <div
-        style={{
-          background: 'var(--bg-base, #fafafa)',
-          border: '1px solid var(--border-color, #e5e7eb)',
-          borderLeft: '3px solid var(--accent, #2563eb)',
-          borderRadius: 6,
-          padding: 14,
-          transition: 'border-color 0.15s',
-        }}
-      >
+      <div className="bg-[var(--bg-base)] border border-[var(--border-color)] border-l-[3px] border-l-[color:var(--accent)] rounded-[var(--radius-control)] p-3.5 transition-colors">
         {children}
       </div>
     </div>
@@ -697,54 +653,20 @@ function RadioRow({
 }) {
   return (
     <label
-      style={{
-        display: 'flex',
-        alignItems: 'flex-start',
-        gap: 8,
-        padding: '10px 10px 10px 8px',
-        borderRadius: 4,
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        background: checked ? 'var(--accent-bg, rgba(37,99,235,0.08))' : 'transparent',
-        borderLeft: checked ? '3px solid var(--accent, #2563eb)' : '3px solid transparent',
-        opacity: disabled ? 0.4 : 1,
-        transition: 'background 0.15s, border-color 0.15s',
-      }}
-      onMouseEnter={(e) => {
-        if (disabled) return;
-        if (!checked) e.currentTarget.style.background = 'var(--bg-hover, rgba(0,0,0,0.04))';
-      }}
-      onMouseLeave={(e) => {
-        if (disabled) return;
-        e.currentTarget.style.background = checked
-          ? 'var(--accent-bg, rgba(37,99,235,0.08))'
-          : 'transparent';
-      }}
+      className={`flex items-start gap-2 px-2.5 py-2.5 pl-2 rounded-[var(--radius-sm)] transition-colors ${checked ? 'bg-[var(--accent-bg)] border-l-[3px] border-l-[color:var(--accent)]' : 'bg-transparent border-l-[3px] border-l-transparent'} ${disabled ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'} ${!disabled && !checked ? 'hover:bg-[var(--bg-hover)]' : ''}`}
     >
       <input
         type="radio"
         checked={checked}
         onChange={disabled ? undefined : onChange}
         disabled={disabled}
-        style={{ marginTop: 2, flexShrink: 0 }}
+        className="mt-0.5 shrink-0"
       />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div
-          style={{
-            fontSize: 13,
-            fontWeight: 500,
-            color: 'var(--text-primary, #111)',
-          }}
-        >
+      <div className="flex-1 min-w-0">
+        <div className="text-[13px] font-medium text-[var(--text-primary)]">
           {label}
         </div>
-        <div
-          style={{
-            fontSize: 11,
-            color: 'var(--text-secondary, #666)',
-            lineHeight: 1.5,
-            marginTop: 2,
-          }}
-        >
+        <div className="text-[11px] text-[var(--text-secondary)] leading-normal mt-0.5">
           {description}
         </div>
       </div>
@@ -752,35 +674,25 @@ function RadioRow({
   );
 }
 
-function SettingsBtn({ variant = 'ghost', onClick, children, title, style, disabled }: {
+function SettingsBtn({ variant = 'ghost', onClick, children, title, className = '', disabled }: {
   variant?: 'primary' | 'danger' | 'ghost';
   onClick?: () => void;
   children: React.ReactNode;
   title?: string;
-  style?: React.CSSProperties;
+  className?: string;
   disabled?: boolean;
 }) {
-  const baseStyle: React.CSSProperties = {
-    padding: '6px 12px',
-    fontSize: 12,
-    borderRadius: 6,
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    transition: 'background 0.15s, border-color 0.15s, color 0.15s',
-    border: '1px solid var(--border-color, #e5e7eb)',
-    opacity: disabled ? 0.5 : 1,
-    ...style,
-  };
-  const variantStyle = variant === 'primary'
-    ? { background: 'rgba(37,99,235,0.08)', borderColor: 'rgba(37,99,235,0.4)', color: 'var(--accent, #2563eb)' }
+  const variantClass = variant === 'primary'
+    ? 'bg-[var(--tone-info-soft)] border-[color:var(--tone-info-border-strong)] text-[var(--accent)]'
     : variant === 'danger'
-    ? { background: 'rgba(220,38,38,0.08)', borderColor: 'rgba(220,38,38,0.4)', color: 'var(--danger, #dc2626)' }
-    : { background: 'var(--bg-hover, transparent)', color: 'var(--text-primary, #111)' };
+    ? 'bg-[var(--tone-danger-soft)] border-[color:var(--tone-danger-border-strong)] text-[var(--danger)]'
+    : 'bg-[var(--bg-hover)] text-[var(--text-primary)]';
   return (
     <button
       onClick={disabled ? undefined : onClick}
       disabled={disabled}
       title={title}
-      style={{ ...baseStyle, ...variantStyle }}
+      className={`px-3 py-1.5 text-xs rounded-[var(--radius-control)] border border-[var(--border-color)] transition-colors ${variantClass} ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'} ${className}`}
     >
       {children}
     </button>
@@ -793,21 +705,15 @@ function ToggleSwitch({ checked, onChange, label }: {
   label: React.ReactNode;
 }) {
   return (
-    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-      <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>{label}</span>
+    <label className="flex items-center gap-2 cursor-pointer">
+      <span className="text-[13px] text-[var(--text-primary)]">{label}</span>
       <div
         onClick={() => onChange(!checked)}
-        style={{
-          width: 36, height: 20, borderRadius: 10,
-          background: checked ? 'var(--accent, #2563eb)' : 'var(--bg-hover, #e5e7eb)',
-          position: 'relative', transition: 'background 0.2s',
-        }}
+        className={`w-9 h-5 rounded-[var(--radius-toolbar)] relative transition-colors ${checked ? 'bg-[var(--accent)]' : 'bg-[var(--bg-hover)]'}`}
       >
-        <div style={{
-          position: 'absolute', top: 2, left: checked ? 18 : 2,
-          width: 16, height: 16, borderRadius: '50%', background: '#fff',
-          transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-        }} />
+        <div
+          className={`absolute top-0.5 w-4 h-4 rounded-full bg-[var(--text-on-accent)] transition-[left] shadow-[var(--shadow-md)] ${checked ? 'left-[18px]' : 'left-0.5'}`}
+        />
       </div>
     </label>
   );

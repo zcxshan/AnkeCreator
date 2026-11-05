@@ -8,11 +8,11 @@
 **安科作者助手 (Anke Creator)** —— 桌面端安科写作工具。
 
 - 桌面框架：Electron 33
-- 前端：React 18 + TypeScript 5.6 + Vite 5
+- 前端：React 18 + TypeScript 5.6 + Vite 6
 - 样式：TailwindCSS 3 + CSS 变量
 - 状态：Zustand 4（含 persist）
-- 富文本：原生 `contenteditable`（不依赖 Slate/ProseMirror）
-- 数据：better-sqlite3 + JSON 文件双轨
+- 富文本：Tiptap 3（ProseMirror）；`content` 是唯一事实源，BBCode 为同次落盘的派生缓存
+- 数据：主进程 JSON 文件（`electron/db-main.ts`）+ 浏览器 IndexedDB（`src/db/browserIndexedDB.ts`）+ 内存 SQL 模拟（`src/db/shared.ts`）
 - 打包：electron-builder 25
 
 ## 2. 目录结构
@@ -21,20 +21,30 @@
 src/
 ├── components/
 │   ├── character/      # CharacterEditor、CharacterCard、AttributeTable
-│   ├── common/         # TitleBar、WorkCard、DirectoryTree、WorldSettingPanel、ConfirmDialog、InputDialog、UploadProgressDialog、LocalImageWarningDialog、LocalModeBanner
+│   ├── common/         # TitleBar、WorkCard、DirectoryTree、Modal、ConfirmDialog、SettingsDialog
 │   ├── dice/           # DiceConfigDialog、DiceCard、DiceNGAImportDialog
-│   ├── editor/         # RichTextEditor、EditorToolbar、RelationshipPanel
-│   ├── outline/        # OutlineEditor
+│   ├── editor/         # BBCodeEditor、EditorToolbar、DicePanels、CharacterPanels、WorldSettingPanels、EditorRightPanel、EditorStatusBar
+│   ├── outline/        # OutlineTree
+│   ├── templates/      # WorldTemplatesPanel、CharacterTemplatesPanel、shared
+│   ├── works/          # WorksViews（列表三态 / 回收站 / 网格）
+│   ├── reader/         # ReaderPage 相关
 │   └── pages/          # HomePage、EditorPage、WorksListPage、TemplatesPage、AnjiaPage、TutorialPage
-├── db/                 # database.ts (better-sqlite3)
-├── store/              # editorStore、diceStore、settingStore、storyStore、toastStore、metaStore、imageWarningStore
+├── db/                 # 数据 facade（story/structure/character/world/template/relation/outline + 三后端实现）
+├── editor/tiptap/      # Tiptap 节点视图、命令、原子块 DOM
+├── store/              # editorStore、storyStore、metaStore、settingStore、toastStore、diceStore、editorHistoryStore、diceHistoryStore…
 ├── hooks/              # useSectionEditor 等
 ├── utils/              # ngaCrawler、anjiaHistory、ngaHtmlToBBCode、uploadImage、parseValueExpression、parseNgaAnjia
 └── types/              # 全局 TS 类型
 electron/
-├── main.ts             # 主进程入口（IPC、菜单、窗口）
+├── main.ts             # 主进程入口（生命周期、窗口、关闭握手）
+├── security.ts         # 导航/弹窗守卫
+├── securityPolicy.ts   # CSP 与 URL 白名单（纯函数）
+├── snapshot.ts         # 每日快照 / 手动快照 / 恢复
+├── dataMigration.ts    # 数据目录迁移
 ├── preload.ts          # 预加载（暴露 electronAPI）
-├── db-main.ts          # 主进程数据库
+├── db-main.ts          # 主进程 JSON 数据库（含节正文侧车）
+├── protocol.ts         # local:// 协议 + NGA Referer
+├── ipc/                # IPC 按域拆分并统一注册
 └── imageHosting.ts     # 图床客户端
 ```
 
@@ -60,15 +70,15 @@ electron/
   - `file://` 协议
   - Windows 绝对路径：`C:\...` / `C:/...` 等
   - Unix 绝对路径：`/...` 开头且第二字符非 `/`
-- **local:// 协议**：必须做路径遍历保护（参见 `electron/main.ts` 实现）
+- **local:// 协议**：必须做路径遍历保护（见 `electron/protocol.ts`）
 - **NGA 匹配文本留空** = 抓取范围内全部楼层
 - **安价历史** 上限 10 条，单条 items 截断到 100（防 localStorage 超限）
 
 ### 3.2 编辑器 / 富文本
 
-- **图片 / 骰子 / 折叠都是原子块**：`display: inline-block`，可拖动
-- **拖动图片**：`mousedown` 不能 preventDefault，否则会阻断 `dragstart`（仅 resize 句柄需要 preventDefault）
-- **折叠块插入**：使用 `range.insertNode(DocumentFragment)` 而非 `execCommand('insertHTML')`（后者会导致标题溢出）
+- **单一内容源**：`content`（HTML）是唯一事实，`bbcode` 只在同一次落盘时派生写入；禁止再引入第二个可独立编辑的数据源
+- **视图切换自动同步**：可视化 → BBCode 先 `flush` 再取缓存/派生；BBCode → 可视化先冲刷草稿并转 HTML 写回 `content`。没有手动「同步」按钮
+- **图片 / 骰子 / 折叠都是原子块**：节点视图自定义，可拖动；拖动图片时 `mousedown` 不能 preventDefault（否则阻断 `dragstart`）
 - **折叠块标题可编辑**：直接点击标题文字可改
 - **代码块多行**：不压缩为单行
 - **Word 模式**：
@@ -76,11 +86,11 @@ electron/
   - 折叠选区 + 后续输入：activeStyles 翻转
   - B/I/U/S 同步 `activeStyles.{bold|italic|underline|strike}`
   - sup/sub 互斥
-  - `handleBeforeInput` 支持 `insertText` / `insertReplacementText`，跳过 `insertCompositionText`（避免干扰 IME）
 - **NGA 导出**：
-  - 解析 `<span style="color|font-size|font-family|font-weight|font-style|text-decoration">` → NGA BBCode
+  - 解析行内样式 → NGA BBCode
   - 默认值（black/100%/simsun）不输出冗余标签
   - 嵌套标签智能合并（`collapseBbCode`）
+- **字数统计**：排除 `image-block` / `dice-card` 原子块内部文字，三后端必须一致
 
 ### 3.3 状态 / 数据流
 
@@ -104,10 +114,10 @@ electron/
 
 ### 4.1 IPC 模式
 
-- **主进程**（`electron/main.ts`）：用 `ipcMain.handle('channel', async (_e, payload) => {...})`
+- **主进程**：handler 按域放在 `electron/ipc/*.ts`，用 `ipcMain.handle('channel', async (_e, payload) => {...})`，由 `electron/ipc/index.ts` 统一注册（`registerIpcHandlers`）
 - **preload**（`electron/preload.ts`）：包装为 `channelXxx: (args) => ipcRenderer.invoke('channel', args)`
 - **expose**：`contextBridge.exposeInMainWorld('electronAPI', {...})`
-- **类型**：在 `preload.ts` 内同时维护 `ElectronAPI` 接口
+- **类型**：在 `preload.ts` 内同时维护 `ElectronAPI` 接口；新增通道必须同时改 preload 与主进程，否则渲染层会静默走到"仅桌面端支持"分支
 
 ### 4.2 命名
 
@@ -208,10 +218,12 @@ Dialog 实现：`src/components/common/LocalImageWarningDialog.tsx`，订阅 `us
 ## 7. 测试
 
 ```bash
-npx tsc --noEmit          # 0 错误
-npx vite build            # 0 错误
-cd electron && npx tsc --noEmit   # 0 错误
+npm run typecheck      # 渲染层 + 主进程，0 错误
+npx vitest run         # 全量单测（当前 47 文件 / 638 用例）
+npx vite build         # 0 错误，并确认 dist/index.html 注入了 CSP meta
 ```
+
+> 提交前必须 `typecheck + vitest` 全绿；不接受"环境性失败"挂账。
 
 ## 8. 修改前自检清单
 
@@ -219,7 +231,7 @@ cd electron && npx tsc --noEmit   # 0 错误
 - [ ] 是否需要同步更新 `TutorialPage.tsx`（用户面向的教程）？
 - [ ] 是否需要同步更新 `README.md`（功能亮点）？
 - [ ] 是否需要同步更新本 `AGENT.md`（如果新增了硬约束或关键模式）？
-- [ ] 是否引入了新的 IPC 通道？→ 同时改 `electron/main.ts` + `electron/preload.ts` + `ElectronAPI` 类型
+- [ ] 是否引入了新的 IPC 通道？→ 同时改 `electron/ipc/*` + `electron/preload.ts` + `ElectronAPI` 类型
 - [ ] 是否添加了新的 zustand store？→ 考虑是否需要 persist
 - [ ] 是否修改了样式？→ 优先使用现有 CSS 变量，避免新增硬编码颜色
 - [ ] 是否需要本地运行 `npm run dev` 做烟测？
@@ -234,7 +246,10 @@ npm run dev
 npm run build
 
 # 类型检查
-npx tsc --noEmit
+npm run typecheck
+
+# 单测
+npx vitest run
 
 # 单独构建
 npx vite build

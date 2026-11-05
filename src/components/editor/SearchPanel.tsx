@@ -9,6 +9,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Icon } from '../common/Icon';
+import { askConfirm } from '../common/confirmPrompt';
 
 interface Props {
   editorMode: 'visual' | 'bbcode';
@@ -272,8 +273,12 @@ export function SearchPanel({
         const max = Math.max(0, container.scrollHeight - container.clientHeight);
         container.scrollTop = Math.min(target, max);
       } else {
-        // 找不到滚动容器时 fallback 到 scrollIntoView
-        range.scrollIntoView({ block: 'center', inline: 'nearest' });
+        // 找不到滚动容器时 fallback 到起点的父元素 scrollIntoView（Range 本身没有该方法）
+        const node =
+          range.startContainer.nodeType === Node.TEXT_NODE
+            ? range.startContainer.parentElement
+            : (range.startContainer as Element);
+        node?.scrollIntoView({ block: 'center', inline: 'nearest' });
       }
     } catch {
       // 静默
@@ -465,15 +470,15 @@ export function SearchPanel({
       : !query.trim();
 
   return (
-    <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div className="p-[12px] flex flex-col gap-[8px]">
       {/* 模式提示 */}
-      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
+      <div className="text-[11px] text-[var(--text-muted)] mb-[2px] flex items-center gap-[4px]">
         <Icon name={editorMode === 'bbcode' ? 'scroll' : 'pen'} size={12} />
         {editorMode === 'bbcode' ? 'BBCode 视图' : '可视化视图'} · 按 Ctrl+F 快速打开
       </div>
 
       {/* 查找行 */}
-      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+      <div className="flex gap-[4px] items-center">
         <button
           type="button"
           onClick={() => setShowReplace((s) => !s)}
@@ -511,7 +516,7 @@ export function SearchPanel({
             flex: 1,
             padding: '5px 8px',
             border: '1px solid var(--border-color)',
-            borderRadius: 4,
+            borderRadius: 'var(--radius-sm)',
             background: 'var(--bg-input, var(--bg-card))',
             color: 'var(--text-primary)',
             fontSize: 13,
@@ -526,7 +531,7 @@ export function SearchPanel({
             padding: '4px 8px',
             background: 'var(--bg-hover)',
             border: '1px solid var(--border-color)',
-            borderRadius: 4,
+            borderRadius: 'var(--radius-sm)',
             color: 'var(--text-primary)',
             cursor: btnDisabled ? 'not-allowed' : 'pointer',
             fontSize: 12,
@@ -574,7 +579,7 @@ export function SearchPanel({
                 padding: '4px 4px',
                 background: 'var(--bg-input, var(--bg-card))',
                 border: '1px solid var(--border-color)',
-                borderRadius: 4,
+                borderRadius: 'var(--radius-sm)',
                 color: 'var(--text-primary)',
                 fontSize: 12,
                 textAlign: 'center',
@@ -593,7 +598,7 @@ export function SearchPanel({
             padding: '4px 8px',
             background: 'var(--accent)',
             border: '1px solid var(--accent)',
-            borderRadius: 4,
+            borderRadius: 'var(--radius-sm)',
             color: 'var(--text-on-accent)',
             cursor: btnDisabled ? 'not-allowed' : 'pointer',
             fontSize: 12,
@@ -607,7 +612,7 @@ export function SearchPanel({
 
       {/* 替换行（可折叠） */}
       {showReplace && (
-        <div style={{ display: 'flex', gap: 4, alignItems: 'center', paddingLeft: 20 }}>
+        <div className="flex gap-[4px] items-center pl-[20px]">
           <input
             type="text"
             value={replaceValue}
@@ -626,7 +631,7 @@ export function SearchPanel({
               flex: 1,
               padding: '5px 8px',
               border: '1px solid var(--border-color)',
-              borderRadius: 4,
+              borderRadius: 'var(--radius-sm)',
               background: 'var(--bg-input, var(--bg-card))',
               color: 'var(--text-primary)',
               fontSize: 13,
@@ -641,7 +646,7 @@ export function SearchPanel({
               padding: '4px 8px',
               background: 'var(--bg-hover)',
               border: '1px solid var(--border-color)',
-              borderRadius: 4,
+              borderRadius: 'var(--radius-sm)',
               color: 'var(--text-primary)',
               cursor: replaceBtnDisabled ? 'not-allowed' : 'pointer',
               fontSize: 12,
@@ -653,7 +658,7 @@ export function SearchPanel({
           </button>
           <button
             type="button"
-            onClick={() => {
+            onClick={async () => {
               if (replaceBtnDisabled) return;
               const q = query.trim();
               if (!q) return;
@@ -663,9 +668,11 @@ export function SearchPanel({
               const matches = findAllInVisual(el, q);
               const count = matches.length;
               if (count === 0) return;
-              const ok = window.confirm(
-                `确定全部替换？\n\n将把当前节内所有 ${count} 处「${q}」替换为「${replaceValue}」\n此操作可在历史记录中撤销（Ctrl+Z）。`,
-              );
+              const ok = await askConfirm({
+                title: '全部替换',
+                message: `将把当前节内所有 ${count} 处「${q}」替换为「${replaceValue}」\n此操作可在历史记录中撤销（Ctrl+Z）。`,
+                confirmText: '全部替换',
+              });
               if (!ok) return;
               doReplaceAll();
             }}
@@ -674,7 +681,7 @@ export function SearchPanel({
               padding: '4px 8px',
               background: 'var(--bg-hover)',
               border: '1px solid var(--border-color)',
-              borderRadius: 4,
+              borderRadius: 'var(--radius-sm)',
               color: 'var(--text-primary)',
               cursor: replaceBtnDisabled ? 'not-allowed' : 'pointer',
               fontSize: 12,
@@ -688,7 +695,7 @@ export function SearchPanel({
       )}
 
       {/* 状态文本 */}
-      <div style={{ fontSize: 11, color: 'var(--text-muted)', minHeight: 14 }}>
+      <div className="text-[11px] text-[var(--text-muted)] min-h-[14px]">
         {statusText}
       </div>
     </div>

@@ -8,7 +8,7 @@
 //
 // 新版 hook 移除了冗余的 fire-and-forget 写入,仅依赖 loadSection
 // 内的串行化写入。本测试验证:
-//   1. 节切换时:调用 flushDebouncedSave + loadSection(各一次)
+//   1. 节切换时:调用 loadSection(内部先 flushPendingSave 再加载)
 //   2. 节切换时:不直接调用 db.setSectionContent(由 loadSection 内部处理)
 //   3. 同一 sectionId 再次设置:不触发任何调用
 //   4. 组件卸载时:flush 保存被触发
@@ -63,20 +63,18 @@ describe('useSectionEditor hook', () => {
     vi.clearAllMocks();
   });
 
-  it('case 1: 切换到新节时,调用 flushDebouncedSave + loadSection', async () => {
+  it('case 1: 切换到新节时调用 loadSection（flush 由 loadSection 内部串行处理）', async () => {
     // 初始挂载:null → sec-1
     const { rerender } = renderHook(
       ({ id }: { id: string | null }) => useSectionEditor(id),
       { initialProps: { id: 'sec-1' } },
     );
 
-    // 初始挂载会触发一次 flushDebouncedSave + loadSection (null → sec-1)
-    expect(flushDebouncedSaveMock).toHaveBeenCalledTimes(1);
+    // 初始挂载触发一次 loadSection；flush 由 store 内部保证顺序
     expect(loadSectionMock).toHaveBeenCalledTimes(1);
     expect(loadSectionMock).toHaveBeenCalledWith('sec-1');
 
     // 清空计数,准备下一次切换
-    flushDebouncedSaveMock.mockClear();
     loadSectionMock.mockClear();
 
     // 切换到 sec-2
@@ -84,8 +82,6 @@ describe('useSectionEditor hook', () => {
       rerender({ id: 'sec-2' });
     });
 
-    // 切换:应再次调用一次
-    expect(flushDebouncedSaveMock).toHaveBeenCalledTimes(1);
     expect(loadSectionMock).toHaveBeenCalledTimes(1);
     expect(loadSectionMock).toHaveBeenCalledWith('sec-2');
   });

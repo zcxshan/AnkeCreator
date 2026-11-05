@@ -7,29 +7,21 @@ interface AuthorInfoProps {
 export function AuthorInfo({ onClose }: AuthorInfoProps) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-6"
-      style={{ background: 'var(--bg-overlay)' }}
+      className="bg-[var(--bg-overlay)] fixed inset-0 z-50 flex items-center justify-center p-6"
       onClick={onClose}
     >
       <div
-        className="w-[480px] max-w-full rounded-lg shadow-2xl flex flex-col"
-        style={{
-          background: 'var(--bg-base)',
-          border: '1px solid var(--border-color)',
-          color: 'var(--text-primary)',
-        }}
+        className="bg-[var(--bg-base)] border border-[color:var(--border-color)] text-[var(--text-primary)] w-[480px] max-w-full rounded-lg shadow-2xl flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 头部 */}
         <div
-          className="px-4 py-3 flex items-center justify-between"
-          style={{ borderBottom: '1px solid var(--border-color)' }}
+          className="border-b border-b-[color:var(--border-color)] px-4 py-3 flex items-center justify-between"
         >
           <div className="text-sm font-semibold">关于作者</div>
-          <button
+          <button aria-label="关闭"
             onClick={onClose}
-            className="text-lg leading-none w-6 h-6 flex items-center justify-center rounded transition"
-            style={{ color: 'var(--text-secondary)' }}
+            className="text-[var(--text-secondary)] text-lg leading-none w-6 h-6 flex items-center justify-center rounded transition"
             onMouseEnter={(e) => {
               e.currentTarget.style.background = 'var(--bg-hover)';
             }}
@@ -46,11 +38,7 @@ export function AuthorInfo({ onClose }: AuthorInfoProps) {
           <div className="flex flex-col items-center gap-4">
             {/* 头像 */}
             <div
-              className="w-20 h-20 rounded-full overflow-hidden"
-              style={{
-                background: 'var(--bg-sidebar)',
-                border: '2px solid var(--border-color)',
-              }}
+              className="bg-[var(--bg-sidebar)] border-[2px] border-[color:var(--border-color)] w-20 h-20 rounded-full overflow-hidden"
             >
               <img
                 src="./avatar.png"
@@ -64,20 +52,14 @@ export function AuthorInfo({ onClose }: AuthorInfoProps) {
               <div>
                 <div className="text-base font-semibold">星星的辰</div>
                 <div
-                  className="text-xs mt-1"
-                  style={{ color: 'var(--text-secondary)' }}
+                  className="text-[var(--text-secondary)] text-xs mt-1"
                 >
                   AnkeCreator 开发者
                 </div>
               </div>
 
               <div
-                className="text-sm leading-relaxed px-4 py-3 rounded"
-                style={{
-                  background: 'var(--bg-sidebar)',
-                  border: '1px solid var(--border-color)',
-                  color: 'var(--text-primary)',
-                }}
+                className="bg-[var(--bg-sidebar)] border border-[color:var(--border-color)] text-[var(--text-primary)] text-sm leading-relaxed px-4 py-3 rounded"
               >
                 感谢使用安科作者助手！本工具旨在帮助创作者更高效地编写和导出安科内容。
                 想要很多小红点desuwa！！！！！
@@ -87,11 +69,11 @@ export function AuthorInfo({ onClose }: AuthorInfoProps) {
               {/* 联系方式 */}
               <div className="pt-2 space-y-1.5 text-xs">
                 <div className="flex items-center justify-center gap-2">
-                  <span style={{ color: 'var(--text-secondary)' }}>邮箱：</span>
+                  <span className="text-[var(--text-secondary)]">邮箱：</span>
                   <span>秘密desuwa@example.com</span>
                 </div>
                 <div className="flex items-center justify-center gap-2">
-                  <span style={{ color: 'var(--text-secondary)' }}>GitHub：</span>
+                  <span className="text-[var(--text-secondary)]">GitHub：</span>
                   <span>github.com/秘密desuwa</span>
                 </div>
               </div>
@@ -101,19 +83,11 @@ export function AuthorInfo({ onClose }: AuthorInfoProps) {
 
         {/* 底部 */}
         <div
-          className="px-4 py-3 flex items-center justify-end"
-          style={{
-            borderTop: '1px solid var(--border-color)',
-            background: 'var(--bg-sidebar)',
-          }}
+          className="border-t border-t-[color:var(--border-color)] bg-[var(--bg-sidebar)] px-4 py-3 flex items-center justify-end"
         >
           <button
             onClick={onClose}
-            className="text-xs px-4 py-1.5 rounded transition"
-            style={{
-              background: 'var(--accent)',
-              color: 'var(--text-on-accent)',
-            }}
+            className="bg-[var(--accent)] text-[var(--text-on-accent)] text-xs px-4 py-1.5 rounded transition"
             onMouseEnter={(e) => {
               e.currentTarget.style.background = 'var(--accent-hover)';
             }}

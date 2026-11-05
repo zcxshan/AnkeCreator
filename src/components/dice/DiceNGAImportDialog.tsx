@@ -93,15 +93,7 @@ export function DiceNGAImportDialog({
 
   return (
     <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,0.5)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1000,
-      }}
+      className="fixed inset-0 bg-[var(--scrim)] flex items-center justify-center z-[1000]"
       onClick={onClose}
     >
       <div
@@ -118,43 +110,34 @@ export function DiceNGAImportDialog({
       >
         {/* 标题 */}
         <div
-          className="px-6 py-4 border-b"
-          style={{ borderColor: 'var(--border-color)' }}
+          className="border-[color:var(--border-color)] px-6 py-4 border-b"
         >
           <h2
-            className="text-base font-semibold flex items-center gap-2"
-            style={{ color: 'var(--text-primary)' }}
+            className="text-[var(--text-primary)] text-base font-semibold flex items-center gap-2"
           >
             <span className="inline-flex items-center"><Icon name="download" size={14} /></span> 从 NGA 文本导入选项
           </h2>
           <p
-            className="text-xs mt-1"
-            style={{ color: 'var(--text-muted)' }}
+            className="text-[var(--text-muted)] text-xs mt-1"
           >
-            粘贴 <code style={{ background: 'var(--bg-hover)', padding: '1px 4px', borderRadius: 3 }}>1楼 用户名：内容</code> 格式文本（每行一个选项）
+            粘贴 <code className="bg-[var(--bg-hover)] py-[1px] px-[4px] rounded-[var(--radius-chip)]">1楼 用户名：内容</code> 格式文本（每行一个选项）
           </p>
         </div>
 
         {/* 主体 */}
         <div
-          className="px-6 py-4 overflow-y-auto flex-1"
-          style={{ minHeight: 0 }}
+          className="min-h-[0px] px-6 py-4 overflow-y-auto flex-1"
         >
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <label
-                className="text-xs font-medium"
-                style={{ color: 'var(--text-secondary)' }}
+                className="text-[var(--text-secondary)] text-xs font-medium"
               >
                 NGA 文本
               </label>
               <button
                 onClick={handlePasteSample}
-                className="text-xs px-2 py-0.5 rounded transition-colors"
-                style={{
-                  color: 'var(--text-muted)',
-                  background: 'var(--bg-hover)',
-                }}
+                className="text-[var(--text-muted)] bg-[var(--bg-hover)] text-xs px-2 py-0.5 rounded transition-colors"
                 onMouseEnter={(e) => {
                   e.currentTarget.style.color = 'var(--accent)';
                 }}
@@ -170,13 +153,7 @@ export function DiceNGAImportDialog({
               onChange={(e) => setText(e.target.value)}
               placeholder={`1楼 用户A：选项一的内容\n2楼 用户B：选项二的内容\n3楼 用户C：选项三的内容`}
               rows={10}
-              className="w-full px-3 py-2 text-sm rounded-lg outline-none resize-y font-mono"
-              style={{
-                background: 'var(--bg-input)',
-                border: '1px solid var(--border-color)',
-                color: 'var(--text-primary)',
-                minHeight: 180,
-              }}
+              className="bg-[var(--bg-input)] border border-[color:var(--border-color)] text-[var(--text-primary)] min-h-[180px] w-full px-3 py-2 text-sm rounded-lg outline-none resize-y font-mono"
               onFocus={(e) => {
                 e.currentTarget.style.borderColor = 'var(--accent)';
               }}
@@ -189,12 +166,7 @@ export function DiceNGAImportDialog({
               <button
                 onClick={handleParse}
                 disabled={!text.trim()}
-                className="px-3.5 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
-                style={{
-                  background: 'var(--bg-input)',
-                  color: 'var(--text-primary)',
-                  border: '1px solid var(--border-color)',
-                }}
+                className="bg-[var(--bg-input)] text-[var(--text-primary)] border border-[color:var(--border-color)] px-3.5 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
                 onMouseEnter={(e) => {
                   if (text.trim()) {
                     e.currentTarget.style.borderColor = 'var(--accent)';
@@ -209,8 +181,7 @@ export function DiceNGAImportDialog({
                 <span className="inline-flex items-center gap-1"><Icon name="search" size={12} /> 解析</span>
               </button>
               <span
-                className="text-xs"
-                style={{ color: 'var(--text-muted)' }}
+                className="text-[var(--text-muted)] text-xs"
               >
                 {parsed.length > 0 ? `已解析 ${parsed.length} 个选项` : text.trim() ? '点击解析' : '请粘贴文本'}
               </span>
@@ -219,15 +190,10 @@ export function DiceNGAImportDialog({
             {/* 预览列表 */}
             {parsed.length > 0 && (
               <div
-                className="rounded-lg p-3 space-y-1.5 max-h-60 overflow-y-auto"
-                style={{
-                  background: 'var(--bg-base)',
-                  border: '1px solid var(--border-color)',
-                }}
+                className="bg-[var(--bg-base)] border border-[color:var(--border-color)] rounded-lg p-3 space-y-1.5 max-h-60 overflow-y-auto"
               >
                 <div
-                  className="text-xs font-medium mb-1"
-                  style={{ color: 'var(--text-secondary)' }}
+                  className="text-[var(--text-secondary)] text-xs font-medium mb-1"
                 >
                   预览
                 </div>
@@ -237,14 +203,12 @@ export function DiceNGAImportDialog({
                     className="flex items-baseline gap-2 text-sm"
                   >
                     <span
-                      className="flex-shrink-0 w-6 text-right"
-                      style={{ color: 'var(--accent)' }}
+                      className="text-[var(--accent)] flex-shrink-0 w-6 text-right"
                     >
                       {opt.displayValue}.
                     </span>
                     <span
-                      className="break-words"
-                      style={{ color: 'var(--text-primary)' }}
+                      className="text-[var(--text-primary)] break-words"
                     >
                       {opt.content}
                     </span>
@@ -257,13 +221,11 @@ export function DiceNGAImportDialog({
 
         {/* 底部按钮 */}
         <div
-          className="px-6 py-3 flex items-center justify-end gap-2 border-t"
-          style={{ borderColor: 'var(--border-color)' }}
+          className="border-[color:var(--border-color)] px-6 py-3 flex items-center justify-end gap-2 border-t"
         >
           <button
             onClick={onClose}
-            className="px-4 py-1.5 rounded-lg text-sm transition-colors"
-            style={{ color: 'var(--text-secondary)' }}
+            className="text-[var(--text-secondary)] px-4 py-1.5 rounded-lg text-sm transition-colors"
             onMouseEnter={(e) => {
               e.currentTarget.style.background = 'var(--bg-hover)';
             }}
@@ -276,12 +238,7 @@ export function DiceNGAImportDialog({
           <button
             onClick={handleConfirm}
             disabled={!text.trim()}
-            className="px-4 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-            style={{
-              background: 'var(--accent-bg)',
-              color: 'var(--accent)',
-              border: '1px solid var(--accent)',
-            }}
+            className="bg-[var(--accent-bg)] text-[var(--accent)] border border-[color:var(--accent)] px-4 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
             onMouseEnter={(e) => {
               if (text.trim()) {
                 e.currentTarget.style.background = 'var(--accent)';

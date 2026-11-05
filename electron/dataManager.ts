@@ -9,11 +9,18 @@
 // 配套 build/installer.nsh：Windows 卸载时也会弹确认对话框
 // ============================================================
 
-import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import fs from 'fs'
 import path from 'path'
 import * as db from './db-main'
-import { getImagesDir, getDataRoot } from './paths'
+import { getImagesDir, getDataRoot, getDataDir, getDefaultDataDir, isDataRootFallback, writeConfiguredDataDir } from './paths'
+import { migrateDataDir } from './dataMigration'
+import {
+  createManualSnapshot,
+  ensureDailySnapshot,
+  listSnapshots,
+  requestRestore,
+} from './snapshot'
 
 /** 描述当前数据根目录的简短字符串（用于弹窗展示） */
 function describeDataDir(): string {
@@ -140,4 +147,123 @@ export function registerDataIpc(getWindow: () => BrowserWindow | null): void {
       return { ok: false, error: (e as Error).message }
     }
   })
+
+  // data:getInfo：设置页展示真实数据目录 + 快照列表
+  ipcMain.handle(
+    'data:getInfo',
+    async (): Promise<{
+      ok: boolean
+      error?: string
+      dataDir?: string
+      defaultDataDir?: string
+      custom?: boolean
+      fallback?: boolean
+      snapshots?: ReturnType<typeof listSnapshots>
+    }> => {
+      try {
+        const dataDir = getDataDir()
+        const defaultDataDir = getDefaultDataDir()
+        return {
+          ok: true,
+          dataDir,
+          defaultDataDir,
+          custom: path.resolve(dataDir) !== path.resolve(defaultDataDir),
+          fallback: isDataRootFallback(),
+          snapshots: listSnapshots(dataDir),
+        }
+      } catch (e) {
+        return { ok: false, error: (e as Error).message || '读取数据目录信息失败' }
+      }
+    },
+  )
+
+  // data:pickDataDir：让用户选择新的数据目录（不执行迁移）
+  ipcMain.handle(
+    'data:pickDataDir',
+    async (): Promise<{ ok: boolean; canceled?: boolean; dir?: string; error?: string }> => {
+      try {
+        const win = getWindow()
+        const res = await dialog.showOpenDialog(win ?? (undefined as any), {
+          title: '选择新的数据目录',
+          properties: ['openDirectory', 'createDirectory'],
+        })
+        if (res.canceled || !res.filePaths[0]) return { ok: false, canceled: true }
+        return { ok: true, dir: res.filePaths[0] }
+      } catch (e) {
+        return { ok: false, error: (e as Error).message }
+      }
+    },
+  )
+
+  // data:migrateDataDir：把当前数据复制到目标目录 → 记录配置 → 重启
+  // 约束：目标目录必须为空（或不存在），避免覆盖用户已有文件。
+  // 复制前自动做一份快照，复制失败时清理目标目录中已写入的内容。
+  ipcMain.handle(
+    'data:migrateDataDir',
+    async (_e, targetDirRaw: string): Promise<{ ok: boolean; error?: string; targetDir?: string }> => {
+      const current = getDataDir()
+      // 迁移前安全快照（尽力而为，不阻塞迁移）
+      const result = migrateDataDir(current, targetDirRaw, {
+        beforeCopy: () => {
+          try {
+            createManualSnapshot(current)
+          } catch (e) {
+            console.warn('[data:migrateDataDir] 迁移前快照失败（继续）:', e)
+          }
+        },
+      })
+      if (!result.ok || !result.targetDir) return { ok: false, error: result.error }
+      writeConfiguredDataDir(result.targetDir)
+      setTimeout(() => {
+        app.relaunch()
+        app.exit(0)
+      }, 500)
+      return { ok: true, targetDir: result.targetDir }
+    },
+  )
+
+  // data:createSnapshot：手动创建一份快照
+  ipcMain.handle(
+    'data:createSnapshot',
+    async (): Promise<{ ok: boolean; error?: string; snapshot?: ReturnType<typeof createManualSnapshot> }> => {
+      try {
+        const snapshot = createManualSnapshot(getDataDir())
+        if (!snapshot) return { ok: false, error: '没有可备份的数据' }
+        return { ok: true, snapshot }
+      } catch (e) {
+        return { ok: false, error: (e as Error).message || '创建快照失败' }
+      }
+    },
+  )
+
+  // data:ensureDailySnapshot：启动时补一份当日快照（幂等）
+  ipcMain.handle('data:ensureDailySnapshot', async (): Promise<{ ok: boolean }> => {
+    try {
+      ensureDailySnapshot(getDataDir())
+      return { ok: true }
+    } catch (e) {
+      console.warn('[data:ensureDailySnapshot] 失败（继续运行）:', e)
+      return { ok: false }
+    }
+  })
+
+  // data:restoreSnapshot：记录恢复请求 → 立刻重启；真正的覆盖发生在下次启动、DB 初始化之前
+  ipcMain.handle(
+    'data:restoreSnapshot',
+    async (
+      _e,
+      name: string,
+    ): Promise<{ ok: boolean; error?: string }> => {
+      try {
+        requestRestore(getDataDir(), name)
+        setTimeout(() => {
+          app.relaunch()
+          app.exit(0)
+        }, 500)
+        return { ok: true }
+      } catch (e) {
+        return { ok: false, error: (e as Error).message || '恢复快照失败' }
+      }
+    },
+  )
 }

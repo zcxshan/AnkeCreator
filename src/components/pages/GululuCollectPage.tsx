@@ -41,6 +41,8 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [progressMsg, setProgressMsg] = useState('');
   const [resultMsg, setResultMsg] = useState('');
+  // 页面内可见的错误态（toast 一闪而过，失败后用户需要能重来）
+  const [errorMsg, setErrorMsg] = useState('');
   const [failedFloors, setFailedFloors] = useState<number[]>([]);
   const [collectedItems, setCollectedItems] = useState<GululuRawPost[]>([]);
   const [detecting, setDetecting] = useState(false);
@@ -124,6 +126,7 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
     setRunning(true);
     setProgressMsg('正在爬取骨碌碌作品…');
     setResultMsg('');
+    setErrorMsg('');
     setFailedFloors([]);
     setCollectedItems([]);
     setProgress({ current: 0, total: 0 });
@@ -140,6 +143,7 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
       });
       if (!result.ok) {
         showToast(`收集失败：${result.error}`, 'error');
+        setErrorMsg(result.error || '收集失败');
         setRunning(false);
         setProgressMsg('');
         return;
@@ -161,6 +165,7 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
         );
         if (!res) {
           showToast('保存失败：IPC 返回为空', 'error');
+          setErrorMsg('保存失败：IPC 返回为空');
           setRunning(false);
           setProgressMsg('');
           return;
@@ -172,6 +177,7 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
         }
         if (!res.ok) {
           showToast(`保存失败：${res.error}`, 'error');
+          setErrorMsg(`保存失败：${res.error}`);
           setRunning(false);
           setProgressMsg('');
           return;
@@ -184,6 +190,7 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
         const res = await webSaveStoryAsFile(result.jsonData, result.fileName);
         if (!res.ok) {
           showToast(`保存失败：${res.error}`, 'error');
+          setErrorMsg(`保存失败：${res.error}`);
           setRunning(false);
           setProgressMsg('');
           return;
@@ -196,6 +203,7 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       showToast(`收集失败：${msg}`, 'error');
+      setErrorMsg(msg);
       setProgressMsg('');
     } finally {
       setRunning(false);
@@ -266,64 +274,32 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
     showToast('已接受当前结果', 'success');
   };
 
-  // 共享样式
-  const labelStyle: React.CSSProperties = {
-    display: 'block',
-    fontSize: 12,
-    fontWeight: 500,
-    marginBottom: 6,
-    color: 'var(--text-secondary)',
-  };
-  const inputStyle: React.CSSProperties = {
-    width: '100%',
-    padding: '8px 14px',
-    fontSize: 14,
-    borderRadius: 8,
-    outline: 'none',
-    background: 'var(--bg-input)',
-    border: '1px solid var(--border-color)',
-    color: 'var(--text-primary)',
-  };
+  // 共享样式（统一走 token 类名）
+  const labelClass = 'block text-xs font-medium mb-1.5 text-[var(--text-secondary)]';
+  const inputClass =
+    'w-full px-3.5 py-2 text-sm rounded-lg outline-none transition-all bg-[var(--bg-input)] border border-[var(--border-color)] text-[var(--text-primary)] focus:border-[var(--accent)] disabled:opacity-50';
 
   // 非 Electron 桌面端不支持
   if (!isElectron) {
     return (
-      <div
-        className="min-h-full w-full flex flex-col items-center justify-center p-8"
-        style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}
-      >
+      <div className="min-h-full w-full flex flex-col items-center justify-center p-8 bg-[var(--bg-base)] text-[var(--text-primary)]">
         <div className="text-center max-w-sm">
           <div className="flex justify-center mb-3"><Icon name="smartphone" size={40} /></div>
-          <p className="font-medium" style={{ color: 'var(--text-primary)' }}>移动端暂不支持收集骨碌碌安科</p>
-          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>请在桌面端（Electron）使用此功能</p>
+          <p className="font-medium text-[var(--text-primary)]">移动端暂不支持收集骨碌碌安科</p>
+          <p className="text-sm mt-1 text-[var(--text-secondary)]">请在桌面端（Electron）使用此功能</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div
-      className="min-h-full w-full flex flex-col"
-      style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}
-    >
+    <div className="min-h-full w-full flex flex-col bg-[var(--bg-base)] text-[var(--text-primary)]">
       {/* 顶栏（仅在 onClose 存在时显示"✕ 关闭"按钮） */}
       {onClose && (
-        <div
-          className="flex items-center justify-end px-3 py-2 border-b"
-          style={{ borderColor: 'var(--border-color)' }}
-        >
+        <div className="flex items-center justify-end px-3 py-2 border-b border-[var(--border-color)]">
           <button
             onClick={onClose}
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs transition-colors"
-            style={{ color: 'var(--text-secondary)' }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'var(--bg-hover)';
-              e.currentTarget.style.color = 'var(--text-primary)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'transparent';
-              e.currentTarget.style.color = 'var(--text-secondary)';
-            }}
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs transition-colors text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
             title="关闭骨碌碌面板"
           >
             <Icon name="x" size={13} /> 关闭
@@ -333,61 +309,33 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
 
       <div className="flex-1 overflow-y-auto px-3 py-3 md:px-6 md:py-6">
         <div className="max-w-4xl mx-auto space-y-4 md:space-y-5">
-          <section
-            className="rounded-2xl p-5"
-            style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
-          >
-            <h2
-              className="text-sm font-semibold mb-4"
-              style={{ color: 'var(--text-primary)' }}
-            >
+          <section className="rounded-2xl p-5 bg-[var(--bg-card)] border border-[var(--border-color)]">
+            <h2 className="text-sm font-semibold mb-4 text-[var(--text-primary)]">
               收集条件
             </h2>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="flex flex-col gap-3">
               {/* 骨碌碌作品链接 + 自动检测 */}
               <div>
-                <label style={labelStyle}>骨碌碌作品链接</label>
-                <div style={{ display: 'flex', alignItems: 'stretch', gap: 8 }}>
+                <label className={labelClass}>骨碌碌作品链接</label>
+                <div className="flex items-stretch gap-2">
                   <input
                     value={url}
                     onChange={(e) => setUrl(e.target.value)}
                     placeholder="https://www.gululu.world/book/1285"
                     disabled={running}
-                    style={{
-                      ...inputStyle,
-                      flex: 1,
-                      opacity: running ? 0.5 : 1,
-                    }}
-                    onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; }}
-                    onBlur={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; }}
+                    className={`${inputClass} flex-1`}
                   />
                   <button
                     onClick={handleAutoDetect}
                     disabled={running || detecting}
-                    className="px-3 py-2 text-xs rounded-lg transition-colors disabled:opacity-50 whitespace-nowrap"
-                    style={{
-                      background: 'var(--bg-hover)',
-                      color: 'var(--text-primary)',
-                      border: '1px solid var(--border-color)',
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!running && !detecting) {
-                        e.currentTarget.style.borderColor = 'var(--accent)';
-                        e.currentTarget.style.color = 'var(--accent)';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = 'var(--border-color)';
-                      e.currentTarget.style.color = 'var(--text-primary)';
-                    }}
+                    className="px-3 py-2 text-xs rounded-lg transition-colors whitespace-nowrap bg-[var(--bg-hover)] text-[var(--text-primary)] border border-[var(--border-color)] hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50"
                     title="自动检测作品总楼层数"
                   >
                     {detecting ? (
                       <>
                         <span
-                          className="inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin mr-1"
-                          style={{ verticalAlign: '-2px' }}
+                          className="inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin mr-1 align-[-2px]"
                         />
                         检测中
                       </>
@@ -399,42 +347,36 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
               </div>
 
               {/* 楼层范围 + 切分模式 */}
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <div style={{ flex: '1 1 120px' }}>
-                  <label style={labelStyle}>起始楼层</label>
+              <div className="flex flex-wrap gap-2">
+                <div className="flex-[1_1_120px]">
+                  <label className={labelClass}>起始楼层</label>
                   <input
                     type="number"
                     min={1}
                     value={startFloor}
                     onChange={(e) => setStartFloor(e.target.value)}
                     disabled={running}
-                    style={{ ...inputStyle, opacity: running ? 0.5 : 1 }}
-                    onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; }}
-                    onBlur={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; }}
+                    className={inputClass}
                   />
                 </div>
-                <div style={{ flex: '1 1 120px' }}>
-                  <label style={labelStyle}>终止楼层</label>
+                <div className="flex-[1_1_120px]">
+                  <label className={labelClass}>终止楼层</label>
                   <input
                     type="number"
                     min={1}
                     value={endFloor}
                     onChange={(e) => setEndFloor(e.target.value)}
                     disabled={running}
-                    style={{ ...inputStyle, opacity: running ? 0.5 : 1 }}
-                    onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; }}
-                    onBlur={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; }}
+                    className={inputClass}
                   />
                 </div>
-                <div style={{ flex: '1 1 120px' }}>
-                  <label style={labelStyle}>切分模式</label>
+                <div className="flex-[1_1_120px]">
+                  <label className={labelClass}>切分模式</label>
                   <select
                     value={sectionMode}
                     onChange={(e) => setSectionMode(e.target.value as SectionMode)}
                     disabled={running}
-                    style={{ ...inputStyle, opacity: running ? 0.5 : 1 }}
-                    onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; }}
-                    onBlur={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; }}
+                    className={inputClass}
                   >
                     <option value="single">整段一节</option>
                     <option value="one-per-floor">每楼一节</option>
@@ -442,17 +384,15 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
                   </select>
                 </div>
                 {sectionMode === 'every-n' && (
-                  <div style={{ flex: '1 1 120px' }}>
-                    <label style={labelStyle}>每 N 楼一节</label>
+                  <div className="flex-[1_1_120px]">
+                    <label className={labelClass}>每 N 楼一节</label>
                     <input
                       type="number"
                       min={1}
                       value={floorsPerSection}
                       onChange={(e) => setFloorsPerSection(e.target.value)}
                       disabled={running}
-                      style={{ ...inputStyle, opacity: running ? 0.5 : 1 }}
-                      onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; }}
-                      onBlur={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; }}
+                      className={inputClass}
                     />
                   </div>
                 )}
@@ -468,7 +408,7 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
 
               {/* 作品标题 */}
               <div>
-                <label style={labelStyle}>
+                <label className={labelClass}>
                   作品标题（留空则用作品名或「骨碌碌-{'{opusId}'}」）
                 </label>
                 <input
@@ -476,17 +416,12 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
                   onChange={(e) => setWorkTitle(e.target.value)}
                   placeholder="例如：安科-2026"
                   disabled={running}
-                  style={{ ...inputStyle, opacity: running ? 0.5 : 1 }}
-                  onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; }}
-                  onBlur={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; }}
+                  className={inputClass}
                 />
               </div>
 
               {/* 提示 */}
-              <div
-                className="text-xs flex items-start gap-1.5"
-                style={{ color: 'var(--text-muted)' }}
-              >
+              <div className="text-xs flex items-start gap-1.5 text-[var(--text-muted)]">
                 <Icon name="lightbulb" size={14} className="mt-0.5 shrink-0" />
                 <div>
                   收集完成后会下载一个 <code>.anke.json</code> 文件。
@@ -499,26 +434,7 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
                 <button
                   onClick={handleStart}
                   disabled={running}
-                  className="inline-flex items-center gap-1.5 px-5 py-2 rounded-lg text-sm font-medium transition-all"
-                  style={{
-                    background: 'var(--accent-bg)',
-                    color: 'var(--accent)',
-                    border: '1px solid var(--accent)',
-                    cursor: running ? 'not-allowed' : 'pointer',
-                    opacity: running ? 0.6 : 1,
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!running) {
-                      e.currentTarget.style.background = 'var(--accent)';
-                      e.currentTarget.style.color = 'var(--text-on-accent)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!running) {
-                      e.currentTarget.style.background = 'var(--accent-bg)';
-                      e.currentTarget.style.color = 'var(--accent)';
-                    }
-                  }}
+                  className="inline-flex items-center gap-1.5 px-5 py-2 rounded-lg text-sm font-medium transition-all bg-[var(--accent-bg)] text-[var(--accent)] border border-[var(--accent)] enabled:hover:bg-[var(--accent)] enabled:hover:text-[var(--text-on-accent)] disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   {running ? (
                     <>
@@ -533,13 +449,7 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
                   <button
                     type="button"
                     onClick={handleCancel}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all"
-                    style={{
-                      background: 'var(--bg-card)',
-                      color: 'var(--error, #e53935)',
-                      border: '1px solid var(--error, #e53935)',
-                      cursor: 'pointer',
-                    }}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all bg-[var(--bg-card)] text-[var(--error)] border border-[var(--error)] cursor-pointer"
                   >
                     取消
                   </button>
@@ -558,51 +468,51 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
 
           {/* 结果提示 */}
           {resultMsg && !running && (
-            <section
-              className="rounded-2xl p-5"
-              style={{
-                background: 'var(--bg-card)',
-                border: '1px solid var(--accent)',
-              }}
-            >
-              <div
-                className="text-sm font-semibold mb-2"
-                style={{ color: 'var(--accent)' }}
-              >
-                <span className="inline-flex items-center gap-1.5" style={{ color: 'var(--accent)' }}>
+            <section className="rounded-2xl p-5 bg-[var(--bg-card)] border border-[var(--accent)]">
+              <div className="text-sm font-semibold mb-2 text-[var(--accent)]">
+                <span className="inline-flex items-center gap-1.5 text-[var(--accent)]">
                   <Icon name="check" size={14} /> 收集完成
                 </span>
               </div>
-              <div
-                className="text-sm whitespace-pre-wrap"
-                style={{ color: 'var(--text-primary)' }}
-              >
+              <div className="text-sm whitespace-pre-wrap text-[var(--text-primary)]">
                 {resultMsg}
+              </div>
+            </section>
+          )}
+
+          {/* 收集失败提示（页面内可见，可重新提交） */}
+          {errorMsg && !running && (
+            <section
+              role="alert"
+              className="rounded-2xl p-5 bg-[var(--tone-danger-veil)] border border-[var(--tone-danger-border)]"
+            >
+              <div className="text-sm font-semibold mb-1 text-[var(--tone-danger)]">
+                <span className="inline-flex items-center gap-1.5">
+                  <Icon name="alert" size={14} /> 收集失败
+                </span>
+              </div>
+              <div className="text-sm whitespace-pre-wrap text-[var(--text-primary)]">{errorMsg}</div>
+              <div className="text-xs mt-2 text-[var(--text-secondary)]">
+                请检查链接与楼层范围后，修改上方参数并重新点击「确认收集」。
               </div>
             </section>
           )}
 
           {/* 失败楼层重试卡片 */}
           {!running && failedFloors.length > 0 && (
-            <section
-              className="rounded-2xl p-4"
-              style={{
-                background: 'rgba(245,158,11,0.08)',
-                border: '1px solid rgba(245,158,11,0.3)',
-              }}
-            >
+            <section className="rounded-2xl p-4 bg-[var(--tone-warn-soft)] border border-[var(--tone-warn-border)]">
               <div className="flex items-start gap-2 mb-3">
-                <span style={{ color: '#f59e0b' }}><Icon name="alert" size={20} className="block" /></span>
+                <span className="text-[var(--tone-warn)]"><Icon name="alert" size={20} className="block" /></span>
                 <div className="flex-1">
-                  <div className="text-sm font-semibold" style={{ color: '#f59e0b' }}>
+                  <div className="text-sm font-semibold text-[var(--tone-warn)]">
                     {failedFloors.length} 个楼层抓取失败
                   </div>
-                  <div className="text-xs mt-1.5" style={{ color: 'var(--text-secondary)' }}>
+                  <div className="text-xs mt-1.5 text-[var(--text-secondary)]">
                     可选择重试这些楼层（自动补齐到 JSON），或跳过使用当前已收集的结果。
                   </div>
-                  <div className="mt-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                    <span style={{ fontWeight: 500 }}>失败楼层：</span>
-                    <span style={{ wordBreak: 'break-all' }}>
+                  <div className="mt-2 text-xs text-[var(--text-secondary)]">
+                    <span className="font-medium">失败楼层：</span>
+                    <span className="break-all">
                       {failedFloors.join(', ')}
                     </span>
                   </div>
@@ -612,12 +522,7 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
                 <button
                   onClick={handleRetryFailed}
                   disabled={retrying}
-                  className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
-                  style={{
-                    background: '#f59e0b',
-                    color: '#fff',
-                    border: '1px solid #f59e0b',
-                  }}
+                  className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 bg-[var(--tone-warn)] text-[var(--text-on-accent)] border border-[var(--tone-warn)]"
                 >
                   <span className="inline-flex items-center gap-1">
                     {retrying
@@ -628,12 +533,7 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
                 <button
                   onClick={handleSkipFailed}
                   disabled={retrying}
-                  className="px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50"
-                  style={{
-                    background: 'transparent',
-                    color: 'var(--text-secondary)',
-                    border: '1px solid var(--border-color)',
-                  }}
+                  className="px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50 bg-transparent text-[var(--text-secondary)] border border-[var(--border-color)]"
                 >
                   ⏭ 跳过失败楼层，使用当前结果
                 </button>
@@ -646,12 +546,11 @@ export function GululuCollectPanel({ onClose }: GululuCollectPanelProps) {
       {/* toast */}
       {toast && (
         <div
-          className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg text-sm shadow-lg"
-          style={{
-            background: toast.type === 'success' ? 'var(--accent)' : toast.type === 'error' ? 'var(--error, #e53935)' : 'var(--bg-card)',
-            color: toast.type === 'info' ? 'var(--text-primary)' : '#fff',
-            border: toast.type === 'info' ? '1px solid var(--border-color)' : 'none',
-          }}
+          className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg text-sm shadow-lg ${
+            toast.type === 'info'
+              ? 'bg-[var(--bg-card)] text-[var(--text-primary)] border border-[var(--border-color)]'
+              : `border-none text-[var(--text-on-accent)] ${toast.type === 'success' ? 'bg-[var(--accent)]' : 'bg-[var(--error)]'}`
+          }`}
         >
           {toast.msg}
         </div>

@@ -235,8 +235,9 @@ const dbAPI = {
 
   // Section content
   getSectionContent: (id: string): Promise<string | null> => ipcRenderer.invoke('db:get-section-content', id),
-  setSectionContent: (id: string, content: string | null): Promise<boolean> => ipcRenderer.invoke('db:set-section-content', id, content),
-  setSectionBBCode: (id: string, bbcode: string | null): Promise<boolean> => ipcRenderer.invoke('db:set-section-bbcode', id, bbcode),
+  getSectionBBCode: (id: string): Promise<string | null> => ipcRenderer.invoke('db:get-section-bbcode', id),
+  setSectionContent: (id: string, content: string | null, bbcode?: string | null): Promise<boolean> =>
+    ipcRenderer.invoke('db:set-section-content', id, content, bbcode),
 
   // World Templates
   listWorldSettingTemplates: (): Promise<any[]> => ipcRenderer.invoke('db:list-world-setting-templates'),
@@ -340,6 +341,16 @@ const dbAPI = {
 const appAPI = {
   platform: process.platform,
   openDataDirectory: (): Promise<boolean> => ipcRenderer.invoke('app:open-data-directory'),
+  /** 关闭窗口前由主进程通知渲染层：此时应尽快 flush 未保存内容 */
+  onAppBeforeClose: (cb: () => void): (() => void) => {
+    const listener = () => cb()
+    ipcRenderer.on('app:before-close', listener)
+    return () => ipcRenderer.removeListener('app:before-close', listener)
+  },
+  /** 渲染层完成 flush 后调用，主进程才会真正关闭窗口 */
+  confirmAppClose: (): void => {
+    ipcRenderer.send('app:close-confirmed')
+  },
 }
 
 // 数据清理（应用内"清空所有数据"入口）
@@ -350,6 +361,15 @@ const dataAPI = {
     ipcRenderer.invoke('data:openUninstallGuide'),
   openDataDirectory: (): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('data:openDataDirectory'),
+  getDataInfo: (): Promise<any> => ipcRenderer.invoke('data:getInfo'),
+  createSnapshot: (): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('data:createSnapshot'),
+  restoreSnapshot: (name: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('data:restoreSnapshot', name),
+  pickDataDir: (): Promise<{ ok: boolean; canceled?: boolean; dir?: string; error?: string }> =>
+    ipcRenderer.invoke('data:pickDataDir'),
+  migrateDataDir: (dir: string): Promise<{ ok: boolean; error?: string; targetDir?: string }> =>
+    ipcRenderer.invoke('data:migrateDataDir', dir),
 }
 
 // ============================================================
@@ -401,6 +421,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   toggleMaximize: windowAPI.toggleMaximize,
   close: windowAPI.close,
   onMaximizeStateChange: windowAPI.onMaximizeStateChange,
+  // 关闭前的落盘握手
+  onAppBeforeClose: appAPI.onAppBeforeClose,
+  confirmAppClose: appAPI.confirmAppClose,
   selectImage: imageAPI.select,
   saveImageLocal: imageAPI.saveLocal,
   scanImagesInDir: imageAPI.scanFiles,
@@ -421,6 +444,32 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 整作品另存为 + 导入（代理 dbAPI）
   saveStoryAsFile: dbAPI.saveStoryAsFile,
   openStoryFile: dbAPI.openStoryFile,
+  // 数据目录 / 快照（代理 dataManager 的 data:* 通道）
+  getDataInfo: (): Promise<{
+    ok: boolean
+    error?: string
+    dataDir?: string
+    defaultDataDir?: string
+    custom?: boolean
+    fallback?: boolean
+    snapshots?: Array<{
+      name: string
+      createdAt: string
+      storyFiles: number
+      sectionFiles: number
+      totalBytes: number
+    }>
+  }> => ipcRenderer.invoke('data:getInfo'),
+  createSnapshot: (): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('data:createSnapshot'),
+  restoreSnapshot: (name: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('data:restoreSnapshot', name),
+  openDataDirectory: (): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('data:openDataDirectory'),
+  pickDataDir: (): Promise<{ ok: boolean; canceled?: boolean; dir?: string; error?: string }> =>
+    ipcRenderer.invoke('data:pickDataDir'),
+  migrateDataDir: (dir: string): Promise<{ ok: boolean; error?: string; targetDir?: string }> =>
+    ipcRenderer.invoke('data:migrateDataDir', dir),
   // 寻找安科：搜索骨碌碌 / NGA 安科版块
   searchAnke: {
     gululu: (
@@ -514,6 +563,9 @@ export type ElectronAPI = {
   close: () => void
   /** 订阅窗口最大化/还原状态变化（修复拖动取消最大化时图标不更新的 bug） */
   onMaximizeStateChange: (cb: (isMaximized: boolean) => void) => () => void
+  /** 关闭窗口前通知渲染层 flush；flush 完成后调用 confirmAppClose */
+  onAppBeforeClose: (cb: () => void) => () => void
+  confirmAppClose: () => void
   selectImage: (payload?: { multiple?: boolean }) => Promise<{ buffer: string; filename: string; mimeType: string; filePath?: string } | Array<{ buffer: string; filename: string; mimeType: string; filePath?: string }> | null>
   saveImageLocal: (payload: { buffer: string; filename: string; mimeType: string; folderId?: string | null; folderName?: string }) => Promise<{ ok: boolean; url?: string; error?: string }>
   /** 改动 8：扫描 <imagesDir>/ 下所有图片（含子目录） */

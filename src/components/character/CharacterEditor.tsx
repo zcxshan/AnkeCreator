@@ -102,16 +102,15 @@ export function CharacterPanel({
   };
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden" style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}>
+    <div className="bg-[var(--bg-base)] text-[var(--text-primary)] flex-1 flex flex-col overflow-hidden">
       <div
-        className="flex items-center justify-between px-4 py-2"
-        style={{ background: 'var(--bg-sidebar)', borderBottom: '1px solid var(--border-color)' }}
+        className="bg-[var(--bg-sidebar)] border-b border-b-[color:var(--border-color)] flex items-center justify-between px-4 py-2"
       >
-        <div className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--text-primary)' }}><Icon name="user" size={14} /> 人物角色</div>
+        <div className="text-[var(--text-primary)] flex items-center gap-1.5 text-sm font-semibold"><Icon name="user" size={14} /> 人物角色</div>
         <div className="flex items-center gap-1">
           {selectedIds.size > 0 ? (
             <>
-              <span className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>
+              <span className="text-[var(--text-secondary)] text-[10px]">
                 已选 {selectedIds.size}
               </span>
               <button
@@ -121,16 +120,14 @@ export function CharacterPanel({
                     .map((c) => c.name);
                   setPendingBatchDelete({ ids: Array.from(selectedIds), names });
                 }}
-                className="text-xs px-2 py-1 rounded"
-                style={{ background: 'var(--danger)', color: '#fff' }}
+                className="bg-[var(--danger)] text-[var(--text-on-accent)] text-xs px-2 py-1 rounded"
                 title="删除所选"
               >
                 <span className="inline-flex items-center gap-1"><Icon name="trash" size={12} /> 批量删除</span>
               </button>
               <button
                 onClick={clearSelection}
-                className="text-xs px-2 py-1 rounded"
-                style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)] text-xs px-2 py-1 rounded"
               >
                 取消
               </button>
@@ -140,8 +137,7 @@ export function CharacterPanel({
               {filtered.length > 0 && (
                 <button
                   onClick={selectAll}
-                  className="text-xs px-2 py-1 rounded"
-                  style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                  className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)] text-xs px-2 py-1 rounded"
                   title="全选"
                 >
                   全选
@@ -151,8 +147,7 @@ export function CharacterPanel({
               <button
                 onClick={() => activeStoryId && createCharacter(activeStoryId)}
                 disabled={!activeStoryId}
-                className="text-xs px-2 py-1 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                style={{ background: 'var(--success)', color: 'var(--text-on-accent)' }}
+                className="bg-[var(--success)] text-[var(--text-on-accent)] text-xs px-2 py-1 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 + 新建角色
               </button>
@@ -163,12 +158,12 @@ export function CharacterPanel({
 
       <div className="flex-1 overflow-y-auto p-4">
         {!activeStoryId && (
-          <div className="text-xs italic py-4 text-center" style={{ color: 'var(--text-secondary)' }}>
+          <div className="text-[var(--text-secondary)] text-xs italic py-4 text-center">
             请先选择或创建一个故事
           </div>
         )}
         {activeStoryId && filtered.length === 0 && (
-          <div className="text-xs italic py-4 text-center" style={{ color: 'var(--text-secondary)' }}>
+          <div className="text-[var(--text-secondary)] text-xs italic py-4 text-center">
             暂无角色，点击右上角"新建角色"
           </div>
         )}
@@ -317,8 +312,7 @@ function ImportCharacterTemplateButton() {
     <button
       key={t.id}
       onClick={() => importOne(t as any)}
-      className="w-full text-left px-3 py-2 transition-colors"
-      style={{ color: 'var(--text-primary)', borderRadius: 6 }}
+      className="text-[var(--text-primary)] rounded-[var(--radius-control)] w-full text-left px-3 py-2 transition-colors"
       onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-bg)' }}
       onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
     >
@@ -327,12 +321,11 @@ function ImportCharacterTemplateButton() {
           <img src={t.avatar} alt="" className="w-6 h-6 rounded-md object-cover shrink-0"
             onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
         ) : (
-          <div className="w-6 h-6 rounded-md shrink-0 flex items-center justify-center text-[11px]"
-            style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}>
+          <div className="bg-[var(--accent-soft)] text-[var(--accent)] w-6 h-6 rounded-md shrink-0 flex items-center justify-center text-[11px]">
             {(t.name || '?').slice(0, 1)}
           </div>
         )}
-        <span className="inline-flex items-center gap-1 truncate font-bold" style={{ fontSize: 12 }}>
+        <span className="text-[12px] inline-flex items-center gap-1 truncate font-bold">
           <Icon name="folder" size={12} /> {t.name}
         </span>
       </div>
@@ -364,8 +357,8 @@ function ImportCharacterTemplateButton() {
         zIndex: 9999,
         background: 'var(--bg-card)',
         border: '1px solid var(--border-color)',
-        borderRadius: 8,
-        boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+        borderRadius: 'var(--radius-md)',
+        boxShadow: 'var(--shadow-pop)',
         display: 'flex',
         flexDirection: 'column',
       }}
@@ -376,22 +369,21 @@ function ImportCharacterTemplateButton() {
           placeholder="搜索模板..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full px-2 py-1.5 text-xs rounded border outline-none"
-          style={{ background: 'var(--bg-input)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+          className="bg-[var(--bg-input)] border-[color:var(--border-color)] text-[var(--text-primary)] w-full px-2 py-1.5 text-xs rounded border outline-none"
         />
       </div>
       {templates.length === 0 ? (
-        <div className="px-3 py-6 text-center" style={{ color: 'var(--text-secondary)' }}>
+        <div className="text-[var(--text-secondary)] px-3 py-6 text-center">
           <div className="text-2xl mb-2 opacity-40 flex justify-center"><Icon name="folder" size={28} /></div>
           <div className="text-xs">暂无模板，先到首页的「模板库」创建</div>
         </div>
       ) : filtered.length === 0 ? (
-        <div className="px-3 py-6 text-center" style={{ color: 'var(--text-secondary)' }}>
+        <div className="text-[var(--text-secondary)] px-3 py-6 text-center">
           <div className="text-2xl mb-2 opacity-40 flex justify-center"><Icon name="search" size={28} /></div>
           <div className="text-xs">没有找到匹配的模板</div>
         </div>
       ) : (
-        <div className="overflow-y-auto pb-1 px-1" style={{ maxHeight: 380 }}>
+        <div className="max-h-[380px] overflow-y-auto pb-1 px-1">
           {filtered.map(renderTemplateItem)}
         </div>
       )}
@@ -404,8 +396,7 @@ function ImportCharacterTemplateButton() {
         ref={btnRef}
         onClick={() => { setOpen((v) => !v); setSearch(''); }}
         disabled={!activeStoryId}
-        className="text-xs px-2 py-1 rounded border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-        style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', borderColor: 'var(--border-color)' }}
+        className="bg-[var(--bg-card)] text-[var(--text-primary)] border-[color:var(--border-color)] text-xs px-2 py-1 rounded border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
       >
         导入模板
       </button>
@@ -745,19 +736,17 @@ function CharacterEditorModal({
   const labelColor = 'var(--text-secondary)';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'var(--bg-overlay)' }}>
+    <div className="bg-[var(--bg-overlay)] fixed inset-0 z-50 flex items-center justify-center">
       <div
-        className="w-[90%] max-w-[720px] max-h-[90vh] overflow-y-auto rounded-lg shadow-2xl flex flex-col"
-        style={{ background: 'var(--bg-base)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+        className="bg-[var(--bg-base)] text-[var(--text-primary)] border border-[color:var(--border-color)] w-[90%] max-w-[720px] max-h-[90vh] overflow-y-auto rounded-lg shadow-2xl flex flex-col"
       >
         <div
-          className="flex items-center justify-between px-4 py-2"
-          style={{ borderBottom: '1px solid var(--border-color)' }}
+          className="border-b border-b-[color:var(--border-color)] flex items-center justify-between px-4 py-2"
         >
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--text-primary)' }}><Icon name="pen" size={13} /> 编辑角色</div>
+            <div className="text-[var(--text-primary)] flex items-center gap-1.5 text-sm font-semibold"><Icon name="pen" size={13} /> 编辑角色</div>
           </div>
-          <button
+          <button aria-label="关闭"
             onClick={onClose}
             className="text-sm transition-colors"
             style={{ color: labelColor }}
@@ -773,8 +762,7 @@ function CharacterEditorModal({
           <div className="flex gap-4 items-start">
             <div className="flex flex-col items-center gap-2">
               <div
-                className="w-28 h-28 rounded-full overflow-hidden flex items-center justify-center text-5xl"
-                style={{ background: 'var(--bg-sidebar)', border: '1px solid var(--border-color)' }}
+                className="bg-[var(--bg-sidebar)] border border-[color:var(--border-color)] w-28 h-28 rounded-full overflow-hidden flex items-center justify-center text-5xl"
               >
                 {avatar ? (
                   <img
@@ -786,7 +774,7 @@ function CharacterEditorModal({
                     }}
                   />
                 ) : (
-                  <span style={{ color: 'var(--text-secondary)' }}>{name?.slice(0, 1) || <Icon name="user" size={40} />}</span>
+                  <span className="text-[var(--text-secondary)]">{name?.slice(0, 1) || <Icon name="user" size={40} />}</span>
                 )}
               </div>
 
@@ -894,12 +882,7 @@ function CharacterEditorModal({
               <label className="text-xs" style={{ color: labelColor }}>属性表</label>
               <button
                 onClick={() => setBatchAttrOpen(true)}
-                className="text-[10px] px-2 py-0.5 rounded whitespace-nowrap"
-                style={{
-                  background: 'var(--bg-sidebar)',
-                  color: 'var(--text-secondary)',
-                  border: '1px solid var(--border-color)',
-                }}
+                className="bg-[var(--bg-sidebar)] text-[var(--text-secondary)] border border-[color:var(--border-color)] text-[10px] px-2 py-0.5 rounded whitespace-nowrap"
                 title="批量添加属性"
               >
                 批量添加
@@ -923,12 +906,7 @@ function CharacterEditorModal({
                 </span>
                 <button
                   onClick={() => setBatchVariantOpen(true)}
-                  className="text-[10px] px-2 py-0.5 rounded whitespace-nowrap"
-                  style={{
-                    background: 'var(--bg-sidebar)',
-                    color: 'var(--text-secondary)',
-                    border: '1px solid var(--border-color)',
-                  }}
+                  className="bg-[var(--bg-sidebar)] text-[var(--text-secondary)] border border-[color:var(--border-color)] text-[10px] px-2 py-0.5 rounded whitespace-nowrap"
                   title="批量添加差分（差分名:url，每行一个）"
                 >
                   批量添加
@@ -941,12 +919,10 @@ function CharacterEditorModal({
               {(character.variants || []).map((v, idx) => (
                 <div
                   key={v.id}
-                  className="flex items-center gap-2 px-2 py-1.5 rounded border"
-                  style={{ borderColor: 'var(--border-color)', background: 'var(--bg-sidebar)' }}
+                  className="border-[color:var(--border-color)] bg-[var(--bg-sidebar)] flex items-center gap-2 px-2 py-1.5 rounded border"
                 >
                   <div
-                    className="w-10 h-10 rounded shrink-0 relative overflow-hidden"
-                    style={{ background: 'var(--bg-base)', border: '1px solid var(--border-color)' }}
+                    className="bg-[var(--bg-base)] border border-[color:var(--border-color)] w-10 h-10 rounded shrink-0 relative overflow-hidden"
                   >
                     <img
                       src={v.url}
@@ -972,8 +948,7 @@ function CharacterEditorModal({
                       }}
                     />
                     <div
-                      className="img-fallback absolute inset-0 hidden items-center justify-center text-xs font-semibold"
-                      style={{ color: 'var(--text-muted, #999)' }}
+                      className="text-[var(--text-muted)] img-fallback absolute inset-0 hidden items-center justify-center text-xs font-semibold"
                     >
                       {(v.name || '?').charAt(0)}
                     </div>
@@ -999,8 +974,7 @@ function CharacterEditorModal({
                   <button
                     onClick={() => moveVariant(v.id, -1)}
                     disabled={idx === 0}
-                    className="text-xs px-1.5 py-0.5 rounded disabled:opacity-30"
-                    style={{ background: 'var(--bg-base)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}
+                    className="bg-[var(--bg-base)] text-[var(--text-secondary)] border border-[color:var(--border-color)] text-xs px-1.5 py-0.5 rounded disabled:opacity-30"
                     title="上移"
                   >
                     ↑
@@ -1008,8 +982,7 @@ function CharacterEditorModal({
                   <button
                     onClick={() => moveVariant(v.id, 1)}
                     disabled={idx === (character.variants || []).length - 1}
-                    className="text-xs px-1.5 py-0.5 rounded disabled:opacity-30"
-                    style={{ background: 'var(--bg-base)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}
+                    className="bg-[var(--bg-base)] text-[var(--text-secondary)] border border-[color:var(--border-color)] text-xs px-1.5 py-0.5 rounded disabled:opacity-30"
                     title="下移"
                   >
                     ↓
@@ -1021,18 +994,16 @@ function CharacterEditorModal({
                       }
                     }}
                     disabled={!richTextEditorCommandsRef?.current}
-                    className="text-xs px-1.5 py-0.5 rounded transition-colors disabled:opacity-30"
-                    style={{ background: 'var(--accent-bg)', color: 'var(--accent)', border: '1px solid var(--accent)' }}
+                    className="bg-[var(--accent-bg)] text-[var(--accent)] border border-[color:var(--accent)] text-xs px-1.5 py-0.5 rounded transition-colors disabled:opacity-30"
                     title="插入到编辑器"
                   >
                     插入
                   </button>
-                  <button
+                  <button aria-label="删除"
                     onClick={() => {
                       setPendingDeleteVariant({ id: v.id, name: v.name });
                     }}
-                    className="text-xs px-1.5 py-0.5 rounded"
-                    style={{ background: 'var(--danger-soft)', color: 'var(--danger)' }}
+                    className="bg-[var(--danger-soft)] text-[var(--danger)] text-xs px-1.5 py-0.5 rounded"
                     title="删除"
                   >
                     <Icon name="x" size={12} />
@@ -1133,8 +1104,7 @@ function CharacterEditorModal({
               <button
                 onClick={handleAddVariant}
                 disabled={!newVariantUrl.trim()}
-                className="text-xs px-2 py-1 rounded whitespace-nowrap disabled:opacity-40"
-                style={{ background: 'var(--success)', color: 'var(--text-on-accent)' }}
+                className="bg-[var(--success)] text-[var(--text-on-accent)] text-xs px-2 py-1 rounded whitespace-nowrap disabled:opacity-40"
               >
                 + 添加
               </button>
@@ -1143,13 +1113,11 @@ function CharacterEditorModal({
         </div>
 
         <div
-          className="flex items-center justify-between px-4 py-3"
-          style={{ borderTop: '1px solid var(--border-color)', background: 'var(--bg-sidebar)' }}
+          className="border-t border-t-[color:var(--border-color)] bg-[var(--bg-sidebar)] flex items-center justify-between px-4 py-3"
         >
           <button
             onClick={handleDelete}
-            className="text-xs px-2 py-1 rounded transition-colors"
-            style={{ background: 'var(--danger-soft)', color: 'var(--danger)' }}
+            className="bg-[var(--danger-soft)] text-[var(--danger)] text-xs px-2 py-1 rounded transition-colors"
             onMouseEnter={(e) => {
               e.currentTarget.style.background = 'var(--danger)';
               e.currentTarget.style.color = 'var(--text-on-accent)';
@@ -1175,8 +1143,7 @@ function CharacterEditorModal({
                   variants: character.variants || [],
                 });
               }}
-              className="text-xs px-3 py-1 rounded transition-colors"
-              style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+              className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)] text-xs px-3 py-1 rounded transition-colors"
               onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hover)')}
               onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--bg-card)')}
               title="把当前角色保存为模板（包括差分）"
@@ -1185,8 +1152,7 @@ function CharacterEditorModal({
             </button>
             <button
               onClick={onClose}
-              className="text-xs px-3 py-1 rounded transition-colors"
-              style={{ background: 'var(--bg-sidebar)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+              className="bg-[var(--bg-sidebar)] text-[var(--text-primary)] border border-[color:var(--border-color)] text-xs px-3 py-1 rounded transition-colors"
               onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hover)')}
               onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--bg-sidebar)')}
             >
@@ -1194,8 +1160,7 @@ function CharacterEditorModal({
             </button>
             <button
               onClick={save}
-              className="text-xs px-3 py-1 rounded transition-colors"
-              style={{ background: 'var(--success)', color: 'var(--text-on-accent)' }}
+              className="bg-[var(--success)] text-[var(--text-on-accent)] text-xs px-3 py-1 rounded transition-colors"
               onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.85')}
               onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
             >

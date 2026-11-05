@@ -23,10 +23,10 @@
 ## 技术栈
 
 - **桌面框架**：Electron 33
-- **前端**：React 18 + TypeScript 5.6 + Vite 5
+- **前端**：React 18 + TypeScript 5.6 + Vite 6
 - **样式**：TailwindCSS 3
 - **状态管理**：Zustand 4
-- **富文本**：contenteditable 原生编辑器
+- **富文本**：Tiptap 3（ProseMirror），BBCode 为派生缓存
 - **数据存储**：主进程 JSON 文件 + 渲染层 IndexedDB（移动端 / 浏览器降级）
 - **桌面打包**：electron-builder 25（NSIS x64）
 - **移动端打包**：Capacitor 6（Android）
@@ -54,7 +54,7 @@
 ### 安装依赖
 
 ```bash
-npm install
+pnpm install
 ```
 
 ### 开发模式
@@ -83,7 +83,7 @@ npm run dev          # 启动 Vite + Electron，自动 reload
 
 ```
 release/
-└── 安科作者助手-2.2.0-x64-setup.exe    # NSIS 安装包
+└── 安科作者助手-3.5.4-x64.exe    # NSIS 安装包
 ```
 
 ### Android 本地签名
@@ -104,16 +104,22 @@ npm run keystore:gen       # 交互式生成（密码、DN、有效期）
 
 所有用户数据（作品、人物、世界观、模板等）存储在应用数据目录下，使用 JSON 文件格式自动保存。
 
-- **Windows**: `%APPDATA%/AnkeCreator/AnkeCreatorData`
+- **Windows**：默认 `<安装目录>/data`（dev 模式为 `<项目根>/data`）。安装目录无写权限时自动回退到 `%APPDATA%/com.shanshian.ankecreator/data`；也可在「设置 → 数据目录与备份 → 迁移位置…」更换，迁移前会自动建快照
 - **Android**: `/data/data/com.shanshian.ankecreator/`
 - **Web 模式**：浏览器 IndexedDB（`anke-creator` 库）
+
+> 正文按节拆到 `data/sections/<sectionId>.json`（content / bbcode / word_count），作品文件只存元数据；`data/snapshots/<YYYY-MM-DD>/` 保留最近 7 天自动快照。
 
 ## 项目结构
 
 ```
 AnkeCreator/
 ├── electron/                  # Electron 主进程
-│   ├── main.ts                # 入口 + window 管理 + IPC 注册（~125 行）
+│   ├── main.ts                # 入口 + window 管理 + IPC 注册
+│   ├── security.ts            # 导航/弹窗守卫、权限拒绝
+│   ├── securityPolicy.ts      # CSP 与 URL 白名单（纯函数，构建时也用它注入 meta）
+│   ├── snapshot.ts            # 每日快照 / 手动快照 / 恢复标记
+│   ├── dataMigration.ts       # 数据目录迁移（纯文件操作）
 │   ├── preload.ts             # 预加载桥接（window.dbAPI / electronAPI）
 │   ├── protocol.ts            # local:// 协议 + NGA Referer 钩子
 │   ├── ngaCrawler.ts          # NGA 安价抓取（含反爬限流）
@@ -151,7 +157,7 @@ AnkeCreator/
 │   │   ├── shared.ts          # 内部工具（uuid4 / nowISO / parseJSON / 内存 SQL）
 │   │   ├── browserIndexedDB.ts# IndexedDB 移动端 / Web 实现
 │   │   └── database.ts        # 旧版入口（re-export 向后兼容）
-│   ├── store/                 # Zustand 状态（10 个 store）
+│   ├── store/                 # Zustand 状态（11 个 store）
 │   ├── hooks/                 # 自定义 Hooks
 │   ├── utils/                 # 工具函数
 │   │   ├── platform.ts        # isElectron / isCapacitor / isWeb / isMobile

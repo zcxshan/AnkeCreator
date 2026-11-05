@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { createPortal } from 'react-dom';
 import { Icon } from '../common/Icon';
+import { Modal } from '../common/Modal';
 import type {
   ManualFormatConfig,
   ManualVolumeConfig,
@@ -20,7 +20,7 @@ const inputStyle: React.CSSProperties = {
   padding: '0 6px',
   fontSize: 12,
   border: '1px solid var(--border-color)',
-  borderRadius: 4,
+  borderRadius: 'var(--radius-sm)',
   background: 'var(--bg-input)',
   color: 'var(--text-primary)',
   outline: 'none',
@@ -39,7 +39,7 @@ const btnStyle: React.CSSProperties = {
   padding: '0 8px',
   fontSize: 11,
   border: '1px dashed var(--accent)',
-  borderRadius: 4,
+  borderRadius: 'var(--radius-sm)',
   background: 'transparent',
   color: 'var(--accent)',
   cursor: 'pointer',
@@ -57,7 +57,7 @@ const deleteBtnStyle: React.CSSProperties = {
   padding: 0,
   fontSize: 12,
   border: '1px solid var(--danger)',
-  borderRadius: 4,
+  borderRadius: 'var(--radius-sm)',
   background: 'transparent',
   color: 'var(--danger)',
   cursor: 'pointer',
@@ -66,7 +66,7 @@ const deleteBtnStyle: React.CSSProperties = {
 
 const sectionStyle: React.CSSProperties = {
   border: '1px solid var(--border-color)',
-  borderRadius: 6,
+  borderRadius: 'var(--radius-control)',
   padding: 8,
   marginBottom: 6,
   background: 'var(--bg-base)',
@@ -174,17 +174,17 @@ export function ManualFormatEditor({ value, onChange, maxFloor }: ManualFormatEd
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+    <div className="flex flex-col gap-[6px] mt-[6px]">
       {value.volumes.length === 0 && (
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)', padding: '8px 0' }}>
+        <div className="text-[12px] text-[var(--text-secondary)] py-[8px] px-[0px]">
           尚未添加卷，点击下方"添加卷"开始配置。
         </div>
       )}
       {value.volumes.map((vol, vi) => (
         <div key={vi} style={sectionStyle}>
           {/* 卷标题行 */}
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
-            <span style={{ fontSize: 12, color: 'var(--accent)', fontWeight: 600, minWidth: 36 }}>卷名</span>
+          <div className="flex gap-[6px] items-center mb-[6px]">
+            <span className="text-[12px] text-[var(--accent)] font-semibold min-w-[36px]">卷名</span>
             <input
               style={inputStyle}
               placeholder="如：和平解散"
@@ -194,11 +194,11 @@ export function ManualFormatEditor({ value, onChange, maxFloor }: ManualFormatEd
             <button style={deleteBtnStyle} title="删除此卷" onClick={() => deleteVolume(vi)}>×</button>
           </div>
           {/* 章列表 */}
-          <div style={{ paddingLeft: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div className="pl-[12px] flex flex-col gap-[6px]">
             {vol.chapters.map((ch, ci) => (
               <div key={ci} style={{ ...sectionStyle, marginBottom: 0 }}>
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
-                  <span style={{ fontSize: 12, color: 'var(--accent)', fontWeight: 600, minWidth: 36 }}>章名</span>
+                <div className="flex gap-[6px] items-center mb-[6px]">
+                  <span className="text-[12px] text-[var(--accent)] font-semibold min-w-[36px]">章名</span>
                   <input
                     style={inputStyle}
                     placeholder="如：第一章"
@@ -208,17 +208,17 @@ export function ManualFormatEditor({ value, onChange, maxFloor }: ManualFormatEd
                   <button style={deleteBtnStyle} title="删除此章" onClick={() => deleteChapter(vi, ci)}>×</button>
                 </div>
                 {/* 节列表 */}
-                <div style={{ paddingLeft: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div className="pl-[12px] flex flex-col gap-[4px]">
                   {ch.sections.map((sec, si) => (
-                    <div key={si} style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 11, color: 'var(--text-secondary)', minWidth: 30 }}>节名</span>
+                    <div key={si} className="flex gap-[6px] items-center flex-wrap">
+                      <span className="text-[11px] text-[var(--text-secondary)] min-w-[30px]">节名</span>
                       <input
                         style={inputStyle}
                         placeholder="如：第一集"
                         value={sec.title}
                         onChange={(e) => updateSection(vi, ci, si, { ...sec, title: e.target.value })}
                       />
-                      <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>从</span>
+                      <span className="text-[11px] text-[var(--text-secondary)]">从</span>
                       <input
                         type="number"
                         style={numberInputStyle}
@@ -227,7 +227,7 @@ export function ManualFormatEditor({ value, onChange, maxFloor }: ManualFormatEd
                         max={maxFloor}
                         onChange={(e) => updateSection(vi, ci, si, { ...sec, startFloor: Number(e.target.value) })}
                       />
-                      <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>楼到</span>
+                      <span className="text-[11px] text-[var(--text-secondary)]">楼到</span>
                       <input
                         type="number"
                         style={numberInputStyle}
@@ -236,11 +236,11 @@ export function ManualFormatEditor({ value, onChange, maxFloor }: ManualFormatEd
                         max={maxFloor}
                         onChange={(e) => updateSection(vi, ci, si, { ...sec, endFloor: Number(e.target.value) })}
                       />
-                      <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>楼</span>
+                      <span className="text-[11px] text-[var(--text-secondary)]">楼</span>
                       <button style={deleteBtnStyle} title="删除此节" onClick={() => deleteSection(vi, ci, si)}>×</button>
                     </div>
                   ))}
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <div className="flex gap-[6px] flex-wrap">
                     <button style={btnStyle} onClick={() => addSection(vi, ci)}>+ 添加节</button>
                     <button
                       style={parseBtnStyle}
@@ -259,58 +259,46 @@ export function ManualFormatEditor({ value, onChange, maxFloor }: ManualFormatEd
       ))}
       <button style={btnStyle} onClick={addVolume}>+ 添加卷</button>
       {maxFloor && (
-        <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
+        <div className="text-[11px] text-[var(--text-secondary)] mt-[4px]">
           提示：当前帖子最高 {maxFloor} 楼，节楼号范围应在此区间内。
         </div>
       )}
 
       {/* 解析文本弹窗 */}
-      {parseModalOpen && parseModalChapterKey && createPortal(
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 9000,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: 'rgba(0,0,0,0.45)',
-          }}
-          role="dialog"
-          aria-modal="true"
-          onClick={handleCancelParse}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: 'var(--bg-card, #fff)',
-              borderRadius: 10,
-              boxShadow: '0 12px 40px rgba(0,0,0,0.2)',
-              padding: '20px 24px 16px',
-              minWidth: 420,
-              maxWidth: 560,
-              border: '1px solid var(--border-color, #e5e7eb)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 10,
-            }}
-          >
-            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
+      <Modal
+        open={parseModalOpen && !!parseModalChapterKey}
+        onClose={handleCancelParse}
+        overlayStyle={{ animation: 'none' }}
+        contentStyle={{
+          background: 'var(--bg-card)',
+          borderRadius: 'var(--radius-toolbar)',
+          boxShadow: 'var(--shadow-modal)',
+          padding: '20px 24px 16px',
+          minWidth: 420,
+          maxWidth: 560,
+          border: '1px solid var(--border-color)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+          animation: 'none',
+        }}
+      >
+            <h3 className="m-[0px] text-[15px] font-semibold text-[var(--text-primary)]">
               解析文本生成节结构
             </h3>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+            <div className="text-[12px] text-[var(--text-secondary)] leading-[1.6]">
               <div>请在下方输入节定义文本，每条用 <code>;</code> 或 <code>；</code> 分隔。中英文标点均可。</div>
-              <div style={{ marginTop: 4 }}>
+              <div className="mt-[4px]">
                 格式：<code>节名：起始楼层，终止楼层；</code> 或 <code>节名：起始楼层；</code>
               </div>
-              <div style={{ marginTop: 4, color: 'var(--text-muted)' }}>
+              <div className="mt-[4px] text-[var(--text-muted)]">
                 示例：<code>第一节：1，10；第二节：11，20；第三节：21；</code>
               </div>
-              <div style={{ marginTop: 4, color: 'var(--text-muted)' }}>
+              <div className="mt-[4px] text-[var(--text-muted)]">
                 未指定终止楼层时：非最后一节取下一节起始楼层减一；最后一节取表单填写的终止楼层
                 {maxFloor ? `（当前 ${maxFloor}）` : ''}。
               </div>
-              <div style={{ marginTop: 4, color: 'var(--danger)' }}>
+              <div className="mt-[4px] text-[var(--danger)]">
                 注意：解析成功后会替换该章现有的所有节。
               </div>
             </div>
@@ -328,7 +316,7 @@ export function ManualFormatEditor({ value, onChange, maxFloor }: ManualFormatEd
                 padding: '8px 10px',
                 fontSize: 13,
                 lineHeight: 1.5,
-                borderRadius: 6,
+                borderRadius: 'var(--radius-control)',
                 border: '1px solid var(--border-color)',
                 background: 'var(--bg-input)',
                 color: 'var(--text-primary)',
@@ -340,55 +328,26 @@ export function ManualFormatEditor({ value, onChange, maxFloor }: ManualFormatEd
             />
             {parseError && (
               <div
-                style={{
-                  fontSize: 12,
-                  color: 'var(--danger)',
-                  background: 'var(--bg-danger-soft, rgba(255,0,0,0.06))',
-                  padding: '6px 10px',
-                  borderRadius: 4,
-                  border: '1px solid var(--danger)',
-                }}
+                className="text-[12px] text-[var(--danger)] bg-[var(--bg-danger-soft)] py-[6px] px-[10px] rounded-[var(--radius-sm)] border border-[color:var(--danger)]"
               >
                 {parseError}
               </div>
             )}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+            <div className="flex justify-end gap-[8px] mt-[4px]">
               <button
                 onClick={handleCancelParse}
-                style={{
-                  height: 30,
-                  padding: '0 16px',
-                  fontSize: 13,
-                  borderRadius: 6,
-                  border: '1px solid var(--border-color)',
-                  background: 'transparent',
-                  color: 'var(--text-primary)',
-                  cursor: 'pointer',
-                }}
+                className="h-[30px] py-[0px] px-[16px] text-[13px] rounded-[var(--radius-control)] border border-[color:var(--border-color)] bg-transparent text-[var(--text-primary)] cursor-pointer"
               >
                 取消
               </button>
               <button
                 onClick={handleParse}
-                style={{
-                  height: 30,
-                  padding: '0 16px',
-                  fontSize: 13,
-                  borderRadius: 6,
-                  border: '1px solid var(--accent)',
-                  background: 'var(--accent)',
-                  color: 'var(--bg-base, #fff)',
-                  cursor: 'pointer',
-                  fontWeight: 500,
-                }}
+                className="h-[30px] py-[0px] px-[16px] text-[13px] rounded-[var(--radius-control)] border border-[color:var(--accent)] bg-[var(--accent)] text-[var(--bg-base)] cursor-pointer font-medium"
               >
                 解析
               </button>
             </div>
-          </div>
-        </div>,
-        document.body,
-      )}
+      </Modal>
     </div>
   );
 }

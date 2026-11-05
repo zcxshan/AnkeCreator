@@ -2,15 +2,22 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "composite": true,
-    "lib": ["ES2020"],
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "types": ["node"]
   },
   "include": [
     "electron/**/*",
+    "src/types/**/*",
     "src/utils/urlRecordStore.ts",
+    "src/utils/imageFilename.ts",
     "src/utils/imageScanner.ts",
     "src/utils/scanImageDirectory.ts",
     "src/utils/migrateImageLibraryRootFolder.ts",
-    "src/utils/parseLocalUrl.ts"
-  ]
+    "src/utils/parseLocalUrl.ts",
+    "src/utils/syncDiskToDb.ts",
+    "src/utils/ngaCrawler.ts",
+    "src/utils/ngaBBCodeToHtml.ts",
+    "src/utils/storyImport.ts"
+  ],
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/**/*.spec.ts", "src/**/*.spec.tsx"]
 }

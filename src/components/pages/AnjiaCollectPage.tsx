@@ -34,6 +34,18 @@ type Status = 'idle' | 'collecting' | 'done' | 'error';
 const MAX_FLOOR_RANGE = 1000; // 一次最多 1000 楼（50 页）
 const WARN_FLOOR_RANGE = 200; // 超过 200 楼给提示
 
+/** 卡片容器：白底 + 细边（全部走 token） */
+const CARD_CLASS = 'rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)]';
+/** 表单输入：聚焦时描边强调色 */
+const FIELD_CLASS =
+  'bg-[var(--bg-input)] border border-[var(--border-color)] text-[var(--text-primary)] outline-none transition-all focus:border-[var(--accent)] disabled:opacity-50';
+/** 强调色描边的次要按钮 */
+const ACCENT_SOFT_BTN =
+  'bg-[var(--accent-bg)] text-[var(--accent)] border border-[var(--accent)] hover:bg-[var(--accent)] hover:text-[var(--text-on-accent)]';
+/** 中性描边按钮 */
+const OUTLINE_BTN =
+  'bg-[var(--bg-input)] text-[var(--text-primary)] border border-[var(--border-color)] hover:border-[var(--accent)] hover:text-[var(--accent)]';
+
 export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
   // 安价专属表单状态
   const [prefix, setPrefix] = useState('安价'); // 默认匹配文本设为"安价"
@@ -374,79 +386,33 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
   };
 
   return (
-    <div
-      className="min-h-full w-full flex flex-col"
-      style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}
-    >
+    <div className="min-h-full w-full flex flex-col bg-[var(--bg-base)] text-[var(--text-primary)]">
       {/* 顶栏（sticky 在 TitleBar 下方 32px 处，z-40） */}
-      <div
-        className="flex items-center gap-3 px-6 py-4 border-b sticky top-8 z-40"
-        style={{ borderColor: 'var(--border-color)', background: 'var(--bg-base)' }}
-      >
+      <div className="flex items-center gap-3 px-6 py-4 border-b sticky top-8 z-40 border-[var(--border-color)] bg-[var(--bg-base)]">
         <button
           onClick={onBack}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors"
-          style={{ color: 'var(--text-secondary)' }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'var(--bg-hover)';
-            e.currentTarget.style.color = 'var(--text-primary)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'transparent';
-            e.currentTarget.style.color = 'var(--text-secondary)';
-          }}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
         >
           <Icon name="back" size={16} /> 返回
         </button>
-        <h1
-          className="text-lg font-semibold flex items-center gap-2"
-          style={{ color: 'var(--text-primary)' }}
-        >
+        <h1 className="text-lg font-semibold flex items-center gap-2 text-[var(--text-primary)]">
           <Icon name="scroll" size={20} /> 收集安价
         </h1>
         <div className="ml-auto flex items-center gap-2 relative">
           {/* 历史按钮 */}
           <button
             onClick={() => setHistoryOpen((v) => !v)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-colors"
-            style={{
-              background: historyOpen ? 'var(--bg-hover)' : 'transparent',
-              color: 'var(--text-secondary)',
-              border: '1px solid var(--border-color)',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'var(--bg-hover)';
-              e.currentTarget.style.color = 'var(--text-primary)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = historyOpen
-                ? 'var(--bg-hover)'
-                : 'transparent';
-              e.currentTarget.style.color = 'var(--text-secondary)';
-            }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-colors border border-[var(--border-color)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] ${
+              historyOpen ? 'bg-[var(--bg-hover)]' : 'bg-transparent'
+            }`}
           >
             <Icon name="clock" size={14} /> 历史{history.length > 0 ? ` (${history.length})` : ''}
           </button>
-          <div
-            className="text-xs"
-            style={{ color: 'var(--text-muted)' }}
-          >
-            抓取 NGA 主题帖中"以指定文本开头"的楼层
-          </div>
           {/* 历史下拉 */}
           {historyOpen && (
-            <div
-              className="absolute top-full right-0 mt-2 w-96 max-h-96 overflow-y-auto rounded-lg shadow-lg z-10"
-              style={{
-                background: 'var(--bg-card)',
-                border: '1px solid var(--border-color)',
-              }}
-            >
+            <div className="absolute top-full right-0 mt-2 w-96 max-h-96 overflow-y-auto rounded-lg shadow-lg z-10 bg-[var(--bg-card)] border border-[var(--border-color)]">
               {history.length === 0 ? (
-                <div
-                  className="px-4 py-6 text-center text-sm"
-                  style={{ color: 'var(--text-muted)' }}
-                >
+                <div className="px-4 py-6 text-center text-sm text-[var(--text-muted)]">
                   暂无历史
                 </div>
               ) : (
@@ -454,63 +420,33 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
                   {history.map((entry) => (
                     <div
                       key={entry.id}
-                      className="px-3 py-2 rounded transition-colors"
-                      style={{
-                        background:
-                          lastSavedId === entry.id
-                            ? 'var(--accent-bg)'
-                            : 'transparent',
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'var(--bg-hover)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background =
-                          lastSavedId === entry.id
-                            ? 'var(--accent-bg)'
-                            : 'transparent';
-                      }}
+                      className={`px-3 py-2 rounded transition-colors hover:bg-[var(--bg-hover)] ${
+                        lastSavedId === entry.id ? 'bg-[var(--accent-bg)]' : 'bg-transparent'
+                      }`}
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0 flex-1">
                           <div
-                            className="text-xs truncate"
-                            style={{ color: 'var(--text-primary)' }}
+                            className="text-xs truncate text-[var(--text-primary)]"
                             title={entry.label}
                           >
                             {entry.label}
                           </div>
-                          <div
-                            className="text-xs mt-0.5"
-                            style={{ color: 'var(--text-muted)' }}
-                          >
+                          <div className="text-xs mt-0.5 text-[var(--text-muted)]">
                             {formatHistoryTime(entry.createdAt)} · {entry.items.length} 条
                           </div>
                         </div>
                         <div className="flex items-center gap-1 flex-shrink-0">
                           <button
                             onClick={() => handleLoadHistory(entry)}
-                            className="px-2 py-1 rounded text-xs transition-colors"
-                            style={{
-                              color: 'var(--accent)',
-                              background: 'var(--accent-bg)',
-                              border: '1px solid var(--accent)',
-                            }}
+                            className="px-2 py-1 rounded text-xs transition-colors bg-[var(--accent-bg)] text-[var(--accent)] border border-[var(--accent)]"
                             title="加载此历史"
                           >
                             加载
                           </button>
-                          <button
+                          <button aria-label="删除此历史"
                             onClick={() => handleDeleteHistory(entry.id)}
-                            className="px-2 py-1 rounded text-xs transition-colors"
-                            style={{ color: 'var(--text-muted)' }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.color =
-                                'var(--danger, #dc2626)';
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.color = 'var(--text-muted)';
-                            }}
+                            className="px-2 py-1 rounded text-xs transition-colors text-[var(--text-muted)] hover:text-[var(--danger)]"
                             title="删除此历史"
                           >
                             <Icon name="trash" size={14} />
@@ -529,32 +465,17 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
       {isMobileUnsupported ? (
         <div className="flex-1 overflow-y-auto px-3 py-3 md:px-6 md:py-6">
           <div className="max-w-4xl mx-auto">
-            <section
-              className="rounded-2xl p-8 text-center"
-              style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
-            >
+            <section className={`${CARD_CLASS} p-8 text-center`}>
               <div className="text-4xl mb-4">💻</div>
-              <h2
-                className="text-lg font-semibold mb-2"
-                style={{ color: 'var(--text-primary)' }}
-              >
+              <h2 className="text-lg font-semibold mb-2 text-[var(--text-primary)]">
                 移动端暂不支持收集
               </h2>
-              <p
-                className="text-sm mb-4"
-                style={{ color: 'var(--text-secondary)' }}
-              >
+              <p className="text-sm mb-4 text-[var(--text-secondary)]">
                 收集安价功能需要在桌面端（Electron）使用。请在电脑上安装安科作者助手后使用此功能。
               </p>
               <button
                 onClick={() => showToast('请访问官网下载桌面版', 'info')}
-                className="px-4 py-2 rounded-lg text-sm transition-colors"
-                style={{
-                  border: '1px solid var(--accent)',
-                  background: 'transparent',
-                  color: 'var(--accent)',
-                  cursor: 'pointer',
-                }}
+                className="px-4 py-2 rounded-lg text-sm transition-colors border border-[var(--accent)] bg-transparent text-[var(--accent)] cursor-pointer"
               >
                 了解桌面版
               </button>
@@ -566,24 +487,15 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
           <div className="flex-1 overflow-y-auto px-3 py-3 md:px-6 md:py-6">
             <div className="max-w-4xl mx-auto space-y-4 md:space-y-5">
               {/* 表单卡片 */}
-              <section
-                className="rounded-2xl p-5"
-                style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
-              >
-                <h2
-                  className="text-sm font-semibold mb-4"
-                  style={{ color: 'var(--text-primary)' }}
-                >
+              <section className={`${CARD_CLASS} p-5`}>
+                <h2 className="text-sm font-semibold mb-4 text-[var(--text-primary)]">
                   抓取条件
                 </h2>
 
                 <div className="space-y-4">
                   {/* URL + 自动检测 */}
                   <div>
-                    <label
-                      className="block text-xs font-medium mb-1.5"
-                      style={{ color: 'var(--text-secondary)' }}
-                    >
+                    <label className="block text-xs font-medium mb-1.5 text-[var(--text-secondary)]">
                       NGA 主题帖链接
                     </label>
                     <div className="flex items-stretch gap-2">
@@ -593,38 +505,12 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
                         onChange={(e) => setUrl(e.target.value)}
                         placeholder="https://nga.178.com/read.php?tid=12345（可加 &authorid=XXX 仅收集该用户）"
                         disabled={status === 'collecting'}
-                        className="flex-1 px-3.5 py-2 text-sm rounded-lg outline-none transition-all disabled:opacity-50"
-                        style={{
-                          background: 'var(--bg-input)',
-                          border: '1px solid var(--border-color)',
-                          color: 'var(--text-primary)',
-                        }}
-                        onFocus={(e) => {
-                          e.currentTarget.style.borderColor = 'var(--accent)';
-                        }}
-                        onBlur={(e) => {
-                          e.currentTarget.style.borderColor = 'var(--border-color)';
-                        }}
+                        className={`flex-1 px-3.5 py-2 text-sm rounded-lg ${FIELD_CLASS}`}
                       />
                       <button
                         onClick={handleAutoDetect}
                         disabled={status === 'collecting' || detecting}
-                        className="px-3 py-2 text-xs rounded-lg transition-colors disabled:opacity-50 whitespace-nowrap"
-                        style={{
-                          background: 'var(--bg-hover)',
-                          color: 'var(--text-primary)',
-                          border: '1px solid var(--border-color)',
-                        }}
-                        onMouseEnter={(e) => {
-                          if (status !== 'collecting' && !detecting) {
-                            e.currentTarget.style.borderColor = 'var(--accent)';
-                            e.currentTarget.style.color = 'var(--accent)';
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.borderColor = 'var(--border-color)';
-                          e.currentTarget.style.color = 'var(--text-primary)';
-                        }}
+                        className="px-3 py-2 text-xs rounded-lg transition-colors whitespace-nowrap bg-[var(--bg-hover)] text-[var(--text-primary)] border border-[var(--border-color)] hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50"
                         title="自动检测主题帖总页数"
                       >
                         {detecting ? (
@@ -640,12 +526,7 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
                     {/* authorid 徽章 */}
                     {parsedAuthorid && (
                       <div
-                        className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs"
-                        style={{
-                          background: 'var(--accent-bg)',
-                          color: 'var(--accent)',
-                          border: '1px solid var(--accent)',
-                        }}
+                        className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs bg-[var(--accent-bg)] text-[var(--accent)] border border-[var(--accent)]"
                         title="仅收集该用户的回复"
                       >
                         <Icon name="target" size={14} />
@@ -653,14 +534,7 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
                         <button
                           onClick={clearAuthorid}
                           disabled={status === 'collecting'}
-                          className="ml-0.5 px-1 rounded transition-colors disabled:opacity-50"
-                          style={{ color: 'var(--accent)' }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.background = 'rgba(0,0,0,0.08)';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.background = 'transparent';
-                          }}
+                          className="ml-0.5 px-1 rounded transition-colors text-[var(--accent)] hover:bg-[var(--scrim-soft)] disabled:opacity-50"
                           title="清除用户筛选（恢复全员）"
                         >
                           ×
@@ -672,10 +546,7 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
                   {/* 楼层范围 */}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label
-                        className="block text-xs font-medium mb-1.5"
-                        style={{ color: 'var(--text-secondary)' }}
-                      >
+                      <label className="block text-xs font-medium mb-1.5 text-[var(--text-secondary)]">
                         起始楼层
                       </label>
                       <input
@@ -684,25 +555,11 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
                         value={startFloor}
                         onChange={(e) => setStartFloor(e.target.value)}
                         disabled={status === 'collecting'}
-                        className="w-full px-3.5 py-2 text-sm rounded-lg outline-none transition-all disabled:opacity-50"
-                        style={{
-                          background: 'var(--bg-input)',
-                          border: '1px solid var(--border-color)',
-                          color: 'var(--text-primary)',
-                        }}
-                        onFocus={(e) => {
-                          e.currentTarget.style.borderColor = 'var(--accent)';
-                        }}
-                        onBlur={(e) => {
-                          e.currentTarget.style.borderColor = 'var(--border-color)';
-                        }}
+                        className={`w-full px-3.5 py-2 text-sm rounded-lg ${FIELD_CLASS}`}
                       />
                     </div>
                     <div>
-                      <label
-                        className="block text-xs font-medium mb-1.5"
-                        style={{ color: 'var(--text-secondary)' }}
-                      >
+                      <label className="block text-xs font-medium mb-1.5 text-[var(--text-secondary)]">
                         末尾楼层
                       </label>
                       <input
@@ -714,28 +571,14 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
                           setEndFloorManuallyEdited(true);
                         }}
                         disabled={status === 'collecting'}
-                        className="w-full px-3.5 py-2 text-sm rounded-lg outline-none transition-all disabled:opacity-50"
-                        style={{
-                          background: 'var(--bg-input)',
-                          border: '1px solid var(--border-color)',
-                          color: 'var(--text-primary)',
-                        }}
-                        onFocus={(e) => {
-                          e.currentTarget.style.borderColor = 'var(--accent)';
-                        }}
-                        onBlur={(e) => {
-                          e.currentTarget.style.borderColor = 'var(--border-color)';
-                        }}
+                        className={`w-full px-3.5 py-2 text-sm rounded-lg ${FIELD_CLASS}`}
                       />
                     </div>
                   </div>
 
                   {/* 匹配文本 + 匹配模式 */}
                   <div>
-                    <label
-                      className="block text-xs font-medium mb-1.5"
-                      style={{ color: 'var(--text-secondary)' }}
-                    >
+                    <label className="block text-xs font-medium mb-1.5 text-[var(--text-secondary)]">
                       匹配文本（可留空）
                     </label>
                     <div className="flex gap-2">
@@ -749,30 +592,13 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
                             : '留空则匹配所有楼层'
                         }
                         disabled={status === 'collecting'}
-                        className="flex-1 px-3.5 py-2 text-sm rounded-lg outline-none transition-all disabled:opacity-50"
-                        style={{
-                          background: 'var(--bg-input)',
-                          border: '1px solid var(--border-color)',
-                          color: 'var(--text-primary)',
-                        }}
-                        onFocus={(e) => {
-                          e.currentTarget.style.borderColor = 'var(--accent)';
-                        }}
-                        onBlur={(e) => {
-                          e.currentTarget.style.borderColor = 'var(--border-color)';
-                        }}
+                        className={`flex-1 px-3.5 py-2 text-sm rounded-lg ${FIELD_CLASS}`}
                       />
                       <select
                         value={matchMode}
                         onChange={(e) => setMatchMode(e.target.value as MatchMode)}
                         disabled={status === 'collecting'}
-                        className="px-3 py-2 text-sm rounded-lg outline-none transition-all disabled:opacity-50"
-                        style={{
-                          background: 'var(--bg-input)',
-                          border: '1px solid var(--border-color)',
-                          color: 'var(--text-primary)',
-                          cursor: 'pointer',
-                        }}
+                        className={`px-3 py-2 text-sm rounded-lg cursor-pointer ${FIELD_CLASS}`}
                         title="匹配模式"
                       >
                         <option value="prefix">前缀匹配</option>
@@ -783,14 +609,11 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
                   </div>
 
                   {/* 提示信息 */}
-                  <div
-                    className="text-xs flex items-start gap-1.5"
-                    style={{ color: 'var(--text-muted)' }}
-                  >
+                  <div className="text-xs flex items-start gap-1.5 text-[var(--text-muted)]">
                     <span>💡</span>
                     <div>
                       {ngaCookies ? (
-                        <span style={{ color: 'var(--success, #10b981)' }}>
+                        <span className="text-[var(--success)]">
                           已配置 NGA Cookie（可访问登录受限内容）
                         </span>
                       ) : (
@@ -807,41 +630,20 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
                       <>
                         <button
                           disabled
-                          className="inline-flex items-center gap-1.5 px-5 py-2 rounded-lg text-sm font-medium opacity-60"
-                          style={{
-                            background: 'var(--accent-bg)',
-                            color: 'var(--accent)',
-                            border: '1px solid var(--accent)',
-                          }}
+                          className={`inline-flex items-center gap-1.5 px-5 py-2 rounded-lg text-sm font-medium opacity-60 ${ACCENT_SOFT_BTN}`}
                         >
                           <span className="inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
                           {paused ? '已暂停' : '抓取中…'}
                         </button>
                         <button
                           onClick={handleTogglePause}
-                          className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                          style={{
-                            background: 'var(--bg-card)',
-                            color: 'var(--text-primary)',
-                            border: '1px solid var(--border-color)',
-                          }}
+                          className="px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-[var(--bg-card)] text-[var(--text-primary)] border border-[var(--border-color)]"
                         >
                           {paused ? '▶ 恢复' : '⏸ 暂停'}
                         </button>
                         <button
                           onClick={handleCancel}
-                          className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                          style={{
-                            background: 'transparent',
-                            color: 'var(--danger, #dc2626)',
-                            border: '1px solid var(--danger, #dc2626)',
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.background = 'rgba(220,38,38,0.1)';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.background = 'transparent';
-                          }}
+                          className="px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-transparent text-[var(--danger)] border border-[var(--danger)] hover:bg-[var(--tone-danger-veil)]"
                         >
                           取消
                         </button>
@@ -850,34 +652,14 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
                       <>
                         <button
                           onClick={handleCollect}
-                          className="inline-flex items-center gap-1.5 px-5 py-2 rounded-lg text-sm font-medium transition-all"
-                          style={{
-                            background: 'var(--accent-bg)',
-                            color: 'var(--accent)',
-                            border: '1px solid var(--accent)',
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.background = 'var(--accent)';
-                            e.currentTarget.style.color = 'var(--text-on-accent)';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.background = 'var(--accent-bg)';
-                            e.currentTarget.style.color = 'var(--accent)';
-                          }}
+                          className={`inline-flex items-center gap-1.5 px-5 py-2 rounded-lg text-sm font-medium transition-all ${ACCENT_SOFT_BTN}`}
                         >
                           开始收集
                         </button>
                         {status !== 'idle' && (
                           <button
                             onClick={handleReset}
-                            className="px-4 py-2 rounded-lg text-sm transition-colors"
-                            style={{ color: 'var(--text-secondary)' }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.background = 'var(--bg-hover)';
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.background = 'transparent';
-                            }}
+                            className="px-4 py-2 rounded-lg text-sm transition-colors text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
                           >
                             清空
                           </button>
@@ -904,19 +686,15 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
               {/* 楼层超范围提示 */}
               {status === 'done' && actualMaxFloor && parseInt(endFloor, 10) > actualMaxFloor && (
                 <section
-                  className="rounded-2xl p-4"
-                  style={{
-                    background: 'rgba(245,158,11,0.08)',
-                    border: '1px solid rgba(245,158,11,0.3)',
-                  }}
+                  className="rounded-2xl p-4 bg-[var(--tone-warn-soft)] border border-[var(--tone-warn-border)]"
                 >
                   <div className="flex items-start gap-2">
-                    <span style={{ color: '#f59e0b' }}>⚠</span>
+                    <span className="text-[var(--tone-warn)]">⚠</span>
                     <div>
-                      <div className="text-sm font-medium" style={{ color: '#f59e0b' }}>
+                      <div className="text-sm font-medium text-[var(--tone-warn)]">
                         楼层超出范围
                       </div>
-                      <div className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+                      <div className="text-xs mt-1 text-[var(--text-secondary)]">
                         {failedPages.length > 0
                           ? `已爬到 ${actualMaxFloor} 楼，但还有 ${failedPages.length} 页抓取失败未补齐，实际帖子可能更长`
                           : `帖子实际最高楼为 ${actualMaxFloor} 楼，已爬取所有存在的内容（您指定的 ${endFloor} 楼超出范围）`}
@@ -929,19 +707,15 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
               {/* 失败页重试卡片 */}
               {status === 'done' && failedPages.length > 0 && (
                 <section
-                  className="rounded-2xl p-4"
-                  style={{
-                    background: 'rgba(245,158,11,0.08)',
-                    border: '1px solid rgba(245,158,11,0.3)',
-                  }}
+                  className="rounded-2xl p-4 bg-[var(--tone-warn-soft)] border border-[var(--tone-warn-border)]"
                 >
                   <div className="flex items-start gap-2 mb-3">
-                    <span style={{ color: '#f59e0b', fontSize: 20, lineHeight: 1 }}>⚠</span>
+                    <span className="text-[var(--tone-warn)] text-[20px] leading-none">⚠</span>
                     <div className="flex-1">
-                      <div className="text-sm font-semibold" style={{ color: '#f59e0b' }}>
+                      <div className="text-sm font-semibold text-[var(--tone-warn)]">
                         {failedPages.length} 个页面抓取失败
                       </div>
-                      <div className="text-xs mt-1.5" style={{ color: 'var(--text-secondary)' }}>
+                      <div className="text-xs mt-1.5 text-[var(--text-secondary)]">
                         可选择重试这些页面（自动补齐到 JSON），或跳过使用当前已收集的结果。
                       </div>
                       {(() => {
@@ -949,17 +723,16 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
                         const visible = failedPagesExpanded ? failedPages : failedPages.slice(0, SHOW);
                         const hasMore = failedPages.length > SHOW;
                         return (
-                          <div className="mt-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                            <span style={{ fontWeight: 500 }}>失败页码：</span>
-                            <span style={{ wordBreak: 'break-all' }}>
+                          <div className="mt-2 text-xs text-[var(--text-secondary)]">
+                            <span className="font-medium">失败页码：</span>
+                            <span className="break-all">
                               {visible.join(', ')}
                               {hasMore && !failedPagesExpanded && ` 等 ${failedPages.length} 页`}
                             </span>
                             {hasMore && (
                               <button
                                 onClick={() => setFailedPagesExpanded((v) => !v)}
-                                className="ml-2 underline"
-                                style={{ color: '#f59e0b', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                                className="ml-2 underline text-[var(--tone-warn)] bg-transparent border-0 cursor-pointer p-0"
                               >
                                 {failedPagesExpanded ? '收起' : '展开全部'}
                               </button>
@@ -973,24 +746,14 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
                     <button
                       onClick={handleRetryFailedPages}
                       disabled={retrying}
-                      className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
-                      style={{
-                        background: '#f59e0b',
-                        color: '#fff',
-                        border: '1px solid #f59e0b',
-                      }}
+                      className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 bg-[var(--tone-warn)] text-[var(--text-on-accent)] border border-[var(--tone-warn)]"
                     >
                       {retrying ? `重试中…（${failedPages.length} 页）` : `⚠ 重试 ${failedPages.length} 个失败页（建议操作）`}
                     </button>
                     <button
                       onClick={handleSkipFailedPages}
                       disabled={retrying}
-                      className="px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50"
-                      style={{
-                        background: 'transparent',
-                        color: 'var(--text-secondary)',
-                        border: '1px solid var(--border-color)',
-                      }}
+                      className="px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50 bg-transparent text-[var(--text-secondary)] border border-[var(--border-color)]"
                     >
                       ⏭ 跳过失败页，使用当前结果
                     </button>
@@ -1032,37 +795,18 @@ function ProgressBar({ current, total, label }: { current: number; total: number
   const indeterminate = total <= 0;
   const percent = !indeterminate ? Math.round((current / total) * 100) : 0;
   return (
-    <section
-      className="rounded-2xl p-4"
-      style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
-    >
-      <div
-        className="flex items-center justify-between mb-2 text-xs"
-        style={{ color: 'var(--text-secondary)' }}
-      >
+    <section className={`${CARD_CLASS} p-4`}>
+      <div className="flex items-center justify-between mb-2 text-xs text-[var(--text-secondary)]">
         <span className="truncate mr-2">{label || '正在抓取 NGA 页面…'}</span>
         <span className="shrink-0">
           {indeterminate ? `${current} 页` : `${current}/${total} (${percent}%)`}
         </span>
       </div>
-      <div
-        className="h-2 rounded-full overflow-hidden"
-        style={{ background: 'var(--bg-hover)' }}
-      >
+      <div className="h-2 rounded-full overflow-hidden bg-[var(--bg-hover)]">
         {indeterminate ? (
-          <div
-            className="h-full animate-pulse"
-            style={{ width: '30%', background: 'var(--accent)' }}
-          />
+          <div className="h-full animate-pulse w-[30%] bg-[var(--accent)]" />
         ) : (
-          <div
-            className="h-full transition-all"
-            style={{
-              width: `${percent}%`,
-              background: 'var(--accent)',
-              transition: 'width 0.3s ease',
-            }}
-          />
+          <div className="h-full transition-all bg-[var(--accent)]" style={{ width: `${percent}%` }} />
         )}
       </div>
     </section>
@@ -1073,25 +817,15 @@ function ProgressBar({ current, total, label }: { current: number; total: number
 function ErrorBox({ message }: { message: string }) {
   return (
     <section
-      className="rounded-2xl p-4"
-      style={{
-        background: 'rgba(220,38,38,0.08)',
-        border: '1px solid rgba(220,38,38,0.3)',
-      }}
+      className="rounded-2xl p-4 bg-[var(--tone-danger-soft)] border border-[var(--tone-danger-border)]"
     >
       <div className="flex items-start gap-2">
-        <span style={{ color: 'var(--danger, #dc2626)' }}>⚠</span>
+        <span className="text-[var(--danger)]">⚠</span>
         <div>
-          <div
-            className="text-sm font-medium"
-            style={{ color: 'var(--danger, #dc2626)' }}
-          >
+          <div className="text-sm font-medium text-[var(--danger)]">
             抓取失败
           </div>
-          <div
-            className="text-xs mt-1 whitespace-pre-wrap"
-            style={{ color: 'var(--text-secondary)' }}
-          >
+          <div className="text-xs mt-1 whitespace-pre-wrap text-[var(--text-secondary)]">
             {message}
           </div>
         </div>
@@ -1104,18 +838,11 @@ function ErrorBox({ message }: { message: string }) {
 function WarningBox({ message }: { message: string }) {
   return (
     <section
-      className="rounded-2xl p-4"
-      style={{
-        background: 'rgba(245,158,11,0.08)',
-        border: '1px solid rgba(245,158,11,0.3)',
-      }}
+      className="rounded-2xl p-4 bg-[var(--tone-warn-soft)] border border-[var(--tone-warn-border)]"
     >
       <div className="flex items-start gap-2">
-        <span style={{ color: '#f59e0b' }}>⚠</span>
-        <div
-          className="text-xs whitespace-pre-wrap"
-          style={{ color: 'var(--text-secondary)' }}
-        >
+        <span className="text-[var(--tone-warn)]">⚠</span>
+        <div className="text-xs whitespace-pre-wrap text-[var(--text-secondary)]">
           {message}
         </div>
       </div>
@@ -1142,79 +869,34 @@ function ResultsList({
   saved: boolean;
 }) {
   return (
-    <section
-      className="rounded-2xl p-5"
-      style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
-    >
+    <section className={`${CARD_CLASS} p-5`}>
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-        <h2
-          className="text-sm font-semibold"
-          style={{ color: 'var(--text-primary)' }}
-        >
+        <h2 className="text-sm font-semibold text-[var(--text-primary)]">
           找到 {items.length} 条
         </h2>
         <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={onSaveToHistory}
             disabled={saved}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
-            style={{
-              background: saved ? 'var(--bg-hover)' : 'var(--bg-input)',
-              color: saved ? 'var(--text-muted)' : 'var(--text-primary)',
-              border: '1px solid var(--border-color)',
-            }}
-            onMouseEnter={(e) => {
-              if (!saved) {
-                e.currentTarget.style.borderColor = 'var(--accent)';
-                e.currentTarget.style.color = 'var(--accent)';
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (!saved) {
-                e.currentTarget.style.borderColor = 'var(--border-color)';
-                e.currentTarget.style.color = 'var(--text-primary)';
-              }
-            }}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 border border-[var(--border-color)] ${
+              saved
+                ? 'bg-[var(--bg-hover)] text-[var(--text-muted)]'
+                : 'bg-[var(--bg-input)] text-[var(--text-primary)] hover:border-[var(--accent)] hover:text-[var(--accent)]'
+            }`}
             title={saved ? '已保存' : '保存到抓取历史'}
           >
             {saved ? '✓ 已保存' : <><Icon name="save" size={14} /> 保存到历史</>}
           </button>
           <button
             onClick={onCopyNGA}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
-            style={{
-              background: 'var(--bg-input)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border-color)',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = 'var(--accent)';
-              e.currentTarget.style.color = 'var(--accent)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = 'var(--border-color)';
-              e.currentTarget.style.color = 'var(--text-primary)';
-            }}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${OUTLINE_BTN}`}
             title="复制为 NGA BBCode 格式（标题加粗，可直接贴到 NGA 编辑器）"
           >
             <Icon name="copy" size={14} /> 复制 NGA 格式
           </button>
           <button
             onClick={onCopyAll}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-colors"
-            style={{
-              background: 'var(--accent-bg)',
-              color: 'var(--accent)',
-              border: '1px solid var(--accent)',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'var(--accent)';
-              e.currentTarget.style.color = 'var(--text-on-accent)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'var(--accent-bg)';
-              e.currentTarget.style.color = 'var(--accent)';
-            }}
+            className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${ACCENT_SOFT_BTN}`}
           >
             <Icon name="copy" size={14} /> 复制全部
           </button>
@@ -1249,29 +931,15 @@ function ResultItem({
 }) {
   return (
     <div
-      className="rounded-lg p-3 transition-colors"
-      style={{
-        background: 'var(--bg-base)',
-        border: '1px solid var(--border-color)',
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = 'var(--accent)';
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = 'var(--border-color)';
-      }}
+      className="rounded-lg p-3 transition-colors bg-[var(--bg-base)] border border-[var(--border-color)] hover:border-[var(--accent)]"
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-baseline gap-2 min-w-0">
-          <span
-            className="text-sm font-semibold flex-shrink-0"
-            style={{ color: 'var(--accent)' }}
-          >
+          <span className="text-sm font-semibold flex-shrink-0 text-[var(--accent)]">
             {item.floor}楼
           </span>
           <span
-            className="text-xs truncate"
-            style={{ color: 'var(--text-secondary)' }}
+            className="text-xs truncate text-[var(--text-secondary)]"
             title={item.author}
           >
             {item.author}
@@ -1280,44 +948,21 @@ function ResultItem({
         <div className="flex items-center gap-1 flex-shrink-0">
           <button
             onClick={() => onCopy(item)}
-            className="px-2.5 py-1 rounded text-xs transition-colors"
-            style={{
-              background: 'var(--bg-hover)',
-              color: 'var(--text-secondary)',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = 'var(--accent)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = 'var(--text-secondary)';
-            }}
+            className="px-2.5 py-1 rounded text-xs transition-colors bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--accent)]"
             title={`复制 ${item.floor}楼 到剪贴板`}
           >
             <Icon name="copy" size={14} /> 复制
           </button>
           <button
             onClick={() => onDelete(item, index)}
-            className="px-2.5 py-1 rounded text-xs transition-colors"
-            style={{
-              background: 'var(--bg-hover)',
-              color: 'var(--text-secondary)',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = 'var(--danger, #dc2626)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = 'var(--text-secondary)';
-            }}
+            className="px-2.5 py-1 rounded text-xs transition-colors bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--danger)]"
             title={`删除 ${item.floor}楼（可撤销）`}
           >
             <Icon name="trash" size={14} /> 删除
           </button>
         </div>
       </div>
-      <div
-        className="mt-1.5 text-sm whitespace-pre-wrap break-words"
-        style={{ color: 'var(--text-primary)' }}
-      >
+      <div className="mt-1.5 text-sm whitespace-pre-wrap break-words text-[var(--text-primary)]">
         {item.content}
       </div>
     </div>

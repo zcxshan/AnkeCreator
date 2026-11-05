@@ -313,9 +313,11 @@ function rowToStory(r: Record<string, unknown>): Story {
 
 async function listStories(): Promise<Story[]> {
   const rows = await getAll<Record<string, unknown>>('stories');
+  // 与 Electron 后端一致：列表排除软删除作品（回收站单独查询）
+  const visible = rows.filter((r) => !r.is_deleted);
   // 按 updated_at DESC 排序（与原 SQL 行为一致）
-  rows.sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
-  return rows.map(rowToStory);
+  visible.sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
+  return visible.map(rowToStory);
 }
 
 async function getStory(id: string): Promise<Story | undefined> {
@@ -849,6 +851,8 @@ function countWordsInHtml(html: string | null | undefined): number {
   const text = String(html)
     .replace(/<style[\s\S]*?<\/style>/gi, '')
     .replace(/<script[\s\S]*?<\/script>/gi, '')
+    // 排除原子块（骰子卡 / 图片块）内部文字，与 Electron / 内存后端及 UI 层算法一致
+    .replace(/<div\b[^>]*\bdata-type=["'](?:image-block|dice-card)["'][^>]*>[\s\S]*?<\/div>/gi, '')
     .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/g, ' ')
     .replace(/&[a-z]+;/gi, ' ')
@@ -903,7 +907,11 @@ async function createSection(data: Record<string, unknown>): Promise<Section> {
 async function updateSection(id: string, patch: Record<string, unknown>): Promise<Section | undefined> {
   const cur = await getOne<Section>('sections', id);
   if (!cur) return undefined;
-  const next = { ...cur, ...patch, updated_at: nowISO() };
+  const next: Section = { ...cur, ...patch, updated_at: nowISO() };
+  // 与 Electron 后端一致：正文变更时重算本节字数
+  if (patch.content !== undefined) {
+    next.word_count = countWordsInHtml(patch.content as string | null | undefined);
+  }
   await putOne('sections', next as unknown as Record<string, unknown>);
   await touchStoryByChapterId(cur.chapter_id);
   return getOne<Section>('sections', id);
@@ -929,6 +937,9 @@ async function moveSections(
   targetChapterId: string | null,
   orderedIds: string[],
 ): Promise<boolean> {
+  // 与 Electron 后端一致：没有有效目标章时整体 no-op，
+  // 避免把节移出所有章节导致"节被永久丢失"。
+  if (!targetChapterId) return false;
   const now = nowISO();
   for (let i = 0; i < orderedIds.length; i++) {
     const cur = await getOne<Record<string, unknown>>('sections', orderedIds[i]);
@@ -949,6 +960,11 @@ async function getSectionContent(sectionId: string): Promise<string | null> {
   return row ? row.content || null : null;
 }
 
+async function getSectionBBCode(sectionId: string): Promise<string | null> {
+  const row = await getOne<Section>('sections', sectionId);
+  return row ? row.bbcode || null : null;
+}
+
 /** 通过 chapter_id 反查 story 并更新 story.updated_at（修复最近编辑排序） */
 async function touchStoryByChapterId(chapterId: string): Promise<void> {
   const chapter = await getOne<Chapter>('chapters', chapterId);
@@ -967,22 +983,24 @@ async function touchStory(storyId: string): Promise<void> {
   }
 }
 
-async function setSectionContent(sectionId: string, content: string | null): Promise<boolean> {
+async function setSectionContent(
+  sectionId: string,
+  content: string | null,
+  bbcode?: string | null,
+): Promise<boolean> {
   const cur = await getOne<Section>('sections', sectionId);
   if (!cur) return false;
   const wc = countWordsInHtml(content);
-  const next = { ...cur, content: content ?? undefined, word_count: wc, updated_at: nowISO() };
+  const next = {
+    ...cur,
+    content: content ?? undefined,
+    ...(bbcode === undefined ? {} : { bbcode: bbcode ?? undefined }),
+    word_count: wc,
+    updated_at: nowISO(),
+  };
   await putOne('sections', next as unknown as Record<string, unknown>);
   // 同步更新 story.updated_at（修复最近编辑排序）
   await touchStoryByChapterId(cur.chapter_id);
-  return true;
-}
-
-async function setSectionBBCode(sectionId: string, bbcode: string | null): Promise<boolean> {
-  const cur = await getOne<Section>('sections', sectionId);
-  if (!cur) return false;
-  const next = { ...cur, bbcode: bbcode ?? undefined, updated_at: nowISO() };
-  await putOne('sections', next as unknown as Record<string, unknown>);
   return true;
 }
 
@@ -1190,8 +1208,8 @@ export const BROWSER_DB = {
   reorderSections,
   moveSections,
   getSectionContent,
+  getSectionBBCode,
   setSectionContent,
-  setSectionBBCode,
   // Templates
   listWorldSettingTemplates,
   createWorldSettingTemplate,

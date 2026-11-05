@@ -120,7 +120,9 @@ export function EpubExportProgressDialog({ open, onClose, onRetry }: EpubExportP
     for (const ph of phaseOrder) {
       if (ph === phase) {
         const w = PHASE_WEIGHTS[ph]
-        const subPercent = progress?.total > 0 ? (progress.current / progress.total) * 100 : (ph === 'scanning' ? 50 : 0)
+        const total = progress?.total ?? 0
+        const current = progress?.current ?? 0
+        const subPercent = total > 0 ? (current / total) * 100 : (ph === 'scanning' ? 50 : 0)
         overallPercent = weightSum + (subPercent / 100) * w
         break
       }
@@ -134,31 +136,21 @@ export function EpubExportProgressDialog({ open, onClose, onRetry }: EpubExportP
   overallPercent = Math.min(100, Math.round(overallPercent))
 
   return (
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center"
-      style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
-    >
-      <div
-        className="rounded-2xl w-[480px] max-w-[92vw] shadow-2xl overflow-hidden"
-        style={{
-          background: 'var(--bg-card)',
-          border: '1px solid var(--border-color)',
-          animation: 'epubDialogIn 0.25s ease-out',
-        }}
-      >
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[var(--scrim-strong)] backdrop-blur-[4px]">
+      <div className="epub-dialog-in rounded-2xl w-[480px] max-w-[92vw] shadow-2xl overflow-hidden bg-[var(--bg-card)] border border-[var(--border-color)]">
         {/* 顶部彩色条 */}
         <div
           className="h-1.5 transition-all duration-300"
           style={{
             background: isDone
-              ? 'linear-gradient(90deg, #22c55e, #16a34a)'
+              ? 'var(--gradient-success)'
               : isError
-              ? 'linear-gradient(90deg, #ef4444, #dc2626)'
+              ? 'var(--gradient-danger)'
               : isCanceled
-              ? 'linear-gradient(90deg, #6b7280, #4b5563)'
+              ? 'var(--gradient-neutral)'
               : paused
-              ? 'linear-gradient(90deg, #f59e0b, #d97706)'
-              : 'linear-gradient(90deg, #6366f1, #8b5cf6, #a855f7)',
+              ? 'var(--gradient-warn)'
+              : 'linear-gradient(90deg, var(--tone-indigo), var(--tone-purple), var(--tone-purple))',
             width: isFinished ? '100%' : `${overallPercent}%`,
           }}
         />
@@ -170,20 +162,20 @@ export function EpubExportProgressDialog({ open, onClose, onRetry }: EpubExportP
               className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl shrink-0"
               style={{
                 background: isDone
-                  ? 'rgba(34,197,94,0.12)'
+                  ? 'var(--tone-success-soft)'
                   : isError
-                  ? 'rgba(239,68,68,0.12)'
+                  ? 'var(--tone-danger-veil)'
                   : isCanceled
-                  ? 'rgba(107,114,128,0.12)'
+                  ? 'var(--tone-neutral-soft)'
                   : paused
-                  ? 'rgba(245,158,11,0.12)'
+                  ? 'var(--tone-warn-veil)'
                   : 'var(--accent-soft)',
               }}
             >
               {paused && isRunning ? <Icon name="clock" size={22} /> : <Icon name={PHASE_ICON[phase]} size={22} />}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+              <div className="text-lg font-semibold text-[var(--text-primary)]">
                 {isDone
                   ? 'EPUB 导出完成'
                   : isError
@@ -194,7 +186,7 @@ export function EpubExportProgressDialog({ open, onClose, onRetry }: EpubExportP
                   ? '已暂停'
                   : '导出 EPUB 电子书'}
               </div>
-              <div className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+              <div className="text-xs mt-0.5 text-[var(--text-secondary)]">
                 {isRunning && !paused && PHASE_LABEL[phase]}
                 {isRunning && paused && '点击「继续」恢复导出进度'}
                 {isDone && '文件已保存到指定位置'}
@@ -204,7 +196,7 @@ export function EpubExportProgressDialog({ open, onClose, onRetry }: EpubExportP
             </div>
             {isRunning && (
               <div className="text-right shrink-0">
-                <div className="text-2xl font-bold tabular-nums" style={{ color: 'var(--accent)' }}>
+                <div className="text-2xl font-bold tabular-nums text-[var(--accent)]">
                   {overallPercent}%
                 </div>
               </div>
@@ -213,20 +205,17 @@ export function EpubExportProgressDialog({ open, onClose, onRetry }: EpubExportP
 
           {/* 主进度条 */}
           {isRunning && (
-            <div
-              className="h-3 rounded-full overflow-hidden mb-2"
-              style={{ background: 'var(--bg-hover)' }}
-            >
+            <div className="h-3 rounded-full overflow-hidden mb-2 bg-[var(--bg-hover)]">
               <div
                 className="h-full rounded-full transition-all duration-300 ease-out"
                 style={{
                   width: `${overallPercent}%`,
                   background: paused
-                    ? 'linear-gradient(90deg, #f59e0b, #d97706)'
-                    : 'linear-gradient(90deg, #6366f1, #8b5cf6, #a855f7)',
+                    ? 'var(--gradient-warn)'
+                    : 'linear-gradient(90deg, var(--tone-indigo), var(--tone-purple), var(--tone-purple))',
                   boxShadow: paused
-                    ? '0 0 8px rgba(245,158,11,0.4)'
-                    : '0 0 8px rgba(99,102,241,0.4)',
+                    ? '0 0 8px var(--tone-warn-glow)'
+                    : '0 0 8px var(--tone-indigo-glow)',
                 }}
               />
             </div>
@@ -235,25 +224,19 @@ export function EpubExportProgressDialog({ open, onClose, onRetry }: EpubExportP
           {/* 阶段详情（下载图片时显示详细进度） */}
           {isRunning && phase === 'downloading-images' && progress?.imageProgress && (
             <div className="mb-2">
-              <div className="flex justify-between items-center text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>
+              <div className="flex justify-between items-center text-xs mb-1 text-[var(--text-secondary)]">
                 <span>图片下载进度</span>
                 <span className="tabular-nums">
                   {progress.imageProgress.current} / {progress.imageProgress.total}
                   {progress.imageProgress.failed > 0 && (
-                    <span style={{ color: 'var(--error, #ef4444)' }}> · 失败 {progress.imageProgress.failed}</span>
+                    <span className="text-[var(--error)]"> · 失败 {progress.imageProgress.failed}</span>
                   )}
                 </span>
               </div>
-              <div
-                className="h-1.5 rounded-full overflow-hidden"
-                style={{ background: 'var(--bg-hover)' }}
-              >
+              <div className="h-1.5 rounded-full overflow-hidden bg-[var(--bg-hover)]">
                 <div
-                  className="h-full rounded-full transition-all duration-200"
-                  style={{
-                    width: `${percent}%`,
-                    background: 'rgba(99,102,241,0.5)',
-                  }}
+                  className="h-full rounded-full transition-all duration-200 bg-[var(--tone-indigo-soft)]"
+                  style={{ width: `${percent}%` }}
                 />
               </div>
             </div>
@@ -261,19 +244,16 @@ export function EpubExportProgressDialog({ open, onClose, onRetry }: EpubExportP
 
           {/* 阶段消息 */}
           {isRunning && progressText && (
-            <div className="text-xs mt-2 mb-1" style={{ color: 'var(--text-tertiary, #999)' }}>
+            <div className="text-xs mt-2 mb-1 text-[var(--text-tertiary)]">
               {progressText}
             </div>
           )}
 
           {/* 成功状态 */}
           {isDone && (
-            <div
-              className="text-sm mt-2 mb-4 p-3.5 rounded-xl flex items-start gap-2.5"
-              style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)' }}
-            >
+            <div className="text-sm mt-2 mb-4 p-3.5 rounded-xl flex items-start gap-2.5 bg-[var(--tone-success-soft)] border border-[var(--tone-success-border)]">
               <span className="shrink-0"><Icon name="folder" size={16} /></span>
-              <span className="flex-1 break-all" style={{ color: 'var(--text-secondary)' }}>
+              <span className="flex-1 break-all text-[var(--text-secondary)]">
                 {message}
               </span>
             </div>
@@ -281,12 +261,9 @@ export function EpubExportProgressDialog({ open, onClose, onRetry }: EpubExportP
 
           {/* 取消状态 */}
           {isCanceled && (
-            <div
-              className="text-sm mt-2 mb-4 p-3.5 rounded-xl flex items-start gap-2.5"
-              style={{ background: 'rgba(107,114,128,0.08)', border: '1px solid rgba(107,114,128,0.2)' }}
-            >
+            <div className="text-sm mt-2 mb-4 p-3.5 rounded-xl flex items-start gap-2.5 bg-[var(--tone-neutral-soft)] border border-[var(--tone-neutral-border)]">
               <span className="shrink-0"><Icon name="ban" size={16} /></span>
-              <span className="flex-1" style={{ color: 'var(--text-secondary)' }}>
+              <span className="flex-1 text-[var(--text-secondary)]">
                 {message || '导出已取消'}
               </span>
             </div>
@@ -294,12 +271,9 @@ export function EpubExportProgressDialog({ open, onClose, onRetry }: EpubExportP
 
           {/* 错误状态 */}
           {isError && (
-            <div
-              className="text-sm mt-2 mb-4 p-3.5 rounded-xl flex items-start gap-2.5"
-              style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}
-            >
+            <div className="text-sm mt-2 mb-4 p-3.5 rounded-xl flex items-start gap-2.5 bg-[var(--tone-danger-soft)] border border-[var(--tone-danger-border)]">
               <span className="shrink-0"><Icon name="alert" size={16} /></span>
-              <span className="flex-1 break-all" style={{ color: 'var(--error, #ef4444)' }}>
+              <span className="flex-1 break-all text-[var(--error)]">
                 {message}
               </span>
             </div>
@@ -312,21 +286,7 @@ export function EpubExportProgressDialog({ open, onClose, onRetry }: EpubExportP
                 {/* 取消按钮 */}
                 <button
                   onClick={handleCancel}
-                  className="px-4 py-2 text-sm rounded-lg transition-colors"
-                  style={{
-                    background: 'transparent',
-                    color: 'var(--text-secondary)',
-                    border: '1px solid var(--border-color)',
-                    cursor: 'pointer',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = 'var(--error, #ef4444)'
-                    e.currentTarget.style.color = 'var(--error, #ef4444)'
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = 'var(--border-color)'
-                    e.currentTarget.style.color = 'var(--text-secondary)'
-                  }}
+                  className="px-4 py-2 text-sm rounded-lg transition-colors cursor-pointer bg-transparent text-[var(--text-secondary)] border border-[var(--border-color)] hover:text-[var(--error)] hover:border-[var(--error)]"
                 >
                   取消导出
                 </button>
@@ -334,30 +294,14 @@ export function EpubExportProgressDialog({ open, onClose, onRetry }: EpubExportP
                 {paused ? (
                   <button
                     onClick={handleResume}
-                    className="px-5 py-2 text-sm font-medium rounded-lg transition-colors"
-                    style={{
-                      background: 'var(--accent)',
-                      color: 'var(--text-on-accent)',
-                      border: 'none',
-                      cursor: 'pointer',
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.85' }}
-                    onMouseLeave={(e) => { e.currentTarget.style.opacity = '1' }}
+                    className="px-5 py-2 text-sm font-medium rounded-lg transition-opacity cursor-pointer bg-[var(--accent)] text-[var(--text-on-accent)] border-0 hover:opacity-[0.85]"
                   >
                     <span className="inline-flex items-center gap-1"><Icon name="play" size={14} /> 继续</span>
                   </button>
                 ) : (
                   <button
                     onClick={handlePause}
-                    className="px-5 py-2 text-sm font-medium rounded-lg transition-colors"
-                    style={{
-                      background: 'rgba(245,158,11,0.12)',
-                      color: '#d97706',
-                      border: '1px solid rgba(245,158,11,0.3)',
-                      cursor: 'pointer',
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(245,158,11,0.2)' }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(245,158,11,0.12)' }}
+                    className="px-5 py-2 text-sm font-medium rounded-lg transition-colors cursor-pointer bg-[var(--tone-warn-veil)] text-[var(--tone-warn-ink)] border border-[var(--tone-warn-border)]"
                   >
                     <span className="inline-flex items-center gap-1"><Icon name="pause" size={14} /> 暂停</span>
                   </button>
@@ -369,15 +313,7 @@ export function EpubExportProgressDialog({ open, onClose, onRetry }: EpubExportP
                 {isDone && progress?.imageProgress && progress.imageProgress.failed > 0 && onRetry && (
                   <button
                     onClick={onRetry}
-                    className="px-5 py-2 text-sm font-medium rounded-lg transition-colors"
-                    style={{
-                      background: 'rgba(245,158,11,0.12)',
-                      color: '#d97706',
-                      border: '1px solid rgba(245,158,11,0.3)',
-                      cursor: 'pointer',
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(245,158,11,0.2)' }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(245,158,11,0.12)' }}
+                    className="px-5 py-2 text-sm font-medium rounded-lg transition-colors cursor-pointer bg-[var(--tone-warn-veil)] text-[var(--tone-warn-ink)] border border-[var(--tone-warn-border)]"
                     title={`重新导出以重试 ${progress.imageProgress.failed} 张失败图片`}
                   >
                     <span className="inline-flex items-center gap-1"><Icon name="refresh" size={14} /> 重试失败图片</span>
@@ -385,15 +321,7 @@ export function EpubExportProgressDialog({ open, onClose, onRetry }: EpubExportP
                 )}
                 <button
                   onClick={onClose}
-                  className="px-6 py-2 text-sm font-medium rounded-lg transition-colors"
-                  style={{
-                    background: isDone ? 'var(--accent)' : 'var(--bg-hover)',
-                    color: isDone ? 'var(--text-on-accent)' : 'var(--text-primary)',
-                    border: 'none',
-                    cursor: 'pointer',
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.85' }}
-                  onMouseLeave={(e) => { e.currentTarget.style.opacity = '1' }}
+                  className={`px-6 py-2 text-sm font-medium rounded-lg transition-opacity cursor-pointer border-0 hover:opacity-[0.85] ${isDone ? 'bg-[var(--accent)] text-[var(--text-on-accent)]' : 'bg-[var(--bg-hover)] text-[var(--text-primary)]'}`}
                 >
                   {isDone ? '完成' : '关闭'}
                 </button>
@@ -402,13 +330,6 @@ export function EpubExportProgressDialog({ open, onClose, onRetry }: EpubExportP
           </div>
         </div>
       </div>
-
-      <style>{`
-        @keyframes epubDialogIn {
-          from { opacity: 0; transform: scale(0.92) translateY(8px); }
-          to { opacity: 1; transform: scale(1) translateY(0); }
-        }
-      `}</style>
     </div>
   )
 }

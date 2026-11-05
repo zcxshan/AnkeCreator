@@ -12,10 +12,15 @@ interface ReaderPageProps {
 type Theme = 'light' | 'dark' | 'sepia';
 type FontSize = 'small' | 'medium' | 'large';
 
-const THEME_COLORS: Record<Theme, { bg: string; text: string; textSecondary: string; border: string; accent: string }> = {
-  light: { bg: '#ffffff', text: '#1a1a1a', textSecondary: '#666', border: '#e5e5e5', accent: '#2563eb' },
-  dark: { bg: '#1a1a1a', text: '#e0e0e0', textSecondary: '#999', border: '#333', accent: '#60a5fa' },
-  sepia: { bg: '#f5f0e6', text: '#3a2a1a', textSecondary: '#7a6a5a', border: '#d9ccb8', accent: '#8b6914' },
+// 阅读器配色由 index.css 中的 .reader-theme-* 变量提供，
+// 主题切换只需切换根节点 class（支持浅色/暗色/护眼三套）
+const READER_COLORS = {
+  bg: 'var(--reader-bg)',
+  text: 'var(--reader-text)',
+  textSecondary: 'var(--reader-text-2)',
+  border: 'var(--reader-border)',
+  accent: 'var(--reader-accent)',
+  accentSoft: 'var(--reader-accent-soft)',
 };
 
 const FONT_SIZES: Record<FontSize, number> = { small: 14, medium: 16, large: 18 };
@@ -103,7 +108,7 @@ const LazyBlock = memo(function LazyBlock({
     return <div ref={containerRef} dangerouslySetInnerHTML={{ __html: html }} />;
   }
   // 占位：未渲染时给一个最小高度，避免高度完全塌陷影响滚动条估算
-  return <div ref={containerRef} style={{ minHeight: 20 }} />;
+  return <div ref={containerRef} className="min-h-[20px]" />;
 });
 
 /**
@@ -133,6 +138,8 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [sectionContent, setSectionContent] = useState<string>('');
   const [contentLoading, setContentLoading] = useState(false);
+  const [contentError, setContentError] = useState<string | null>(null);
+  const [contentReloadKey, setContentReloadKey] = useState(0);
 
   const readingAreaRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef<number | null>(null);
@@ -211,6 +218,7 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
     }
     let cancelled = false;
     setContentLoading(true);
+    setContentError(null);
     setSectionContent('');
     db.getSectionContent(activeSectionId)
       .then((content) => {
@@ -222,7 +230,7 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
       .catch((err) => {
         if (!cancelled) {
           console.error('[ReaderPage] 加载节内容失败:', err);
-          setSectionContent('<p style="color:#999">内容加载失败</p>');
+          setContentError((err as Error)?.message || String(err));
           setContentLoading(false);
           showToast('内容加载失败');
         }
@@ -230,7 +238,7 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
     return () => {
       cancelled = true;
     };
-  }, [activeSectionId, showToast]);
+  }, [activeSectionId, showToast, contentReloadKey]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -327,7 +335,7 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
     return () => { root.removeEventListener('click', onClick); };
   }, [activeSectionId, sectionContent]);
 
-  const colors = THEME_COLORS[theme];
+  const colors = READER_COLORS;
   const fontPx = FONT_SIZES[fontSize];
 
   const handleSectionClick = (sectionId: string) => {
@@ -343,10 +351,10 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
 
   if (!story) {
     return (
-      <div style={{ padding: 48, textAlign: 'center', color: THEME_COLORS.light.textSecondary }}>
-        <div style={{ fontSize: 48, marginBottom: 16 }}><Icon name="bookText" size={48} /></div>
+      <div className="p-[48px] text-center text-[var(--text-secondary)]">
+        <div className="text-[48px] mb-[16px]"><Icon name="bookText" size={48} /></div>
         <div>未选择作品，请先从作品列表打开一个作品</div>
-        <button onClick={onBack} style={{ marginTop: 16, padding: '8px 16px', cursor: 'pointer' }}>返回</button>
+        <button onClick={onBack} className="mt-[16px] py-[8px] px-[16px] cursor-pointer">返回</button>
       </div>
     );
   }
@@ -356,6 +364,7 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
     // → 内部目录与内容各自独立滚动（不与 body 同步滚）
     // 移动端：保留 minHeight: 100% 由 body 统一滚动（前两轮设计）
     <div
+      className={`reader-theme-${theme}`}
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -368,16 +377,15 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
       }}
     >
       {/* 全宽顶栏（正常文档流，不悬浮，避免与 overflow:hidden 父容器冲突） */}
-      <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', background: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+      <div className="reader-toolbar" style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', background: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
         <button onClick={onBack} title="返回" style={{ ...toolbarBtnStyle(colors), display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="back" size={14} /> 返回</button>
-        <span style={{ fontWeight: 600 }}>{story.title}</span>
+        <span className="font-semibold">{story.title}</span>
       </div>
       {/* 左右分栏 */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
+      <div className="flex-[1] flex overflow-hidden relative">
       {isCapacitor && leftDrawerOpen && (
         <div
-          className="mobile-drawer-backdrop"
-          style={{ position: 'absolute', inset: 0, zIndex: 30, background: 'rgba(0,0,0,0.5)' }}
+          className="absolute inset-0 z-[30] bg-[var(--scrim)] mobile-drawer-backdrop"
           onClick={() => setLeftDrawerOpen(false)}
         />
       )}
@@ -401,7 +409,7 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
           <div style={{ fontSize: 11, color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 1 }}>目录</div>
           <div style={{ fontSize: 18, fontWeight: 700, fontFamily: SERIF_FONT, marginTop: 4 }}>{story.title}</div>
         </div>
-        <div style={{ padding: '8px 0', paddingBottom: 60 }}>
+        <div className="py-[8px] px-[0px] pb-[60px]">
           {sortedVolumes.length === 0 ? (
             Array.from(chaptersByVolume.entries())
               .filter(([volId]) => volId === null)
@@ -420,7 +428,7 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
                         cursor: 'pointer',
                         color: sec.id === activeSectionId ? colors.accent : colors.text,
                         fontWeight: sec.id === activeSectionId ? 600 : 400,
-                        background: sec.id === activeSectionId ? `${colors.accent}11` : 'transparent',
+                        background: sec.id === activeSectionId ? colors.accentSoft : 'transparent',
                       }}
                     >
                       {sec.title}
@@ -449,7 +457,7 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
                           cursor: 'pointer',
                           color: sec.id === activeSectionId ? colors.accent : colors.text,
                           fontWeight: sec.id === activeSectionId ? 600 : 400,
-                          background: sec.id === activeSectionId ? `${colors.accent}11` : 'transparent',
+                          background: sec.id === activeSectionId ? colors.accentSoft : 'transparent',
                         }}
                       >
                         {sec.title}
@@ -478,7 +486,7 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
                         cursor: 'pointer',
                         color: sec.id === activeSectionId ? colors.accent : colors.text,
                         fontWeight: sec.id === activeSectionId ? 600 : 400,
-                        background: sec.id === activeSectionId ? `${colors.accent}11` : 'transparent',
+                        background: sec.id === activeSectionId ? colors.accentSoft : 'transparent',
                       }}
                     >
                       {sec.title}
@@ -491,8 +499,8 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
         </div>
       </div>
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <div style={{
+      <div className="flex-[1] flex flex-col overflow-hidden">
+        <div className="reader-toolbar" style={{
           display: 'flex',
           alignItems: 'center',
           gap: 8,
@@ -528,7 +536,7 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
             </span>
           )}
 
-          <div style={{ flex: 1 }} />
+          <div className="flex-[1]" />
 
           {isCapacitor ? (
             <>
@@ -547,12 +555,7 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
                 <>
                   <div
                     onClick={() => setMoreMenuOpen(false)}
-                    style={{
-                      position: 'fixed',
-                      inset: 0,
-                      zIndex: 40,
-                      background: 'rgba(0,0,0,0.3)',
-                    }}
+                    className="fixed inset-0 z-[40] bg-[var(--scrim)]"
                   />
                   <div style={{
                     position: 'absolute',
@@ -561,15 +564,15 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
                     zIndex: 41,
                     background: colors.bg,
                     border: `1px solid ${colors.border}`,
-                    borderRadius: 8,
+                    borderRadius: 'var(--radius-md)',
                     padding: 12,
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                    boxShadow: 'var(--shadow-tooltip)',
                     display: 'flex',
                     flexDirection: 'column',
                     gap: 12,
                     minWidth: 220,
                   }}>
-                    <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                    <div className="flex gap-[2px] items-center">
                       <span style={{ fontSize: 11, color: colors.textSecondary, marginRight: 4 }}>字号</span>
                       {(['small', 'medium', 'large'] as FontSize[]).map((fs) => (
                         <button
@@ -590,17 +593,17 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
                       ))}
                     </div>
 
-                    <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                    <div className="flex gap-[2px] items-center">
                       <span style={{ fontSize: 11, color: colors.textSecondary, marginRight: 4 }}>主题</span>
                       {(['light', 'dark', 'sepia'] as Theme[]).map((t) => (
                         <button
                           key={t}
                           title={`${t === 'light' ? '亮色' : t === 'dark' ? '暗色' : '护眼'}主题`}
                           onClick={() => setTheme(t)}
+                          className={`reader-swatch-${t}`}
                           style={{
                             width: 24, height: 24, borderRadius: '50%',
                             border: theme === t ? `2px solid ${colors.accent}` : `2px solid ${colors.border}`,
-                            background: THEME_COLORS[t].bg,
                             cursor: 'pointer',
                           }}
                         />
@@ -624,7 +627,7 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
             </>
           ) : (
             <>
-              <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+              <div className="flex gap-[2px] items-center">
                 <span style={{ fontSize: 11, color: colors.textSecondary, marginRight: 4 }}>字号</span>
                 {(['small', 'medium', 'large'] as FontSize[]).map((fs) => (
                   <button
@@ -645,17 +648,17 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
                 ))}
               </div>
 
-              <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+              <div className="flex gap-[2px] items-center">
                 <span style={{ fontSize: 11, color: colors.textSecondary, marginRight: 4 }}>主题</span>
                 {(['light', 'dark', 'sepia'] as Theme[]).map((t) => (
                   <button
                     key={t}
                     title={`${t === 'light' ? '亮色' : t === 'dark' ? '暗色' : '护眼'}主题`}
                     onClick={() => setTheme(t)}
+                    className={`reader-swatch-${t}`}
                     style={{
                       width: 24, height: 24, borderRadius: '50%',
                       border: theme === t ? `2px solid ${colors.accent}` : `2px solid ${colors.border}`,
-                      background: THEME_COLORS[t].bg,
                       cursor: 'pointer',
                     }}
                   />
@@ -704,9 +707,30 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
                   background: colors.accent,
                   marginBottom: 24,
                 }} />
-                {contentLoading ? (
-                  <div style={{ textAlign: 'center', color: colors.textSecondary, padding: 48 }}>
-                    <div style={{ fontSize: 14 }}>加载中…</div>
+                {contentError ? (
+                  <div
+                    role="alert"
+                    style={{
+                      textAlign: 'center',
+                      color: colors.textSecondary,
+                      padding: 32,
+                      border: `1px solid ${colors.border}`,
+                      borderRadius: 'var(--radius-card)',
+                    }}
+                  >
+                    <div className="text-[32px] mb-[8px]"><Icon name="alert" size={32} /></div>
+                    <div className="text-[14px]" style={{ color: colors.text }}>本节内容加载失败</div>
+                    <div className="text-[12px] mt-[6px]">{contentError}</div>
+                    <button
+                      onClick={() => setContentReloadKey((k) => k + 1)}
+                      style={{ ...toolbarBtnStyle(colors), marginTop: 16, color: colors.accent, borderColor: colors.accent }}
+                    >
+                      <Icon name="refresh" size={14} /> 重新加载
+                    </button>
+                  </div>
+                ) : contentLoading ? (
+                  <div role="status" aria-live="polite" style={{ textAlign: 'center', color: colors.textSecondary, padding: 48 }}>
+                    <div className="text-[14px]">加载中…</div>
                   </div>
                 ) : (
                   <div
@@ -718,13 +742,13 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
                       color: colors.text,
                     }}
                   >
-                    <LazyReaderContent html={sectionContent || '<p style="color:#999">（本节无内容）</p>'} />
+                    <LazyReaderContent html={sectionContent || '<p style="color:var(--text-muted)">（本节无内容）</p>'} />
                   </div>
                 )}
               </>
             ) : (
               <div style={{ textAlign: 'center', color: colors.textSecondary, padding: 48 }}>
-                <div style={{ fontSize: 48, marginBottom: 16 }}><Icon name="bookText" size={48} /></div>
+                <div className="text-[48px] mb-[16px]"><Icon name="bookText" size={48} /></div>
                 <div>请从左侧目录选择一个小节开始阅读</div>
               </div>
             )}
@@ -792,7 +816,7 @@ function toolbarBtnStyle(colors: { text: string; textSecondary: string; border: 
     border: `1px solid ${colors.border}`,
     background: 'transparent',
     color: colors.text,
-    borderRadius: 6,
+    borderRadius: 'var(--radius-control)',
     cursor: 'pointer',
     fontSize: 13,
   } as React.CSSProperties;

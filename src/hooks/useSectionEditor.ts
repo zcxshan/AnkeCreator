@@ -14,10 +14,9 @@
 
 import { useEffect, useRef } from 'react';
 import { useEditorStore, flushDebouncedSave } from '../store/editorStore';
-import * as db from '../db/index';
 
 export interface UseSectionEditorResult {
-  flushContent: () => void;
+  flushContent: () => Promise<boolean>;
   currentSectionId: string | null;
 }
 
@@ -37,10 +36,7 @@ export function useSectionEditor(activeSectionId: string | null): UseSectionEdit
     // 同一个节无需切换
     if (activeSectionId === lastSectionIdRef.current) return;
 
-    // 切换前：主动把挂起的防抖保存 flush 到数据库
-    flushDebouncedSave();
-
-    // 加载新节到 editorStore(loadSection 内部会 await setSectionContent 保存旧节)
+    // 加载新节到 editorStore（loadSection 内部会先 flush 挂起的旧节内容）
     loadSection(activeSectionId);
     lastSectionIdRef.current = activeSectionId;
   }, [activeSectionId, loadSection]);
@@ -48,11 +44,8 @@ export function useSectionEditor(activeSectionId: string | null): UseSectionEdit
   // ---- 2) 页面离开 / 关闭 / 刷新 时：flush 保存 ----
   useEffect(() => {
     const handler = () => {
-      flushDebouncedSave();
-      const cur = useEditorStore.getState();
-      if (cur.sectionId && cur.sectionContent != null) {
-        db.setSectionContent(cur.sectionId, cur.sectionContent).catch(() => {});
-      }
+      // beforeunload 无法等待 Promise；Electron 关闭窗口由主进程握手等待写入完成
+      void flushDebouncedSave();
     };
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
@@ -61,11 +54,7 @@ export function useSectionEditor(activeSectionId: string | null): UseSectionEdit
   // ---- 3) 组件卸载时：flush 最后一次保存 ----
   useEffect(() => {
     return () => {
-      flushDebouncedSave();
-      const cur = useEditorStore.getState();
-      if (cur.sectionId && cur.sectionContent != null) {
-        db.setSectionContent(cur.sectionId, cur.sectionContent).catch(() => {});
-      }
+      void flushDebouncedSave();
     };
   }, []);
 

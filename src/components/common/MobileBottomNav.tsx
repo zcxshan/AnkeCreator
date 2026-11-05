@@ -12,7 +12,19 @@ import { useThemeStore } from '../../store/themeStore';
 import { Icon, type IconName } from './Icon';
 import { SettingsDialog } from './SettingsDialog';
 
-type Route = 'home' | 'works' | 'editor' | 'reader' | 'resource-library' | 'tutorial' | 'anjia-collect' | 'anke-collect' | 'find-anke' | 'dice-playground';
+type Route =
+  | 'home'
+  | 'works'
+  | 'editor'
+  | 'reader'
+  | 'resource-library'
+  | 'tutorial'
+  | 'anjia-collect'
+  | 'anke-collect'
+  | 'find-anke'
+  | 'dice-playground'
+  | 'creation-log'
+  | 'wheel-playground';
 
 interface MobileBottomNavProps {
   route: Route;
@@ -166,10 +178,9 @@ export function MobileBottomNav({ route, onChangeRoute, onShowAuthor, hasActiveS
       {/* BottomSheet 内容 */}
       {moreOpen && (
         <div
-          className="fixed left-0 right-0 bottom-[64px] z-40 mx-2 mb-2 rounded-2xl p-3 shadow-2xl md:hidden"
-          style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
+          className="bg-[var(--bg-card)] border border-[color:var(--border-color)] fixed left-0 right-0 bottom-[64px] z-40 mx-2 mb-2 rounded-2xl p-3 shadow-2xl md:hidden"
         >
-          <div className="text-xs text-center mb-2" style={{ color: 'var(--text-secondary)' }}>
+          <div className="text-[var(--text-secondary)] text-xs text-center mb-2">
             更多功能
           </div>
           <div
@@ -181,11 +192,10 @@ export function MobileBottomNav({ route, onChangeRoute, onShowAuthor, hasActiveS
                 <button
                   key={item.key}
                   onClick={() => handleMoreItem(item.key)}
-                  className="flex flex-col items-center gap-1 py-3 rounded-lg active:opacity-70"
-                  style={{ background: 'var(--bg-input)' }}
+                  className="bg-[var(--bg-input)] flex flex-col items-center gap-1 py-3 rounded-lg active:opacity-70"
                 >
                   <span className="flex justify-center"><Icon name={item.icon} size={24} /></span>
-                  <span className="text-xs" style={{ color: 'var(--text-primary)' }}>
+                  <span className="text-[var(--text-primary)] text-xs">
                     {item.label}
                   </span>
                 </button>
@@ -195,8 +205,7 @@ export function MobileBottomNav({ route, onChangeRoute, onShowAuthor, hasActiveS
             {/* 主题切换 */}
             <div className="mt-3">
               <div
-                className="text-[11px] mb-1.5 px-1"
-                style={{ color: 'var(--text-secondary)' }}
+                className="text-[var(--text-secondary)] text-[11px] mb-1.5 px-1"
               >
                 主题
               </div>
@@ -219,7 +228,7 @@ export function MobileBottomNav({ route, onChangeRoute, onShowAuthor, hasActiveS
                       <span
                         className="text-[11px]"
                         style={{
-                          color: active ? '#fff' : 'var(--text-primary)',
+                          color: active ? 'var(--text-on-accent)' : 'var(--text-primary)',
                         }}
                       >
                         {opt.label}

@@ -56,28 +56,24 @@ export function SyncDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: 'var(--bg-overlay)' }}
+      className="bg-[var(--bg-overlay)] fixed inset-0 z-50 flex items-center justify-center"
       onClick={onClose}
     >
       <div
-        className="flex flex-col w-[540px] max-w-[92vw] max-h-[80vh] rounded-xl shadow-2xl overflow-hidden"
-        style={{ background: 'var(--bg-base)', border: '1px solid var(--border-color)' }}
+        className="bg-[var(--bg-base)] border border-[color:var(--border-color)] flex flex-col w-[540px] max-w-[92vw] max-h-[80vh] rounded-xl shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div
-          className="shrink-0 flex items-center justify-between px-5 py-3 border-b"
-          style={{ borderColor: 'var(--border-color)', background: 'var(--bg-sidebar)' }}
+          className="border-[color:var(--border-color)] bg-[var(--bg-sidebar)] shrink-0 flex items-center justify-between px-5 py-3 border-b"
         >
           <div>
-            <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>结构同步</div>
-            <div className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+            <div className="text-[var(--text-primary)] text-sm font-semibold">结构同步</div>
+            <div className="text-[var(--text-secondary)] text-xs mt-0.5">
               {sourceLabel} → {destLabel}
             </div>
           </div>
-          <button
-            className="w-7 h-7 flex items-center justify-center rounded-md text-sm transition-colors"
-            style={{ color: 'var(--text-secondary)' }}
+          <button aria-label="关闭"
+            className="text-[var(--text-secondary)] w-7 h-7 flex items-center justify-center rounded-md text-sm transition-colors"
             onMouseEnter={(e) => {
               e.currentTarget.style.background = 'var(--bg-hover)';
             }}
@@ -92,7 +88,7 @@ export function SyncDialog({
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
           {volDiffs.length === 0 && chDiffs.length === 0 ? (
-            <div className="py-8 text-center text-sm" style={{ color: 'var(--text-secondary)' }}>
+            <div className="text-[var(--text-secondary)] py-8 text-center text-sm">
               <span className="inline-flex items-center gap-1 justify-center"><Icon name="check" size={13} /> 两边结构完全一致，没有差异</span>
             </div>
           ) : (
@@ -131,19 +127,17 @@ export function SyncDialog({
         </div>
 
         <div
-          className="shrink-0 flex items-center justify-between px-5 py-3 border-t"
-          style={{ borderColor: 'var(--border-color)', background: 'var(--bg-sidebar)' }}
+          className="border-[color:var(--border-color)] bg-[var(--bg-sidebar)] shrink-0 flex items-center justify-between px-5 py-3 border-t"
         >
-          <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-            已勾选 <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{totalSelected}</span> 项
+          <div className="text-[var(--text-secondary)] text-xs">
+            已勾选 <span className="text-[var(--text-primary)] font-semibold">{totalSelected}</span> 项
             {volSelectedCount > 0 && <> · {volSelectedCount} 卷</>}
             {chSelectedCount > 0 && <> · {chSelectedCount} 章</>}
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={onClose}
-              className="px-3 py-1.5 text-xs font-medium rounded-md transition-colors"
-              style={{ color: 'var(--text-secondary)' }}
+              className="text-[var(--text-secondary)] px-3 py-1.5 text-xs font-medium rounded-md transition-colors"
               onMouseEnter={(e) => {
                 e.currentTarget.style.background = 'var(--bg-hover)';
               }}
@@ -156,8 +150,7 @@ export function SyncDialog({
             <button
               onClick={() => onConfirm(volDiffs, chDiffs)}
               disabled={totalSelected === 0}
-              className="px-3 py-1.5 text-xs font-medium rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{ background: 'var(--success)', color: 'var(--text-on-accent)' }}
+              className="bg-[var(--success)] text-[var(--text-on-accent)] px-3 py-1.5 text-xs font-medium rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               onMouseEnter={(e) => {
                 if (totalSelected > 0) e.currentTarget.style.opacity = '0.85';
               }}
@@ -195,14 +188,13 @@ function Section({ title, items, sourceLabel, destLabel, onToggleSelected, onSet
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <div className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>
+        <div className="text-[var(--text-primary)] text-xs font-semibold">
           {title}（{items.length}）
         </div>
         {nonConflictCount > 0 && (
           <button
             onClick={() => onToggleAll(!allNonConflictSelected)}
-            className="text-xs transition-colors"
-            style={{ color: 'var(--text-secondary)' }}
+            className="text-[var(--text-secondary)] text-xs transition-colors"
             onMouseEnter={(e) => {
               e.currentTarget.style.color = 'var(--text-primary)';
             }}
@@ -275,7 +267,7 @@ function DiffRow({ item, sourceLabel, destLabel, onToggleSelected, onSetKeep }: 
         {iconKind && <Icon name={iconKind} size={12} />}
       </div>
       <div className="flex-1 min-w-0">
-        <div className="text-xs truncate" style={{ color: 'var(--text-primary)' }}>{item.title}</div>
+        <div className="text-[var(--text-primary)] text-xs truncate">{item.title}</div>
         <div className="text-[10px]" style={{ color: kindColor }}>
           {kindLabel}
         </div>
@@ -294,7 +286,7 @@ function DiffRow({ item, sourceLabel, destLabel, onToggleSelected, onSetKeep }: 
               />
               {sourceLabel}: {item.title}
             </label>
-            <span style={{ color: 'var(--text-muted)' }}>·</span>
+            <span className="text-[var(--text-muted)]">·</span>
             <label
               className="flex items-center gap-1 cursor-pointer"
               style={{ color: item.keep === 'dest' ? 'var(--success)' : 'var(--text-secondary)' }}

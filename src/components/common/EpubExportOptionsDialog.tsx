@@ -50,7 +50,7 @@ export function EpubExportOptionsDialog({
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center"
       style={{
-        background: 'rgba(0,0,0,0.55)',
+        background: 'var(--scrim-strong)',
         backdropFilter: 'blur(6px)',
         WebkitBackdropFilter: 'blur(6px)',
         animation: 'epubOptFade 0.18s ease-out',
@@ -64,33 +64,28 @@ export function EpubExportOptionsDialog({
         style={{
           background: 'var(--bg-card)',
           border: '1px solid var(--border-color)',
-          boxShadow: '0 24px 64px rgba(0,0,0,0.28), 0 0 0 1px rgba(255,255,255,0.05)',
+          boxShadow: 'var(--shadow-hero)',
           animation: 'epubOptSlideIn 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
         }}
       >
         {/* 顶部彩色 accent 条 */}
         <div
-          style={{
-            height: 4,
-            background: 'linear-gradient(90deg, var(--accent), #8b5cf6, #ec4899)',
-          }}
+          className="h-[4px] bg-[var(--gradient-brand)]"
         />
 
         {/* 标题栏 */}
         <div
-          className="flex items-center justify-between px-6 py-4"
-          style={{ borderBottom: '1px solid var(--border-color)' }}
+          className="border-b border-b-[color:var(--border-color)] flex items-center justify-between px-6 py-4"
         >
           <div className="flex items-center gap-2.5">
             <span className="flex items-center"><Icon name="book" size={20} /></span>
-            <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
+            <h3 className="text-[var(--text-primary)] text-lg font-bold">
               导出 EPUB 电子书
             </h3>
           </div>
           <button
             onClick={onCancel}
-            className="w-8 h-8 flex items-center justify-center rounded-full text-lg transition-colors"
-            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}
+            className="bg-transparent border-none cursor-pointer text-[var(--text-secondary)] w-8 h-8 flex items-center justify-center rounded-full text-lg transition-colors"
             onMouseEnter={(e) => {
               e.currentTarget.style.background = 'var(--bg-hover)'
               e.currentTarget.style.color = 'var(--text-primary)'
@@ -109,22 +104,20 @@ export function EpubExportOptionsDialog({
         <div className="px-6 py-5 space-y-4">
           {storyTitle && (
             <div
-              className="p-3 rounded-lg"
-              style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}
+              className="bg-[var(--bg-secondary)] border border-[color:var(--border-color)] p-3 rounded-lg"
             >
-              <div className="text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>
+              <div className="text-[var(--text-secondary)] text-xs mb-1">
                 作品
               </div>
               <div
-                className="text-sm font-semibold truncate"
-                style={{ color: 'var(--text-primary)' }}
+                className="text-[var(--text-primary)] text-sm font-semibold truncate"
                 title={storyTitle}
               >
                 {storyTitle}
               </div>
               {estimatedImages !== undefined && estimatedImages > 0 && (
-                <div className="text-xs mt-1.5" style={{ color: 'var(--text-secondary)' }}>
-                  扫描到 <b style={{ color: 'var(--accent)' }}>{estimatedImages}</b> 张唯一图片
+                <div className="text-[var(--text-secondary)] text-xs mt-1.5">
+                  扫描到 <b className="text-[var(--accent)]">{estimatedImages}</b> 张唯一图片
                 </div>
               )}
             </div>
@@ -133,14 +126,14 @@ export function EpubExportOptionsDialog({
           <label
             className="flex items-start gap-3 p-4 rounded-xl cursor-pointer transition-all"
             style={{
-              background: embedImages ? 'rgba(37,99,235,0.06)' : 'var(--bg-secondary)',
+              background: embedImages ? 'var(--tone-info-soft)' : 'var(--bg-secondary)',
               border: embedImages ? '1.5px solid var(--accent)' : '1px solid var(--border-color)',
             }}
             onMouseEnter={(e) => {
               if (!embedImages) e.currentTarget.style.background = 'var(--bg-hover)'
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.background = embedImages ? 'rgba(37,99,235,0.06)' : 'var(--bg-secondary)'
+              e.currentTarget.style.background = embedImages ? 'var(--tone-info-soft)' : 'var(--bg-secondary)'
             }}
           >
             <input
@@ -157,10 +150,10 @@ export function EpubExportOptionsDialog({
               }}
             />
             <div className="flex-1">
-              <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+              <div className="text-[var(--text-primary)] text-sm font-semibold">
                 内嵌图片到 EPUB
               </div>
-              <div className="text-xs mt-1.5 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+              <div className="text-[var(--text-secondary)] text-xs mt-1.5 leading-relaxed">
                 {embedImages
                   ? embedSec
                     ? `下载/读取所有图片并嵌入到 EPUB。预计耗时 ${embedSec} 秒，离线可阅读。`
@@ -171,8 +164,7 @@ export function EpubExportOptionsDialog({
           </label>
 
           <div
-            className="flex items-start gap-2 text-xs p-3 rounded-lg"
-            style={{ background: 'rgba(245,158,11,0.08)', color: 'var(--text-secondary)' }}
+            className="bg-[var(--tone-warn-soft)] text-[var(--text-secondary)] flex items-start gap-2 text-xs p-3 rounded-lg"
           >
             <Icon name="lightbulb" size={14} className="shrink-0 mt-0.5" />
             <span className="leading-relaxed">
@@ -183,18 +175,11 @@ export function EpubExportOptionsDialog({
 
         {/* 按钮栏 */}
         <div
-          className="flex justify-end gap-3 px-6 py-4"
-          style={{ borderTop: '1px solid var(--border-color)', background: 'var(--bg-secondary)' }}
+          className="border-t border-t-[color:var(--border-color)] bg-[var(--bg-secondary)] flex justify-end gap-3 px-6 py-4"
         >
           <button
             onClick={onCancel}
-            className="px-5 py-2 rounded-lg text-sm font-medium transition-colors"
-            style={{
-              background: 'var(--bg-card)',
-              border: '1px solid var(--border-color)',
-              color: 'var(--text-primary)',
-              cursor: 'pointer',
-            }}
+            className="bg-[var(--bg-card)] border border-[color:var(--border-color)] text-[var(--text-primary)] cursor-pointer px-5 py-2 rounded-lg text-sm font-medium transition-colors"
             onMouseEnter={(e) => {
               e.currentTarget.style.background = 'var(--bg-hover)'
             }}
@@ -211,15 +196,15 @@ export function EpubExportOptionsDialog({
               background: 'var(--accent)',
               border: 'none',
               cursor: 'pointer',
-              boxShadow: '0 4px 14px rgba(37,99,235,0.35)',
+              boxShadow: 'var(--shadow-accent)',
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'translateY(-1px)'
-              e.currentTarget.style.boxShadow = '0 6px 20px rgba(37,99,235,0.45)'
+              e.currentTarget.style.boxShadow = 'var(--shadow-accent-hover)'
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'translateY(0)'
-              e.currentTarget.style.boxShadow = '0 4px 14px rgba(37,99,235,0.35)'
+              e.currentTarget.style.boxShadow = 'var(--shadow-accent)'
             }}
           >
             开始导出

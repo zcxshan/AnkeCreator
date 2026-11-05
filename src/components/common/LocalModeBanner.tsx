@@ -5,7 +5,7 @@ import { Icon } from './Icon';
 /**
  * 编辑区顶部常驻警告横幅
  * - 当 imageStoreMode === 'local' 且 localUploadEnabled === true 时持续显示
- * - 黄色警告色（#f59e0b 渐变到 #d97706）+ 白字
+ * - 黄色警告色（var(--tone-warn) 渐变到 var(--tone-warn-ink)）+ 白字
  * - 含三条警告信息（与 LocalImageWarningDialog 内容一致）
  * - 右上角 ✕ 关闭：关闭后本次会话内不再显示
  *   - 刷新页面 / 切到远端再切回本地 → 横幅重新出现
@@ -24,8 +24,8 @@ export function LocalModeBanner() {
     <div
       role="alert"
       style={{
-        background: 'linear-gradient(90deg, #f59e0b 0%, #d97706 100%)',
-        color: '#fff',
+        background: 'var(--gradient-warn)',
+        color: 'var(--text-on-accent)',
         padding: 'calc(8px + env(safe-area-inset-top, 0px)) 12px 8px',
         fontSize: 12,
         lineHeight: 1.6,
@@ -34,14 +34,14 @@ export function LocalModeBanner() {
         gap: 12,
         position: 'relative',
         zIndex: 50,
-        boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+        boxShadow: 'var(--shadow-sm)',
         flexShrink: 0,
       }}
     >
       <Icon name="alert" size={16} className="shrink-0 mt-0.5" />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: 600, marginBottom: 2 }}>本地保存模式已开启</div>
-        <div style={{ opacity: 0.95 }}>
+      <div className="flex-[1] min-w-[0px]">
+        <div className="font-semibold mb-[2px]">本地保存模式已开启</div>
+        <div className="opacity-[0.95]">
           本应用免费图片托管平台
           <b>限时</b>
           ，远端 URL 可能在数月后失效
@@ -57,16 +57,7 @@ export function LocalModeBanner() {
         onClick={() => setDismissed(true)}
         aria-label="关闭横幅"
         title="关闭（本次会话内不再显示）"
-        style={{
-          background: 'transparent',
-          border: 'none',
-          color: '#fff',
-          cursor: 'pointer',
-          fontSize: 16,
-          padding: 4,
-          lineHeight: 1,
-          flexShrink: 0,
-        }}
+        className="bg-transparent border-none text-[var(--text-on-accent)] cursor-pointer text-[16px] p-[4px] leading-[1] shrink-0"
       >
         <Icon name="x" size={16} />
       </button>

@@ -28,6 +28,7 @@ import {
 } from '../../db/imageLibrary';
 import { stripImageFilenameExtension } from '../../utils/imageFilename';
 import { Icon } from '../common/Icon';
+import { askConfirm } from '../common/confirmPrompt';
 
 interface Breadcrumb {
   id: string | null;
@@ -185,7 +186,12 @@ export function ImageLibraryPanel() {
             `将删除 ${itemCount} 张图片` +
             (subFolderCount > 0 ? `、${subFolderCount} 个子文件夹` : '') +
             `（同时清理磁盘文件），此操作不可撤销。`;
-          const ok = window.confirm(msg);
+          const ok = await askConfirm({
+            title: '删除文件夹',
+            message: msg,
+            confirmText: '删除',
+            danger: true,
+          });
           if (!ok) {
             setDeleteTarget(null);
             return;
@@ -512,13 +518,11 @@ export function ImageLibraryPanel() {
 
   return (
     <div
-      className="h-full w-full flex flex-col"
-      style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}
+      className="bg-[var(--bg-base)] text-[var(--text-primary)] h-full w-full flex flex-col"
     >
       {/* 工具栏（返回按钮+标题由外壳 ResourceLibraryPage 提供） */}
       <div
-        className="flex items-center justify-end gap-3 px-6 py-3 border-b"
-        style={{ borderColor: 'var(--border-color)' }}
+        className="border-[color:var(--border-color)] flex items-center justify-end gap-3 px-6 py-3 border-b"
       >
         {/* 改动 v3：搜索框 */}
         <input
@@ -526,18 +530,11 @@ export function ImageLibraryPanel() {
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="搜索图片名"
-          className="px-3 py-1.5 rounded-lg text-sm w-48"
-          style={{
-            background: 'var(--bg-base)',
-            color: 'var(--text-primary)',
-            border: '1px solid var(--border-color)',
-            outline: 'none',
-          }}
+          className="bg-[var(--bg-base)] text-[var(--text-primary)] border border-[color:var(--border-color)] outline-none px-3 py-1.5 rounded-lg text-sm w-48"
         />
         <button
           onClick={() => setShowNewFolderModal(true)}
-          className="px-3 py-1.5 rounded-lg text-sm transition-colors"
-          style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+          className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)] px-3 py-1.5 rounded-lg text-sm transition-colors"
           onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
           onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; }}
         >
@@ -545,8 +542,7 @@ export function ImageLibraryPanel() {
         </button>
         <button
           onClick={handleLocalUpload}
-          className="px-3 py-1.5 rounded-lg text-sm transition-colors"
-          style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+          className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)] px-3 py-1.5 rounded-lg text-sm transition-colors"
           onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
           onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; }}
         >
@@ -554,8 +550,7 @@ export function ImageLibraryPanel() {
         </button>
         <button
           onClick={() => setShowUrlUploadModal(true)}
-          className="px-3 py-1.5 rounded-lg text-sm transition-colors"
-          style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+          className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)] px-3 py-1.5 rounded-lg text-sm transition-colors"
           onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
           onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; }}
         >
@@ -564,7 +559,7 @@ export function ImageLibraryPanel() {
       </div>
 
       {/* 面包屑 */}
-      <div className="flex items-center gap-1 px-6 py-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
+      <div className="text-[var(--text-secondary)] flex items-center gap-1 px-6 py-2 text-sm">
         {breadcrumb.map((b, idx) => (
           <span key={`${b.id ?? 'root'}-${idx}`} className="flex items-center gap-1">
             {idx > 0 && <span className="mx-1">/</span>}
@@ -589,8 +584,8 @@ export function ImageLibraryPanel() {
             border: folderDropHover === '__root__'
               ? '2px dashed var(--accent)'
               : '2px dashed var(--border-color)',
-            background: folderDropHover === '__root__' ? 'var(--accent-soft, rgba(99,102,241,0.08))' : 'transparent',
-            borderRadius: 6,
+            background: folderDropHover === '__root__' ? 'var(--accent-soft)' : 'transparent',
+            borderRadius: 'var(--radius-control)',
             cursor: 'pointer',
           }}
           onClick={() => handleNavigateTo(0)}
@@ -606,20 +601,21 @@ export function ImageLibraryPanel() {
 
       {/* 错误提示 */}
       {error && (
-        <div className="px-6 py-2 text-sm" style={{ color: 'var(--danger, #e53e3e)' }}>
-          {error}
-          <button onClick={() => setError('')} className="ml-2 underline">关闭</button>
+        <div role="alert" className="text-[var(--danger)] px-6 py-2 text-sm flex items-center gap-3">
+          <span className="flex-1">{error}</span>
+          <button onClick={() => refresh()} className="underline shrink-0">重试</button>
+          <button onClick={() => setError('')} className="underline shrink-0">关闭</button>
         </div>
       )}
 
       {/* 内容区 */}
       <div className="flex-1 overflow-y-auto px-6 pb-6">
         {loading ? (
-          <div className="flex items-center justify-center h-32 text-sm" style={{ color: 'var(--text-secondary)' }}>
+          <div className="text-[var(--text-secondary)] flex items-center justify-center h-32 text-sm">
             加载中...
           </div>
         ) : folders.length === 0 && items.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-32 text-sm" style={{ color: 'var(--text-secondary)' }}>
+          <div className="text-[var(--text-secondary)] flex flex-col items-center justify-center h-32 text-sm">
             <Icon name="inbox" size={32} className="mb-2" />
             空文件夹，点击上方按钮上传图片或新建子文件夹
           </div>
@@ -628,7 +624,7 @@ export function ImageLibraryPanel() {
             {/* 文件夹区 */}
             {folders.length > 0 && (
               <div className="mb-6">
-                <h3 className="text-xs font-semibold uppercase tracking-wide mb-3" style={{ color: 'var(--text-secondary)' }}>
+                <h3 className="text-[var(--text-secondary)] text-xs font-semibold uppercase tracking-wide mb-3">
                   文件夹（{folders.length}）
                 </h3>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
@@ -654,19 +650,17 @@ export function ImageLibraryPanel() {
                       onDrop={(e) => handleFolderDrop(e, f.id)}
                     >
                       <div className="flex justify-center mb-1"><Icon name="folder" size={28} /></div>
-                      <div className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>{f.name}</div>
+                      <div className="text-[var(--text-primary)] text-sm truncate">{f.name}</div>
                       <div className="absolute top-1 right-1 flex gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
-                        <button
+                        <button aria-label="编辑"
                           onClick={(e) => { e.stopPropagation(); setRenameTarget(f); setRenameText(f.name); }}
-                          className="px-1.5 py-0.5 text-xs rounded"
-                          style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}
+                          className="bg-[var(--bg-hover)] text-[var(--text-secondary)] px-1.5 py-0.5 text-xs rounded"
                         >
                           <Icon name="pen" size={14} />
                         </button>
-                        <button
+                        <button aria-label="删除"
                           onClick={(e) => { e.stopPropagation(); setDeleteTarget({ type: 'folder', id: f.id, name: f.name }); }}
-                          className="px-1.5 py-0.5 text-xs rounded"
-                          style={{ background: 'var(--bg-hover)', color: 'var(--danger, #e53e3e)' }}
+                          className="bg-[var(--bg-hover)] text-[var(--danger)] px-1.5 py-0.5 text-xs rounded"
                         >
                           <Icon name="trash" size={14} />
                         </button>
@@ -680,7 +674,7 @@ export function ImageLibraryPanel() {
             {/* 图片区 */}
             {filteredItems.length > 0 && (
               <div>
-                <h3 className="text-xs font-semibold uppercase tracking-wide mb-3" style={{ color: 'var(--text-secondary)' }}>
+                <h3 className="text-[var(--text-secondary)] text-xs font-semibold uppercase tracking-wide mb-3">
                   图片（{filteredItems.length}{searchQuery.trim() ? ` / ${items.length}` : ''}）
                 </h3>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
@@ -708,7 +702,7 @@ export function ImageLibraryPanel() {
                         if (draggingItemId !== item.id) e.currentTarget.style.borderColor = 'var(--border-color)';
                       }}
                     >
-                      <div className="aspect-square flex items-center justify-center overflow-hidden" style={{ background: 'var(--bg-hover)' }}>
+                      <div className="bg-[var(--bg-hover)] aspect-square flex items-center justify-center overflow-hidden">
                         <img
                           src={item.url}
                           alt={item.filename}
@@ -736,25 +730,23 @@ export function ImageLibraryPanel() {
                         />
                       </div>
                       <div className="p-2">
-                        <div className="text-xs truncate" style={{ color: 'var(--text-primary)' }} title={item.filename}>{item.filename}</div>
-                        <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                        <div className="text-[var(--text-primary)] text-xs truncate" title={item.filename}>{item.filename}</div>
+                        <div className="text-[var(--text-secondary)] text-xs">
                           {item.source === 'local' ? '本地' : 'URL'}
                         </div>
                       </div>
                       <div className="absolute top-1 right-1 flex gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
                         {/* 改动 v3：图片重命名按钮 */}
-                        <button
+                        <button aria-label="重命名"
                           onClick={(e) => { e.stopPropagation(); setRenameItemTarget(item); setRenameItemText(item.filename); }}
-                          className="px-1.5 py-0.5 text-xs rounded"
-                          style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}
+                          className="bg-[var(--bg-hover)] text-[var(--text-secondary)] px-1.5 py-0.5 text-xs rounded"
                           title="重命名"
                         >
                           <Icon name="pen" size={14} />
                         </button>
-                        <button
+                        <button aria-label="删除"
                           onClick={(e) => { e.stopPropagation(); setDeleteTarget({ type: 'item', id: item.id, name: item.filename }); }}
-                          className="px-1.5 py-0.5 text-xs rounded"
-                          style={{ background: 'var(--bg-hover)', color: 'var(--danger, #e53e3e)' }}
+                          className="bg-[var(--bg-hover)] text-[var(--danger)] px-1.5 py-0.5 text-xs rounded"
                           title="删除"
                         >
                           <Icon name="trash" size={14} />
@@ -781,13 +773,12 @@ export function ImageLibraryPanel() {
             onChange={(e) => setNewFolderName(e.target.value)}
             placeholder="文件夹名称"
             autoFocus
-            className="w-full px-3 py-2 rounded-lg text-sm"
-            style={{ background: 'var(--bg-base)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+            className="bg-[var(--bg-base)] text-[var(--text-primary)] border border-[color:var(--border-color)] w-full px-3 py-2 rounded-lg text-sm"
             onKeyDown={(e) => { if (e.key === 'Enter') void handleCreateFolder(); }}
           />
           <div className="flex gap-2 justify-end mt-4">
-            <button onClick={() => setShowNewFolderModal(false)} className="px-4 py-1.5 rounded-lg text-sm" style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}>取消</button>
-            <button onClick={handleCreateFolder} className="px-4 py-1.5 rounded-lg text-sm" style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}>创建</button>
+            <button onClick={() => setShowNewFolderModal(false)} className="bg-[var(--bg-hover)] text-[var(--text-primary)] px-4 py-1.5 rounded-lg text-sm">取消</button>
+            <button onClick={handleCreateFolder} className="bg-[var(--accent)] text-[var(--text-on-accent)] px-4 py-1.5 rounded-lg text-sm">创建</button>
           </div>
         </Modal>
       )}
@@ -800,13 +791,12 @@ export function ImageLibraryPanel() {
             value={renameText}
             onChange={(e) => setRenameText(e.target.value)}
             autoFocus
-            className="w-full px-3 py-2 rounded-lg text-sm"
-            style={{ background: 'var(--bg-base)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+            className="bg-[var(--bg-base)] text-[var(--text-primary)] border border-[color:var(--border-color)] w-full px-3 py-2 rounded-lg text-sm"
             onKeyDown={(e) => { if (e.key === 'Enter') void handleRenameFolder(); }}
           />
           <div className="flex gap-2 justify-end mt-4">
-            <button onClick={() => { setRenameTarget(null); setRenameText(''); }} className="px-4 py-1.5 rounded-lg text-sm" style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}>取消</button>
-            <button onClick={handleRenameFolder} className="px-4 py-1.5 rounded-lg text-sm" style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}>确定</button>
+            <button onClick={() => { setRenameTarget(null); setRenameText(''); }} className="bg-[var(--bg-hover)] text-[var(--text-primary)] px-4 py-1.5 rounded-lg text-sm">取消</button>
+            <button onClick={handleRenameFolder} className="bg-[var(--accent)] text-[var(--text-on-accent)] px-4 py-1.5 rounded-lg text-sm">确定</button>
           </div>
         </Modal>
       )}
@@ -816,7 +806,7 @@ export function ImageLibraryPanel() {
         <Modal onClose={() => setShowUrlUploadModal(false)} title="URL 上传">
           <div className="space-y-3">
             <div>
-              <label className="text-xs block mb-1" style={{ color: 'var(--text-secondary)' }}>
+              <label className="text-[var(--text-secondary)] text-xs block mb-1">
                 图片 URL（每行一个，格式：图片名:URL，可批量；省略名字时自动从 URL 推断）
               </label>
               <textarea
@@ -841,8 +831,8 @@ export function ImageLibraryPanel() {
             </div>
           </div>
           <div className="flex gap-2 justify-end mt-4">
-            <button onClick={() => setShowUrlUploadModal(false)} className="px-4 py-1.5 rounded-lg text-sm" style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}>取消</button>
-            <button onClick={handleUrlUpload} className="px-4 py-1.5 rounded-lg text-sm" style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}>上传</button>
+            <button onClick={() => setShowUrlUploadModal(false)} className="bg-[var(--bg-hover)] text-[var(--text-primary)] px-4 py-1.5 rounded-lg text-sm">取消</button>
+            <button onClick={handleUrlUpload} className="bg-[var(--accent)] text-[var(--text-on-accent)] px-4 py-1.5 rounded-lg text-sm">上传</button>
           </div>
         </Modal>
       )}
@@ -853,7 +843,7 @@ export function ImageLibraryPanel() {
           onClose={() => { setRenameItemTarget(null); setRenameItemText(''); }}
           title="重命名图片"
         >
-          <p className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
+          <p className="text-[var(--text-secondary)] text-xs mb-2">
             原文件名：{renameItemTarget.filename}
           </p>
           {(() => {
@@ -863,8 +853,8 @@ export function ImageLibraryPanel() {
             if (dotIdx > 0 && dotIdx < orig.length - 1) {
               const ext = orig.slice(dotIdx)
               return (
-                <p className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
-                  扩展名 <code style={{ background: 'var(--bg-hover)', padding: '1px 4px', borderRadius: 3 }}>{ext}</code> 将保留，输入框中包含的后缀会被自动忽略。
+                <p className="text-[var(--text-secondary)] text-xs mb-2">
+                  扩展名 <code className="bg-[var(--bg-hover)] py-[1px] px-[4px] rounded-[var(--radius-chip)]">{ext}</code> 将保留，输入框中包含的后缀会被自动忽略。
                 </p>
               )
             }
@@ -875,23 +865,20 @@ export function ImageLibraryPanel() {
             value={renameItemText}
             onChange={(e) => setRenameItemText(e.target.value)}
             autoFocus
-            className="w-full px-3 py-2 rounded-lg text-sm"
-            style={{ background: 'var(--bg-base)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+            className="bg-[var(--bg-base)] text-[var(--text-primary)] border border-[color:var(--border-color)] w-full px-3 py-2 rounded-lg text-sm"
             onKeyDown={(e) => { if (e.key === 'Enter') void handleRenameItem(); }}
           />
           <div className="flex gap-2 justify-end mt-4">
             <button
               onClick={() => { setRenameItemTarget(null); setRenameItemText(''); }}
-              className="px-4 py-1.5 rounded-lg text-sm"
-              style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
+              className="bg-[var(--bg-hover)] text-[var(--text-primary)] px-4 py-1.5 rounded-lg text-sm"
             >
               取消
             </button>
             <button
               onClick={handleRenameItem}
               disabled={!renameItemText.trim() || renameItemText.trim() === renameItemTarget.filename}
-              className="px-4 py-1.5 rounded-lg text-sm disabled:opacity-50"
-              style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}
+              className="bg-[var(--accent)] text-[var(--text-on-accent)] px-4 py-1.5 rounded-lg text-sm disabled:opacity-50"
             >
               确定
             </button>
@@ -902,14 +889,14 @@ export function ImageLibraryPanel() {
       {/* 删除确认弹窗 */}
       {deleteTarget && (
         <Modal onClose={() => setDeleteTarget(null)} title="确认删除">
-          <p className="text-sm" style={{ color: 'var(--text-primary)' }}>
+          <p className="text-[var(--text-primary)] text-sm">
             {deleteTarget.type === 'folder'
               ? `确定删除文件夹「${deleteTarget.name}」？文件夹内的所有子文件夹和图片将被一并删除。`
               : `确定删除图片「${deleteTarget.name}」？`}
           </p>
           <div className="flex gap-2 justify-end mt-4">
-            <button onClick={() => setDeleteTarget(null)} className="px-4 py-1.5 rounded-lg text-sm" style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}>取消</button>
-            <button onClick={handleDelete} className="px-4 py-1.5 rounded-lg text-sm" style={{ background: 'var(--danger, #e53e3e)', color: '#fff' }}>删除</button>
+            <button onClick={() => setDeleteTarget(null)} className="bg-[var(--bg-hover)] text-[var(--text-primary)] px-4 py-1.5 rounded-lg text-sm">取消</button>
+            <button onClick={handleDelete} className="bg-[var(--danger)] text-[var(--text-on-accent)] px-4 py-1.5 rounded-lg text-sm">删除</button>
           </div>
         </Modal>
       )}
@@ -921,16 +908,14 @@ export function ImageLibraryPanel() {
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: 'rgba(0,0,0,0.4)' }}
+      className="bg-[var(--scrim)] fixed inset-0 z-50 flex items-center justify-center"
       onClick={onClose}
     >
       <div
-        className="rounded-xl shadow-lg max-w-md w-full mx-4 p-5"
-        style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
+        className="bg-[var(--bg-card)] border border-[color:var(--border-color)] rounded-xl shadow-lg max-w-md w-full mx-4 p-5"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="text-base font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>{title}</h3>
+        <h3 className="text-[var(--text-primary)] text-base font-semibold mb-4">{title}</h3>
         {children}
       </div>
     </div>

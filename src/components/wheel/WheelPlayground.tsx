@@ -333,13 +333,12 @@ export function WheelPlayground({ scheme, onClose, onComplete }: WheelPlayground
     return (
       <div className="flex flex-col items-center justify-center py-16">
         <div className="flex justify-center mb-4"><Icon name="wheel" size={48} /></div>
-        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+        <p className="text-[var(--text-secondary)] text-sm">
           这个方案还没有阶段，请先编辑方案添加阶段
         </p>
         <button
           onClick={onClose}
-          className="mt-6 px-4 py-2 text-sm rounded-lg"
-          style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+          className="bg-[var(--bg-card)] border border-[color:var(--border-color)] text-[var(--text-primary)] mt-6 px-4 py-2 text-sm rounded-lg"
         >
           返回编辑
         </button>
@@ -353,14 +352,14 @@ export function WheelPlayground({ scheme, onClose, onComplete }: WheelPlayground
       {!finished && currentStage && (
         <>
           <div className="text-center">
-            <div className="text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>
+            <div className="text-[var(--text-secondary)] text-xs mb-1">
               {progressText}
             </div>
-            <div className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>
+            <div className="text-[var(--text-primary)] text-xl font-semibold">
               {currentStage.name}
             </div>
             {stageSkipped && (
-              <div className="mt-2 text-xs px-3 py-1 rounded-full" style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}>
+              <div className="bg-[var(--bg-hover)] text-[var(--text-secondary)] mt-2 text-xs px-3 py-1 rounded-full">
                 条件不满足，已跳过此阶段
               </div>
             )}
@@ -372,8 +371,7 @@ export function WheelPlayground({ scheme, onClose, onComplete }: WheelPlayground
               {variableList.map((v) => (
                 <span
                   key={v.name}
-                  className="px-2 py-1 rounded text-xs"
-                  style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}
+                  className="bg-[var(--bg-hover)] text-[var(--text-secondary)] px-2 py-1 rounded text-xs"
                 >
                   {v.name} = {v.value}
                 </span>
@@ -383,7 +381,7 @@ export function WheelPlayground({ scheme, onClose, onComplete }: WheelPlayground
 
           {/* 当前阶段已抽取结果 */}
           {currentStageResults.length > 0 && (
-            <div className="text-sm" style={{ color: 'var(--text-primary)' }}>
+            <div className="text-[var(--text-primary)] text-sm">
               已抽取：{currentStageResults.join('、')}
             </div>
           )}
@@ -412,7 +410,7 @@ export function WheelPlayground({ scheme, onClose, onComplete }: WheelPlayground
           </button>
 
           {/* 阶段配置摘要 */}
-          <div className="text-xs text-center max-w-md" style={{ color: 'var(--text-tertiary, #888)' }}>
+          <div className="text-[var(--text-tertiary)] text-xs text-center max-w-md">
             {currentStage.drawCount > 1 && `抽取 ${currentStage.drawCount} 次`}
             {currentStage.drawCount > 1 && currentStage.unique && '（去重）'}
             {currentStage.outputVariable && ` · 存入变量 ${currentStage.outputVariable}`}
@@ -427,17 +425,16 @@ export function WheelPlayground({ scheme, onClose, onComplete }: WheelPlayground
         <>
           <div className="text-center">
             <div className="flex justify-center mb-2"><Icon name="party" size={48} /></div>
-            <div className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>
+            <div className="text-[var(--text-primary)] text-xl font-semibold">
               抽取完成
             </div>
           </div>
 
           {/* 结果列表 */}
           <div
-            className="anke-card w-full max-w-2xl p-5"
-            style={{ border: '1px solid var(--border-color)' }}
+            className="border border-[color:var(--border-color)] anke-card w-full max-w-2xl p-5"
           >
-            <div className="text-sm font-medium mb-3" style={{ color: 'var(--text-primary)' }}>
+            <div className="text-[var(--text-primary)] text-sm font-medium mb-3">
               抽取结果
             </div>
             <div className="space-y-2">
@@ -447,10 +444,10 @@ export function WheelPlayground({ scheme, onClose, onComplete }: WheelPlayground
                   className="flex items-start gap-3 py-2"
                   style={{ borderBottom: idx < allResults.length - 1 ? '1px solid var(--border-color)' : 'none' }}
                 >
-                  <div className="shrink-0 text-sm font-medium" style={{ color: 'var(--text-secondary)', minWidth: 80 }}>
+                  <div className="text-[var(--text-secondary)] min-w-[80px] shrink-0 text-sm font-medium">
                     {r.stageName}
                   </div>
-                  <div className="flex-1 text-sm" style={{ color: r.skipped ? 'var(--text-tertiary, #888)' : 'var(--text-primary)' }}>
+                  <div className="flex-1 text-sm" style={{ color: r.skipped ? 'var(--text-tertiary)' : 'var(--text-primary)' }}>
                     {r.skipped ? '（已跳过）' : r.results.join('、')}
                   </div>
                 </div>
@@ -461,17 +458,15 @@ export function WheelPlayground({ scheme, onClose, onComplete }: WheelPlayground
           {/* Prompt 模板渲染结果 */}
           {finalPrompt && (
             <div
-            className="anke-card w-full max-w-2xl p-5"
-            style={{ border: '1px solid var(--accent)' }}
+            className="border border-[color:var(--accent)] anke-card w-full max-w-2xl p-5"
           >
             <div className="flex items-center justify-between mb-3">
-              <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+              <div className="text-[var(--text-primary)] text-sm font-medium">
                 生成的 Prompt
               </div>
               <button
                 onClick={() => copyToClipboard(finalPrompt, 'Prompt')}
-                className="px-3 py-1 text-xs rounded-lg transition-colors"
-                style={{ background: 'var(--accent-bg)', color: 'var(--accent)', border: '1px solid var(--accent)' }}
+                className="bg-[var(--accent-bg)] text-[var(--accent)] border border-[color:var(--accent)] px-3 py-1 text-xs rounded-lg transition-colors"
               >
                 <><Icon name="copy" size={16} /> 复制 Prompt</>
               </button>
@@ -489,22 +484,19 @@ export function WheelPlayground({ scheme, onClose, onComplete }: WheelPlayground
           <div className="flex gap-3">
             <button
               onClick={() => copyToClipboard(resultsText, '结果')}
-              className="px-4 py-2 text-sm rounded-lg transition-colors"
-              style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+              className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)] px-4 py-2 text-sm rounded-lg transition-colors"
             >
               <><Icon name="copy" size={16} /> 复制结果</>
             </button>
             <button
               onClick={handleReset}
-              className="px-4 py-2 text-sm rounded-lg transition-colors"
-              style={{ background: 'var(--accent-bg)', color: 'var(--accent)', border: '1px solid var(--accent)' }}
+              className="bg-[var(--accent-bg)] text-[var(--accent)] border border-[color:var(--accent)] px-4 py-2 text-sm rounded-lg transition-colors"
             >
               <><Icon name="refresh" size={16} /> 再次抽取</>
             </button>
             <button
               onClick={onClose}
-              className="px-4 py-2 text-sm rounded-lg transition-colors"
-              style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+              className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)] px-4 py-2 text-sm rounded-lg transition-colors"
             >
               返回
             </button>

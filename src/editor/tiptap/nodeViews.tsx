@@ -28,9 +28,9 @@ import type { NodeViewRenderer, NodeViewRendererProps } from '@tiptap/core'
 import type { NodeView } from '@tiptap/pm/view'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { NGA_DEFAULT_IMAGE_SIZE, NGA_IMAGE_SIZES, type DiceBlockPayloadV2 } from '../../types'
-import { attachImageErrorHandler } from '../imageBlock'
-import { ensureDragHandle } from '../collapseBlock'
-import { getDicePayload, renderDiceCard, setDicePayload } from '../diceCard'
+import { attachImageErrorHandler } from './imageBlockDom'
+import { ensureDragHandle } from './collapseDom'
+import { getDicePayload, renderDiceCard, setDicePayload } from './diceRender'
 import { rollDice } from '../../utils/diceEngine'
 import { playDiceRollSound } from '../../utils/diceSound'
 import { useSettingStore } from '../../store/settingStore'
@@ -166,7 +166,7 @@ function renderImageHandles(
       background: 'var(--accent)',
       border: '2px solid var(--text-on-accent)',
       borderRadius: '50%',
-      boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+      boxShadow: 'var(--shadow-md)',
       zIndex: '5',
       cursor,
       ...style,
@@ -190,9 +190,9 @@ function renderImageHandles(
     right: '-10px',
     width: '24px',
     height: '24px',
-    background: 'var(--danger, #ef4444)',
-    color: 'var(--text-on-accent, #fff)',
-    border: '2px solid var(--text-on-accent, #fff)',
+    background: 'var(--danger)',
+    color: 'var(--text-on-accent)',
+    border: '2px solid var(--text-on-accent)',
     borderRadius: '50%',
     fontSize: '14px',
     lineHeight: '1',
@@ -201,7 +201,7 @@ function renderImageHandles(
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+    boxShadow: 'var(--shadow-md)',
     zIndex: '6',
     padding: '0',
   } as CSSStyleDeclaration)
@@ -628,9 +628,16 @@ class CollapseBlockNodeView implements NodeView {
     toggle.appendChild(createToggleIcon())
     // 点击时不要抢走光标
     toggle.addEventListener('mousedown', (e) => e.preventDefault())
-    toggle.addEventListener('click', (e) => {
+
+    // 旧内核语义对齐（collapseBlock.ts onClick）：点击 .collapse-head 整体切换展开/折叠，
+    // 但点击 .collapse-title 只进入标题编辑（避免框选/编辑标题中途块突然折叠）、
+    // 点击拖动把手只负责拖动。
+    head.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement | null
+      if (!target) return
+      if (target.closest('.collapse-title')) return
+      if (target.closest('.collapse-drag-handle')) return
       e.preventDefault()
-      e.stopPropagation()
       this.flipCollapsed()
     })
 

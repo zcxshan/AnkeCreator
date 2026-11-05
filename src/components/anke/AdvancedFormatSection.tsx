@@ -25,7 +25,7 @@ export function AdvancedFormatSection({
     <details
       style={{
         border: '1px solid var(--border-color)',
-        borderRadius: 8,
+        borderRadius: 'var(--radius-md)',
         padding: '4px 12px',
         background: 'var(--bg-card-secondary, transparent)',
       }}
@@ -46,7 +46,7 @@ export function AdvancedFormatSection({
       >
         <span className="inline-flex items-center gap-1.5"><Icon name="settings" size={12} /> 高级格式设置（可选，自定义卷/章/节结构 + 楼号范围）</span>
       </summary>
-      <div style={{ padding: '8px 0 12px', display: 'grid', gap: 10 }}>
+      <div className="pt-[8px] px-[0px] pb-[12px] grid gap-[10px]">
         <label
           style={{
             display: 'flex',
@@ -64,11 +64,11 @@ export function AdvancedFormatSection({
             disabled={disabled}
             style={{ cursor: disabled ? 'not-allowed' : 'pointer' }}
           />
-          <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>
+          <span className="text-[13px] text-[var(--text-primary)]">
             启用自定义卷/章/节结构
           </span>
         </label>
-        <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
+        <div className="text-[var(--text-muted)] text-xs">
           启用后爬取数据按你指定的卷/章/节 + 楼号范围切分。未启用则按「每 N 楼一节」自动切分。
         </div>
         {value.enabled && (

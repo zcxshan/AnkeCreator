@@ -20,6 +20,7 @@ import {
 import { MATERIAL_CATEGORIES, type MaterialSite, type MaterialCategory } from '../../types';
 import { useToastStore } from '../../store/toastStore';
 import { Icon } from '../common/Icon';
+import { askConfirm } from '../common/confirmPrompt';
 
 interface EditState {
   open: boolean;
@@ -40,18 +41,19 @@ const INITIAL_FORM = {
 };
 
 const CATEGORY_COLORS: Record<MaterialCategory, string> = {
-  图片: '#3b82f6',
-  图标: '#8b5cf6',
-  字体: '#ec4899',
-  音效: '#f59e0b',
-  教程: '#10b981',
-  工具: '#6366f1',
-  其他: '#6b7280',
+  图片: 'var(--tone-info)',
+  图标: 'var(--tone-purple)',
+  字体: 'var(--tone-pink)',
+  音效: 'var(--tone-warn)',
+  教程: 'var(--tone-success)',
+  工具: 'var(--tone-indigo)',
+  其他: 'var(--tone-neutral)',
 };
 
 export function FindMaterialPanel() {
   const [sites, setSites] = useState<MaterialSite[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [filter, setFilter] = useState<MaterialCategory | 'all'>('all');
   const [edit, setEdit] = useState<EditState>({
     open: false,
@@ -63,12 +65,14 @@ export function FindMaterialPanel() {
 
   const refresh = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const list = await listMaterialSites();
       setSites(list);
     } catch (e) {
-      showToast('加载素材列表失败', 'error');
       console.error('[FindMaterialPanel] load failed:', e);
+      setLoadError((e as Error)?.message || String(e));
+      showToast('加载素材列表失败', 'error');
     } finally {
       setLoading(false);
     }
@@ -151,7 +155,13 @@ export function FindMaterialPanel() {
   };
 
   const handleDelete = async (id: string, name: string) => {
-    if (!window.confirm(`确定删除「${name}」吗？`)) return;
+    const confirmed = await askConfirm({
+      title: '删除素材',
+      message: `确定删除「${name}」吗？`,
+      confirmText: '删除',
+      danger: true,
+    });
+    if (!confirmed) return;
     try {
       const ok = await deleteMaterialSite(id);
       if (ok) {
@@ -173,15 +183,13 @@ export function FindMaterialPanel() {
 
   return (
     <div
-      className="h-full w-full flex flex-col overflow-hidden"
-      style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}
+      className="bg-[var(--bg-base)] text-[var(--text-primary)] h-full w-full flex flex-col overflow-hidden"
     >
       {/* 工具栏：标题 + 筛选 + 添加按钮 */}
       <div
-        className="flex items-center gap-3 px-6 py-3 border-b flex-wrap"
-        style={{ borderColor: 'var(--border-color)' }}
+        className="border-[color:var(--border-color)] flex items-center gap-3 px-6 py-3 border-b flex-wrap"
       >
-        <h2 className="text-base font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+        <h2 className="text-[var(--text-primary)] text-base font-semibold flex items-center gap-2">
           <Icon name="search" size={16} /> 寻找素材
         </h2>
         <div className="flex items-center gap-1.5 flex-wrap flex-1">
@@ -206,13 +214,7 @@ export function FindMaterialPanel() {
         </div>
         <button
           onClick={openAdd}
-          className="px-4 py-1.5 text-sm rounded-lg transition-all flex items-center gap-1.5"
-          style={{
-            background: 'var(--accent)',
-            color: '#fff',
-            border: '1px solid var(--accent)',
-            fontWeight: 500,
-          }}
+          className="bg-[var(--accent)] text-[var(--text-on-accent)] border border-[color:var(--accent)] font-medium px-4 py-1.5 text-sm rounded-lg transition-all flex items-center gap-1.5"
           onMouseEnter={(e) => {
             e.currentTarget.style.opacity = '0.9';
           }}
@@ -226,19 +228,26 @@ export function FindMaterialPanel() {
 
       {/* 列表区 */}
       <div className="flex-1 overflow-y-auto px-6 py-4">
-        {loading ? (
-          <div className="flex items-center justify-center h-full">
-            <div
-              className="text-sm"
-              style={{ color: 'var(--text-secondary)' }}
+        {loadError ? (
+          <div role="alert" className="flex flex-col items-center justify-center h-full gap-2">
+            <Icon name="alert" size={28} className="text-[var(--tone-danger)]" />
+            <div className="text-[var(--text-primary)] text-sm font-medium">素材列表加载失败</div>
+            <div className="text-[var(--text-secondary)] text-xs">{loadError}</div>
+            <button
+              onClick={() => refresh()}
+              className="mt-2 inline-flex items-center gap-1 px-4 py-1.5 text-sm rounded-md bg-[var(--accent-bg)] text-[var(--accent)] border border-[color:var(--accent)]"
             >
-              加载中...
-            </div>
+              <Icon name="refresh" size={13} /> 重新加载
+            </button>
+          </div>
+        ) : loading ? (
+          <div role="status" aria-live="polite" className="flex items-center justify-center h-full">
+            <div className="text-[var(--text-secondary)] text-sm">加载中...</div>
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-2">
             <Icon name="inbox" size={32} className="opacity-50" />
-            <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            <div className="text-[var(--text-secondary)] text-sm">
               {filter === 'all' ? '暂无素材，点击右上角添加' : `该分类下暂无素材`}
             </div>
           </div>
@@ -247,11 +256,7 @@ export function FindMaterialPanel() {
             {filtered.map((site) => (
               <div
                 key={site.id}
-                className="rounded-lg p-4 transition-all"
-                style={{
-                  background: 'var(--bg-secondary)',
-                  border: '1px solid var(--border-color)',
-                }}
+                className="bg-[var(--bg-secondary)] border border-[color:var(--border-color)] rounded-lg p-4 transition-all"
                 onMouseEnter={(e) => {
                   e.currentTarget.style.borderColor = 'var(--accent)';
                 }}
@@ -263,8 +268,7 @@ export function FindMaterialPanel() {
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <div className="flex items-center gap-2 min-w-0 flex-1">
                     <h3
-                      className="text-sm font-semibold truncate"
-                      style={{ color: 'var(--text-primary)' }}
+                      className="text-[var(--text-primary)] text-sm font-semibold truncate"
                       title={site.name}
                     >
                       {site.name}
@@ -285,8 +289,7 @@ export function FindMaterialPanel() {
                 {/* 描述 */}
                 {site.description && (
                   <p
-                    className="text-xs mb-3 line-clamp-2"
-                    style={{ color: 'var(--text-secondary)' }}
+                    className="text-[var(--text-secondary)] text-xs mb-3 line-clamp-2"
                   >
                     {site.description}
                   </p>
@@ -294,8 +297,7 @@ export function FindMaterialPanel() {
 
                 {/* URL 显示 */}
                 <div
-                  className="text-xs mb-3 truncate font-mono"
-                  style={{ color: 'var(--text-tertiary)' }}
+                  className="text-[var(--text-tertiary)] text-xs mb-3 truncate font-mono"
                   title={site.url}
                 >
                   {site.url}
@@ -305,15 +307,10 @@ export function FindMaterialPanel() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => handleOpen(site.url)}
-                    className="flex-1 px-3 py-1.5 text-xs rounded-md transition-all flex items-center justify-center gap-1"
-                    style={{
-                      background: 'var(--accent-bg)',
-                      color: 'var(--accent)',
-                      border: '1px solid var(--accent)',
-                    }}
+                    className="bg-[var(--accent-bg)] text-[var(--accent)] border border-[color:var(--accent)] flex-1 px-3 py-1.5 text-xs rounded-md transition-all flex items-center justify-center gap-1"
                     onMouseEnter={(e) => {
                       e.currentTarget.style.background = 'var(--accent)';
-                      e.currentTarget.style.color = '#fff';
+                      e.currentTarget.style.color = 'var(--text-on-accent)';
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.background = 'var(--accent-bg)';
@@ -322,14 +319,9 @@ export function FindMaterialPanel() {
                   >
                     <span className="inline-flex items-center gap-1"><Icon name="globe" size={13} /> 打开</span>
                   </button>
-                  <button
+                  <button aria-label="编辑"
                     onClick={() => openEdit(site)}
-                    className="px-3 py-1.5 text-xs rounded-md transition-all"
-                    style={{
-                      background: 'transparent',
-                      color: 'var(--text-secondary)',
-                      border: '1px solid var(--border-color)',
-                    }}
+                    className="bg-transparent text-[var(--text-secondary)] border border-[color:var(--border-color)] px-3 py-1.5 text-xs rounded-md transition-all"
                     onMouseEnter={(e) => {
                       e.currentTarget.style.background = 'var(--bg-hover)';
                       e.currentTarget.style.color = 'var(--text-primary)';
@@ -341,18 +333,13 @@ export function FindMaterialPanel() {
                   >
                     <Icon name="pen" size={13} />
                   </button>
-                  <button
+                  <button aria-label="删除"
                     onClick={() => handleDelete(site.id, site.name)}
-                    className="px-3 py-1.5 text-xs rounded-md transition-all"
-                    style={{
-                      background: 'transparent',
-                      color: 'var(--text-secondary)',
-                      border: '1px solid var(--border-color)',
-                    }}
+                    className="bg-transparent text-[var(--text-secondary)] border border-[color:var(--border-color)] px-3 py-1.5 text-xs rounded-md transition-all"
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.background = '#ef444420';
-                      e.currentTarget.style.color = '#ef4444';
-                      e.currentTarget.style.borderColor = '#ef4444';
+                      e.currentTarget.style.background = 'var(--tone-danger-soft)';
+                      e.currentTarget.style.color = 'var(--tone-danger)';
+                      e.currentTarget.style.borderColor = 'var(--tone-danger)';
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.background = 'transparent';
@@ -372,61 +359,49 @@ export function FindMaterialPanel() {
       {/* 编辑/新增弹窗 */}
       {edit.open && (
         <div
-          className="fixed inset-0 flex items-center justify-center z-50"
-          style={{ background: 'rgba(0,0,0,0.4)' }}
+          className="bg-[var(--scrim)] fixed inset-0 flex items-center justify-center z-50"
           onClick={closeEdit}
         >
           <div
-            className="rounded-xl shadow-xl w-full max-w-md mx-4 p-6"
-            style={{ background: 'var(--bg-base)', border: '1px solid var(--border-color)' }}
+            className="bg-[var(--bg-base)] border border-[color:var(--border-color)] rounded-xl shadow-xl w-full max-w-md mx-4 p-6"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-base font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>
+            <h3 className="text-[var(--text-primary)] text-base font-semibold mb-4">
               {edit.editingId ? '编辑素材' : '添加素材'}
             </h3>
 
             {/* 名称 */}
             <div className="mb-3">
-              <label className="block text-xs mb-1.5" style={{ color: 'var(--text-secondary)' }}>
-                名称 <span style={{ color: '#ef4444' }}>*</span>
+              <label className="text-[var(--text-secondary)] block text-xs mb-1.5">
+                名称 <span className="text-[var(--tone-danger)]">*</span>
               </label>
               <input
                 type="text"
                 value={edit.form.name}
                 onChange={(e) => setEdit((p) => ({ ...p, form: { ...p.form, name: e.target.value } }))}
                 placeholder="如：Unsplash"
-                className="w-full px-3 py-2 text-sm rounded-md outline-none"
-                style={{
-                  background: 'var(--bg-secondary)',
-                  border: '1px solid var(--border-color)',
-                  color: 'var(--text-primary)',
-                }}
+                className="bg-[var(--bg-secondary)] border border-[color:var(--border-color)] text-[var(--text-primary)] w-full px-3 py-2 text-sm rounded-md outline-none"
                 autoFocus
               />
             </div>
 
             {/* URL */}
             <div className="mb-3">
-              <label className="block text-xs mb-1.5" style={{ color: 'var(--text-secondary)' }}>
-                URL <span style={{ color: '#ef4444' }}>*</span>
+              <label className="text-[var(--text-secondary)] block text-xs mb-1.5">
+                URL <span className="text-[var(--tone-danger)]">*</span>
               </label>
               <input
                 type="text"
                 value={edit.form.url}
                 onChange={(e) => setEdit((p) => ({ ...p, form: { ...p.form, url: e.target.value } }))}
                 placeholder="https://example.com"
-                className="w-full px-3 py-2 text-sm rounded-md outline-none font-mono"
-                style={{
-                  background: 'var(--bg-secondary)',
-                  border: '1px solid var(--border-color)',
-                  color: 'var(--text-primary)',
-                }}
+                className="bg-[var(--bg-secondary)] border border-[color:var(--border-color)] text-[var(--text-primary)] w-full px-3 py-2 text-sm rounded-md outline-none font-mono"
               />
             </div>
 
             {/* 分类 */}
             <div className="mb-3">
-              <label className="block text-xs mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+              <label className="text-[var(--text-secondary)] block text-xs mb-1.5">
                 分类
               </label>
               <select
@@ -437,12 +412,7 @@ export function FindMaterialPanel() {
                     form: { ...p.form, category: e.target.value as MaterialCategory },
                   }))
                 }
-                className="w-full px-3 py-2 text-sm rounded-md outline-none"
-                style={{
-                  background: 'var(--bg-secondary)',
-                  border: '1px solid var(--border-color)',
-                  color: 'var(--text-primary)',
-                }}
+                className="bg-[var(--bg-secondary)] border border-[color:var(--border-color)] text-[var(--text-primary)] w-full px-3 py-2 text-sm rounded-md outline-none"
               >
                 {MATERIAL_CATEGORIES.map((c) => (
                   <option key={c} value={c}>
@@ -454,7 +424,7 @@ export function FindMaterialPanel() {
 
             {/* 描述 */}
             <div className="mb-4">
-              <label className="block text-xs mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+              <label className="text-[var(--text-secondary)] block text-xs mb-1.5">
                 描述（可选）
               </label>
               <textarea
@@ -464,12 +434,7 @@ export function FindMaterialPanel() {
                 }
                 placeholder="简要描述这个素材网站的用途"
                 rows={3}
-                className="w-full px-3 py-2 text-sm rounded-md outline-none resize-none"
-                style={{
-                  background: 'var(--bg-secondary)',
-                  border: '1px solid var(--border-color)',
-                  color: 'var(--text-primary)',
-                }}
+                className="bg-[var(--bg-secondary)] border border-[color:var(--border-color)] text-[var(--text-primary)] w-full px-3 py-2 text-sm rounded-md outline-none resize-none"
               />
             </div>
 
@@ -494,7 +459,7 @@ export function FindMaterialPanel() {
                 className="px-4 py-2 text-sm rounded-md transition-all"
                 style={{
                   background: 'var(--accent)',
-                  color: '#fff',
+                  color: 'var(--text-on-accent)',
                   border: '1px solid var(--accent)',
                   opacity: saving ? 0.6 : 1,
                 }}

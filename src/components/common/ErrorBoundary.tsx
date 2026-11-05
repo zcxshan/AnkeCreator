@@ -55,12 +55,13 @@ export class ErrorBoundary extends Component<Props, State> {
       }
       return (
         <div
+          className="crash-screen"
           style={{
             position: 'fixed',
             inset: 0,
             padding: 24,
-            background: '#1f2937',
-            color: '#fca5a5',
+            background: 'var(--crash-bg)',
+            color: 'var(--crash-danger)',
             fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
             fontSize: 13,
             lineHeight: 1.5,
@@ -69,49 +70,23 @@ export class ErrorBoundary extends Component<Props, State> {
           }}
         >
           <div
-            style={{
-              fontWeight: 700,
-              fontSize: 16,
-              marginBottom: 12,
-              color: '#fee2e2',
-            }}
+            className="font-bold text-[16px] mb-[12px] text-[var(--crash-ink)]"
           >
             <span className="inline-flex items-center gap-2"><Icon name="alert" size={18} /> 界面崩溃</span>
           </div>
           <div
-            style={{
-              color: '#ffffff',
-              marginBottom: 12,
-              padding: 12,
-              background: '#7f1d1d',
-              borderRadius: 4,
-            }}
+            className="text-[var(--text-on-accent)] mb-[12px] p-[12px] bg-[var(--crash-action-danger)] rounded-[var(--radius-sm)]"
           >
             {this.state.error.message || '(无错误信息)'}
           </div>
           <pre
-            style={{
-              whiteSpace: 'pre-wrap',
-              color: '#fbbf24',
-              fontSize: 12,
-              margin: 0,
-            }}
+            className="whitespace-pre-wrap text-[var(--crash-warn)] text-[12px] m-[0px]"
           >
             {this.state.error.stack}
           </pre>
           <button
             onClick={this.reset}
-            style={{
-              marginTop: 16,
-              padding: '8px 16px',
-              background: '#3b82f6',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: 6,
-              cursor: 'pointer',
-              fontSize: 13,
-              fontWeight: 600,
-            }}
+            className="mt-[16px] py-[8px] px-[16px] bg-[var(--tone-info)] text-[var(--text-on-accent)] border-none rounded-[var(--radius-control)] cursor-pointer text-[13px] font-semibold"
           >
             重新加载
           </button>

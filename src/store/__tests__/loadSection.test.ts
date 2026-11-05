@@ -16,14 +16,16 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { setSectionContentMock, getSectionContentMock } = vi.hoisted(() => ({
-  setSectionContentMock: vi.fn(async (_id: string, _content: string) => {}),
+const { setSectionContentMock, getSectionContentMock, getSectionBBCodeMock } = vi.hoisted(() => ({
+  setSectionContentMock: vi.fn(async (_id: string, _content: string, _bbcode?: string | null) => {}),
   getSectionContentMock: vi.fn(async (_id: string) => 'content-for-section'),
+  getSectionBBCodeMock: vi.fn(async (_id: string) => null as string | null),
 }));
 
 vi.mock('../../db/index', () => ({
   setSectionContent: setSectionContentMock,
   getSectionContent: getSectionContentMock,
+  getSectionBBCode: getSectionBBCodeMock,
 }));
 
 import { useEditorStore } from '../editorStore';
@@ -32,9 +34,11 @@ describe('loadSection race condition fix', () => {
   beforeEach(() => {
     setSectionContentMock.mockClear();
     getSectionContentMock.mockClear();
+    getSectionBBCodeMock.mockClear();
     useEditorStore.setState({
       sectionId: null,
       sectionContent: null,
+      sectionBbcode: null,
       sectionLoading: false,
       loadingSectionId: null,
     });
@@ -65,6 +69,7 @@ describe('loadSection race condition fix', () => {
     await p;
     expect(useEditorStore.getState().sectionId).toBe('section-B');
     expect(useEditorStore.getState().sectionContent).toBe('new-content');
+    expect(useEditorStore.getState().sectionBbcode).toBe(null);
     expect(useEditorStore.getState().sectionLoading).toBe(false);
     expect(useEditorStore.getState().loadingSectionId).toBe(null);
   });
@@ -93,7 +98,18 @@ describe('loadSection race condition fix', () => {
     await useEditorStore.getState().loadSection(null);
     expect(useEditorStore.getState().sectionId).toBe(null);
     expect(useEditorStore.getState().sectionContent).toBe(null);
+    expect(useEditorStore.getState().sectionBbcode).toBe(null);
     expect(useEditorStore.getState().sectionLoading).toBe(false);
     expect(useEditorStore.getState().loadingSectionId).toBe(null);
+  });
+
+  it('同时加载 BBCode 缓存，供 BBCode 视图直接初始化', async () => {
+    getSectionContentMock.mockImplementation(async () => '<p>正文</p>');
+    getSectionBBCodeMock.mockImplementation(async () => '[b]缓存[/b]');
+    await useEditorStore.getState().loadSection('section-bb');
+    expect(getSectionBBCodeMock).toHaveBeenCalledWith('section-bb');
+    expect(useEditorStore.getState().sectionBbcode).toBe('[b]缓存[/b]');
+    // 恢复默认实现，避免影响其他用例执行顺序
+    getSectionBBCodeMock.mockImplementation(async () => null);
   });
 });

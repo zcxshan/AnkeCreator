@@ -78,7 +78,7 @@ export function CharacterCard({
         <label
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}
-          style={{ position: 'absolute', top: 6, left: 6, cursor: 'pointer', lineHeight: 0, zIndex: 2 }}
+          className="absolute top-[6px] left-[6px] cursor-pointer leading-[0] z-[2]"
           title="勾选以加入批量删除"
         >
           <input
@@ -86,7 +86,7 @@ export function CharacterCard({
             checked={!!selected}
             onChange={() => onToggleSelect?.()}
             onDragStart={(e) => e.preventDefault()}
-            style={{ width: 16, height: 16, cursor: 'pointer' }}
+            className="w-[16px] h-[16px] cursor-pointer"
           />
         </label>
       )}
@@ -172,7 +172,7 @@ export function CharacterCard({
       {(onEdit || onDelete) && (
         <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition">
           {onEdit && (
-            <button
+            <button aria-label="编辑"
               onClick={(e) => {
                 e.stopPropagation();
                 onEdit();
@@ -189,7 +189,7 @@ export function CharacterCard({
             </button>
           )}
           {onDelete && (
-            <button
+            <button aria-label="删除"
               onClick={(e) => {
                 e.stopPropagation();
                 onDelete();
