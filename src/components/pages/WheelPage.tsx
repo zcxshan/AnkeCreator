@@ -1,8 +1,8 @@
 // ============================================================
-// 玩转盘主页面
+// 玩转盘主页面（糖果贴纸风）
 //
 // 三种视图：
-//   1. 列表视图：方案列表 + 历史记录 + 导入/导出 + 新建按钮
+//   1. 列表视图：方案卡片墙 + 右侧历史卡 + 导入/新建
 //   2. 编辑视图：SchemeEditor 编辑单个方案
 //   3. 抽取视图：WheelPlayground 进行抽取
 //
@@ -28,6 +28,9 @@ type View = 'list' | 'edit' | 'play'
 interface WheelPageProps {
   onBack: () => void
 }
+
+/** 方案卡胶带颜色循环 */
+const TAPE_COLORS = ['#ffd45e', '#5cc6ff', '#ff86b8', '#4fdcae', '#b39bff']
 
 /** 生成唯一 ID（与 wheelStore 风格一致） */
 function genId(): string {
@@ -68,7 +71,44 @@ function formatTime(iso: string): string {
   }
 }
 
+function useWideLayout(minWidth: number): boolean {
+  const [wide, setWide] = useState(() =>
+    typeof window !== 'undefined' && window.innerWidth >= minWidth,
+  )
+  useEffect(() => {
+    const mq = window.matchMedia?.(`(min-width: ${minWidth}px)`)
+    if (!mq) return
+    const handler = (event: MediaQueryListEvent) => setWide(event.matches)
+    mq.addEventListener?.('change', handler)
+    return () => mq.removeEventListener?.('change', handler)
+  }, [minWidth])
+  return wide
+}
+
+/** 方案卡顶部的贴纸胶带 */
+function Tape({ color, tilt = -3 }: { color: string; tilt?: number }) {
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        position: 'absolute',
+        top: -12,
+        left: '50%',
+        width: 78,
+        height: 20,
+        transform: `translateX(-50%) rotate(${tilt}deg)`,
+        background: color,
+        border: '2px solid var(--an-ink)',
+        borderRadius: 4,
+        boxShadow: '0 2px 0 var(--an-ink)',
+        zIndex: 2,
+      }}
+    />
+  )
+}
+
 export function WheelPage({ onBack }: WheelPageProps) {
+  const wide = useWideLayout(1200)
   const [view, setView] = useState<View>('list')
   const [schemes, setSchemes] = useState<WheelScheme[]>([])
   const [history, setHistory] = useState<DrawHistory[]>([])
@@ -76,18 +116,15 @@ export function WheelPage({ onBack }: WheelPageProps) {
   const [playingScheme, setPlayingScheme] = useState<WheelScheme | null>(null)
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
-  // 加载失败需在页面内可见并可重试（不能只弹一次 toast）
   const [loadError, setLoadError] = useState<string | null>(null)
   const [showHistory, setShowHistory] = useState(false)
   const [toast, setToast] = useState<{ msg: string; type: 'info' | 'error' | 'success' } | null>(null)
 
-  // 简易 toast
   const showToast = useCallback((msg: string, type: 'info' | 'error' | 'success' = 'info') => {
     setToast({ msg, type })
     setTimeout(() => setToast(null), 2500)
   }, [])
 
-  // 加载方案列表 + 历史记录
   const refresh = useCallback(async () => {
     setLoading(true)
     setLoadError(null)
@@ -111,29 +148,28 @@ export function WheelPage({ onBack }: WheelPageProps) {
     refresh()
   }, [refresh])
 
-  // 新建方案
   const handleCreate = useCallback(() => {
     setEditingScheme(createEmptyScheme())
     setView('edit')
   }, [])
 
-  // 编辑现有方案
   const handleEdit = useCallback((scheme: WheelScheme) => {
-    setEditingScheme({ ...scheme }) // 复制一份，避免直接修改原数据
+    setEditingScheme({ ...scheme })
     setView('edit')
   }, [])
 
-  // 玩转盘
-  const handlePlay = useCallback((scheme: WheelScheme) => {
-    if (scheme.stages.length === 0) {
-      showToast('方案没有阶段，请先编辑添加阶段', 'error')
-      return
-    }
-    setPlayingScheme(scheme)
-    setView('play')
-  }, [showToast])
+  const handlePlay = useCallback(
+    (scheme: WheelScheme) => {
+      if (scheme.stages.length === 0) {
+        showToast('方案没有阶段，请先编辑添加阶段', 'error')
+        return
+      }
+      setPlayingScheme(scheme)
+      setView('play')
+    },
+    [showToast],
+  )
 
-  // 删除方案
   const handleDelete = useCallback(
     async (scheme: WheelScheme) => {
       const confirmed = await askConfirm({
@@ -155,12 +191,9 @@ export function WheelPage({ onBack }: WheelPageProps) {
     [refresh, showToast],
   )
 
-  // 复制方案（基于现有方案创建新方案）
   const handleDuplicate = useCallback(
     async (scheme: WheelScheme) => {
       try {
-        const now = new Date().toISOString()
-        // 重新生成 id，避免冲突
         const duplicated: Omit<WheelScheme, 'id' | 'created_at' | 'updated_at'> = {
           name: `${scheme.name}（副本）`,
           description: scheme.description,
@@ -182,12 +215,10 @@ export function WheelPage({ onBack }: WheelPageProps) {
     [refresh, showToast],
   )
 
-  // 编辑器变更
   const handleEditorChange = useCallback((next: WheelScheme) => {
     setEditingScheme(next)
   }, [])
 
-  // 保存方案
   const handleSave = useCallback(async () => {
     if (!editingScheme) return
     if (!editingScheme.name.trim()) {
@@ -198,7 +229,6 @@ export function WheelPage({ onBack }: WheelPageProps) {
     try {
       const isNew = !schemes.some((s) => s.id === editingScheme.id)
       if (isNew) {
-        // 新建：用 createScheme，由后端生成新 id 和时间戳
         await window.wheelAPI.createScheme({
           name: editingScheme.name.trim(),
           description: editingScheme.description,
@@ -206,7 +236,6 @@ export function WheelPage({ onBack }: WheelPageProps) {
           promptTemplate: editingScheme.promptTemplate,
         })
       } else {
-        // 更新：保留原 id
         await window.wheelAPI.updateScheme(editingScheme.id, {
           name: editingScheme.name.trim(),
           description: editingScheme.description,
@@ -226,13 +255,11 @@ export function WheelPage({ onBack }: WheelPageProps) {
     }
   }, [editingScheme, schemes, refresh, showToast])
 
-  // 取消编辑
   const handleCancelEdit = useCallback(() => {
     setEditingScheme(null)
     setView('list')
   }, [])
 
-  // 导入方案
   const handleImport = useCallback(async () => {
     try {
       const result = await window.wheelAPI.openSchemeFile()
@@ -260,7 +287,6 @@ export function WheelPage({ onBack }: WheelPageProps) {
     }
   }, [refresh, showToast])
 
-  // 导出方案
   const handleExport = useCallback(
     async (scheme: WheelScheme) => {
       try {
@@ -280,7 +306,6 @@ export function WheelPage({ onBack }: WheelPageProps) {
     [showToast],
   )
 
-  // 清空历史
   const handleClearHistory = useCallback(async () => {
     const confirmed = await askConfirm({
       title: '清空历史',
@@ -299,7 +324,6 @@ export function WheelPage({ onBack }: WheelPageProps) {
     }
   }, [refresh, showToast])
 
-  // 抽取完成回调
   const handlePlayComplete = useCallback(
     async (results: DrawResult[], finalPrompt?: string) => {
       if (!playingScheme) return
@@ -313,7 +337,6 @@ export function WheelPage({ onBack }: WheelPageProps) {
           drawnAt: new Date().toISOString(),
         }
         await window.wheelAPI.addHistory(record)
-        // 不立即刷新，避免影响抽取界面体验；返回列表时再刷新
       } catch (e) {
         console.error('[WheelPage] 保存历史失败:', e)
       }
@@ -321,124 +344,147 @@ export function WheelPage({ onBack }: WheelPageProps) {
     [playingScheme],
   )
 
-  // 关闭抽取界面
   const handleClosePlay = useCallback(() => {
     setPlayingScheme(null)
     setView('list')
     refresh()
   }, [refresh])
 
-  // 渲染方案列表项
+  const totalOptions = useMemo(
+    () => schemes.reduce((sum, s) => sum + s.stages.reduce((n, st) => n + st.options.length, 0), 0),
+    [schemes],
+  )
+
+  // ---------------- 渲染：方案卡 ----------------
   const renderSchemeCard = useCallback(
-    (scheme: WheelScheme) => (
-      <div
-        key={scheme.id}
-        className="anke-card p-4 transition-all"
-      >
-        <div className="flex items-start justify-between gap-3 mb-2">
-          <div className="flex-1 min-w-0">
-            <div className="text-[var(--text-primary)] text-base font-medium truncate">
+    (scheme: WheelScheme, index: number) => {
+      const optionCount = scheme.stages.reduce((sum, s) => sum + s.options.length, 0)
+      return (
+        <div
+          key={scheme.id}
+          className="an-card an-card--hover"
+          style={{ padding: '20px 16px 16px', marginTop: 12 }}
+        >
+          <Tape
+            color={TAPE_COLORS[index % TAPE_COLORS.length]}
+            tilt={index % 2 === 0 ? -3 : 3}
+          />
+          <div style={{ minWidth: 0, marginBottom: 10 }}>
+            <div
+              style={{
+                fontFamily: 'var(--an-font-display)',
+                fontSize: 20,
+                color: 'var(--an-ink)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+              title={scheme.name}
+            >
               {scheme.name}
             </div>
             {scheme.description && (
               <div
-                className="text-[var(--text-secondary)] text-xs mt-1 line-clamp-2"
+                style={{
+                  marginTop: 4,
+                  fontSize: 12,
+                  lineHeight: 1.6,
+                  color: 'var(--an-ink-soft)',
+                  display: '-webkit-box',
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden',
+                }}
               >
                 {scheme.description}
               </div>
             )}
           </div>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+            <span className="an-chip">
+              <Icon name="target" size={12} /> {scheme.stages.length} 阶段
+            </span>
+            <span className="an-chip">
+              <Icon name="hash" size={12} /> {optionCount} 选项
+            </span>
+            {scheme.promptTemplate && (
+              <span className="an-chip">
+                <Icon name="bot" size={12} /> Prompt
+              </span>
+            )}
+          </div>
+
+          <div style={{ fontSize: 12, color: 'var(--an-ink-soft)', marginBottom: 12 }}>
+            <Icon name="clock" size={11} /> 更新于 {formatTime(scheme.updated_at)}
+          </div>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            <button className="an-btn an-btn--sm an-btn--mint" onClick={() => handlePlay(scheme)}>
+              <Icon name="play" size={14} /> 开始抽取
+            </button>
+            <button className="an-btn an-btn--sm an-btn--ghost" onClick={() => handleEdit(scheme)}>
+              <Icon name="pen" size={14} /> 编辑
+            </button>
+            <button className="an-btn an-btn--sm an-btn--ghost" onClick={() => handleExport(scheme)}>
+              <Icon name="upload" size={14} /> 导出
+            </button>
+            <button className="an-btn an-btn--sm an-btn--ghost" onClick={() => handleDuplicate(scheme)}>
+              <Icon name="copy" size={14} /> 复制
+            </button>
+            <button
+              className="an-btn an-btn--sm an-btn--ghost"
+              style={{ color: '#c0392b' }}
+              onClick={() => handleDelete(scheme)}
+            >
+              <Icon name="trash" size={14} /> 删除
+            </button>
+          </div>
         </div>
-        <div
-          className="text-[var(--text-tertiary)] flex flex-wrap gap-x-3 gap-y-1 text-xs mb-3"
-        >
-          <span className="inline-flex items-center gap-1"><Icon name="target" size={12} /> {scheme.stages.length} 个阶段</span>
-          <span className="inline-flex items-center gap-1"><Icon name="fileText" size={12} /> {scheme.stages.reduce((sum, s) => sum + s.options.length, 0)} 个选项</span>
-          {scheme.promptTemplate && (
-            <span className="inline-flex items-center gap-1"><Icon name="bot" size={12} /> 含 Prompt 模板</span>
-          )}
-          <span className="inline-flex items-center gap-1"><Icon name="clock" size={12} /> {formatTime(scheme.updated_at)}</span>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => handlePlay(scheme)}
-            className="bg-[var(--accent-bg)] text-[var(--accent)] border border-[color:var(--accent)] px-3 py-1.5 text-xs rounded-lg transition-colors"
-          >
-            <><Icon name="wheel" size={16} /> 开始抽取</>
-          </button>
-          <button
-            onClick={() => handleEdit(scheme)}
-            className="bg-[var(--bg-hover)] text-[var(--text-primary)] border border-[color:var(--border-color)] px-3 py-1.5 text-xs rounded-lg transition-colors"
-          >
-            <><Icon name="pen" size={16} /> 编辑</>
-          </button>
-          <button
-            onClick={() => handleExport(scheme)}
-            className="bg-[var(--bg-hover)] text-[var(--text-primary)] border border-[color:var(--border-color)] px-3 py-1.5 text-xs rounded-lg transition-colors"
-          >
-            <><Icon name="upload" size={16} /> 导出</>
-          </button>
-          <button
-            onClick={() => handleDuplicate(scheme)}
-            className="bg-[var(--bg-hover)] text-[var(--text-primary)] border border-[color:var(--border-color)] px-3 py-1.5 text-xs rounded-lg transition-colors"
-          >
-            <><Icon name="copy" size={16} /> 复制</>
-          </button>
-          <button
-            onClick={() => handleDelete(scheme)}
-            className="bg-[var(--bg-hover)] text-[var(--tone-danger)] border border-[color:var(--border-color)] px-3 py-1.5 text-xs rounded-lg transition-colors"
-          >
-            <><Icon name="trash" size={16} /> 删除</>
-          </button>
-        </div>
-      </div>
-    ),
+      )
+    },
     [handlePlay, handleEdit, handleExport, handleDuplicate, handleDelete],
   )
 
-  // 渲染历史记录
+  // ---------------- 渲染：历史条目 ----------------
   const renderHistoryItem = useCallback((h: DrawHistory) => {
     const validResults = h.results.filter((r) => !r.skipped && r.results.length > 0)
     return (
-      <div
-        key={h.id}
-        className="anke-card p-3 text-sm"
-      >
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-[var(--text-primary)] font-medium">
-            {h.schemeName}
-          </span>
-          <span className="text-[var(--text-tertiary)] text-xs">
+      <div key={h.id} className="an-card" style={{ padding: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <span style={{ fontFamily: 'var(--an-font-display)', fontSize: 15 }}>{h.schemeName}</span>
+          <span style={{ fontSize: 12, color: 'var(--an-ink-soft)', whiteSpace: 'nowrap' }}>
             {formatTime(h.drawnAt)}
           </span>
         </div>
-        <div className="space-y-1">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>
           {validResults.map((r, i) => (
-            <div key={i} className="text-[var(--text-secondary)] text-xs">
-              <span className="text-[var(--text-tertiary)]">{r.stageName}：</span>
-              {r.results.join('、')}
+            <div key={i} style={{ fontSize: 12, color: 'var(--an-ink-soft)' }}>
+              <span style={{ color: 'var(--an-ink-faint)' }}>{r.stageName}：</span>
+              <span style={{ color: 'var(--an-ink)', fontWeight: 700 }}>{r.results.join('、')}</span>
             </div>
           ))}
           {validResults.length === 0 && (
-            <div className="text-[var(--text-tertiary)] text-xs">
-              （所有阶段均跳过）
-            </div>
+            <div style={{ fontSize: 12, color: 'var(--an-ink-faint)' }}>（所有阶段均跳过）</div>
           )}
         </div>
         {h.finalPrompt && (
-          <details className="mt-2">
-            <summary
-              className="text-[var(--accent)] cursor-pointer text-xs select-none"
-            >
+          <details style={{ marginTop: 8 }}>
+            <summary style={{ fontSize: 12, color: 'var(--an-pink)', cursor: 'pointer' }}>
               查看 Prompt
             </summary>
             <pre
-              className="mt-1 p-2 text-xs whitespace-pre-wrap rounded"
+              className="an-scroll"
               style={{
-                background: 'var(--bg-base)',
-                color: 'var(--text-primary)',
+                margin: '8px 0 0',
+                padding: 8,
+                maxHeight: 160,
+                overflow: 'auto',
+                background: 'var(--an-paper-2)',
+                borderRadius: 10,
+                fontSize: 12,
                 fontFamily: 'inherit',
-                margin: 0,
+                whiteSpace: 'pre-wrap',
               }}
             >
               {h.finalPrompt}
@@ -449,165 +495,229 @@ export function WheelPage({ onBack }: WheelPageProps) {
     )
   }, [])
 
-  // 顶部 header
-  const header = useMemo(
+  const historyCard = useMemo(
     () => (
-      <div
-        className="border-b border-b-[color:var(--border-color)] flex items-center justify-between gap-3 mb-4"
-      >
-        <div className="flex items-center gap-3 pb-3">
-          <button
-            onClick={onBack}
-            className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)] inline-flex items-center gap-1.5 whitespace-nowrap px-3 py-1.5 text-sm rounded-lg transition-colors"
-          >
-            <><Icon name="back" size={16} /> 返回</>
-          </button>
-          <h1 className="text-[var(--text-primary)] text-lg font-semibold inline-flex items-center gap-2">
-            <Icon name="wheel" size={16} /> 玩转盘
-          </h1>
+      <div className="an-card" style={{ padding: 16, position: 'sticky', top: 16 }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 8,
+            marginBottom: 12,
+          }}
+        >
+          <span className="an-badge">
+            <Icon name="scroll" size={12} /> 最近抽取
+          </span>
+          {history.length > 0 && (
+            <button
+              className="an-pill"
+              onClick={handleClearHistory}
+              title="清空历史"
+              style={{ fontSize: 12 }}
+            >
+              清空
+            </button>
+          )}
         </div>
-        {view === 'list' && (
-          <div className="flex items-center gap-2 pb-3">
-            <button
-              onClick={() => setShowHistory((v) => !v)}
-              className="px-3 py-1.5 text-xs rounded-lg transition-colors"
-              style={{
-                background: showHistory ? 'var(--accent-bg)' : 'var(--bg-card)',
-                color: showHistory ? 'var(--accent)' : 'var(--text-primary)',
-                border: '1px solid var(--border-color)',
-              }}
-            >
-              <><Icon name="scroll" size={16} /> 历史 ({history.length})</>
-            </button>
-            <button
-              onClick={handleImport}
-              className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)] px-3 py-1.5 text-xs rounded-lg transition-colors"
-            >
-              <><Icon name="download" size={16} /> 导入</>
-            </button>
-            <button
-              onClick={handleCreate}
-              className="bg-[var(--accent-bg)] text-[var(--accent)] border border-[color:var(--accent)] px-3 py-1.5 text-xs rounded-lg transition-colors"
-            >
-              + 新建方案
-            </button>
+        {history.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--an-ink-soft)' }}>
+            <Icon name="inbox" size={32} />
+            <div style={{ fontSize: 12, marginTop: 6 }}>还没有抽取历史</div>
+          </div>
+        ) : (
+          <div
+            className="an-scroll"
+            style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 520, overflowY: 'auto' }}
+          >
+            {history.slice(0, 8).map(renderHistoryItem)}
           </div>
         )}
       </div>
     ),
-    [view, onBack, showHistory, history.length, handleImport, handleCreate],
+    [history, renderHistoryItem, handleClearHistory],
+  )
+
+  const toolbar = (
+    <div className="an-toolbar" style={{ marginBottom: 20 }}>
+      <span className="an-badge">
+        <Icon name="wheel" size={12} /> {schemes.length} 个方案
+      </span>
+      {schemes.length > 0 && (
+        <select
+          className="an-pill"
+          defaultValue=""
+          onChange={(e) => {
+            const scheme = schemes.find((s) => s.id === e.target.value)
+            e.currentTarget.value = ''
+            if (scheme) handlePlay(scheme)
+          }}
+          style={{ cursor: 'pointer' }}
+          aria-label="方案选择"
+        >
+          <option value="">方案选择…</option>
+          {schemes.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+      )}
+      <button
+        className={`an-pill${showHistory ? ' is-active' : ''}`}
+        onClick={() => setShowHistory((v) => !v)}
+      >
+        <Icon name="scroll" size={12} /> 历史 ({history.length})
+      </button>
+      <button className="an-pill" onClick={handleImport}>
+        <Icon name="download" size={12} /> 导入
+      </button>
+      <button className="an-btn an-btn--sm an-btn--pink an-toolbar__spacer" onClick={handleCreate}>
+        <Icon name="plus" size={14} /> 新建方案
+      </button>
+    </div>
   )
 
   return (
-    <div
-      className="bg-[var(--bg-base)] text-[var(--text-primary)] min-h-full w-full flex flex-col"
-    >
-      <div className="flex-1 w-full max-w-4xl mx-auto px-4 py-4 md:px-6 md:py-6 flex flex-col">
-        {header}
+    <div className="an-page">
+      <div className="an-shell">
+        {/* 顶栏 */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            flexWrap: 'wrap',
+            marginBottom: 16,
+          }}
+        >
+          <button className="an-pill" onClick={onBack}>
+            <Icon name="back" size={14} /> 返回
+          </button>
+          <h1 className="an-title" style={{ fontSize: 28 }}>
+            玩转盘
+          </h1>
+          <span className="an-badge" style={{ marginLeft: 'auto' }}>
+            骰子决定命运
+          </span>
+        </div>
+
+        {view === 'list' && toolbar}
 
         {/* 列表视图 */}
         {view === 'list' && (
-          <div className="flex-1 flex flex-col gap-4">
-            {loadError ? (
-              <div
-                role="alert"
-                className="border border-[color:var(--tone-danger-border)] bg-[var(--tone-danger-veil)] rounded-xl px-6 py-8 text-center"
-              >
-                <div className="text-[var(--tone-danger)] flex justify-center mb-2">
-                  <Icon name="alert" size={28} />
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: wide && !showHistory ? 'minmax(0, 1fr) 340px' : 'minmax(0, 1fr)',
+              gap: 24,
+              alignItems: 'start',
+            }}
+          >
+            <div style={{ minWidth: 0 }}>
+              {loadError ? (
+                <div className="an-card" style={{ padding: 32, textAlign: 'center' }}>
+                  <div style={{ color: '#c0392b', display: 'flex', justifyContent: 'center' }}>
+                    <Icon name="alert" size={40} />
+                  </div>
+                  <div style={{ fontSize: 16, fontWeight: 700, marginTop: 8 }}>
+                    转盘数据加载失败
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--an-ink-soft)', marginTop: 4 }}>
+                    {loadError}
+                  </div>
+                  <button
+                    className="an-btn an-btn--sm an-btn--pink"
+                    style={{ marginTop: 16 }}
+                    onClick={() => refresh()}
+                  >
+                    <Icon name="refresh" size={14} /> 重新加载
+                  </button>
                 </div>
-                <div className="text-[var(--text-primary)] text-sm font-medium">转盘数据加载失败</div>
-                <div className="text-[var(--text-secondary)] text-xs mt-1">{loadError}</div>
-                <button
-                  onClick={() => refresh()}
-                  className="mt-4 inline-flex items-center gap-1 px-4 py-1.5 text-sm rounded-md bg-[var(--accent-bg)] text-[var(--accent)] border border-[color:var(--accent)]"
-                >
-                  <Icon name="refresh" size={13} /> 重新加载
-                </button>
-              </div>
-            ) : showHistory ? (
-              <div className="flex flex-col gap-3">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-[var(--text-primary)] text-base font-medium">
-                    抽取历史记录
-                  </h2>
-                  {history.length > 0 && (
-                    <button
-                      onClick={handleClearHistory}
-                      className="bg-[var(--bg-hover)] text-[var(--tone-danger)] border border-[color:var(--border-color)] px-3 py-1 text-xs rounded-lg transition-colors"
-                    >
-                      清空历史
-                    </button>
+              ) : loading ? (
+                <div className="an-empty">
+                  <Icon name="hourglass" size={40} />
+                  <div className="an-empty__title">加载中…</div>
+                </div>
+              ) : showHistory ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span className="an-badge">全部历史</span>
+                    {history.length > 0 && (
+                      <button className="an-pill" onClick={handleClearHistory}>
+                        清空历史
+                      </button>
+                    )}
+                  </div>
+                  {history.length === 0 ? (
+                    <div className="an-empty">
+                      <Icon name="scroll" size={56} />
+                      <div className="an-empty__title">还没有抽取历史</div>
+                      <div className="an-empty__desc">抽取一次之后，结果会自动记录在这里。</div>
+                    </div>
+                  ) : (
+                    <div className="an-scroll" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {history.map(renderHistoryItem)}
+                    </div>
                   )}
                 </div>
-                {loading ? (
+              ) : schemes.length === 0 ? (
+                <div className="an-empty">
+                  <Icon name="wheel" size={56} />
+                  <div className="an-empty__title">还没有转盘方案</div>
+                  <div className="an-empty__desc">
+                    新建一个方案，或从已有 .wheel.json 文件导入。三步就能开转：
+                  </div>
                   <div
-                    className="text-[var(--text-secondary)] text-center py-8 text-sm"
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: 10,
+                      justifyContent: 'center',
+                      marginTop: 6,
+                    }}
                   >
-                    加载中...
+                    <span className="an-chip">1. 新建方案</span>
+                    <span className="an-chip">2. 添加阶段与选项</span>
+                    <span className="an-chip">3. 开始抽取</span>
                   </div>
-                ) : history.length === 0 ? (
-                  <div
-                    className="bg-[var(--bg-card)] border-[2px] border-[color:var(--border-color)] text-[var(--text-secondary)] text-center py-12 rounded-xl"
-                  >
-                    <div className="flex justify-center mb-2"><Icon name="scroll" size={48} /></div>
-                    <div className="text-sm">还没有抽取历史记录</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'center', marginTop: 10 }}>
+                    <button className="an-btn an-btn--pink" onClick={handleCreate}>
+                      <Icon name="plus" size={16} /> 新建方案
+                    </button>
+                    <button className="an-btn an-btn--sky" onClick={handleImport}>
+                      <Icon name="download" size={16} /> 导入方案
+                    </button>
                   </div>
-                ) : (
-                  <div className="flex flex-col gap-2">
-                    {history.map(renderHistoryItem)}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="flex flex-col gap-3">
-                {loading ? (
-                  <div
-                    className="text-[var(--text-secondary)] text-center py-8 text-sm"
-                  >
-                    加载中...
-                  </div>
-                ) : schemes.length === 0 ? (
-                  <div
-                    className="bg-[var(--bg-card)] border-[2px] border-[color:var(--border-color)] text-[var(--text-secondary)] text-center py-16 rounded-xl"
-                  >
-                    <div className="flex justify-center mb-3"><Icon name="wheel" size={48} /></div>
-                    <div className="text-[var(--text-primary)] text-base font-medium mb-1">
-                      还没有转盘方案
-                    </div>
-                    <div className="text-sm mb-4">
-                      新建一个方案，或从已有 .wheel.json 文件导入
-                    </div>
-                    <div className="flex justify-center gap-2">
-                      <button
-                        onClick={handleCreate}
-                        className="bg-[var(--accent-bg)] text-[var(--accent)] border border-[color:var(--accent)] px-4 py-2 text-sm rounded-lg transition-colors"
-                      >
-                        + 新建方案
-                      </button>
-                      <button
-                        onClick={handleImport}
-                        className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)] px-4 py-2 text-sm rounded-lg transition-colors"
-                      >
-                        <><Icon name="download" size={16} /> 导入方案</>
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {schemes.map(renderSchemeCard)}
-                  </div>
-                )}
-              </div>
-            )}
+                </div>
+              ) : (
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: wide ? 'repeat(2, minmax(0, 1fr))' : 'repeat(auto-fill, minmax(260px, 1fr))',
+                    gap: 16,
+                  }}
+                >
+                  {schemes.map(renderSchemeCard)}
+                </div>
+              )}
+            </div>
+
+            {wide && !showHistory && historyCard}
           </div>
         )}
 
         {/* 编辑视图 */}
         {view === 'edit' && editingScheme && (
-          <div className="flex-1 flex flex-col">
-            <div className="text-[var(--text-secondary)] mb-3 text-sm">
-              {schemes.some((s) => s.id === editingScheme.id) ? '编辑方案' : '新建方案'}
+          <div className="an-card" style={{ padding: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+              <span className="an-badge">
+                {schemes.some((s) => s.id === editingScheme.id) ? '编辑方案' : '新建方案'}
+              </span>
+              <span style={{ fontSize: 12, color: 'var(--an-ink-soft)' }}>
+                共 {editingScheme.stages.length} 个阶段
+              </span>
             </div>
             <SchemeEditor
               scheme={editingScheme}
@@ -621,9 +731,35 @@ export function WheelPage({ onBack }: WheelPageProps) {
 
         {/* 抽取视图 */}
         {view === 'play' && playingScheme && (
-          <div className="flex-1 flex flex-col">
-            <div className="text-[var(--text-secondary)] mb-3 text-sm">
-              正在抽取：{playingScheme.name}
+          <div>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                flexWrap: 'wrap',
+                marginBottom: 16,
+              }}
+            >
+              <span className="an-badge">
+                <Icon name="play" size={12} /> 正在抽取
+              </span>
+              <span
+                style={{
+                  fontFamily: 'var(--an-font-display)',
+                  fontSize: 20,
+                  color: 'var(--an-ink)',
+                }}
+              >
+                {playingScheme.name}
+              </span>
+              <button
+                className="an-pill"
+                style={{ marginLeft: 'auto' }}
+                onClick={handleClosePlay}
+              >
+                <Icon name="back" size={12} /> 返回列表
+              </button>
             </div>
             <WheelPlayground
               scheme={playingScheme}
@@ -632,21 +768,37 @@ export function WheelPage({ onBack }: WheelPageProps) {
             />
           </div>
         )}
+
+        {totalOptions === 0 && view === 'list' && schemes.length > 0 && (
+          <div style={{ marginTop: 24, fontSize: 12, color: 'var(--an-ink-soft)', textAlign: 'center' }}>
+            提示：方案里还没有选项，编辑方案后即可抽取。
+          </div>
+        )}
       </div>
 
       {/* Toast */}
       {toast && (
         <div
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg text-sm shadow-lg z-50"
+          className="an-pop-in"
           style={{
+            position: 'fixed',
+            bottom: 24,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            padding: '10px 20px',
+            borderRadius: 999,
+            border: '3px solid var(--an-ink)',
+            boxShadow: '0 4px 0 var(--an-ink)',
             background:
               toast.type === 'error'
-                ? 'var(--tone-danger)'
+                ? '#ff9aa2'
                 : toast.type === 'success'
-                  ? 'var(--tone-success)'
-                  : 'var(--bg-card)',
-            color: toast.type === 'info' ? 'var(--text-primary)' : 'var(--text-on-accent)',
-            border: '1px solid var(--border-color)',
+                  ? 'var(--an-mint)'
+                  : 'var(--an-card)',
+            color: 'var(--an-ink)',
+            fontSize: 13,
+            fontWeight: 700,
+            zIndex: 50,
           }}
         >
           {toast.msg}

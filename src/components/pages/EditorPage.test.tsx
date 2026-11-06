@@ -157,7 +157,6 @@ vi.mock('../../db/index', () => ({
   setSectionContent: vi.fn(),
   listVolumes: vi.fn(),
   listChapters: vi.fn(),
-  listWorldSettings: vi.fn(),
   listCharacters: vi.fn(),
   listCharacterRelations: vi.fn(),
   listOutline: vi.fn(),
@@ -207,10 +206,6 @@ vi.mock('../common/InputDialog', () => ({
 
 vi.mock('../common/UploadProgressDialog', () => ({
   UploadProgressDialog: () => null,
-}));
-
-vi.mock('../common/WorldSettingPanel', () => ({
-  WorldSettingPanel: () => null,
 }));
 
 vi.mock('../common/DirectoryTree', () => ({

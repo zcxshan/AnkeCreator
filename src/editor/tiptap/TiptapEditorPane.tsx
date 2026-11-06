@@ -40,12 +40,18 @@ import { countWordsFromHtml } from '../../components/pages/HomePage';
 import { getCurrentStyles } from './currentStyles';
 import { setLastEditorRange, domShowsContent } from './domState';
 import type { DiceBlockPayloadV2 } from '../../types';
+import { uploadImagesWithProgress } from '../../utils/uploadImage';
 
 import { createAnkeExtensions } from './schema';
 import { ankeNodeViews, setAnkeNodeViewHandlers } from './nodeViews';
 import { createAnkeCommands } from './commands';
 import { normalizePastedHtml } from './pasteNormalize';
-import { stripProseMirrorArtifacts, hasProseMirrorArtifacts } from './serialize';
+import { sanitizeAnkeHtml, hasProseMirrorArtifacts } from './serialize';
+import {
+  shouldApplyExternalContent,
+  shouldRecreateHistory,
+  shouldSkipExternalSync,
+} from './contentSync';
 
 /** 可编辑根 / 外层容器共用的类名（index.css 依赖） */
 const ANKE_CONTENT_CLASS = 'anke-editor-content';
@@ -224,6 +230,8 @@ export function TiptapEditorPane({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   /** 最近一次与外部同步过的 content 字符串（避免回声重写 + 误清撤销栈） */
   const lastContentRef = useRef<string>('');
+  /** 输入法组合期间不打断候选框：此时跳过外部内容同步 */
+  const composingRef = useRef(false);
   /** 保存编辑器内的选区（工具栏按钮点击后编辑器失焦时沿用） */
   const savedRangeRef = useRef<Range | null>(null);
   /** 标记 None：Ctrl+Shift+V 置位，handlePaste 消费 */
@@ -387,7 +395,7 @@ export function TiptapEditorPane({
     extensions,
     // 内容入口清洗：存量库数据可能含 PM 临时 DOM（ProseMirror-separator 等），
     // 不清洗会导致其作为文档内容反复增殖（工程文件膨胀到 23MB 的根因）
-    content: content ? stripProseMirrorArtifacts(content) : '',
+    content: content ? sanitizeAnkeHtml(content) : '',
     editable,
     immediatelyRender: true,
     editorProps: {
@@ -398,12 +406,22 @@ export function TiptapEditorPane({
       },
       handleKeyDown: (_view, event) => handleEditorKeyDown(event),
       handlePaste: (view, event) => handleEditorPaste(view, event as ClipboardEvent),
+      handleDOMEvents: {
+        compositionstart: () => {
+          composingRef.current = true;
+          return false;
+        },
+        compositionend: () => {
+          composingRef.current = false;
+          return false;
+        },
+      },
     },
     onUpdate: ({ editor: current }) => {
       const el = current.view.dom;
-      // 序列化出口清洗：剥除 PM 渲染层临时 DOM（separator 等），
+      // 序列化出口清洗：剥除 PM 渲染层临时 DOM（separator 等）并补齐业务块属性，
       // 防止其随 innerHTML 存库后无限增殖（见 serialize.ts 模块注释）
-      const html = current.isEmpty ? '' : stripProseMirrorArtifacts(el.innerHTML);
+      const html = current.isEmpty ? '' : sanitizeAnkeHtml(el.innerHTML);
       if (html === lastContentRef.current) return;
       lastContentRef.current = html;
       syncEmptyState(el);
@@ -455,11 +473,21 @@ export function TiptapEditorPane({
   // ------------------------------------------------------------
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
+    if (shouldSkipExternalSync(composingRef.current)) return;
     const el = editor.view.dom;
     const safe: string = content == null || content === '' ? '' : content;
     // 存量污染治愈：剥离 PM 临时 DOM 后若内容有变，说明库里是脏数据，
     // 加载干净版本并主动回传，确保下次保存落库即为干净 HTML
-    const cleaned = stripProseMirrorArtifacts(safe);
+    const cleaned = sanitizeAnkeHtml(safe);
+    if (
+      !shouldApplyExternalContent({
+        isComposing: composingRef.current,
+        next: cleaned,
+        lastApplied: lastContentRef.current,
+      })
+    ) {
+      return;
+    }
     const healed = hasProseMirrorArtifacts(safe) && cleaned !== safe;
     if (lastContentRef.current === cleaned) return;
     if (domShowsContent(el, cleaned)) {
@@ -468,15 +496,18 @@ export function TiptapEditorPane({
       if (healed) onChangeContentRef.current(cleaned);
       return;
     }
-    editor.commands.setContent(cleaned, { emitUpdate: false });
+    if (shouldRecreateHistory(lastContentRef.current, cleaned)) {
+      // 外部加载视为撤销边界：重建 EditorState 清空撤销栈
+      editor.commands.setContent(cleaned, { emitUpdate: false });
+      editor.view.updateState(
+        EditorState.create({
+          schema: editor.schema,
+          doc: editor.state.doc,
+          plugins: editor.state.plugins,
+        }),
+      );
+    }
     lastContentRef.current = cleaned;
-    editor.view.updateState(
-      EditorState.create({
-        schema: editor.schema,
-        doc: editor.state.doc,
-        plugins: editor.state.plugins,
-      }),
-    );
     syncEmptyState(editor.view.dom);
     if (healed) onChangeContentRef.current(cleaned);
   }, [content, editor]);
@@ -578,6 +609,89 @@ export function TiptapEditorPane({
   );
 
   useImperativeHandle(commandsRef, () => commands, [commands]);
+
+  // ------------------------------------------------------------
+  // 图片加载失败 → 「重新选择图片」：选图上传后替换对应图片块的 src
+  // （图片块 NodeView 在兜底占位里派发 anke:image-reselect 事件）
+  // ------------------------------------------------------------
+  useEffect(() => {
+    const host = editor?.view.dom;
+    if (!host) return;
+
+    const pickFile = async (): Promise<{ file: File; filePath?: string } | null> => {
+      const electronAPI = (window as any).electronAPI;
+      if (typeof electronAPI?.selectImage === 'function') {
+        try {
+          const sel: {
+            buffer: string;
+            filename: string;
+            mimeType: string;
+            filePath?: string;
+          } | null = await electronAPI.selectImage();
+          if (!sel) return null;
+          const byteChars = atob(sel.buffer);
+          const bytes = new Uint8Array(byteChars.length);
+          for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+          return {
+            file: new File([bytes], sel.filename, { type: sel.mimeType }),
+            filePath: sel.filePath,
+          };
+        } catch {
+          return null;
+        }
+      }
+      return await new Promise((resolve) => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.onchange = () => {
+          const file = input.files?.[0];
+          resolve(file ? { file } : null);
+        };
+        input.click();
+      });
+    };
+
+    const handleReselect = async (event: Event) => {
+      const oldSrc = (event as CustomEvent<{ src?: string }>).detail?.src;
+      const current = editorRefInternal.current;
+      if (!oldSrc || !current) return;
+      const picked = await pickFile();
+      if (!picked) return;
+      const [uploaded] = await uploadImagesWithProgress([picked.file], () => {}, picked.filePath);
+      if (!uploaded?.ok || !uploaded.url) {
+        useToastStore
+          .getState()
+          .showToast(`图片替换失败：${uploaded?.error || '未知错误'}`, 'error');
+        return;
+      }
+      const matches: Array<{ pos: number; attrs: Record<string, unknown> }> = [];
+      current.state.doc.descendants((node, pos) => {
+        if (matches.length > 0) return false;
+        if (node.type.name === 'imageBlock' && node.attrs.src === oldSrc) {
+          matches.push({ pos, attrs: node.attrs });
+          return false;
+        }
+        return true;
+      });
+      if (matches.length === 0) {
+        useToastStore.getState().showToast('未找到要替换的图片块', 'error');
+        return;
+      }
+      const target = matches[0];
+      current.view.dispatch(
+        current.state.tr.setNodeMarkup(target.pos, undefined, {
+          ...target.attrs,
+          src: uploaded.url,
+          dataOriginalSrc: uploaded.url,
+        }),
+      );
+      useToastStore.getState().showToast('图片已替换', 'success');
+    };
+
+    host.addEventListener('anke:image-reselect', handleReselect as EventListener);
+    return () => host.removeEventListener('anke:image-reselect', handleReselect as EventListener);
+  }, [editor]);
 
   // ------------------------------------------------------------
   // 需求5: 节切换时保存/恢复滚动位置

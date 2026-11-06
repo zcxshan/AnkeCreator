@@ -148,7 +148,7 @@ export function QuickDicePanel() {
               doRoll(p);
             }}
             disabled={isRolling}
-            className="bg-[var(--bg-hover)] text-[var(--text-secondary)] border border-[color:var(--border-color)] text-[10px] px-1.5 py-0.5 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+            className="bg-[var(--bg-hover)] text-[var(--text-secondary)] border border-[color:var(--border-color)] text-[12px] px-1.5 py-0.5 rounded disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {p}
           </button>
@@ -164,11 +164,11 @@ export function QuickDicePanel() {
               <Icon name="dices" size={16} />
             </span>
             <span
-              className="text-[var(--text-secondary)] text-[10px] font-mono truncate"
+              className="text-[var(--text-secondary)] text-[12px] font-mono truncate"
             >
               {isRolling ? expr.trim() : lastExpr}
             </span>
-            <span className="text-[var(--text-muted)] text-[10px]">
+            <span className="text-[var(--text-muted)] text-[12px]">
               =
             </span>
             <span
@@ -180,7 +180,7 @@ export function QuickDicePanel() {
           {!isRolling && result && (
             <button
               onClick={handleCopy}
-              className="border-[color:var(--accent)] text-[var(--accent)] bg-transparent cursor-pointer text-[10px] px-2 py-1 rounded border shrink-0"
+              className="border-[color:var(--accent)] text-[var(--accent)] bg-transparent cursor-pointer text-[12px] px-2 py-1 rounded border shrink-0"
               title="复制骰点文本"
             >
               <span className="inline-flex items-center gap-1">
@@ -250,7 +250,7 @@ const DiceRecordItem = memo(function DiceRecordItem({
       >
         ×
       </button>
-      <div className="text-[var(--text-secondary)] text-[10px] mb-1">
+      <div className="text-[var(--text-secondary)] text-[12px] mb-1">
         {formatTime(r.timestamp)}
       </div>
       <div className="flex items-center gap-2 mb-1">
@@ -258,7 +258,7 @@ const DiceRecordItem = memo(function DiceRecordItem({
           {r.diceName}
         </div>
         <div
-          className="bg-[var(--accent-soft)] text-[var(--accent)] text-[10px] px-1.5 py-0.5 rounded-full shrink-0"
+          className="bg-[var(--accent-soft)] text-[var(--accent)] text-[12px] px-1.5 py-0.5 rounded-full shrink-0"
         >
           {r.diceType}
         </div>
@@ -267,18 +267,18 @@ const DiceRecordItem = memo(function DiceRecordItem({
         结果: {r.result}
       </div>
       {r.resultDetail && r.resultDetail !== r.result && (
-        <div className="text-[var(--text-secondary)] text-[11px] mb-2 leading-relaxed">
+        <div className="text-[var(--text-secondary)] text-[12px] mb-2 leading-relaxed">
           {r.resultDetail}
         </div>
       )}
       <div className="border-t border-t-[color:var(--border-color)] flex items-center justify-between pt-2 mt-1">
-        <div className="text-[var(--text-secondary)] text-[10px] truncate flex-1 pr-2">
+        <div className="text-[var(--text-secondary)] text-[12px] truncate flex-1 pr-2">
           → {r.sectionTitle || '(未命名节)'}
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <button
             onClick={() => onInsertUnrolledDice(r.sectionId, r.payloadSnapshot)}
-            className="border-[color:var(--accent)] text-[var(--accent)] bg-transparent text-[10px] px-2 py-1 rounded-md font-medium border"
+            className="border-[color:var(--accent)] text-[var(--accent)] bg-transparent text-[12px] px-2 py-1 rounded-md font-medium border"
             title="在当前光标插入一个相同格式未掷骰的骰子"
           >
             插入
@@ -286,14 +286,14 @@ const DiceRecordItem = memo(function DiceRecordItem({
           <button
             onClick={() => onRestoreDice(r.sectionId, r.payloadSnapshot)}
             disabled={diceExists}
-            className="border-[color:var(--accent)] text-[var(--accent)] bg-transparent text-[10px] px-2 py-1 rounded-md font-medium border disabled:opacity-40 disabled:cursor-not-allowed"
+            className="border-[color:var(--accent)] text-[var(--accent)] bg-transparent text-[12px] px-2 py-1 rounded-md font-medium border disabled:opacity-40 disabled:cursor-not-allowed"
             title={diceExists ? '该骰子仍在编辑区，无需恢复' : '在编辑区重新插入一个相同的骰子'}
           >
             恢复
           </button>
           <button
             onClick={() => onJumpToDice(r.sectionId, r.payloadSnapshot)}
-            className="bg-[var(--accent)] text-[var(--text-on-accent)] text-[10px] px-2 py-1 rounded-md font-medium"
+            className="bg-[var(--accent)] text-[var(--text-on-accent)] text-[12px] px-2 py-1 rounded-md font-medium"
           >
             跳转
           </button>
@@ -448,7 +448,7 @@ export function DiceHistoryPanel({
     return (
       <button
         onClick={() => setGroupMode(mode)}
-        className="px-2 py-1 text-[10px] font-medium"
+        className="px-2 py-1 text-[12px] font-medium"
         style={{
           background: active ? 'var(--accent)' : 'var(--bg-card)',
           color: active ? 'var(--text-on-accent)' : 'var(--text-secondary)',
@@ -487,7 +487,7 @@ export function DiceHistoryPanel({
         {totalCount > 0 && (
           <button
             onClick={() => setPendingClearDice(true)}
-            className="border-[color:var(--border-color)] text-[var(--text-secondary)] text-[10px] px-2 py-1 rounded-md border transition-colors"
+            className="border-[color:var(--border-color)] text-[var(--text-secondary)] text-[12px] px-2 py-1 rounded-md border transition-colors"
             onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--danger)'; e.currentTarget.style.borderColor = 'var(--danger)'; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
           >
@@ -511,7 +511,7 @@ export function DiceHistoryPanel({
                 {showHeader && (
                   <div
                     onClick={() => toggleCollapse(g.key)}
-                    className="text-[var(--text-primary)] flex items-center gap-1 px-1 py-1 cursor-pointer text-[11px] font-semibold select-none"
+                    className="text-[var(--text-primary)] flex items-center gap-1 px-1 py-1 cursor-pointer text-[12px] font-semibold select-none"
                   >
                     <Icon name={collapsed ? 'chevronRight' : 'chevronDown'} size={12} />
                     <span>{g.title}</span>

@@ -171,7 +171,7 @@ function TaskItem({ task }: { task: UploadProgressEvent }) {
             {task.fileName}
           </span>
           <span
-            className="text-[11px] shrink-0"
+            className="text-[12px] shrink-0"
             style={{ color: statusColor }}
           >
             {statusText}
@@ -189,7 +189,7 @@ function TaskItem({ task }: { task: UploadProgressEvent }) {
           />
         </div>
         {isSuccess && task.host && (
-          <div className="text-[10px] text-[var(--text-muted)] mt-1">
+          <div className="text-[12px] text-[var(--text-muted)] mt-1">
             目标：{task.host}
           </div>
         )}

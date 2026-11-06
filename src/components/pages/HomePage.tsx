@@ -11,12 +11,8 @@ interface HomePageProps {
   onShowResourceLibrary?: () => void;
   onShowTutorial?: () => void;
   onShowAuthor?: () => void;
-  onShowAnjiaCollect?: () => void;
-  onShowAnkeCollect?: () => void;
-  onShowGululuCollect?: () => void;
-  onShowFindAnke?: () => void;
-  onShowDicePlayground?: () => void;
-  onShowWheelPlayground?: () => void;
+  onShowDiscovery?: () => void;
+  onShowPlayground?: () => void;
   onShowCreationLog?: (storyId: string) => void;
 }
 
@@ -36,24 +32,20 @@ interface RecentStorySummary {
   wordCount: number;
 }
 
+/** 快捷入口配色循环 */
+const ENTRY_COLORS = ['var(--an-pink)', 'var(--an-sky)', 'var(--an-mint)', 'var(--an-lemon)', 'var(--an-lilac)', 'var(--an-pink)'];
+const RECENT_STRIPES = ['var(--an-pink)', 'var(--an-sky)', 'var(--an-mint)', 'var(--an-lemon)'];
+
 /**
- * 首页（启动页）—— 浅色清新风格
+ * 首页（启动页）—— 二次元贴纸手账风
  *
  * 布局：
- *   ┌────────────────────────────────────────┐
- *   │ 欢迎回来！准备开始新的安科创作          │
- *   │ 骰子决定命运，故事由此展开              │
- *   │  [ + 新建安科 ]   [ 打开已有 ]         │
- *   ├────────────────────────────────────────┤
- *   │ 创作概览                               │
- *   │ ┌─────────┬──────────┬──────────┐      │
- *   │ │ 📝 字数 │ 🎲 骰点  │ 📚 作品  │      │
- *   │ └─────────┴──────────┴──────────┘      │
- *   ├────────────────────────────────────────┤
- *   │ 最近编辑的作品（点击进入编辑）         │
- *   └────────────────────────────────────────┘
+ *   Hero（欢迎语 + 主操作 + 贴纸插画）
+ *   创作概览（三张歪斜贴纸卡）
+ *   快捷入口（资源库 / 教程 / 发现 / 娱乐 / 日志 / 作者）
+ *   最近编辑（三张作品卡）
  */
-export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onShowTutorial, onShowAuthor, onShowAnjiaCollect, onShowAnkeCollect, onShowGululuCollect, onShowFindAnke, onShowDicePlayground, onShowWheelPlayground, onShowCreationLog }: HomePageProps) {
+export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onShowTutorial, onShowAuthor, onShowDiscovery, onShowPlayground, onShowCreationLog }: HomePageProps) {
   const { stories, createStory, setActiveStory } = useStoryStore();
 
   const [showNewStoryModal, setShowNewStoryModal] = useState(false);
@@ -159,222 +151,385 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
     }
   };
 
+  const entries: Array<{
+    key: string;
+    icon: IconName;
+    label: string;
+    desc: string;
+    onClick: () => void;
+    visible: boolean;
+  }> = [
+    {
+      key: 'resource',
+      icon: 'folder',
+      label: '资源库',
+      desc: '图片与人物差分',
+      onClick: () => onShowResourceLibrary?.(),
+      visible: !!onShowResourceLibrary,
+    },
+    {
+      key: 'tutorial',
+      icon: 'bookText',
+      label: '使用教程',
+      desc: '快速上手安科创作',
+      onClick: () => onShowTutorial?.(),
+      visible: !!onShowTutorial,
+    },
+    {
+      key: 'discovery',
+      icon: 'search',
+      label: '发现安科',
+      desc: '看看大家在写什么',
+      onClick: () => onShowDiscovery?.(),
+      visible: !!onShowDiscovery && !isCapacitor,
+    },
+    {
+      key: 'playground',
+      icon: 'dices',
+      label: '娱乐',
+      desc: '骰子与转盘小工具',
+      onClick: () => onShowPlayground?.(),
+      visible: !!onShowPlayground,
+    },
+    {
+      key: 'log',
+      icon: 'pen',
+      label: '创作日志',
+      desc: '查看写作足迹',
+      onClick: async () => {
+        try {
+          const list = await db.listStories();
+          setPickerStories(list.map((s: any) => ({ id: s.id, title: s.title, updated_at: s.updated_at })));
+          setShowStoryPicker(true);
+        } catch {
+          setPickerStories([]);
+          setShowStoryPicker(true);
+        }
+      },
+      visible: !!onShowCreationLog,
+    },
+    {
+      key: 'author',
+      icon: 'bot',
+      label: '关于作者',
+      desc: '认识一下创作者',
+      onClick: () => onShowAuthor?.(),
+      visible: !!onShowAuthor,
+    },
+  ];
+
+  const visibleEntries = entries.filter((e) => e.visible);
+
   return (
-    <div className="bg-[var(--bg-base)] text-[var(--text-primary)] min-h-full w-full flex flex-col items-center">
-      <div className="w-full max-w-4xl px-4 py-6 md:px-8 md:py-12">
-        {/* 欢迎区 */}
-        <section className="mb-10">
-          <div className="inline-flex items-center gap-2 px-3 py-1 mb-5 rounded-full bg-emerald-100/70 text-emerald-700 text-xs font-medium tracking-wide">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-            安科助手 · Anke Creator
-          </div>
-          <h1 className="text-[var(--text-primary)] text-4xl sm:text-5xl font-bold tracking-tight leading-tight">
-            欢迎回来！
-            <span className="block mt-2 bg-gradient-to-r from-emerald-600 via-teal-500 to-cyan-500 bg-clip-text text-transparent">
-              准备开始新的安科创作
+    <div className="an-page">
+      <div className="an-shell" style={{ maxWidth: 1180, padding: '32px 24px 40px' }}>
+        {/* Hero */}
+        <section
+          style={{
+            display: 'grid',
+            gridTemplateColumns: isCapacitor ? '1fr' : 'minmax(0, 1.1fr) minmax(0, 0.9fr)',
+            gap: 24,
+            alignItems: 'center',
+            marginBottom: 30,
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
+            <span className="an-badge">
+              <Icon name="sparkles" size={12} /> 安科助手 · Anke Creator
             </span>
-          </h1>
-          <p className="text-[var(--text-secondary)] mt-4 text-base sm:text-lg leading-relaxed">
-            骰子决定命运，故事由此展开 —— 让每一次掷骰都成为精彩的转折。
-          </p>
-
-          <div className={isCapacitor ? 'mt-8 grid grid-cols-2 gap-2' : 'mt-8 flex flex-wrap gap-3'}>
-            <button
-              onClick={() => setShowNewStoryModal(true)}
-              className={`${isCapacitor
-                ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium shadow-sm active:translate-y-0 transition-all'
-                : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium shadow-sm hover:-translate-y-0.5 active:translate-y-0 transition-all'} bg-[var(--accent-bg)] text-[var(--accent)] border border-[color:var(--accent)]`}
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent)'; e.currentTarget.style.color = 'var(--text-on-accent)' }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--accent-bg)'; e.currentTarget.style.color = 'var(--accent)' }}
+            <h1
+              className="an-title"
+              style={{
+                display: 'block',
+                margin: '16px 0 0',
+                fontSize: 'clamp(30px, 4.6vw, 50px)',
+                lineHeight: 1.18,
+              }}
             >
-              <Icon name="fileText" size={isCapacitor ? 14 : 16} />
-              新建安科
-            </button>
-            {onShowResourceLibrary && (
+              欢迎回来！
+              <span style={{ display: 'block', color: 'var(--an-pink)' }}>
+                准备开始新的安科创作
+              </span>
+            </h1>
+            <p
+              style={{
+                margin: '14px 0 0',
+                fontSize: 14,
+                lineHeight: 1.8,
+                color: 'var(--an-ink-soft)',
+                maxWidth: 560,
+              }}
+            >
+              骰子决定命运，故事由此展开 —— 让每一次掷骰都成为精彩的转折。
+            </p>
+
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 24 }}>
               <button
-                onClick={onShowResourceLibrary}
-                className={`${isCapacitor
-                  ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
-                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'} bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)]`}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
+                className="an-btn an-btn--pink"
+                onClick={() => setShowNewStoryModal(true)}
+                style={{ fontSize: 19, minHeight: 48, padding: '12px 28px' }}
               >
-                <Icon name="folder" size={isCapacitor ? 14 : 16} /> 资源库
+                <Icon name="fileText" size={18} /> 新建安科
               </button>
-            )}
-            {onShowTutorial && (
-              <button
-                onClick={onShowTutorial}
-                className={`${isCapacitor
-                  ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
-                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'} bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)]`}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
-              >
-                <Icon name="bookText" size={isCapacitor ? 14 : 16} /> 使用教程
-              </button>
-            )}
-            {onShowAnjiaCollect && !isCapacitor && (
-              <button
-                onClick={onShowAnjiaCollect}
-                className={`${isCapacitor
-                  ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
-                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'} bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)]`}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
-              >
-                <Icon name="scroll" size={isCapacitor ? 14 : 16} /> 收集安价
-              </button>
-            )}
-            {onShowAnkeCollect && !isCapacitor && (
-              <button
-                onClick={onShowAnkeCollect}
-                className={`${isCapacitor
-                  ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
-                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'} bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)]`}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
-              >
-                <Icon name="book" size={isCapacitor ? 14 : 16} /> 收集安科
-              </button>
-            )}
-            {onShowFindAnke && !isCapacitor && (
-              <button
-                onClick={onShowFindAnke}
-                className={`${isCapacitor
-                  ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
-                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'} bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)]`}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
-              >
-                <Icon name="search" size={isCapacitor ? 14 : 16} /> 寻找安科
-              </button>
-            )}
-            {onShowDicePlayground && (
-              <button
-                onClick={onShowDicePlayground}
-                className={`${isCapacitor
-                  ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
-                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'} bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)]`}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
-              >
-                <Icon name="dices" size={isCapacitor ? 14 : 16} /> 玩骰子
-              </button>
-            )}
-            {onShowWheelPlayground && (
-              <button
-                onClick={onShowWheelPlayground}
-                className={`${isCapacitor
-                  ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
-                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'} bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)]`}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
-              >
-                <Icon name="wheel" size={isCapacitor ? 14 : 16} /> 玩转盘
-              </button>
-            )}
-            {onShowCreationLog && (
-              <button
-                onClick={async () => {
-                  try {
-                    const list = await db.listStories();
-                    setPickerStories(list.map((s: any) => ({ id: s.id, title: s.title, updated_at: s.updated_at })));
-                    setShowStoryPicker(true);
-                  } catch {
-                    setPickerStories([]);
-                    setShowStoryPicker(true);
-                  }
-                }}
-                className={`${isCapacitor
-                  ? 'inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all'
-                  : 'inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all'} bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)]`}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
-              >
-                <Icon name="pen" size={isCapacitor ? 14 : 16} /> 创作日志
-              </button>
-            )}
+              {onShowWorks && (
+                <button
+                  className="an-btn an-btn--sky"
+                  onClick={onShowWorks}
+                  style={{ fontSize: 19, minHeight: 48, padding: '12px 28px' }}
+                >
+                  <Icon name="book" size={18} /> 我的安科作品
+                </button>
+              )}
+            </div>
+          </div>
+
+          {!isCapacitor && <HeroArt />}
+        </section>
+
+        {/* 创作概览 */}
+        <section style={{ marginBottom: 30 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'baseline',
+              justifyContent: 'space-between',
+              gap: 12,
+              marginBottom: 14,
+            }}
+          >
+            <h2
+              style={{
+                margin: 0,
+                fontFamily: 'var(--an-font-display)',
+                fontSize: 22,
+                color: 'var(--an-ink)',
+              }}
+            >
+              创作概览
+            </h2>
+            <span style={{ fontSize: 12, color: 'var(--an-ink-soft)' }}>基于全部作品</span>
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+              gap: 16,
+            }}
+          >
+            {stats.map((stat, index) => {
+              const color = ENTRY_COLORS[index % ENTRY_COLORS.length];
+              return (
+                <div
+                  key={stat.label}
+                  className="an-card an-card--hover"
+                  style={{
+                    padding: 20,
+                    transform: index === 1 ? 'rotate(1.2deg)' : index === 2 ? 'rotate(-1.2deg)' : undefined,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span
+                      style={{
+                        width: 44,
+                        height: 44,
+                        flex: '0 0 auto',
+                        borderRadius: 14,
+                        border: '3px solid var(--an-ink)',
+                        background: color,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'var(--an-ink)',
+                        boxShadow: '0 3px 0 var(--an-ink)',
+                      }}
+                    >
+                      <Icon name={stat.icon} size={22} />
+                    </span>
+                    <div style={{ minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontFamily: 'var(--an-font-display)',
+                          fontSize: 30,
+                          lineHeight: 1.1,
+                          fontVariantNumeric: 'tabular-nums',
+                          color: 'var(--an-ink)',
+                        }}
+                      >
+                        {stat.value}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--an-ink-soft)', marginTop: 2 }}>
+                        {stat.label}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </section>
 
-        {/* 统计卡片 */}
-        <section className="mb-10">
-          <div className="flex items-baseline justify-between mb-4">
-            <h2 className="text-[var(--text-primary)] text-sm font-semibold tracking-wide uppercase">创作概览</h2>
-            <span className="text-[var(--text-secondary)] text-xs">基于全部作品</span>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {stats.map((stat) => (
-              <div
-                key={stat.label}
-                className="bg-[var(--bg-card)] border border-[color:var(--border-color)] group relative rounded-2xl p-6 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all"
-              >
-                <div className="flex items-start justify-between">
-                  <Icon name={stat.icon} size={24} />
-                  <span className="text-[var(--text-muted)] text-[10px] font-medium tracking-widest uppercase">
-                    TOTAL
-                  </span>
-                </div>
-                <div className="text-[var(--text-primary)] mt-5 text-3xl font-bold tabular-nums">
-                  {stat.value}
-                </div>
-                <div className="text-[var(--text-secondary)] mt-1 text-sm">{stat.label}</div>
-              </div>
-            ))}
-          </div>
-        </section>
+        {/* 快捷入口 */}
+        {visibleEntries.length > 0 && (
+          <section style={{ marginBottom: 30 }}>
+            <h2
+              style={{
+                margin: '0 0 14px',
+                fontFamily: 'var(--an-font-display)',
+                fontSize: 22,
+                color: 'var(--an-ink)',
+              }}
+            >
+              快捷入口
+            </h2>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                gap: 12,
+              }}
+            >
+              {visibleEntries.map((entry, index) => {
+                const color = ENTRY_COLORS[index % ENTRY_COLORS.length];
+                return (
+                  <button
+                    key={entry.key}
+                    onClick={entry.onClick}
+                    className="an-card an-card--hover"
+                    style={{
+                      padding: 14,
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      background: 'var(--an-card)',
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 40,
+                        height: 40,
+                        flex: '0 0 auto',
+                        borderRadius: 12,
+                        border: '3px solid var(--an-ink)',
+                        background: color,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'var(--an-ink)',
+                      }}
+                    >
+                      <Icon name={entry.icon} size={20} />
+                    </span>
+                    <span style={{ minWidth: 0 }}>
+                      <span
+                        style={{
+                          display: 'block',
+                          fontSize: 15,
+                          fontWeight: 700,
+                          color: 'var(--an-ink)',
+                        }}
+                      >
+                        {entry.label}
+                      </span>
+                      <span
+                        style={{
+                          display: 'block',
+                          fontSize: 12,
+                          color: 'var(--an-ink-soft)',
+                          marginTop: 2,
+                        }}
+                      >
+                        {entry.desc}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
-        {/* 最近作品 */}
+        {/* 最近编辑 */}
         <section>
-          <div className="flex items-baseline justify-between mb-4">
-            <h2 className="text-[var(--text-primary)] text-sm font-semibold tracking-wide uppercase">
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'baseline',
+              justifyContent: 'space-between',
+              gap: 12,
+              marginBottom: 14,
+            }}
+          >
+            <h2
+              style={{
+                margin: 0,
+                fontFamily: 'var(--an-font-display)',
+                fontSize: 22,
+                color: 'var(--an-ink)',
+              }}
+            >
               最近编辑
             </h2>
-            <button
-              onClick={() => onShowWorks?.()}
-              className="text-[var(--text-secondary)] text-xs transition-colors hover:text-[var(--text-primary)]"
-            >
-              查看全部 →
-            </button>
+            {onShowWorks && (
+              <button className="an-pill" onClick={onShowWorks}>
+                我的安科作品 <Icon name="forward" size={12} />
+              </button>
+            )}
           </div>
 
           {recentError ? (
-            <div
-              role="alert"
-              className="bg-[var(--bg-card)] border border-[color:var(--border-color)] rounded-2xl p-10 text-center"
-            >
-              <div className="text-[var(--danger)] mb-3 inline-flex">
-                <Icon name="alert" size={24} />
+            <div className="an-card" role="alert" style={{ padding: 32, textAlign: 'center' }}>
+              <div style={{ color: '#c0392b', display: 'flex', justifyContent: 'center' }}>
+                <Icon name="alert" size={28} />
               </div>
-              <p className="text-[var(--text-primary)] font-medium">最近作品加载失败</p>
-              <p className="text-[var(--text-secondary)] text-xs mt-1 break-all">{recentError}</p>
+              <p style={{ margin: '10px 0 0', fontWeight: 700, fontSize: 15 }}>最近作品加载失败</p>
+              <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--an-ink-soft)', wordBreak: 'break-all' }}>
+                {recentError}
+              </p>
               <button
+                className="an-btn an-btn--sm an-btn--pink"
+                style={{ marginTop: 16 }}
                 onClick={() => setRecentReloadKey((k) => k + 1)}
-                className="mt-4 px-3 py-1.5 rounded-lg text-xs transition-colors bg-[var(--accent-bg)] text-[var(--accent)] border border-[var(--accent)] hover:bg-[var(--accent)] hover:text-[var(--text-on-accent)]"
               >
-                重新加载
+                <Icon name="refresh" size={14} /> 重新加载
               </button>
             </div>
           ) : recentLoading && recentStories.length === 0 ? (
             <div
+              className="an-card"
               role="status"
               aria-live="polite"
-              className="bg-[var(--bg-card)] border border-[color:var(--border-color)] rounded-2xl p-12 text-center text-[var(--text-secondary)] text-sm"
+              style={{ padding: 40, textAlign: 'center', color: 'var(--an-ink-soft)', fontSize: 13 }}
             >
-              正在加载最近作品…
+              <Icon name="hourglass" size={28} />
+              <div style={{ marginTop: 8 }}>正在加载最近作品…</div>
             </div>
           ) : recentStories.length === 0 ? (
-            <div className="bg-[var(--bg-card)] border border-[color:var(--border-color)] rounded-2xl p-12 text-center">
-              <div className="text-4xl mb-3">
-                <Icon name="pen" size={24} />
+            <div className="an-empty">
+              <Icon name="pen" size={48} />
+              <div className="an-empty__title">还没有作品，开始你的第一个安科吧</div>
+              <div className="an-empty__desc">点击「新建安科」创建，或从已有作品文件导入。</div>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center', marginTop: 6 }}>
+                <button className="an-btn an-btn--pink" onClick={() => setShowNewStoryModal(true)}>
+                  <Icon name="plus" size={16} /> 新建安科
+                </button>
+                {onShowWorks && (
+                  <button className="an-btn an-btn--ghost" onClick={onShowWorks}>
+                    <Icon name="book" size={16} /> 我的作品
+                  </button>
+                )}
               </div>
-              <p className="text-[var(--text-primary)] font-medium">还没有作品，开始你的第一个安科吧</p>
-              <p className="text-[var(--text-secondary)] text-sm mt-1">点击上方「新建安科」按钮创建</p>
             </div>
           ) : (
-            <div className="space-y-3">
-              {recentStories.map((story) => (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+                gap: 16,
+              }}
+            >
+              {recentStories.map((story, index) => (
                 <button
                   key={story.id}
                   onClick={() => {
@@ -387,48 +542,80 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
                       onOpenStory(story.id);
                     }
                   }}
-                  className="bg-[var(--bg-card)] border border-[color:var(--border-color)] w-full text-left rounded-2xl p-5 hover:border-[var(--accent)] hover:shadow-md transition-all group"
+                  className="an-card an-card--hover"
+                  style={{
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    padding: 0,
+                    overflow: 'hidden',
+                    background: 'var(--an-card)',
+                  }}
                 >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-base font-semibold truncate transition-colors text-[var(--text-primary)] group-hover:text-[var(--accent)]">
-                          {story.title}
-                        </h3>
-                      </div>
-                      <p className="mt-1.5 text-sm line-clamp-1 text-[var(--text-secondary)]">
-                        {story.description}
-                      </p>
-                      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-[var(--text-secondary)]">
-                        <span className="inline-flex items-center gap-1">
-                          <Icon name="clock" size={12} />
-                          <span>{story.updatedAt}</span>
-                        </span>
-                        <span className="inline-flex items-center gap-1">
-                          <Icon name="bookText" size={12} />
-                          <span>{story.sectionCount} 章节</span>
-                        </span>
-                        <span className="inline-flex items-center gap-1">
-                          <Icon name="dices" size={12} />
-                          <span>{story.diceCount} 骰点</span>
-                        </span>
-                        <span className="inline-flex items-center gap-1">
-                          <Icon name="pen" size={12} />
-                          <span>{story.wordCount.toLocaleString()} 字</span>
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex-shrink-0 group-hover:translate-x-0.5 transition-all text-lg text-[var(--text-muted)] group-hover:text-[var(--accent)]">
-                      →
-                    </div>
-                  </div>
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      display: 'block',
+                      height: 8,
+                      background: RECENT_STRIPES[index % RECENT_STRIPES.length],
+                      borderBottom: '2px solid var(--an-ink)',
+                    }}
+                  />
+                  <span style={{ display: 'block', padding: '14px 16px 16px' }}>
+                    <span
+                      style={{
+                        display: 'block',
+                        fontFamily: 'var(--an-font-display)',
+                        fontSize: 18,
+                        color: 'var(--an-ink)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                      title={story.title}
+                    >
+                      {story.title}
+                    </span>
+                    <span
+                      style={{
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical',
+                        overflow: 'hidden',
+                        marginTop: 4,
+                        minHeight: 34,
+                        fontSize: 12,
+                        lineHeight: 1.5,
+                        color: 'var(--an-ink-soft)',
+                      }}
+                    >
+                      {story.description || '还没有简介'}
+                    </span>
+                    <span style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+                      <span className="an-chip">
+                        <Icon name="clock" size={11} /> {story.updatedAt}
+                      </span>
+                      <span className="an-chip">
+                        <Icon name="bookText" size={11} /> {story.sectionCount} 节
+                      </span>
+                      <span className="an-chip">
+                        <Icon name="pen" size={11} /> {story.wordCount.toLocaleString()} 字
+                      </span>
+                    </span>
+                  </span>
                 </button>
               ))}
             </div>
           )}
         </section>
 
-        <footer className="text-[var(--text-secondary)] mt-16 text-center text-xs">
+        <footer
+          style={{
+            marginTop: 48,
+            textAlign: 'center',
+            fontSize: 12,
+            color: 'var(--an-ink-soft)',
+          }}
+        >
           用骰子编织故事 · Anke Creator
         </footer>
       </div>
@@ -436,50 +623,59 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
       {/* 新建作品弹窗 */}
       {showNewStoryModal && (
         <Modal onClose={() => setShowNewStoryModal(false)} title="新建安科作品">
-          <div className="space-y-4">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div>
-              <label className="text-[var(--text-primary)] block text-sm font-medium mb-1.5">作品标题</label>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 700, marginBottom: 6, color: 'var(--an-ink)' }}>
+                作品标题
+              </label>
               <input
                 autoFocus
                 type="text"
                 value={newStoryTitle}
                 onChange={(e) => setNewStoryTitle(e.target.value)}
                 placeholder="给你的安科起个名字"
-                className="bg-[var(--bg-input)] border border-[color:var(--border-color)] text-[var(--text-primary)] w-full px-3.5 py-2.5 text-sm rounded-lg outline-none transition-all"
-                onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--accent)' }}
-                onBlur={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)' }}
+                style={{
+                  width: '100%',
+                  padding: '10px 14px',
+                  borderRadius: 14,
+                  border: '2px solid var(--an-ink)',
+                  background: 'var(--an-paper-2)',
+                  color: 'var(--an-ink)',
+                  fontSize: 14,
+                  outline: 'none',
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleCreateStory();
                 }}
               />
             </div>
             <div>
-              <label className="text-[var(--text-primary)] block text-sm font-medium mb-1.5">作品简介（可选）</label>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 700, marginBottom: 6, color: 'var(--an-ink)' }}>
+                作品简介（可选）
+              </label>
               <textarea
                 rows={3}
                 value={newStoryDescription}
                 onChange={(e) => setNewStoryDescription(e.target.value)}
                 placeholder="一句话介绍这个安科世界…"
-                className="bg-[var(--bg-input)] border border-[color:var(--border-color)] text-[var(--text-primary)] w-full px-3.5 py-2.5 text-sm rounded-lg outline-none transition-all resize-none"
-                onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--accent)' }}
-                onBlur={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)' }}
+                style={{
+                  width: '100%',
+                  padding: '10px 14px',
+                  borderRadius: 14,
+                  border: '2px solid var(--an-ink)',
+                  background: 'var(--an-paper-2)',
+                  color: 'var(--an-ink)',
+                  fontSize: 14,
+                  outline: 'none',
+                  resize: 'none',
+                }}
               />
             </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                onClick={() => setShowNewStoryModal(false)}
-                className="text-[var(--text-primary)] px-4 py-2 text-sm rounded-lg transition-colors"
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)' }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
-              >
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 4 }}>
+              <button className="an-btn an-btn--ghost an-btn--sm" onClick={() => setShowNewStoryModal(false)}>
                 取消
               </button>
-              <button
-                onClick={handleCreateStory}
-                className="bg-[var(--accent-bg)] text-[var(--accent)] border border-[color:var(--accent)] px-4 py-2 text-sm rounded-lg transition-colors"
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent)'; e.currentTarget.style.color = 'var(--text-on-accent)' }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--accent-bg)'; e.currentTarget.style.color = 'var(--accent)' }}
-              >
+              <button className="an-btn an-btn--sm an-btn--pink" onClick={handleCreateStory}>
                 创建并进入
               </button>
             </div>
@@ -491,11 +687,11 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
       {showStoryPicker && (
         <Modal onClose={() => setShowStoryPicker(false)} title="选择作品查看创作日志">
           {pickerStories.length === 0 ? (
-            <div className="text-[var(--text-secondary)] text-center py-8 text-sm">
+            <div style={{ padding: '24px 0', textAlign: 'center', fontSize: 13, color: 'var(--an-ink-soft)' }}>
               暂无作品，请先创建一个安科作品
             </div>
           ) : (
-            <div className="max-h-80 overflow-y-auto space-y-1">
+            <div className="an-scroll" style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
               {pickerStories.map((s) => (
                 <button
                   key={s.id}
@@ -503,25 +699,21 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
                     setShowStoryPicker(false);
                     onShowCreationLog?.(s.id);
                   }}
-                  className="text-[var(--text-primary)] w-full text-left px-3 py-2 rounded-lg text-sm transition-colors"
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                  className="an-card"
+                  style={{ padding: '10px 14px', textAlign: 'left', cursor: 'pointer', boxShadow: '0 3px 0 var(--an-ink)' }}
                 >
-                  <div className="font-medium truncate">{s.title}</div>
-                  <div className="text-[var(--text-secondary)] text-xs">
+                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--an-ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {s.title}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--an-ink-soft)', marginTop: 2 }}>
                     更新于 {new Date(s.updated_at).toLocaleString()}
                   </div>
                 </button>
               ))}
             </div>
           )}
-          <div className="flex justify-end pt-2">
-            <button
-              onClick={() => setShowStoryPicker(false)}
-              className="text-[var(--text-primary)] px-4 py-2 text-sm rounded-lg transition-colors"
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
-            >
+          <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 10 }}>
+            <button className="an-btn an-btn--ghost an-btn--sm" onClick={() => setShowStoryPicker(false)}>
               取消
             </button>
           </div>
@@ -531,7 +723,55 @@ export function HomePage({ onOpenStory, onShowWorks, onShowResourceLibrary, onSh
   );
 }
 
-/** 通用弹窗组件 */
+/** 首页贴纸插画：书 + 骰子 + 星星 */
+function HeroArt() {
+  return (
+    <div style={{ position: 'relative', maxWidth: 430, margin: '0 auto', padding: '20px 12px 28px' }}>
+      <svg viewBox="0 0 430 330" width="100%" role="img" aria-label="安科创作插画">
+        {/* 背景 blob */}
+        <path
+          d="M92 62 C170 10 330 22 382 92 C426 152 400 252 328 292 C244 340 108 318 58 238 C18 172 38 100 92 62 Z"
+          fill="#eae3ff"
+          stroke="#40325c"
+          strokeWidth="3"
+          strokeLinejoin="round"
+        />
+        {/* 星星 */}
+        <path d="M96 88 l9 20 22 3 -16 15 4 22 -19 -11 -19 11 4 -22 -16 -15 22 -3 Z" fill="#ffd45e" stroke="#40325c" strokeWidth="2.5" strokeLinejoin="round" />
+        <path d="M356 176 l7 15 17 2 -12 12 3 17 -15 -9 -15 9 3 -17 -12 -12 17 -2 Z" fill="#ff86b8" stroke="#40325c" strokeWidth="2.5" strokeLinejoin="round" />
+        {/* 书本 */}
+        <path d="M86 214 Q212 190 215 214 L215 286 Q110 264 86 286 Z" fill="#fffdf6" stroke="#40325c" strokeWidth="3" strokeLinejoin="round" />
+        <path d="M344 214 Q218 190 215 214 L215 286 Q320 264 344 286 Z" fill="#fffdf6" stroke="#40325c" strokeWidth="3" strokeLinejoin="round" />
+        <path d="M215 214 L215 286" stroke="#40325c" strokeWidth="3" />
+        <path d="M108 232 Q168 220 196 231" stroke="#b39bff" strokeWidth="4" strokeLinecap="round" />
+        <path d="M108 248 Q168 236 196 247" stroke="#5cc6ff" strokeWidth="4" strokeLinecap="round" />
+        <path d="M234 231 Q292 220 322 231" stroke="#ff86b8" strokeWidth="4" strokeLinecap="round" />
+        <path d="M234 247 Q292 236 322 247" stroke="#4fdcae" strokeWidth="4" strokeLinecap="round" />
+        {/* 骰子（二十面体简化） */}
+        <g transform="translate(276 126) rotate(9)">
+          <path d="M0 -62 L54 -30 L54 28 L0 62 L-54 28 L-54 -30 Z" fill="#4fdcae" stroke="#40325c" strokeWidth="3" strokeLinejoin="round" />
+          <path d="M0 -62 L0 -18 L54 28 M0 -18 L-54 28 M0 -18 L0 62" fill="none" stroke="#40325c" strokeWidth="2.5" strokeLinejoin="round" />
+          <circle cx="-20" cy="-8" r="4" fill="#40325c" />
+          <circle cx="20" cy="-8" r="4" fill="#40325c" />
+          <circle cx="0" cy="22" r="4" fill="#40325c" />
+        </g>
+        {/* 胶带 */}
+        <g transform="rotate(-8 150 278)">
+          <rect x="64" y="270" width="120" height="22" rx="4" fill="#ffd45e" stroke="#40325c" strokeWidth="3" />
+          <path d="M84 270 v22 M104 270 v22 M124 270 v22 M144 270 v22 M164 270 v22" stroke="#40325c" strokeWidth="1.5" opacity="0.35" />
+        </g>
+      </svg>
+      <div
+        className="an-bubble"
+        style={{ position: 'absolute', left: 0, bottom: 0, transform: 'rotate(-3deg)', fontSize: 13 }}
+      >
+        骰子决定命运，故事由此展开
+      </div>
+    </div>
+  );
+}
+
+/** 贴纸风通用弹窗 */
 function Modal({
   children,
   onClose,
@@ -543,23 +783,30 @@ function Modal({
 }) {
   return (
     <div
-      className="bg-[var(--bg-overlay)] fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm p-4"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 50,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 16,
+        background: 'rgba(40, 28, 60, 0.38)',
+        backdropFilter: 'blur(6px)',
+      }}
       onClick={onClose}
     >
       <div
-        className="bg-[var(--bg-card)] border border-[color:var(--border-color)] rounded-2xl shadow-xl w-full max-w-md p-6"
+        className="an-card an-pop-in"
+        style={{ width: '100%', maxWidth: 460, padding: 22 }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between mb-5">
-          <h3 className="text-[var(--text-primary)] text-lg font-semibold">{title}</h3>
-          <button
-            onClick={onClose}
-            className="text-[var(--text-secondary)] w-8 h-8 flex items-center justify-center rounded-lg transition-colors"
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)' }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)' }}
-            aria-label="关闭"
-          >
-            <Icon name="x" size={14} />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <h3 style={{ margin: 0, fontFamily: 'var(--an-font-display)', fontSize: 22, color: 'var(--an-ink)' }}>
+            {title}
+          </h3>
+          <button className="an-pill" onClick={onClose} aria-label="关闭">
+            <Icon name="x" size={12} />
           </button>
         </div>
         {children}

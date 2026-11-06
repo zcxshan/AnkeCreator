@@ -15,6 +15,7 @@ import fs from 'fs'
 import * as db from './db-main'
 import { ensureDailySnapshot, consumeRestoreRequest } from './snapshot'
 import { migrateFromUserDataIfNeeded, migrateFlattenDataIfNeeded, isDataRootFallback, getDataDir } from './paths'
+import { initializeStorageLayout } from './data-core/storageLayout'
 
 // 全局错误捕获（必须在所有 app.on('xxx') 之前）
 import { registerGlobalErrorHandlers } from './errorReporter'
@@ -28,6 +29,7 @@ import {
   setupNgaRefererHook,
 } from './protocol'
 import { registerIpcHandlers } from './ipc'
+import { registerNgaSessionIpc } from './ngaSession'
 import { installWindowSecurity } from './security'
 
 // ============================================================
@@ -321,6 +323,13 @@ if (runDiag()) {
       console.error('[main] 恢复快照失败（继续使用当前数据）:', e)
     }
 
+    // 步骤 1.9: 提前确定存储布局（必须在数据库初始化之前，避免按错误布局读写）
+    try {
+      initializeStorageLayout(getDataDir())
+    } catch (e) {
+      console.warn('[main] 存储布局初始化失败（继续使用单文件布局）:', e)
+    }
+
     // 步骤 2/4: 初始化数据库
     console.log('[main] 步骤 2/4: 初始化数据库...')
     try {
@@ -355,6 +364,7 @@ if (runDiag()) {
     setupNgaRefererHook()
     registerLocalProtocol()
     registerIpcHandlers(getWindow)
+    registerNgaSessionIpc()
 
     // 步骤 4/4: 创建窗口
     console.log('[main] 步骤 4/4: 创建窗口...')

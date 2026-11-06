@@ -24,7 +24,9 @@ type Route =
   | 'find-anke'
   | 'dice-playground'
   | 'creation-log'
-  | 'wheel-playground';
+  | 'wheel-playground'
+  | 'discovery'
+  | 'playground';
 
 interface MobileBottomNavProps {
   route: Route;
@@ -178,9 +180,10 @@ export function MobileBottomNav({ route, onChangeRoute, onShowAuthor, hasActiveS
       {/* BottomSheet 内容 */}
       {moreOpen && (
         <div
-          className="bg-[var(--bg-card)] border border-[color:var(--border-color)] fixed left-0 right-0 bottom-[64px] z-40 mx-2 mb-2 rounded-2xl p-3 shadow-2xl md:hidden"
+          className="an-card fixed left-0 right-0 bottom-[64px] z-40 mx-2 mb-2 rounded-[var(--an-radius-md)] p-3 md:hidden"
+          style={{ boxShadow: 'var(--an-shadow-pop-lg), var(--an-shadow-soft)' }}
         >
-          <div className="text-[var(--text-secondary)] text-xs text-center mb-2">
+          <div className="text-[var(--an-ink-soft)] text-xs text-center mb-2 font-semibold">
             更多功能
           </div>
           <div
@@ -188,11 +191,12 @@ export function MobileBottomNav({ route, onChangeRoute, onShowAuthor, hasActiveS
             style={{ maxHeight: '60vh', WebkitOverflowScrolling: 'touch' }}
           >
             <div className="grid grid-cols-2 gap-2">
-              {MORE_ITEMS.map((item) => (
+              {visibleMoreItems.map((item) => (
                 <button
                   key={item.key}
                   onClick={() => handleMoreItem(item.key)}
-                  className="bg-[var(--bg-input)] flex flex-col items-center gap-1 py-3 rounded-lg active:opacity-70"
+                  className="flex flex-col items-center gap-1 py-3 rounded-[var(--an-radius-sm)] active:opacity-70 text-[var(--an-ink)]"
+                  style={{ background: 'var(--an-paper-2)', border: '2px solid var(--an-ink)' }}
                 >
                   <span className="flex justify-center"><Icon name={item.icon} size={24} /></span>
                   <span className="text-[var(--text-primary)] text-xs">
@@ -205,7 +209,7 @@ export function MobileBottomNav({ route, onChangeRoute, onShowAuthor, hasActiveS
             {/* 主题切换 */}
             <div className="mt-3">
               <div
-                className="text-[var(--text-secondary)] text-[11px] mb-1.5 px-1"
+                className="text-[var(--an-ink-soft)] text-[12px] mb-1.5 px-1 font-semibold"
               >
                 主题
               </div>
@@ -216,17 +220,16 @@ export function MobileBottomNav({ route, onChangeRoute, onShowAuthor, hasActiveS
                     <button
                       key={opt.key}
                       onClick={() => handleThemeChoice(opt.key)}
-                      className="flex flex-col items-center gap-1 py-2.5 rounded-lg active:opacity-70 transition-colors"
+                      className="flex flex-col items-center gap-1 py-2.5 rounded-[var(--an-radius-sm)] active:opacity-70 transition-colors"
                       style={{
-                        background: active ? 'var(--accent-color)' : 'var(--bg-input)',
-                        border: active
-                          ? '1px solid var(--accent-color)'
-                          : '1px solid transparent',
+                        background: active ? 'var(--an-pink)' : 'var(--an-card)',
+                        border: `2px solid ${active ? 'var(--an-ink)' : 'var(--an-ink-faint)'}`,
+                        boxShadow: active ? '0 2px 0 var(--an-ink)' : 'none',
                       }}
                     >
                       <span className="flex justify-center"><Icon name={opt.icon} size={20} /></span>
                       <span
-                        className="text-[11px]"
+                        className="text-[12px]"
                         style={{
                           color: active ? 'var(--text-on-accent)' : 'var(--text-primary)',
                         }}
@@ -246,8 +249,8 @@ export function MobileBottomNav({ route, onChangeRoute, onShowAuthor, hasActiveS
       <nav
         className="mobile-bottom-nav fixed bottom-0 left-0 right-0 z-40 flex md:hidden"
         style={{
-          background: 'var(--bg-card)',
-          borderTop: '1px solid var(--border-color)',
+          background: 'var(--an-paper-2)',
+          borderTop: '2px solid var(--an-ink)',
           paddingBottom: 'env(safe-area-inset-bottom, 0)',
         }}
       >
@@ -261,14 +264,15 @@ export function MobileBottomNav({ route, onChangeRoute, onShowAuthor, hasActiveS
               disabled={disabled}
               className="flex-1 flex flex-col items-center justify-center gap-0.5 active:scale-90 active:opacity-70 disabled:opacity-30 transition-transform"
               style={{
-                color: active ? 'var(--accent-color)' : 'var(--text-secondary)',
+                color: active ? 'var(--an-pink)' : 'var(--an-ink-soft)',
                 minHeight: 56,
                 paddingTop: 4,
-                borderTop: active ? '2px solid var(--accent-color)' : '2px solid transparent',
+                borderTop: active ? '3px solid var(--an-pink)' : '3px solid transparent',
+                fontWeight: active ? 700 : 500,
               }}
             >
               <span className="flex justify-center"><Icon name={tab.icon} size={20} /></span>
-              <span className="text-[10px] leading-none">{tab.label}</span>
+              <span className="text-[12px] leading-none">{tab.label}</span>
             </button>
           );
         })}

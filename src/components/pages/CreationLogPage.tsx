@@ -38,7 +38,7 @@ function WordCountBarChart({ today, thisWeek, thisMonth, thisYear, total }: {
   const svgWidth = data.length * (barWidth + gap) - gap;
 
   return (
-    <div className="mt-[16px] p-[16px] anke-card">
+    <div className="mt-[16px] p-[16px] an-card">
       <div className="text-[13px] font-semibold text-[var(--text-secondary)] mb-[8px]">
         <span className="inline-flex items-center gap-1"><Icon name="chartBar" size={14} />时段字数对比</span>
       </div>
@@ -76,7 +76,7 @@ function DailyTrendChart({ dailyStats }: { dailyStats: { date: string; wordCount
 
   if (!hasData) {
     return (
-      <div className="mt-[16px] p-[16px] anke-card">
+      <div className="mt-[16px] p-[16px] an-card">
         <div className="text-[13px] font-semibold text-[var(--text-secondary)] mb-[8px]">
           <span className="inline-flex items-center gap-1"><Icon name="trendingUp" size={14} />近 14 日字数趋势</span>
         </div>
@@ -110,7 +110,7 @@ function DailyTrendChart({ dailyStats }: { dailyStats: { date: string; wordCount
   const baseY = padTop + innerH;
 
   return (
-    <div className="mt-[16px] p-[16px] anke-card">
+    <div className="mt-[16px] p-[16px] an-card">
       <div className="text-[13px] font-semibold text-[var(--text-secondary)] mb-[8px]">
         <span className="inline-flex items-center gap-1"><Icon name="trendingUp" size={14} />近 14 日字数趋势</span>
       </div>
@@ -148,11 +148,69 @@ function DailyTrendChart({ dailyStats }: { dailyStats: { date: string; wordCount
   );
 }
 
+/** 近 13 周创作热力图：每列一周，颜色越深当日产出越多 */
+function CreationHeatmap({
+  heatmap,
+}: {
+  heatmap: { date: string; wordCount: number; sectionCount: number }[];
+}) {
+  const level = (v: number) => (v <= 0 ? 0 : v < 500 ? 1 : v < 1500 ? 2 : v < 3000 ? 3 : 4);
+  const palette = ['var(--bg-hover)', 'rgba(99,102,241,0.22)', 'rgba(99,102,241,0.45)', 'rgba(99,102,241,0.7)', 'var(--accent)'];
+
+  return (
+    <div className="mt-[16px] p-[16px] an-card">
+      <div className="text-[13px] font-semibold text-[var(--text-secondary)] mb-[10px] flex items-center justify-between">
+        <span className="inline-flex items-center gap-1">
+          <Icon name="calendar" size={14} />近 13 周创作热力图
+        </span>
+        <span className="text-[12px] text-[var(--text-muted)] flex items-center gap-1">
+          少
+          {palette.map((c, i) => (
+            <span key={i} style={{ width: 9, height: 9, borderRadius: 2, background: c }} />
+          ))}
+          多
+        </span>
+      </div>
+      <div
+        className="grid gap-[3px]"
+        style={{ gridTemplateRows: 'repeat(7, 11px)', gridAutoFlow: 'column', gridAutoColumns: '11px' }}
+      >
+        {heatmap.map((day) => (
+          <div
+            key={day.date}
+            title={`${day.date} · ${day.wordCount} 字 · ${day.sectionCount} 节`}
+            style={{
+              width: 11,
+              height: 11,
+              borderRadius: 2,
+              background: palette[level(day.wordCount)],
+              border: day.wordCount > 0 ? '1px solid rgba(99,102,241,0.25)' : 'none',
+            }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function CreationLogPage({ storyId, onBack }: CreationLogPageProps) {
   const [stats, setStats] = useState<CreationLogStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [storyTitle, setStoryTitle] = useState('');
+  const goalKey = `anke:creation-goal:${storyId}`;
+  const [dailyGoal, setDailyGoal] = useState(1000);
+
+  useEffect(() => {
+    const stored = Number(localStorage.getItem(goalKey));
+    setDailyGoal(stored > 0 ? stored : 1000);
+  }, [goalKey]);
+
+  const updateGoal = (value: number) => {
+    const next = Math.max(100, Math.min(100000, Math.round(value) || 0));
+    setDailyGoal(next);
+    localStorage.setItem(goalKey, String(next));
+  };
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -199,31 +257,25 @@ export function CreationLogPage({ storyId, onBack }: CreationLogPageProps) {
 
   return (
     <div
-      className="bg-[var(--bg-base)] text-[var(--text-primary)] min-h-full w-full flex flex-col"
+      className="an-page text-[var(--text-primary)] min-h-full w-full flex flex-col"
     >
-      {/* 顶栏（sticky 在 TitleBar 下方 32px 处，z-40） */}
+      {/* 顶栏（sticky 在 TitleBar 下方 36px 处，z-40） */}
       <div
-        className="border-[color:var(--border-color)] bg-[var(--bg-base)] flex items-center gap-3 px-6 py-4 border-b sticky top-8 z-40"
+        className="flex items-center gap-3 px-6 py-4 sticky top-9 z-40"
+        style={{ background: 'var(--an-paper-2)', borderBottom: '3px solid var(--an-ink)' }}
       >
         <button
           onClick={onBack}
-          className="text-[var(--text-secondary)] flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors"
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'var(--bg-hover)';
-            e.currentTarget.style.color = 'var(--text-primary)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'transparent';
-            e.currentTarget.style.color = 'var(--text-secondary)';
-          }}
+          className="an-pill"
         >
           ← 返回
         </button>
         <h1
-          className="text-[var(--text-primary)] text-lg font-semibold flex items-center gap-2"
+          className="text-[var(--an-ink)] flex items-center gap-2"
+          style={{ fontFamily: 'var(--an-font-display)', fontSize: 22 }}
         >
           <span className="inline-flex items-center gap-1">
-            <Icon name="pen" size={14} />
+            <Icon name="pen" size={16} />
             创作日志{storyTitle ? ` - ${storyTitle}` : ''}
           </span>
         </h1>
@@ -239,13 +291,31 @@ export function CreationLogPage({ storyId, onBack }: CreationLogPageProps) {
       )}
 
       {/* 内容区 */}
-      <div className="flex-1 overflow-y-auto px-6 pb-6">
+      <div className="flex-1 overflow-y-auto px-6 pb-6" style={{ width: '100%', maxWidth: 1180, margin: '0 auto' }}>
         {loading ? (
           <div className="text-[var(--text-secondary)] flex items-center justify-center h-32 text-sm">
             加载中...
           </div>
         ) : (
           <>
+            {/* 顶部统计胶囊：今日 / 本周 / 本月 / 总计 */}
+            {stats && (
+              <div className="flex flex-wrap gap-3 pt-4">
+                <div className="an-stat">
+                  今日 <b>{stats.today.wordCount.toLocaleString()}</b> 字
+                </div>
+                <div className="an-stat">
+                  本周 <b>{stats.thisWeek.wordCount.toLocaleString()}</b> 字
+                </div>
+                <div className="an-stat">
+                  本月 <b>{stats.thisMonth.wordCount.toLocaleString()}</b> 字
+                </div>
+                <div className="an-stat">
+                  总计 <b>{stats.total.wordCount.toLocaleString()}</b> 字
+                </div>
+              </div>
+            )}
+
             {/* 统计区 */}
             {stats && (
               <section className="mb-8">
@@ -256,9 +326,16 @@ export function CreationLogPage({ storyId, onBack }: CreationLogPageProps) {
                   {statRows.map((row, idx) => (
                     <div
                       key={row.label}
-                      className="anke-card p-4"
+                      className="an-card p-4"
                       style={{
                         borderLeft: `3px solid ${row.color}`,
+                        background: [
+                          'var(--an-pink-soft)',
+                          'var(--an-mint-soft)',
+                          'var(--an-sky-soft)',
+                          'var(--an-lemon-soft)',
+                          'var(--an-lilac-soft)',
+                        ][idx % 5],
                         transition: 'transform 0.15s, box-shadow 0.15s',
                       }}
                     >
@@ -294,8 +371,55 @@ export function CreationLogPage({ storyId, onBack }: CreationLogPageProps) {
                     </div>
                   ))}
                 </div>
+                {/* 连续创作 & 今日目标 */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                  <div className="an-card p-4 flex items-center gap-3">
+                    <span className="text-[var(--accent)] shrink-0"><Icon name="sparkles" size={24} /></span>
+                    <div>
+                      <div className="text-[var(--text-secondary)] text-xs">连续创作</div>
+                      <div className="text-[var(--text-primary)] text-xl font-bold leading-tight">
+                        {stats.streak}
+                        <span className="text-[var(--text-muted)] text-xs font-normal ml-1">天</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="an-card p-4">
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <div className="text-[var(--text-secondary)] text-xs inline-flex items-center gap-1">
+                        <Icon name="target" size={14} />今日目标
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          min={100}
+                          step={100}
+                          value={dailyGoal}
+                          onChange={(e) => updateGoal(Number(e.target.value))}
+                          className="w-16 px-1.5 py-0.5 text-[12px] text-right rounded border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] outline-none"
+                        />
+                        <span className="text-[12px] text-[var(--text-muted)]">字</span>
+                      </div>
+                    </div>
+                    <div className="h-[6px] rounded-full bg-[var(--bg-hover)] overflow-hidden">
+                      <div
+                        style={{
+                          height: '100%',
+                          width: `${Math.min(100, (stats.today.wordCount / Math.max(1, dailyGoal)) * 100)}%`,
+                          background: 'var(--accent)',
+                          transition: 'width 0.3s ease',
+                        }}
+                      />
+                    </div>
+                    <div className="text-[12px] text-[var(--text-muted)] mt-1.5">
+                      {stats.today.wordCount.toLocaleString()} / {dailyGoal.toLocaleString()} 字
+                      {stats.today.wordCount >= dailyGoal ? ' · 目标达成' : ''}
+                    </div>
+                  </div>
+                </div>
+
                 <div style={{ maxWidth: 600, margin: '0 auto' }}>
                   <DailyTrendChart dailyStats={stats.dailyStats} />
+                  <CreationHeatmap heatmap={stats.heatmap} />
                   <WordCountBarChart
                     today={stats.today.wordCount}
                     thisWeek={stats.thisWeek.wordCount}
@@ -304,6 +428,37 @@ export function CreationLogPage({ storyId, onBack }: CreationLogPageProps) {
                     total={stats.total.wordCount}
                   />
                 </div>
+
+                {/* 最近七天创作时间线（贴纸圆点） */}
+                <div className="an-card p-5 mt-4" style={{ maxWidth: 600, margin: '16px auto 0' }}>
+                  <h3 className="text-[13px] font-semibold text-[var(--text-secondary)] mb-3 inline-flex items-center gap-1">
+                    <Icon name="clock" size={14} /> 最近七天
+                  </h3>
+                  <div className="relative pl-6">
+                    <span
+                      className="absolute left-[5px] top-1 bottom-1 w-[2px]"
+                      style={{ background: 'var(--an-ink-faint)' }}
+                    />
+                    {[...stats.dailyStats].slice(-7).reverse().map((d) => (
+                      <div key={d.date} className="relative mb-3 last:mb-0">
+                        <span
+                          className="absolute left-[-21px] top-[6px] w-3 h-3 rounded-full"
+                          style={{
+                            background: d.wordCount > 0 ? 'var(--an-pink)' : 'var(--an-paper)',
+                            border: '2px solid var(--an-ink)',
+                          }}
+                        />
+                        <div className="flex items-center justify-between gap-2 text-xs">
+                          <span className="text-[var(--text-primary)] font-medium">{d.date}</span>
+                          <span className="text-[var(--text-muted)] tabular-nums">
+                            {d.wordCount.toLocaleString()} 字 · {d.sectionCount} 节
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
                 {stats.total.characterCount > 0 || stats.total.volumeCount > 0 ? (
                   <div className="text-[var(--text-secondary)] mt-3 flex gap-4 text-xs">
                     <span>卷数：{stats.total.volumeCount}</span>

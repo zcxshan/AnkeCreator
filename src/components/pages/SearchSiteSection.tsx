@@ -381,7 +381,7 @@ export function SearchSiteSection<T extends SiteResultItem>({
           <div className="search-section__title text-sm font-semibold">
             {title}
           </div>
-          <div className="search-section__subtitle text-[11px]">
+          <div className="search-section__subtitle text-xs">
             {subtitle}
             {lastKeyword && ` · 已搜「${lastKeyword || '推荐'}」`}
           </div>
@@ -403,80 +403,87 @@ export function SearchSiteSection<T extends SiteResultItem>({
         )}
       </div>
 
-      {/* 搜索框 */}
-      <div className="flex items-center gap-2 px-4 py-3 shrink-0">
-        <input
-          type="text"
-          value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') handleSearch()
-          }}
-          placeholder={matchField === 'author' ? '按作者名搜索' : placeholder}
-          className="search-field flex-1 px-3 py-2 rounded-md text-sm outline-none"
-        />
-        {/* 匹配模式选择器：精确 / 模糊 / 正则 */}
-        <select
-          value={matchMode}
-          onChange={(e) => setMatchMode(e.target.value as MatchMode)}
-          className="search-field px-2 py-2 rounded-md text-xs outline-none shrink-0 cursor-pointer"
-          title="匹配模式：精确=子串包含；模糊=多关键词且逻辑；正则=JS正则表达式"
-        >
-          <option value="exact">精确</option>
-          <option value="fuzzy">模糊</option>
-          <option value="regex">正则</option>
-        </select>
-        {/* 数量上限输入：0=不限制，控制单次搜索结果条数 */}
+      {/* 搜索框（第一行：输入 + 内嵌搜索按钮；第二行：筛选胶囊） */}
+      <div className="px-4 py-3 shrink-0 space-y-2">
         <div
-          className="search-count flex items-center gap-1 shrink-0"
-          title="搜索结果条数上限（0=不限制）"
+          className="flex items-center gap-2 rounded-full overflow-hidden"
+          style={{ background: 'var(--an-card)', border: '2px solid var(--an-ink)', padding: 3 }}
         >
-          <span className="search-count__label px-1.5 text-[11px]">
-            数量
-          </span>
           <input
-            type="number"
-            min={0}
-            max={500}
-            value={searchCount || ''}
-            onChange={(e) =>
-              setSearchCount(
-                Math.max(0, Math.min(500, parseInt(e.target.value, 10) || 0)),
-              )
-            }
-            className="search-count__input w-14 px-1 py-1.5 text-xs outline-none"
+            type="text"
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSearch()
+            }}
+            placeholder={matchField === 'author' ? '按作者名搜索' : placeholder}
+            className="flex-1 px-3 h-9 text-sm outline-none bg-transparent text-[var(--text-primary)]"
           />
+          <button
+            onClick={handleSearch}
+            disabled={loading || !isElectronAvailable}
+            className="shrink-0 px-4 h-9 rounded-full text-[13px] font-semibold transition-colors disabled:opacity-50"
+            style={{ background: 'var(--an-pink)', color: '#3a2340', border: '2px solid var(--an-ink)' }}
+          >
+            {loading ? '搜索中…' : isCached ? '重新筛选' : '搜索'}
+          </button>
         </div>
-        {/* 全部 / 标题 / 作者 切换器 */}
-        {matchFieldSwitchable && (
-          <div className="search-match-group flex shrink-0 rounded-md overflow-hidden">
-            {([
-              { key: 'all', label: '全部' },
-              { key: 'title', label: '标题' },
-              { key: 'author', label: '作者' },
-            ] as const).map((m) => (
-              <button
-                key={m.key}
-                onClick={() => setMatchField(m.key)}
-                className={`search-match-btn px-2.5 py-2 text-xs font-medium ${matchField === m.key ? 'is-active' : ''}`}
-              >
-                {m.label}
-              </button>
-            ))}
+
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* 匹配模式选择器：精确 / 模糊 / 正则 */}
+          <select
+            value={matchMode}
+            onChange={(e) => setMatchMode(e.target.value as MatchMode)}
+            className="search-field px-3 h-8 rounded-full text-xs outline-none shrink-0 cursor-pointer"
+            title="匹配模式：精确=子串包含；模糊=多关键词且逻辑；正则=JS正则表达式"
+          >
+            <option value="exact">精确</option>
+            <option value="fuzzy">模糊</option>
+            <option value="regex">正则</option>
+          </select>
+          {/* 数量上限输入：0=不限制，控制单次搜索结果条数 */}
+          <div
+            className="search-count flex items-center gap-1 shrink-0 h-8 px-3 rounded-full"
+            title="搜索结果条数上限（0=不限制）"
+          >
+            <span className="search-count__label text-xs">数量</span>
+            <input
+              type="number"
+              min={0}
+              max={500}
+              value={searchCount || ''}
+              onChange={(e) =>
+                setSearchCount(
+                  Math.max(0, Math.min(500, parseInt(e.target.value, 10) || 0)),
+                )
+              }
+              className="search-count__input w-12 px-1 text-xs outline-none bg-transparent"
+            />
           </div>
-        )}
-        <button
-          onClick={handleSearch}
-          disabled={loading || !isElectronAvailable}
-          className="search-submit shrink-0 px-4 py-2 rounded-md text-sm font-medium transition-colors"
-        >
-          {loading ? '搜索中…' : isCached ? '重新筛选' : '搜索'}
-        </button>
+          {/* 全部 / 标题 / 作者 切换器 */}
+          {matchFieldSwitchable && (
+            <div className="search-match-group flex shrink-0 rounded-full overflow-hidden">
+              {([
+                { key: 'all', label: '全部' },
+                { key: 'title', label: '标题' },
+                { key: 'author', label: '作者' },
+              ] as const).map((m) => (
+                <button
+                  key={m.key}
+                  onClick={() => setMatchField(m.key)}
+                  className={`search-match-btn px-3 h-8 text-xs font-medium ${matchField === m.key ? 'is-active' : ''}`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 去重提示 */}
       {isCached && (
-        <div className="search-cache-hint px-4 py-1.5 text-[11px] shrink-0 inline-flex items-center gap-1.5">
+        <div className="search-cache-hint px-4 py-1.5 text-xs shrink-0 inline-flex items-center gap-1.5">
           <Icon name="lightbulb" size={12} /> 关键字未变，点击「重新筛选」会基于已下载结果筛选，不会重新爬取
         </div>
       )}
@@ -575,7 +582,7 @@ export function SearchSiteSection<T extends SiteResultItem>({
                         cur.includes(t) ? cur.filter((x) => x !== t) : [...cur, t],
                       )
                     }}
-                    className={`search-tag px-2 py-0.5 rounded-full text-[11px] font-medium ${active ? 'is-active' : ''}`}
+                    className={`search-tag px-2 py-0.5 rounded-full text-xs font-medium ${active ? 'is-active' : ''}`}
                   >
                     {t}
                   </button>
@@ -688,12 +695,12 @@ export function GululuCard({ item, onOpen }: { item: GululuResult; onOpen: (url:
             {item.title}
           </div>
           {item.status === 'ongoing' && (
-            <span className="result-badge--success shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium">
+            <span className="result-badge--success shrink-0 px-1.5 py-0.5 rounded text-xs font-medium">
               连载中
             </span>
           )}
           {item.status === 'finished' && (
-            <span className="result-badge--indigo shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium">
+            <span className="result-badge--indigo shrink-0 px-1.5 py-0.5 rounded text-xs font-medium">
               已完结
             </span>
           )}
@@ -703,7 +710,7 @@ export function GululuCard({ item, onOpen }: { item: GululuResult; onOpen: (url:
             {item.tags.slice(0, 5).map((t) => (
               <span
                 key={t}
-                className="result-tag px-1.5 py-0.5 rounded text-[10px] font-medium"
+                className="result-tag px-1.5 py-0.5 rounded text-xs font-medium"
               >
                 {t}
               </span>
@@ -716,6 +723,18 @@ export function GululuCard({ item, onOpen }: { item: GululuResult; onOpen: (url:
           <span className="inline-flex items-center gap-1"><Icon name="eye" size={12} /> {item.viewCount}</span>
           {updatedRelative && <span className="inline-flex items-center gap-1"><Icon name="refresh" size={12} /> {updatedRelative}更新</span>}
           {publishedDate && <span className="inline-flex items-center gap-1"><Icon name="calendar" size={12} /> 发布于 {publishedDate}</span>}
+        </div>
+        <div className="mt-2 flex justify-end">
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpen(item.url)
+            }}
+            className="an-pill"
+            style={{ height: 32, paddingInline: 14 }}
+          >
+            打开 →
+          </button>
         </div>
       </div>
     </div>
@@ -730,20 +749,20 @@ export function NgaCard({ item, onOpen }: { item: NgaResult; onOpen: (url: strin
     >
       <div className="flex items-center gap-2 mb-1.5">
         <span
-          className="result-badge--neutral text-[10px] px-1.5 py-0.5 rounded font-medium"
+          className="result-badge--neutral text-xs px-1.5 py-0.5 rounded font-medium"
         >
           NGA · 安科版块
         </span>
         {item.status === 'ongoing' && (
           <span
-            className="result-badge--success px-1.5 py-0.5 rounded text-[10px] font-medium"
+            className="result-badge--success px-1.5 py-0.5 rounded text-xs font-medium"
           >
             连载中
           </span>
         )}
         {item.status === 'finished' && (
           <span
-            className="result-badge--indigo px-1.5 py-0.5 rounded text-[10px] font-medium"
+            className="result-badge--indigo px-1.5 py-0.5 rounded text-xs font-medium"
           >
             已完结
           </span>
@@ -759,7 +778,7 @@ export function NgaCard({ item, onOpen }: { item: NgaResult; onOpen: (url: strin
           {item.tags.slice(0, 5).map((t) => (
             <span
               key={t}
-              className="result-tag px-1.5 py-0.5 rounded text-[10px] font-medium"
+              className="result-tag px-1.5 py-0.5 rounded text-xs font-medium"
             >
               {t}
             </span>
@@ -771,6 +790,18 @@ export function NgaCard({ item, onOpen }: { item: NgaResult; onOpen: (url: strin
         <span className="inline-flex items-center gap-1"><Icon name="hash" size={12} /> {item.floorCount} 楼</span>
         {item.lastReplyAt && <span className="inline-flex items-center gap-1"><Icon name="message" size={12} /> 最后回复 {item.lastReplyAt}</span>}
         {item.publishedAt && <span className="inline-flex items-center gap-1"><Icon name="calendar" size={12} /> 发布于 {item.publishedAt}</span>}
+      </div>
+      <div className="mt-2 flex justify-end">
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            onOpen(item.url)
+          }}
+          className="an-pill"
+          style={{ height: 32, paddingInline: 14 }}
+        >
+          打开 →
+        </button>
       </div>
     </div>
   )

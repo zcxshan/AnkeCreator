@@ -49,16 +49,18 @@ const DEFAULT_OVERLAY_STYLE: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  background: 'var(--scrim)',
+  background: 'rgba(64, 50, 92, 0.42)',
+  backdropFilter: 'blur(3px)',
   animation: 'modalFade 0.15s ease-out',
 };
 
 const DEFAULT_CONTENT_STYLE: React.CSSProperties = {
-  background: 'var(--bg-card)',
-  borderRadius: 'var(--radius-toolbar)',
-  boxShadow: 'var(--shadow-modal)',
-  animation: 'modalSlideIn 0.18s ease-out',
-  border: '1px solid var(--border-color)',
+  background: 'var(--an-card)',
+  color: 'var(--an-ink)',
+  borderRadius: 'var(--an-radius-md)',
+  border: 'var(--an-line)',
+  boxShadow: 'var(--an-shadow-pop-lg), var(--an-shadow-soft)',
+  animation: 'modalSlideIn 0.18s var(--an-ease-bounce)',
 };
 
 export interface ModalProps {

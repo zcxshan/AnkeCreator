@@ -7,27 +7,40 @@ interface AuthorInfoProps {
 export function AuthorInfo({ onClose }: AuthorInfoProps) {
   return (
     <div
-      className="bg-[var(--bg-overlay)] fixed inset-0 z-50 flex items-center justify-center p-6"
+      className="fixed inset-0 z-[9000] flex items-center justify-center p-6"
+      style={{
+        background: 'rgba(64, 50, 92, 0.42)',
+        backdropFilter: 'blur(3px)',
+      }}
       onClick={onClose}
     >
       <div
-        className="bg-[var(--bg-base)] border border-[color:var(--border-color)] text-[var(--text-primary)] w-[480px] max-w-full rounded-lg shadow-2xl flex flex-col"
+        className="an-card w-[500px] max-w-full flex flex-col overflow-hidden"
+        style={{ borderRadius: 'var(--an-radius-lg)', boxShadow: 'var(--an-shadow-pop-lg), var(--an-shadow-soft)' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* 头部 */}
         <div
-          className="border-b border-b-[color:var(--border-color)] px-4 py-3 flex items-center justify-between"
+          className="px-4 py-3 flex items-center justify-between"
+          style={{ background: 'var(--an-pink-soft)', borderBottom: 'var(--an-line)' }}
         >
-          <div className="text-sm font-semibold">关于作者</div>
-          <button aria-label="关闭"
+          <div
+            className="text-[15px] font-bold flex items-center gap-2"
+            style={{ fontFamily: 'var(--an-font-display)', color: 'var(--an-ink)' }}
+          >
+            <span
+              className="inline-flex items-center justify-center w-6 h-6 rounded-full"
+              style={{ background: 'var(--an-pink)', border: '2px solid var(--an-ink)' }}
+            >
+              <Icon name="sparkles" size={12} />
+            </span>
+            关于作者
+          </div>
+          <button
+            type="button"
+            aria-label="关闭"
             onClick={onClose}
-            className="text-[var(--text-secondary)] text-lg leading-none w-6 h-6 flex items-center justify-center rounded transition"
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'var(--bg-hover)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'transparent';
-            }}
+            className="an-btn an-btn--sm w-8 h-8 !p-0 flex items-center justify-center"
           >
             <Icon name="x" size={14} />
           </button>
@@ -38,43 +51,73 @@ export function AuthorInfo({ onClose }: AuthorInfoProps) {
           <div className="flex flex-col items-center gap-4">
             {/* 头像 */}
             <div
-              className="bg-[var(--bg-sidebar)] border-[2px] border-[color:var(--border-color)] w-20 h-20 rounded-full overflow-hidden"
+              className="w-24 h-24 rounded-full overflow-hidden -rotate-3"
+              style={{
+                border: '3px solid var(--an-ink)',
+                boxShadow: '0 5px 0 var(--an-ink)',
+                background: 'var(--an-lilac-soft)',
+              }}
             >
-              <img
-                src="./avatar.png"
-                alt="星星的辰"
-                className="w-full h-full object-cover"
-              />
+              <img src="./avatar.png" alt="星星的辰" className="w-full h-full object-cover" />
             </div>
 
             {/* 作者信息 */}
-            <div className="text-center space-y-2 w-full">
+            <div className="text-center space-y-3 w-full">
               <div>
-                <div className="text-base font-semibold">星星的辰</div>
                 <div
-                  className="text-[var(--text-secondary)] text-xs mt-1"
+                  className="text-xl font-bold"
+                  style={{ fontFamily: 'var(--an-font-display)', color: 'var(--an-ink)' }}
+                >
+                  星星的辰
+                </div>
+                <span
+                  className="an-badge mt-1 inline-block text-[12px]"
+                  style={{ background: 'var(--an-mint)', color: '#123a2e' }}
                 >
                   AnkeCreator 开发者
-                </div>
+                </span>
               </div>
 
               <div
-                className="bg-[var(--bg-sidebar)] border border-[color:var(--border-color)] text-[var(--text-primary)] text-sm leading-relaxed px-4 py-3 rounded"
+                className="text-sm leading-relaxed px-4 py-3 text-left"
+                style={{
+                  background: 'var(--an-lemon-soft)',
+                  border: '3px solid var(--an-ink)',
+                  borderRadius: 'var(--an-radius-sm)',
+                  boxShadow: '0 3px 0 var(--an-ink)',
+                  color: 'var(--an-ink)',
+                }}
               >
                 感谢使用安科作者助手！本工具旨在帮助创作者更高效地编写和导出安科内容。
+                <br />
                 想要很多小红点desuwa！！！！！
-                https://ngabbs.com/read.php?tid=47008305
+                <br />
+                <a
+                  href="https://ngabbs.com/read.php?tid=47008305"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline break-all"
+                  style={{ color: '#2b6cff' }}
+                >
+                  https://ngabbs.com/read.php?tid=47008305
+                </a>
               </div>
 
               {/* 联系方式 */}
-              <div className="pt-2 space-y-1.5 text-xs">
-                <div className="flex items-center justify-center gap-2">
-                  <span className="text-[var(--text-secondary)]">邮箱：</span>
-                  <span>秘密desuwa@example.com</span>
+              <div className="pt-1 grid grid-cols-1 gap-2 text-[13px]">
+                <div
+                  className="flex items-center justify-center gap-2 px-3 py-1.5 rounded-full"
+                  style={{ background: 'var(--an-sky-soft)', border: '2px solid var(--an-ink)' }}
+                >
+                  <span className="text-[var(--an-ink-soft)]">邮箱</span>
+                  <span className="font-semibold">秘密desuwa@example.com</span>
                 </div>
-                <div className="flex items-center justify-center gap-2">
-                  <span className="text-[var(--text-secondary)]">GitHub：</span>
-                  <span>github.com/秘密desuwa</span>
+                <div
+                  className="flex items-center justify-center gap-2 px-3 py-1.5 rounded-full"
+                  style={{ background: 'var(--an-lilac-soft)', border: '2px solid var(--an-ink)' }}
+                >
+                  <span className="text-[var(--an-ink-soft)]">GitHub</span>
+                  <span className="font-semibold">github.com/秘密desuwa</span>
                 </div>
               </div>
             </div>
@@ -83,18 +126,10 @@ export function AuthorInfo({ onClose }: AuthorInfoProps) {
 
         {/* 底部 */}
         <div
-          className="border-t border-t-[color:var(--border-color)] bg-[var(--bg-sidebar)] px-4 py-3 flex items-center justify-end"
+          className="px-4 py-3 flex items-center justify-end"
+          style={{ background: 'var(--an-paper-2)', borderTop: 'var(--an-line)' }}
         >
-          <button
-            onClick={onClose}
-            className="bg-[var(--accent)] text-[var(--text-on-accent)] text-xs px-4 py-1.5 rounded transition"
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'var(--accent-hover)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'var(--accent)';
-            }}
-          >
+          <button type="button" onClick={onClose} className="an-btn an-btn--mint an-btn--sm">
             关闭
           </button>
         </div>

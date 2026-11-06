@@ -94,14 +94,14 @@ export interface ShortcutHandlers {
 }
 
 const toolbarBtn: React.CSSProperties = {
-  minWidth: 28,
-  height: 24,
+  minWidth: 30,
+  height: 26,
   padding: '0 6px',
   fontSize: 12,
-  border: '1px solid transparent',
+  border: '2px solid transparent',
   background: 'transparent',
-  color: 'var(--text-primary)',
-  borderRadius: 'var(--radius-sm)',
+  color: 'var(--an-ink)',
+  borderRadius: 8,
   cursor: 'pointer',
   display: 'inline-flex',
   alignItems: 'center',
@@ -109,28 +109,27 @@ const toolbarBtn: React.CSSProperties = {
   gap: 3,
   userSelect: 'none',
   lineHeight: 1,
-  transition: 'background 0.12s ease',
+  transition: 'background 0.12s ease, transform 0.12s ease',
 };
 
-const toolbarBtnHover = { background: 'var(--bg-hover)' };
-// v25c 增强:深色 UI 下视觉更醒目
+const toolbarBtnHover = { background: 'var(--an-pink-soft)' };
+// 选中态：贴纸胶囊（粉底 + 墨线 + 硬投影）
 const toolbarBtnActive: React.CSSProperties = {
-  background: 'var(--accent-soft)',
-  borderColor: 'var(--accent)',
-  color: 'var(--accent)',
+  background: 'var(--an-pink)',
+  borderColor: 'var(--an-ink)',
+  color: '#fff',
   fontWeight: 700,
-  // 双层 box-shadow: 内层 1px accent 增强边框感 + 外层柔和光晕
-  boxShadow: 'inset 0 0 0 1px var(--accent), 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent)',
+  boxShadow: '0 2px 0 var(--an-ink)',
 };
 
 const selectNga: React.CSSProperties = {
-  height: 24,
+  height: 26,
   padding: '0 6px',
   fontSize: 12,
-  border: '1px solid var(--border-color)',
-  background: 'var(--bg-card)',
-  color: 'var(--text-primary)',
-  borderRadius: 'var(--radius-sm)',
+  border: '2px solid var(--an-ink)',
+  background: 'var(--an-card)',
+  color: 'var(--an-ink)',
+  borderRadius: 8,
   cursor: 'pointer',
   lineHeight: 1,
   transition: 'border-color 0.15s, box-shadow 0.15s',
@@ -142,18 +141,18 @@ const fontSizeGroupStyle: React.CSSProperties = {
   alignItems: 'center',
   gap: 3,
   padding: '2px 6px',
-  borderRadius: 'var(--radius-control)',
-  background: 'var(--bg-input, var(--bg-card))',
-  border: '1px solid var(--border-color)',
+  borderRadius: 999,
+  background: 'var(--an-card)',
+  border: '2px solid var(--an-ink)',
   transition: 'border-color 0.15s',
 };
 
 const rowContainer: React.CSSProperties = {
   display: 'flex',
   flexWrap: 'wrap',
-  gap: 4,
+  gap: 5,
   alignItems: 'center',
-  padding: '4px 0',
+  padding: '5px 0',
 };
 
 const groupContainer: React.CSSProperties = {
@@ -165,11 +164,11 @@ const groupContainer: React.CSSProperties = {
 const popoverPanel: React.CSSProperties = {
   position: 'absolute',
   zIndex: 50,
-  background: 'var(--bg-card)',
-  border: '1px solid var(--border-color)',
-  borderRadius: 'var(--radius-control)',
-  padding: 8,
-  boxShadow: 'var(--shadow-tooltip)',
+  background: 'var(--an-card)',
+  border: '2px solid var(--an-ink)',
+  borderRadius: 'var(--an-radius-sm)',
+  padding: 10,
+  boxShadow: 'var(--an-shadow-pop), var(--an-shadow-soft)',
   display: 'flex',
   flexDirection: 'column',
   gap: 6,
@@ -177,13 +176,13 @@ const popoverPanel: React.CSSProperties = {
 };
 
 const popoverInput: React.CSSProperties = {
-  height: 26,
-  padding: '0 8px',
+  height: 28,
+  padding: '0 10px',
   fontSize: 12,
-  border: '1px solid var(--border-color)',
-  borderRadius: 'var(--radius-sm)',
-  background: 'var(--bg-input)',
-  color: 'var(--text-primary)',
+  border: '2px solid var(--an-ink)',
+  borderRadius: 8,
+  background: 'var(--an-paper)',
+  color: 'var(--an-ink)',
   outline: 'none',
 };
 
@@ -973,7 +972,7 @@ export function EditorToolbar({
               }}
               title="拖动调整字号 20%-500%"
             />
-            <span className="text-[11px] text-[var(--text-muted)] mr-[2px]">%</span>
+            <span className="text-[12px] text-[var(--text-muted)] mr-[2px]">%</span>
           </div>
 
           {/* 字体：16 字体 */}
@@ -1088,7 +1087,7 @@ export function EditorToolbar({
           </ToolbarBtn>
           {imageSizeOpen && (
             <div style={{ ...popoverPanel, top: 30, left: 0, minWidth: 220 }}>
-              <div className="text-[11px] text-[var(--text-secondary)]">
+              <div className="text-[12px] text-[var(--text-secondary)]">
                 插入尺寸（导出时拼到 URL 后缀）
               </div>
               <div className="flex flex-col gap-[4px]">
@@ -1105,7 +1104,7 @@ export function EditorToolbar({
                     />
                     {s.label}
                     {s.suffix && (
-                      <code className="text-[10px] text-[var(--text-secondary)]">
+                      <code className="text-[12px] text-[var(--text-secondary)]">
                         {s.suffix}
                       </code>
                     )}
@@ -1114,7 +1113,7 @@ export function EditorToolbar({
               </div>
               {/* 对齐方式 */}
               <div className="mt-[8px] pt-[8px] border-t border-t-[color:var(--border-color)]">
-                <div className="text-[11px] text-[var(--text-secondary)] mb-[6px]">
+                <div className="text-[12px] text-[var(--text-secondary)] mb-[6px]">
                   对齐方式（作用于选中图片）
                 </div>
                 <div className="flex gap-[4px]">
@@ -1198,7 +1197,7 @@ export function EditorToolbar({
           </ToolbarBtn>
           {smileyOpen && (
             <div style={{ ...popoverPanel, top: 30, left: 0 }}>
-              <div className="text-[11px] text-[var(--text-secondary)]">
+              <div className="text-[12px] text-[var(--text-secondary)]">
                 表情包名 / 表情名
               </div>
               <input
@@ -1250,7 +1249,7 @@ export function EditorToolbar({
           </ToolbarBtn>
           {collapseOpen && (
             <div style={{ ...popoverPanel, top: 30, left: 0 }}>
-              <div className="text-[11px] text-[var(--text-secondary)]">
+              <div className="text-[12px] text-[var(--text-secondary)]">
                 折叠标题（可空）
               </div>
               <input
@@ -1282,7 +1281,7 @@ export function EditorToolbar({
           </ToolbarBtn>
           {tableOpen && (
             <div style={{ ...popoverPanel, top: 30, left: 0, minWidth: 220 }}>
-              <div className="text-[11px] text-[var(--text-secondary)]">
+              <div className="text-[12px] text-[var(--text-secondary)]">
                 行 / 列（默认 3×3）
               </div>
               <div className="flex gap-[8px] items-center">
@@ -1345,7 +1344,7 @@ export function EditorToolbar({
           </ToolbarBtn>
           {linkOpen && (
             <div style={{ ...popoverPanel, top: 30, left: 0 }}>
-              <div className="text-[11px] text-[var(--text-secondary)]">链接地址</div>
+              <div className="text-[12px] text-[var(--text-secondary)]">链接地址</div>
               <input
                 autoFocus
                 value={linkUrl}
@@ -1353,7 +1352,7 @@ export function EditorToolbar({
                 placeholder="https://..."
                 style={popoverInput}
               />
-              <div className="text-[11px] text-[var(--text-secondary)]">显示文字（可空）</div>
+              <div className="text-[12px] text-[var(--text-secondary)]">显示文字（可空）</div>
               <input
                 value={linkLabel}
                 onChange={(e) => setLinkLabel(e.target.value)}

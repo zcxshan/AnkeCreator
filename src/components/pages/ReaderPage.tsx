@@ -406,7 +406,7 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
         }}
       >
         <div style={{ padding: '16px 20px', borderBottom: `1px solid ${colors.border}` }}>
-          <div style={{ fontSize: 11, color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 1 }}>目录</div>
+          <div style={{ fontSize: 12, color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 1 }}>目录</div>
           <div style={{ fontSize: 18, fontWeight: 700, fontFamily: SERIF_FONT, marginTop: 4 }}>{story.title}</div>
         </div>
         <div className="py-[8px] px-[0px] pb-[60px]">
@@ -573,7 +573,7 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
                     minWidth: 220,
                   }}>
                     <div className="flex gap-[2px] items-center">
-                      <span style={{ fontSize: 11, color: colors.textSecondary, marginRight: 4 }}>字号</span>
+                      <span style={{ fontSize: 12, color: colors.textSecondary, marginRight: 4 }}>字号</span>
                       {(['small', 'medium', 'large'] as FontSize[]).map((fs) => (
                         <button
                           key={fs}
@@ -594,7 +594,7 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
                     </div>
 
                     <div className="flex gap-[2px] items-center">
-                      <span style={{ fontSize: 11, color: colors.textSecondary, marginRight: 4 }}>主题</span>
+                      <span style={{ fontSize: 12, color: colors.textSecondary, marginRight: 4 }}>主题</span>
                       {(['light', 'dark', 'sepia'] as Theme[]).map((t) => (
                         <button
                           key={t}
@@ -628,7 +628,7 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
           ) : (
             <>
               <div className="flex gap-[2px] items-center">
-                <span style={{ fontSize: 11, color: colors.textSecondary, marginRight: 4 }}>字号</span>
+                <span style={{ fontSize: 12, color: colors.textSecondary, marginRight: 4 }}>字号</span>
                 {(['small', 'medium', 'large'] as FontSize[]).map((fs) => (
                   <button
                     key={fs}
@@ -649,7 +649,7 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
               </div>
 
               <div className="flex gap-[2px] items-center">
-                <span style={{ fontSize: 11, color: colors.textSecondary, marginRight: 4 }}>主题</span>
+                <span style={{ fontSize: 12, color: colors.textSecondary, marginRight: 4 }}>主题</span>
                 {(['light', 'dark', 'sepia'] as Theme[]).map((t) => (
                   <button
                     key={t}
@@ -715,7 +715,7 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
                       color: colors.textSecondary,
                       padding: 32,
                       border: `1px solid ${colors.border}`,
-                      borderRadius: 'var(--radius-card)',
+                      borderRadius: 'var(--radius-xl)',
                     }}
                   >
                     <div className="text-[32px] mb-[8px]"><Icon name="alert" size={32} /></div>

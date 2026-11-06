@@ -180,7 +180,7 @@ export function GlobalSearchPanel({ onNavigate, currentStoryId }: GlobalSearchPa
 
   return (
     <div className="p-[12px] flex flex-col gap-[8px]">
-      <div className="text-[11px] text-[var(--text-muted)] mb-[2px] flex items-center gap-[4px]">
+      <div className="text-[12px] text-[var(--text-muted)] mb-[2px] flex items-center gap-[4px]">
         <Icon name="globe" size={12} /> 全作品搜索 · 扫描所有作品的所有节
       </div>
 
@@ -228,7 +228,7 @@ export function GlobalSearchPanel({ onNavigate, currentStoryId }: GlobalSearchPa
       </div>
 
       {/* 状态文本 */}
-      <div className="text-[11px] text-[var(--text-muted)] min-h-[14px]">
+      <div className="text-[12px] text-[var(--text-muted)] min-h-[14px]">
         {statusText}
       </div>
 
@@ -262,7 +262,7 @@ export function GlobalSearchPanel({ onNavigate, currentStoryId }: GlobalSearchPa
                 }}
               >
                 <div
-                  className="text-[11px] text-[var(--text-secondary)] mb-[2px] flex items-center gap-[4px] flex-wrap"
+                  className="text-[12px] text-[var(--text-secondary)] mb-[2px] flex items-center gap-[4px] flex-wrap"
                 >
                   <span>{hit.storyTitle}</span>
                   <span className="text-[var(--text-muted)]">›</span>
@@ -271,14 +271,14 @@ export function GlobalSearchPanel({ onNavigate, currentStoryId }: GlobalSearchPa
                   <span className="font-medium">{hit.sectionTitle}</span>
                   {isCurrent && (
                     <span
-                      className="text-[10px] py-[0px] px-[4px] bg-[var(--accent)] text-[var(--text-on-accent)] rounded-[var(--radius-tight)]"
+                      className="text-[12px] py-[0px] px-[4px] bg-[var(--accent)] text-[var(--text-on-accent)] rounded-[var(--radius-tight)]"
                     >
                       当前
                     </span>
                   )}
                   {hit.field === 'title' && (
                     <span
-                      className="text-[10px] py-[0px] px-[4px] bg-[var(--bg-hover)] text-[var(--text-secondary)] rounded-[var(--radius-tight)]"
+                      className="text-[12px] py-[0px] px-[4px] bg-[var(--bg-hover)] text-[var(--text-secondary)] rounded-[var(--radius-tight)]"
                     >
                       标题命中
                     </span>

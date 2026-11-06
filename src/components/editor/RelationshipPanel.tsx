@@ -175,7 +175,7 @@ export function RelationshipPanel({ storyId }: Props) {
             </button>
             <button
               onClick={cancelEdit}
-              className="bg-[var(--bg-button)] text-[var(--text-primary)] flex-1 px-2 py-1 rounded"
+              className="bg-[var(--bg-hover)] text-[var(--text-primary)] flex-1 px-2 py-1 rounded"
             >
               取消
             </button>
@@ -215,13 +215,13 @@ export function RelationshipPanel({ storyId }: Props) {
                     <div className="ml-auto flex gap-1">
                       <button
                         onClick={() => (isEditing ? cancelEdit() : startEdit(r))}
-                        className="bg-[var(--bg-button)] text-[var(--text-secondary)] px-1.5 py-0.5 rounded"
+                        className="bg-[var(--bg-hover)] text-[var(--text-secondary)] px-1.5 py-0.5 rounded"
                       >
                         {isEditing ? '取消' : '编辑'}
                       </button>
                       <button
                         onClick={() => handleDelete(r.id)}
-                        className="bg-[var(--bg-button)] text-[var(--text-secondary)] px-1.5 py-0.5 rounded"
+                        className="bg-[var(--bg-hover)] text-[var(--text-secondary)] px-1.5 py-0.5 rounded"
                       >
                         删除
                       </button>

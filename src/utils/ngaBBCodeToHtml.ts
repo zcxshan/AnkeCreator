@@ -214,9 +214,29 @@ function tagToBBCode(tag: string, attrStr: string, inner: string): string {
 
 const SELF_CLOSING_TAGS = new Set(['h', 'hr', 'br']);
 
-/** 主入口：BBCode → HTML 字符串 */
+/** 主入口：BBCode → HTML 字符串（带小型 LRU 缓存，避免反复渲染同节正文） */
+const BBCODE_HTML_CACHE = new Map<string, string>();
+const BBCODE_HTML_CACHE_LIMIT = 200;
+
 export function bbcodeToHtml(input: string | null | undefined): string {
   if (!input) return '';
+  const cached = BBCODE_HTML_CACHE.get(input);
+  if (cached !== undefined) {
+    // LRU：命中后移到队尾
+    BBCODE_HTML_CACHE.delete(input);
+    BBCODE_HTML_CACHE.set(input, cached);
+    return cached;
+  }
+  const html = buildHtml(input);
+  BBCODE_HTML_CACHE.set(input, html);
+  if (BBCODE_HTML_CACHE.size > BBCODE_HTML_CACHE_LIMIT) {
+    const oldest = BBCODE_HTML_CACHE.keys().next().value;
+    if (oldest !== undefined) BBCODE_HTML_CACHE.delete(oldest);
+  }
+  return html;
+}
+
+function buildHtml(input: string): string {
   const tokens = tokenize(input);
 
   // 节点栈
@@ -541,20 +561,32 @@ function lookupFont(value: string): string {
 }
 
 /**
+ * NGA 图片域名归一化：img.nga.178.com / pic.nga.178.com 在部分地区/部分客户端会 403，
+ * 换成同源镜像 img.nga.cn 即可正常加载。
+ */
+export function normalizeNgaImageHost(url: string): string {
+  if (!url) return url;
+  return url.replace(
+    /^(https?:)?\/\/(?:img[0-9]*|pic)\.nga\.178\.com/i,
+    (_m, scheme?: string) => `${scheme ?? 'https:'}//img.nga.cn`,
+  );
+}
+
+/**
  * 把 NGA 论坛里的相对图片路径补全为可访问的完整 URL
- * - 已带 http(s):// 或 // 开头 → 原样返回
- * - 以 ./ 开头（如 ./mon_xxx）→ 补全为 https://img.nga.178.com/attachments/...
+ * - 已带 http(s):// 或 // 开头 → 归一化域名后返回
+ * - 以 ./ 开头（如 ./mon_xxx）→ 补全为 https://img.nga.cn/attachments/...
  * - 以 mon_ 开头（无 ./）→ 同样补全
  * - 其余（带 [img] 属性的）原样返回
  */
 export function expandNgaImageUrl(url: string): string {
   if (!url) return '';
-  if (/^https?:\/\//i.test(url) || url.startsWith('//')) return url;
+  if (/^https?:\/\//i.test(url) || url.startsWith('//')) return normalizeNgaImageHost(url);
   if (url.startsWith('./')) {
-    return `https://img.nga.178.com/attachments/${url.slice(2)}`;
+    return `https://img.nga.cn/attachments/${url.slice(2)}`;
   }
   if (url.startsWith('mon_')) {
-    return `https://img.nga.178.com/attachments/${url}`;
+    return `https://img.nga.cn/attachments/${url}`;
   }
   return url;
 }

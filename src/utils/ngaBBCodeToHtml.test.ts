@@ -19,28 +19,39 @@ describe('expandNgaImageUrl', () => {
   });
   it('补全 ./ 开头的相对路径', () => {
     expect(expandNgaImageUrl('./mon_202606/19/abc.webp')).toBe(
-      'https://img.nga.178.com/attachments/mon_202606/19/abc.webp',
+      'https://img.nga.cn/attachments/mon_202606/19/abc.webp',
     );
   });
   it('补全 mon_ 开头（无 ./）的相对路径', () => {
     expect(expandNgaImageUrl('mon_202606/19/abc.webp')).toBe(
-      'https://img.nga.178.com/attachments/mon_202606/19/abc.webp',
+      'https://img.nga.cn/attachments/mon_202606/19/abc.webp',
     );
   });
   it('空字符串返回空字符串', () => {
     expect(expandNgaImageUrl('')).toBe('');
+  });
+  it('img.nga.178.com 域名归一化为 img.nga.cn', () => {
+    expect(expandNgaImageUrl('https://img.nga.178.com/attachments/mon_1.jpg')).toBe(
+      'https://img.nga.cn/attachments/mon_1.jpg',
+    );
+    expect(expandNgaImageUrl('https://img4.nga.178.com/attachments/mon_1.jpg')).toBe(
+      'https://img.nga.cn/attachments/mon_1.jpg',
+    );
+    expect(expandNgaImageUrl('//img.nga.178.com/attachments/mon_1.jpg')).toBe(
+      'https://img.nga.cn/attachments/mon_1.jpg',
+    );
   });
 });
 
 describe('bbcodeToHtml - [img] URL 补全', () => {
   it('[img]./mon_xxx.webp[/img] 渲染为完整 URL', () => {
     const html = bbcodeToHtml('[img]./mon_202606/19/abc.webp[/img]');
-    expect(html).toContain('https://img.nga.178.com/attachments/mon_202606/19/abc.webp');
+    expect(html).toContain('https://img.nga.cn/attachments/mon_202606/19/abc.webp');
     expect(html).not.toContain('src="./mon_');
   });
   it('[img]mon_xxx.webp[/img]（无 ./）也补全', () => {
     const html = bbcodeToHtml('[img]mon_202606/19/abc.webp[/img]');
-    expect(html).toContain('https://img.nga.178.com/attachments/mon_202606/19/abc.webp');
+    expect(html).toContain('https://img.nga.cn/attachments/mon_202606/19/abc.webp');
   });
   it('[img]https://x.com/y.jpg[/img] 完整 URL 不变', () => {
     const html = bbcodeToHtml('[img]https://x.com/y.jpg[/img]');
@@ -49,7 +60,7 @@ describe('bbcodeToHtml - [img] URL 补全', () => {
   it('[img]./mon_202606/19/lsQ86-jmorK2cT3cSxc-mu.webp.medium.jpg[/img] 用户实际输入格式', () => {
     const html = bbcodeToHtml('[img]./mon_202606/19/lsQ86-jmorK2cT3cSxc-mu.webp.medium.jpg[/img]');
     expect(html).toContain('data-type="image-block"');
-    expect(html).toContain('src="https://img.nga.178.com/attachments/mon_202606/19/lsQ86-jmorK2cT3cSxc-mu.webp.medium.jpg"');
+    expect(html).toContain('src="https://img.nga.cn/attachments/mon_202606/19/lsQ86-jmorK2cT3cSxc-mu.webp.medium.jpg"');
     expect(html).not.toContain('src="./mon_');
   });
 });

@@ -261,19 +261,19 @@ function DiffRow({ item, sourceLabel, destLabel, onToggleSelected, onSetKeep }: 
         onChange={onToggleSelected}
       />
       <div
-        className="shrink-0 w-5 h-5 flex items-center justify-center rounded text-[11px] font-bold"
+        className="shrink-0 w-5 h-5 flex items-center justify-center rounded text-[12px] font-bold"
         style={{ background: 'var(--success-bg)', color: kindColor }}
       >
         {iconKind && <Icon name={iconKind} size={12} />}
       </div>
       <div className="flex-1 min-w-0">
         <div className="text-[var(--text-primary)] text-xs truncate">{item.title}</div>
-        <div className="text-[10px]" style={{ color: kindColor }}>
+        <div className="text-[12px]" style={{ color: kindColor }}>
           {kindLabel}
         </div>
 
         {item.kind === 'conflict' && (
-          <div className="mt-1.5 flex items-center gap-2 text-[11px]">
+          <div className="mt-1.5 flex items-center gap-2 text-[12px]">
             <label
               className="flex items-center gap-1 cursor-pointer"
               style={{ color: item.keep === 'source' ? 'var(--success)' : 'var(--text-secondary)' }}

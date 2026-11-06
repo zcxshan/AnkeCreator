@@ -163,7 +163,7 @@ export function OutlineTree({ onJumpToChapter }: OutlineTreeProps) {
       >
         <div>
           <div className="text-[var(--text-primary)] text-xs font-semibold">大纲目录</div>
-          <div className="text-[var(--text-secondary)] text-[10px] mt-0.5">
+          <div className="text-[var(--text-secondary)] text-[12px] mt-0.5">
             {totalVolumes} 卷 · {totalChapters} 章
           </div>
         </div>
@@ -171,7 +171,7 @@ export function OutlineTree({ onJumpToChapter }: OutlineTreeProps) {
 
       <div className="flex-1 overflow-y-auto py-2">
         {parsedOutlines.length === 0 && (
-          <div className="px-6 py-8 text-xs text-slate-400 text-center italic leading-relaxed">
+          <div className="px-6 py-8 text-xs text-[var(--text-muted)] text-center italic leading-relaxed">
             还没有大纲内容。<br />
             点击下方「+ 新增卷」开始。
           </div>
@@ -191,8 +191,8 @@ export function OutlineTree({ onJumpToChapter }: OutlineTreeProps) {
                   className={[
                     'flex items-center gap-1 px-1.5 py-1.5 rounded-md group transition-colors',
                     vActive
-                      ? 'bg-emerald-50 border-l-2 border-emerald-500 rounded-l-none'
-                      : 'border-l-2 border-transparent hover:bg-slate-50',
+                      ? 'bg-[var(--accent-soft)] border-l-2 border-[color:var(--accent)] rounded-l-none'
+                      : 'border-l-2 border-transparent hover:bg-[var(--bg-hover)]',
                   ].join(' ')}
                   onContextMenu={(e) => {
                     e.preventDefault();
@@ -200,7 +200,7 @@ export function OutlineTree({ onJumpToChapter }: OutlineTreeProps) {
                   }}
                 >
                   <button
-                    className="shrink-0 w-4 h-4 flex items-center justify-center text-xs text-slate-400 hover:text-slate-700"
+                    className="shrink-0 w-4 h-4 flex items-center justify-center text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]"
                     onClick={() =>
                       setExpandedVolumes((prev) => ({
                         ...prev,
@@ -304,8 +304,8 @@ export function OutlineTree({ onJumpToChapter }: OutlineTreeProps) {
                           className={[
                             'flex items-center gap-1 px-1.5 py-1 rounded-md group transition-colors',
                             cActive
-                              ? 'bg-emerald-50 border-l-2 border-emerald-500 rounded-l-none'
-                              : 'border-l-2 border-transparent hover:bg-slate-50',
+                              ? 'bg-[var(--accent-soft)] border-l-2 border-[color:var(--accent)] rounded-l-none'
+                              : 'border-l-2 border-transparent hover:bg-[var(--bg-hover)]',
                           ].join(' ')}
                           onContextMenu={(e) => {
                             e.preventDefault();
@@ -386,7 +386,7 @@ export function OutlineTree({ onJumpToChapter }: OutlineTreeProps) {
 
           {orphanChapters.length > 0 && (
             <div className="mt-3">
-              <div className="px-2 py-1 text-[10px] text-slate-400 uppercase">未归卷</div>
+              <div className="px-2 py-1 text-[12px] text-[var(--text-muted)] uppercase">未归卷</div>
               {orphanChapters.map((c) => {
                 const cActive = activeOutlineId === c.outline.id;
                 return (
@@ -395,8 +395,8 @@ export function OutlineTree({ onJumpToChapter }: OutlineTreeProps) {
                     className={[
                       'flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors',
                       cActive
-                        ? 'bg-emerald-50 text-emerald-800'
-                        : 'text-slate-600 hover:bg-slate-50',
+                        ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                        : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]',
                     ].join(' ')}
                   >
                     <span><Icon name="fileText" size={12} /></span>
@@ -423,7 +423,7 @@ export function OutlineTree({ onJumpToChapter }: OutlineTreeProps) {
         >
           + 新增卷
         </button>
-        <div className="text-[var(--text-secondary)] text-[10px]">{story?.title || ''}</div>
+        <div className="text-[var(--text-secondary)] text-[12px]">{story?.title || ''}</div>
       </div>
 
       {ctxMenu && (

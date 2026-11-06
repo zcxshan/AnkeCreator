@@ -1,7 +1,7 @@
 // ============================================================
-// 角色 / 世界观 / 大纲 / 模板 相关类型
+// 角色 / 大纲 / 人物模板 相关类型
 //
-// 合并文件以减少空文件（plan 中 4 个域，文件大小均衡）
+// 说明：世界观设定与世界观模板已移除（不再作为功能模块存在）
 // ============================================================
 
 import type { Entity } from './entity'
@@ -41,17 +41,6 @@ export interface CharacterRelation extends Entity {
 }
 
 // ============================================================
-// 世界观
-// ============================================================
-
-export interface WorldSetting extends Entity {
-  story_id: string;
-  title: string;
-  content?: string; // 富文本或纯文本
-  order_index: number;
-}
-
-// ============================================================
 // 大纲
 // ============================================================
 
@@ -76,13 +65,6 @@ export interface Outline extends Entity {
 // ============================================================
 // 模板（独立表，不属于具体作品）
 // ============================================================
-
-/** 世界观设定模板。结构与 WorldSetting 类似但无 story_id；含 order_index 用于拖动排序 */
-export interface WorldSettingTemplate extends Entity {
-  title: string;
-  content?: string;
-  order_index: number;
-}
 
 /** 人物模板。结构与 Character 类似但无 story_id；含 order_index 用于拖动排序 */
 export interface CharacterTemplate extends Entity {

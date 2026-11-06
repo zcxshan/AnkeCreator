@@ -116,7 +116,7 @@ export function CharacterTemplatesPanel({ onSelectionChange }: { onSelectionChan
                 const names = templates.filter((t) => selectedIds.includes(t.id)).map((t) => t.name);
                 setPendingBatchDelete({ ids: [...selectedIds], names });
               }}
-              className="bg-[var(--danger)] text-[var(--text-on-accent)] border border-[color:var(--danger)] px-3 py-1.5 text-sm rounded-md transition-colors"
+              className="bg-[var(--danger)] text-[var(--text-on-danger)] border border-[color:var(--danger)] px-3 py-1.5 text-sm rounded-md transition-colors"
             >
               批量删除 ({selectedIds.length})
             </button>
@@ -234,12 +234,11 @@ function CharacterTemplateCard({
       onDragOver={isDraggable ? onDragOver : undefined}
       onDragEnd={isDraggable ? onDragEnd : undefined}
       onDrop={isDraggable ? onDrop : undefined}
-      className="rounded-xl p-4 transition-shadow hover:shadow-md relative"
+      className="rounded-[16px] p-4 relative transition-transform hover:-translate-y-0.5 hover:-rotate-[0.6deg]"
       style={{
-        background: selected ? 'var(--accent-bg)' : 'var(--bg-card)',
-        border: `1px solid ${isDragOver ? 'var(--accent)' : selected ? 'var(--accent)' : 'var(--border-color)'}`,
-        borderTopWidth: isDragOver ? 3 : 1,
-        borderTopColor: isDragOver ? 'var(--accent)' : (selected ? 'var(--accent)' : 'var(--border-color)'),
+        background: selected ? 'var(--an-pink-soft)' : 'var(--an-card)',
+        border: `2px solid ${isDragOver ? 'var(--an-mint)' : selected ? 'var(--an-pink)' : 'var(--an-ink)'}`,
+        boxShadow: '0 4px 0 var(--an-ink)',
         cursor: isDraggable ? 'grab' : undefined,
       }}
     >
@@ -272,7 +271,8 @@ function CharacterTemplateCard({
 
       <div className="flex items-center gap-3" style={{ paddingLeft: isDraggable ? 48 : 24 }}>
         <div
-          className="bg-[var(--bg-hover)] w-10 h-10 rounded-full overflow-hidden flex-shrink-0"
+          className="w-12 h-12 rounded-full overflow-hidden flex-shrink-0"
+          style={{ background: 'var(--an-lilac-soft)', border: '2px solid var(--an-ink)' }}
         >
           {template.avatar ? (
             <img
@@ -284,35 +284,37 @@ function CharacterTemplateCard({
               }}
             />
           ) : (
-            <div className="text-[var(--text-secondary)] w-full h-full flex items-center justify-center text-sm">
+            <div className="w-full h-full flex items-center justify-center text-sm font-bold" style={{ color: 'var(--an-ink)' }}>
               {(template.name || '?').slice(0, 1)}
             </div>
           )}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <div className="text-[var(--text-primary)] font-medium truncate">
+            <div className="font-bold truncate" style={{ color: 'var(--an-ink)', fontFamily: 'var(--an-font-display)' }}>
               {template.name}
             </div>
           </div>
-          <div className="text-[var(--text-secondary)] text-xs truncate">
+          <div className="text-xs truncate" style={{ color: 'var(--an-ink-soft)' }}>
             {template.personality || '（无性格描述）'}
           </div>
         </div>
       </div>
-      <div className="text-[var(--text-muted)] mt-3 text-xs">
+      <div className="mt-3 text-[11px]" style={{ color: 'var(--an-ink-faint)' }}>
         更新于 {new Date(template.updated_at).toLocaleString()}
       </div>
       <div className="mt-3 flex justify-end gap-2">
         <button
           onClick={onEdit}
-          className="bg-[var(--bg-hover)] text-[var(--text-primary)] text-xs px-2.5 py-1 rounded-md transition-colors"
+          className="text-xs px-3 py-1 font-semibold transition-transform hover:-translate-y-[1px]"
+          style={{ background: 'var(--an-mint-soft)', color: 'var(--an-ink)', border: '2px solid var(--an-ink)', borderRadius: 999, boxShadow: '0 2px 0 var(--an-ink)' }}
         >
           编辑
         </button>
         <button
           onClick={onDelete}
-          className="bg-transparent text-[var(--text-secondary)] text-xs px-2.5 py-1 rounded-md transition-colors"
+          className="text-xs px-3 py-1 font-semibold transition-transform hover:-translate-y-[1px]"
+          style={{ background: 'var(--an-pink-soft)', color: '#8a1f43', border: '2px solid var(--an-ink)', borderRadius: 999, boxShadow: '0 2px 0 var(--an-ink)' }}
         >
           删除
         </button>
@@ -623,23 +625,28 @@ function CharacterTemplateEditor({
   const labelColor = 'var(--text-secondary)';
 
   return (
-    <div className="bg-[var(--bg-overlay)] fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(64,50,92,0.42)', backdropFilter: 'blur(3px)' }}>
       <div
-        className="bg-[var(--bg-base)] text-[var(--text-primary)] border border-[color:var(--border-color)] w-[90%] max-w-[720px] max-h-[90vh] overflow-y-auto rounded-lg shadow-2xl flex flex-col"
+        className="w-[90%] max-w-[720px] max-h-[90vh] overflow-y-auto flex flex-col"
+        style={{
+          background: 'var(--an-card)',
+          color: 'var(--an-ink)',
+          border: 'var(--an-line)',
+          borderRadius: 'var(--an-radius-lg)',
+          boxShadow: 'var(--an-shadow-pop-lg), var(--an-shadow-soft)',
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         <div
-          className="border-b border-b-[color:var(--border-color)] flex items-center justify-between px-4 py-2"
+          className="flex items-center justify-between px-4 py-3"
+          style={{ background: 'var(--an-pink-soft)', borderBottom: 'var(--an-line)' }}
         >
           <div className="flex items-center gap-3">
-            <div className="text-[var(--text-primary)] text-sm font-semibold inline-flex items-center gap-1.5"><Icon name="pen" size={14} /> 编辑人物模板</div>
+            <div className="text-sm font-bold inline-flex items-center gap-1.5" style={{ fontFamily: 'var(--an-font-display)', color: 'var(--an-ink)' }}><Icon name="pen" size={14} /> 编辑人物模板</div>
           </div>
           <button aria-label="关闭"
             onClick={onClose}
-            className="text-sm transition-colors"
-            style={{ color: labelColor }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text-primary)')}
-            onMouseLeave={(e) => (e.currentTarget.style.color = labelColor)}
+            className="an-btn an-btn--sm w-8 h-8 !p-0 flex items-center justify-center"
             title="关闭"
           >
             <Icon name="x" size={16} />
@@ -707,13 +714,13 @@ function CharacterTemplateEditor({
                 value={avatar}
                 onChange={(e) => setAvatar(e.target.value)}
                 placeholder="或填写图片URL/路径"
-                className="w-40 text-[10px] border rounded px-2 py-1 outline-none"
+                className="w-40 text-[12px] border rounded px-2 py-1 outline-none"
                 style={inputStyle}
               />
               {avatar && (
                 <button
                   onClick={() => setAvatar('')}
-                  className="text-[10px] transition-colors"
+                  className="text-[12px] transition-colors"
                   style={{ color: labelColor }}
                   onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--danger)')}
                   onMouseLeave={(e) => (e.currentTarget.style.color = labelColor)}
@@ -764,7 +771,7 @@ function CharacterTemplateEditor({
               <label className="text-xs" style={{ color: labelColor }}>属性表</label>
               <button
                 onClick={() => setBatchAttrOpen(true)}
-                className="bg-[var(--bg-sidebar)] text-[var(--text-primary)] border border-[color:var(--border-color)] text-[10px] px-2 py-0.5 rounded"
+                className="bg-[var(--bg-sidebar)] text-[var(--text-primary)] border border-[color:var(--border-color)] text-[12px] px-2 py-0.5 rounded"
                 title="批量添加属性，每行格式：属性名:属性值"
               >
                 批量添加
@@ -783,12 +790,12 @@ function CharacterTemplateEditor({
                 人物差分（表情/姿势/服饰等图片变体）
               </label>
               <div className="flex items-center gap-2">
-                <span className="text-[10px]" style={{ color: labelColor }}>
+                <span className="text-[12px]" style={{ color: labelColor }}>
                   共 {variants.length} 个
                 </span>
                 <button
                   onClick={() => setBatchVariantOpen(true)}
-                  className="bg-[var(--bg-sidebar)] text-[var(--text-primary)] border border-[color:var(--border-color)] text-[10px] px-2 py-0.5 rounded"
+                  className="bg-[var(--bg-sidebar)] text-[var(--text-primary)] border border-[color:var(--border-color)] text-[12px] px-2 py-0.5 rounded"
                   title="批量添加差分，每行格式：差分名:图片URL"
                 >
                   批量添加
@@ -802,7 +809,7 @@ function CharacterTemplateEditor({
                     batchUploadRef.current?.click();
                   }}
                   disabled={isLocalUploadDisabled}
-                  className="text-[10px] px-2 py-0.5 rounded"
+                  className="text-[12px] px-2 py-0.5 rounded"
                   style={{
                     background: 'var(--bg-sidebar)',
                     color: 'var(--text-primary)',
@@ -899,7 +906,7 @@ function CharacterTemplateEditor({
               ))}
               {variants.length === 0 && (
                 <div
-                  className="text-[10px] italic text-center py-2"
+                  className="text-[12px] italic text-center py-2"
                   style={{ color: labelColor }}
                 >
                   暂无差分，下方添加

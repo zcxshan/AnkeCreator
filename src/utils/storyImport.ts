@@ -262,3 +262,240 @@ export async function ensureDefaultVolumeAndChapter(
     fallbackChapterId: fallbackChapterId!,
   };
 }
+
+// ============================================================
+// 导入归一化
+//
+// 兼容三种来源：
+//   1. 当前应用导出：format = 'anke-creator-export'，实体在 data 下，
+//      章节内嵌 sections（导出端 WorksListPage / collectAnkeToWorkJson）；
+//   2. 旧版本导出：format = 'anke-creator-story'，实体在 data 下，
+//      可能缺 volumes，sections 在顶层；
+//   3. 内部 StoryBundle：format = 'anke-creator-story-v2'，实体在根上。
+// 另外兼容没有 format 包装的旧文件。
+// 归一化后统一为顶层 sections + 自带默认卷章，交给
+// ensureDefaultVolumeAndChapter 落库。
+// ============================================================
+
+export interface NormalizedVolumeInput {
+  id: string;
+  title: string;
+  order_index: number;
+  extras: Record<string, unknown>;
+}
+
+export interface NormalizedChapterInput {
+  id: string;
+  volume_id: string;
+  title: string;
+  order_index: number;
+  extras: Record<string, unknown>;
+}
+
+export interface NormalizedSectionInput {
+  id: string;
+  chapter_id: string;
+  title: string;
+  content: string | null;
+  bbcode: string | null;
+  order_index: number;
+  extras: Record<string, unknown>;
+}
+
+export interface NormalizedStoryInput {
+  title: string;
+  description: string;
+  category: string;
+  cover_gradient: string;
+  volumes: NormalizedVolumeInput[];
+  chapters: NormalizedChapterInput[];
+  sections: NormalizedSectionInput[];
+  characters: Record<string, unknown>[];
+  character_relations: Record<string, unknown>[];
+  outlines: Record<string, unknown>[];
+  dice_history: Record<string, unknown>[];
+  extras: Record<string, unknown>;
+}
+
+export type NormalizeImportResult =
+  | { ok: true; format: 'story-v2' | 'export' | 'story' | 'legacy'; data: NormalizedStoryInput }
+  | { ok: false; error: string };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function asRows(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+function text(value: unknown, fallback = ''): string {
+  return typeof value === 'string' ? value : fallback;
+}
+
+function orderIndex(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function extrasOf(row: Record<string, unknown>, known: Set<string>): Record<string, unknown> {
+  const extras: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(row)) {
+    if (!known.has(key)) extras[key] = value;
+  }
+  return extras;
+}
+
+const STORY_KEYS = new Set([
+  'id', 'title', 'description', 'category', 'cover_gradient', 'status',
+  'created_at', 'updated_at', 'word_count', 'stats',
+]);
+const VOLUME_KEYS = new Set(['id', 'title', 'order_index', 'story_id']);
+const CHAPTER_KEYS = new Set(['id', 'title', 'order_index', 'volume_id', 'story_id', 'sections']);
+const SECTION_KEYS = new Set([
+  'id', 'title', 'content', 'bbcode', 'order_index', 'chapter_id', 'story_id',
+  'word_count', 'created_at', 'updated_at', 'status',
+]);
+const ROOT_KEYS = new Set([
+  'format', 'version', 'exportedAt', 'data', 'story', 'title', 'description',
+  'category', 'cover_gradient', 'status', 'volumes', 'chapters', 'sections',
+  'world_settings', 'characters', 'character_relations', 'outlines',
+  'dice_history', 'dice_stats', 'stats', 'extras',
+]);
+// 旧文件没有 story 包装时 storyRow === root，需要同时排除根级实体字段，
+// 避免 volumes/chapters/sections 等大数组被当作未知字段塞进 extras。
+const STORY_EXTRAS_KEYS = new Set([...STORY_KEYS, ...ROOT_KEYS]);
+
+export function normalizeImportPayload(raw: unknown, fileName: string): NormalizeImportResult {
+  if (!isRecord(raw)) {
+    return { ok: false, error: `文件不是有效的安科作品 JSON：${fileName}` };
+  }
+  let root: Record<string, unknown> = raw;
+  let format: 'story-v2' | 'export' | 'story' | 'legacy' = 'legacy';
+  if (raw.format === 'anke-creator-story-v2') {
+    format = 'story-v2';
+  } else if (raw.format === 'anke-creator-export') {
+    if (!isRecord(raw.data)) {
+      return { ok: false, error: `导出文件缺少 data：${fileName}` };
+    }
+    root = raw.data;
+    format = 'export';
+  } else if (raw.format === 'anke-creator-story') {
+    if (!isRecord(raw.data)) {
+      return { ok: false, error: `旧版文件缺少 data：${fileName}` };
+    }
+    root = raw.data;
+    format = 'story';
+  } else if (typeof raw.format === 'string' && raw.format.length > 0) {
+    return {
+      ok: false,
+      error: `不支持的文件格式：${raw.format}，仅支持 anke-creator-export / anke-creator-story / anke-creator-story-v2 或无包装旧文件`,
+    };
+  } else if (isRecord(raw.data) && ('title' in raw.data || 'story' in raw.data)) {
+    root = raw.data;
+    format = 'export';
+  }
+  const storyRow = isRecord(root.story) ? root.story : root;
+  const title = text(storyRow.title).trim();
+  if (!title) {
+    return { ok: false, error: '文件缺少作品标题' };
+  }
+  const volumesRaw = asRows(root.volumes);
+  const chaptersRaw = asRows(root.chapters);
+  const sectionsRaw = asRows(root.sections);
+  const volumes: NormalizedVolumeInput[] = volumesRaw.map((row, index) => ({
+    id: text(row.id, `import-vol-${index + 1}`),
+    title: text(row.title, `第${index + 1}卷`),
+    order_index: orderIndex(row.order_index, index),
+    extras: extrasOf(row, VOLUME_KEYS),
+  }));
+  if (volumes.length === 0) {
+    volumes.push({ id: 'import-vol-1', title: '第一卷', order_index: 0, extras: {} });
+  }
+  const chapters: NormalizedChapterInput[] = chaptersRaw.map((row, index) => {
+    const meta = { ...row };
+    delete meta.sections;
+    return {
+      id: text(row.id, `import-ch-${index + 1}`),
+      volume_id: text(row.volume_id, volumes[0].id),
+      title: text(row.title, `第${index + 1}章`),
+      order_index: orderIndex(row.order_index, index),
+      extras: extrasOf(meta, CHAPTER_KEYS),
+    };
+  });
+  if (chapters.length === 0) {
+    chapters.push({
+      id: 'import-ch-1',
+      volume_id: volumes[0].id,
+      title: '第一章',
+      order_index: 0,
+      extras: {},
+    });
+  }
+  const fromTop = sectionsRaw.map((row, index) => ({ row, index, chapterId: text(row.chapter_id, chapters[0].id) }));
+  const fromChapters = chaptersRaw.flatMap((chapter, chapterIndex) => {
+    const nested = asRows(chapter.sections);
+    const chapterId = chapters[chapterIndex]?.id ?? chapters[0].id;
+    return nested.map((row, index) => ({ row, index, chapterId }));
+  });
+  const sourceSections = fromTop.length > 0 ? fromTop : fromChapters;
+  const sections: NormalizedSectionInput[] = [];
+  for (let flatIndex = 0; flatIndex < sourceSections.length; flatIndex += 1) {
+    const { row, index, chapterId } = sourceSections[flatIndex];
+    const content = typeof row.content === 'string' ? row.content : null;
+    const bbcode = typeof row.bbcode === 'string' ? row.bbcode : null;
+    if (!content && !bbcode) {
+      return {
+        ok: false,
+        error: `第 ${flatIndex + 1} 节「${text(row.title, '未命名')}」缺少正文`,
+      };
+    }
+    const knownChapter = chapters.some((chapter) => chapter.id === chapterId);
+    sections.push({
+      id: text(row.id, `import-sec-${flatIndex + 1}`),
+      chapter_id: knownChapter ? chapterId : chapters[0].id,
+      title: text(row.title, `第${flatIndex + 1}节`),
+      content,
+      bbcode,
+      order_index: orderIndex(row.order_index, index),
+      extras: extrasOf(row, SECTION_KEYS),
+    });
+  }
+  const result: NormalizedStoryInput = {
+    title,
+    description: text(storyRow.description),
+    category: text(storyRow.category, '未分类'),
+    cover_gradient: text(storyRow.cover_gradient),
+    volumes,
+    chapters,
+    sections,
+    characters: asRows(root.characters),
+    character_relations: asRows(root.character_relations),
+    outlines: asRows(root.outlines),
+    dice_history: asRows(root.dice_history),
+    extras: {
+      ...extrasOf(storyRow, STORY_EXTRAS_KEYS),
+      ...extrasOf(root, ROOT_KEYS),
+    },
+  };
+  return { ok: true, format, data: result };
+}
+
+export function parseImportText(rawText: string, fileName: string): NormalizeImportResult {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawText);
+  } catch {
+    return { ok: false, error: `文件不是合法的 JSON：${fileName}` };
+  }
+  // 保留 validateImportFormat 对两种包装格式的既有校验语义
+  if (
+    isRecord(parsed) &&
+    (parsed.format === 'anke-creator-export' || parsed.format === 'anke-creator-story')
+  ) {
+    const validation = validateImportFormat(parsed);
+    if (!validation.valid) {
+      return { ok: false, error: validation.error ?? `文件格式不正确：${fileName}` };
+    }
+  }
+  return normalizeImportPayload(parsed, fileName);
+}

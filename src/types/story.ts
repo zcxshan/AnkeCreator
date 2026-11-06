@@ -3,7 +3,7 @@
 // ============================================================
 
 import type { Entity } from './entity'
-import type { Character, WorldSetting, Outline } from './character-world-outline'
+import type { Character, Outline } from './character-world-outline'
 
 export interface Story extends Entity {
   title: string;
@@ -87,7 +87,6 @@ export interface Favorite {
 }
 
 export interface StoryWithAll extends Story {
-  world_settings: WorldSetting[];
   characters: Character[];
   outlines: Outline[];
   volumes: Volume[];

@@ -1,70 +1,52 @@
 // ============================================================
-// 玩转盘 - SVG 转盘渲染组件
+// 玩转盘 - SVG 转盘渲染组件（糖果贴纸风）
 //
 // 功能：
 //   - 按权重分配扇区角度（weight 越大扇区越大）
 //   - 用 SVG 绘制圆形转盘
-//   - 支持旋转动画（父组件控制 rotation 角度）
-//   - 高亮中奖扇区
+//   - 支持旋转动画（父组件通过 rAF 更新 rotation）
+//   - 高亮中奖扇区（加粗描边 + 提亮 + 外圈光晕）
+//   - 顶部指针 + 中心轮毂
 //
 // 设计：
-//   - 用 SVG 而非 Canvas，便于交互和样式
-//   - 扇区颜色用中性灰阶弱交替，中奖扇区用 --accent 高亮
-//   - 文本沿扇区中线绘制，超长自动截断
+//   - 糖果色循环 + 3px 墨水描边，贴纸手账观感
+//   - 文字沿径向排列，按扇区角度自动选择字号并截断
+//   - 默认 420px，由父容器决定自适应尺寸
 // ============================================================
 
-import { useMemo } from 'react'
+import { useId, useMemo } from 'react'
 import type { WheelOption } from '../../types/wheel'
+import { computeSectorGeometry } from '../../utils/wheelSpin'
 
 export interface WheelCanvasProps {
   /** 选项列表（带权重） */
   options: WheelOption[]
-  /** SVG 尺寸（px），默认 320 */
+  /** SVG 尺寸（px），默认 420 */
   size?: number
   /** 当前旋转角度（度），0 = 不旋转，正值顺时针 */
   rotation?: number
   /** 中奖扇区索引（高亮显示），undefined = 无高亮 */
   highlightIndex?: number
-  /** 是否正在旋转（影响过渡动画） */
+  /** 是否正在旋转（影响动效滤镜） */
   spinning?: boolean
 }
 
-// 扁平极简:中性灰阶弱交替,中奖扇区用 --accent 高亮
-const SECTOR_COLORS = ['#6b7280', '#9ca3af', '#4b5563', '#d1d5db', '#374151']
+/** 糖果色循环（与 --an-* 令牌同源） */
+export const WHEEL_SECTOR_COLORS = [
+  '#ff86b8',
+  '#5cc6ff',
+  '#4fdcae',
+  '#ffd45e',
+  '#b39bff',
+  '#ffb38a',
+  '#9be36b',
+  '#ff9ad5',
+]
 
-/**
- * 计算每个扇区的起止角度和颜色
- */
-function computeSectors(options: WheelOption[]) {
-  const totalWeight = options.reduce((sum, o) => sum + Math.max(o.weight, 0), 0)
-  if (totalWeight <= 0 || options.length === 0) return []
+const INK = '#40325c'
+const DISPLAY_FONT =
+  "'ZCOOL KuaiLe','YouYuan','幼圆','Yuanti SC','PingFang SC','Microsoft YaHei',system-ui,sans-serif"
 
-  let currentAngle = -90 // 从顶部开始（-90 度 = 12 点方向）
-  return options.map((opt, idx) => {
-    const weight = Math.max(opt.weight, 0)
-    const angle = (weight / totalWeight) * 360
-    const startAngle = currentAngle
-    const endAngle = currentAngle + angle
-    const midAngle = (startAngle + endAngle) / 2
-    currentAngle = endAngle
-    return {
-      option: opt,
-      index: idx,
-      startAngle,
-      endAngle,
-      midAngle,
-      color: SECTOR_COLORS[idx % SECTOR_COLORS.length],
-    }
-  })
-}
-
-/**
- * 极坐标转笛卡尔坐标
- * @param angleDeg 角度（度，0 = 右侧，90 = 下方）
- * @param radius 半径
- * @param cx 圆心 x
- * @param cy 圆心 y
- */
 function polarToCartesian(angleDeg: number, radius: number, cx: number, cy: number) {
   const rad = (angleDeg * Math.PI) / 180
   return {
@@ -73,9 +55,6 @@ function polarToCartesian(angleDeg: number, radius: number, cx: number, cy: numb
   }
 }
 
-/**
- * 生成扇区路径（圆环扇形）
- */
 function describeSector(
   startAngle: number,
   endAngle: number,
@@ -83,8 +62,7 @@ function describeSector(
   cx: number,
   cy: number,
 ): string {
-  if (endAngle - startAngle >= 360) {
-    // 完整圆
+  if (endAngle - startAngle >= 359.99) {
     return `M ${cx - radius} ${cy} A ${radius} ${radius} 0 1 1 ${cx + radius} ${cy} A ${radius} ${radius} 0 1 1 ${cx - radius} ${cy} Z`
   }
   const start = polarToCartesian(startAngle, radius, cx, cy)
@@ -93,35 +71,27 @@ function describeSector(
   return `M ${cx} ${cy} L ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArc} 1 ${end.x} ${end.y} Z`
 }
 
-/**
- * 截断过长的选项文本（避免扇区文字溢出）
- */
-function truncateText(text: string, maxLen: number): string {
+/** 根据扇区可用弧长截断文本 */
+function fitText(text: string, maxChars: number): string {
   if (!text) return ''
-  if (text.length <= maxLen) return text
-  return text.slice(0, maxLen - 1) + '…'
+  if (text.length <= maxChars) return text
+  return text.slice(0, Math.max(1, maxChars - 1)) + '…'
 }
 
 export function WheelCanvas({
   options,
-  size = 320,
+  size = 420,
   rotation = 0,
   highlightIndex,
   spinning = false,
 }: WheelCanvasProps) {
+  const filterId = useId().replace(/[:]/g, '')
   const cx = size / 2
   const cy = size / 2
-  const radius = size / 2 - 8
+  const radius = Math.max(60, size / 2 - 24)
+  const hubSize = Math.max(48, Math.round(size * 0.17))
 
-  const sectors = useMemo(() => computeSectors(options), [options])
-
-  // 根据扇区数量决定文本最大长度
-  const maxTextLen = useMemo(() => {
-    if (sectors.length <= 4) return 8
-    if (sectors.length <= 8) return 6
-    if (sectors.length <= 12) return 4
-    return 3
-  }, [sectors.length])
+  const sectors = useMemo(() => computeSectorGeometry(options), [options])
 
   if (options.length === 0) {
     return (
@@ -130,10 +100,11 @@ export function WheelCanvas({
         style={{
           width: size,
           height: size,
-          background: 'var(--bg-card)',
-          border: '2px dashed var(--border-color)',
-          color: 'var(--text-secondary)',
-          fontSize: '14px',
+          background: 'var(--an-card, #ffffff)',
+          border: `3px dashed ${INK}`,
+          color: 'var(--an-ink-soft, #7d6f99)',
+          fontSize: 13,
+          fontFamily: DISPLAY_FONT,
         }}
       >
         暂无选项
@@ -141,94 +112,144 @@ export function WheelCanvas({
     )
   }
 
+  // 高亮扇区最后绘制，避免被相邻扇区描边盖住
+  const orderedSectors = [...sectors].sort((a, b) => {
+    const aHi = a.index === highlightIndex ? 1 : 0
+    const bHi = b.index === highlightIndex ? 1 : 0
+    return aHi - bHi
+  })
+
   return (
     <div style={{ width: size, height: size, position: 'relative' }}>
-      {/* 顶部指针 */}
-      <div
-        style={{
-          position: 'absolute',
-          top: -4,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          width: 0,
-          height: 0,
-          borderLeft: '10px solid transparent',
-          borderRight: '10px solid transparent',
-          borderTop: '18px solid var(--accent)',
-          zIndex: 10,
-        }}
-      />
       <svg
         width={size}
         height={size}
         viewBox={`0 0 ${size} ${size}`}
         style={{
           transform: `rotate(${rotation}deg)`,
-          transition: spinning
-            ? 'transform 4s cubic-bezier(0.17, 0.67, 0.12, 0.99)'
-            : 'none',
+          filter: spinning ? 'blur(0.6px)' : undefined,
           display: 'block',
+          willChange: 'transform',
         }}
       >
-        {/* 外圈边框 */}
+        <defs>
+          <filter id={filterId} x="-30%" y="-30%" width="160%" height="160%">
+            <feDropShadow dx="0" dy="0" stdDeviation="5" floodColor="#ff86b8" floodOpacity="0.75" />
+          </filter>
+        </defs>
+
+        {/* 外圈白底 */}
         <circle
           cx={cx}
           cy={cy}
-          r={radius + 4}
-          fill="none"
-          stroke="var(--border-color)"
-          strokeWidth={2}
+          r={radius + 8}
+          fill="var(--an-card, #ffffff)"
+          stroke={INK}
+          strokeWidth={3}
+          style={{ filter: 'drop-shadow(0 6px 0 rgba(64,50,92,0.18))' }}
         />
+
         {/* 扇区 */}
-        {sectors.map((s) => {
-          const isHighlighted = highlightIndex === s.index
-          const path = describeSector(s.startAngle, s.endAngle, radius, cx, cy)
-          // 文本位置（扇区中线，半径的 65% 处）
-          const textPos = polarToCartesian(s.midAngle, radius * 0.65, cx, cy)
-          // 文本旋转角度（让文字沿径向）
-          const textRotation = s.midAngle
-          // 文本是否需要翻转（避免倒着读）
-          const flipText = s.midAngle > 90 && s.midAngle < 270
+        {orderedSectors.map((sector) => {
+          const span = sector.endAngle - sector.startAngle
+          if (span <= 0.05) return null
+
+          const option = options[sector.index]
+          const isHighlighted = highlightIndex === sector.index
+          const path = describeSector(sector.startAngle, sector.endAngle, radius, cx, cy)
+          const textRadius = radius * 0.66
+          const textPos = polarToCartesian(sector.midAngle, textRadius, cx, cy)
+          const flipText = sector.midAngle > 90 && sector.midAngle < 270
+          const fontSize = Math.max(11, Math.min(16, span * 0.55))
+          // 文字可用的弧长（近似）→ 最大字符数
+          const arcLength = (span * Math.PI * textRadius) / 180
+          const maxChars = Math.max(1, Math.floor(arcLength / Math.max(fontSize * 0.95, 1)))
+          const label = fitText(option?.text ?? '', maxChars)
+
           return (
-            <g key={s.option.id}>
+            <g key={option?.id ?? sector.index}>
               <path
                 d={path}
-                fill={s.color}
-                stroke={isHighlighted ? 'var(--accent)' : 'var(--bg-card)'}
-                strokeWidth={isHighlighted ? 4 : 1}
+                fill={WHEEL_SECTOR_COLORS[sector.index % WHEEL_SECTOR_COLORS.length]}
+                stroke={INK}
+                strokeWidth={isHighlighted ? 5 : 3}
+                strokeLinejoin="round"
+                filter={isHighlighted ? `url(#${filterId})` : undefined}
+                opacity={highlightIndex !== undefined && !isHighlighted ? 0.88 : 1}
               />
+              {isHighlighted && (
+                <path d={path} fill="#ffffff" opacity={0.18} />
+              )}
               <text
                 x={textPos.x}
                 y={textPos.y}
-                fill="#fff"
-                fontSize={Math.max(10, Math.min(16, 80 / maxTextLen))}
-                fontWeight={isHighlighted ? 'bold' : 'normal'}
+                fill={INK}
+                fontSize={fontSize}
+                fontWeight={700}
+                fontFamily={DISPLAY_FONT}
                 textAnchor="middle"
                 dominantBaseline="middle"
-                transform={`rotate(${flipText ? textRotation + 180 : textRotation} ${textPos.x} ${textPos.y})`}
-                style={{ pointerEvents: 'none', textShadow: '0 1px 2px rgba(0,0,0,0.5)' }}
+                transform={`rotate(${flipText ? sector.midAngle + 180 : sector.midAngle} ${textPos.x} ${textPos.y})`}
+                style={{ pointerEvents: 'none', paintOrder: 'stroke', letterSpacing: '0.5px' }}
               >
-                {truncateText(s.option.text, maxTextLen)}
+                <title>{option?.text ?? ''}</title>
+                {label}
               </text>
             </g>
           )
         })}
-        {/* 中心圆 */}
-        <circle
-          cx={cx}
-          cy={cy}
-          r={Math.max(12, radius * 0.08)}
-          fill="#fff"
-          stroke="var(--border-color)"
-          strokeWidth={2}
-        />
-        <circle
-          cx={cx}
-          cy={cy}
-          r={Math.max(6, radius * 0.04)}
-          fill="var(--accent)"
-        />
       </svg>
+
+      {/* 顶部指针 */}
+      <div
+        style={{
+          position: 'absolute',
+          top: -8,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 2,
+          filter: 'drop-shadow(0 4px 0 rgba(64,50,92,0.25))',
+          pointerEvents: 'none',
+        }}
+      >
+        <svg width={38} height={50} viewBox="0 0 38 50">
+          <path
+            d="M19 47 L3 15 Q1 5 11 5 L27 5 Q37 5 35 15 Z"
+            fill="#fff"
+            stroke={INK}
+            strokeWidth={3}
+            strokeLinejoin="round"
+          />
+          <circle cx={19} cy={16} r={6} fill={WHEEL_SECTOR_COLORS[0]} stroke={INK} strokeWidth={2.5} />
+        </svg>
+      </div>
+
+      {/* 中心轮毂（不随转盘旋转） */}
+      <div
+        style={{
+          position: 'absolute',
+          left: '50%',
+          top: '50%',
+          width: hubSize,
+          height: hubSize,
+          transform: 'translate(-50%, -50%)',
+          borderRadius: '50%',
+          background: 'var(--an-card, #ffffff)',
+          border: `3px solid ${INK}`,
+          boxShadow: '0 4px 0 rgba(64,50,92,0.9)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: INK,
+          fontFamily: DISPLAY_FONT,
+          fontSize: Math.round(hubSize * 0.42),
+          lineHeight: 1,
+          userSelect: 'none',
+          zIndex: 1,
+        }}
+      >
+        转
+      </div>
     </div>
   )
 }

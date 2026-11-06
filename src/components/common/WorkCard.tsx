@@ -30,6 +30,21 @@ interface MenuPos {
   left: number;
 }
 
+/** 封面配色（按作品 id 稳定取色） */
+const COVER_PAIRS: Array<{ bg: string; accent: string }> = [
+  { bg: 'var(--an-pink-soft)', accent: 'var(--an-pink)' },
+  { bg: 'var(--an-sky-soft)', accent: 'var(--an-sky)' },
+  { bg: 'var(--an-mint-soft)', accent: 'var(--an-mint)' },
+  { bg: 'var(--an-lemon-soft)', accent: 'var(--an-lemon)' },
+  { bg: 'var(--an-lilac-soft)', accent: 'var(--an-lilac)' },
+];
+
+function pickCover(id: string): { bg: string; accent: string } {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+  return COVER_PAIRS[hash % COVER_PAIRS.length];
+}
+
 function WorkCardInner({
   work,
   onOpen,
@@ -75,6 +90,7 @@ function WorkCardInner({
 
   const formattedDate = formatDate(work.updated_at);
   const isPinned = !!work.is_pinned;
+  const cover = pickCover(work.id);
 
   const openMenu = () => {
     if (menuOpen) {
@@ -84,8 +100,7 @@ function WorkCardInner({
     const btn = menuBtnRef.current;
     if (btn) {
       const r = btn.getBoundingClientRect();
-      // 菜单向下展开，左对齐到按钮左缘
-      setMenuPos({ top: r.bottom + 4, left: r.left });
+      setMenuPos({ top: r.bottom + 6, left: Math.min(r.left, window.innerWidth - 200) });
     } else {
       setMenuPos({ top: 80, left: 80 });
     }
@@ -94,28 +109,36 @@ function WorkCardInner({
 
   if (confirmDelete) {
     return (
-      <div className="bg-[var(--bg-card)] border-[color:var(--danger)] group relative rounded-2xl border p-5 shadow-sm flex flex-col items-center justify-center min-h-[280px] text-center"
+      <div
+        className="an-card"
+        style={{
+          minHeight: 260,
+          padding: 20,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          textAlign: 'center',
+          gap: 6,
+        }}
       >
-        <div className="text-3xl mb-2"><Icon name="trash" size={24} /></div>
-        <div className="text-[var(--text-primary)] text-sm font-semibold mb-1">确认删除？</div>
-        <div className="text-[var(--text-secondary)] text-xs mb-4 px-2">该操作不可撤销</div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setConfirmDelete(false)}
-            className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)] px-3 py-1.5 text-xs rounded-lg transition-colors"
-            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-            onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-card)'}
-          >
+        <span style={{ color: '#c0392b' }}>
+          <Icon name="trash" size={28} />
+        </span>
+        <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--an-ink)' }}>确认删除？</div>
+        <div style={{ fontSize: 12, color: 'var(--an-ink-soft)', marginBottom: 8 }}>
+          作品会移入回收站，可随时还原
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="an-btn an-btn--sm an-btn--ghost" onClick={() => setConfirmDelete(false)}>
             取消
           </button>
           <button
+            className="an-btn an-btn--sm an-btn--pink"
             onClick={() => {
               onDelete(work.id);
               setConfirmDelete(false);
             }}
-            className="bg-[var(--danger)] text-[var(--text-on-accent)] px-3 py-1.5 text-xs rounded-lg transition-colors"
-            onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
-            onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
           >
             确认删除
           </button>
@@ -140,178 +163,160 @@ function WorkCardInner({
       onKeyDown={handleCardKeyDown}
       draggable
       data-story-id={work.id}
-      className="bg-[var(--bg-card)] border-[color:var(--border-color)] outline-none group relative rounded-2xl border hover:shadow-lg hover:-translate-y-1 transition-all cursor-pointer overflow-hidden"
-      onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = 'var(--accent)';
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = 'var(--border-color)';
+      className="an-card an-card--hover"
+      style={{
+        outline: 'none',
+        cursor: 'pointer',
+        overflow: 'hidden',
+        padding: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: 260,
       }}
       onFocus={(e) => {
-        e.currentTarget.style.borderColor = 'var(--accent)';
-        e.currentTarget.style.boxShadow = '0 0 0 2px var(--accent)';
+        e.currentTarget.style.boxShadow = '0 0 0 3px var(--an-pink), var(--an-shadow-pop)';
       }}
       onBlur={(e) => {
-        e.currentTarget.style.borderColor = 'var(--border-color)';
-        e.currentTarget.style.boxShadow = 'none';
+        e.currentTarget.style.boxShadow = 'var(--an-shadow-pop)';
       }}
     >
-      {/* 置顶作品左侧 accent 竖条 */}
-      {isPinned && (
+      {/* 封面 */}
+      <div
+        style={{
+          position: 'relative',
+          height: 116,
+          background: `linear-gradient(135deg, ${cover.bg} 0%, var(--an-card) 100%)`,
+          borderBottom: '3px solid var(--an-ink)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
         <div
-          className="bg-[var(--accent)] absolute left-0 top-0 bottom-0 w-1"
-        />
-      )}
-
-      {/* 悬停操作菜单（更多）—— 按钮仅触发，菜单通过 portal 渲染到 document.body 避免被卡片 overflow 遮挡 */}
-      <div
-        className="absolute top-3 right-3 z-10"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <button
-          ref={menuBtnRef}
-          onClick={openMenu}
-          className="px-2 py-0.5 rounded-md text-[11px] font-medium border transition-opacity inline-flex items-center gap-1"
+          aria-hidden="true"
           style={{
-            background: isPinned ? 'var(--accent-soft)' : 'var(--bg-card)',
-            borderColor: isPinned ? 'var(--accent)' : 'var(--border-color)',
-            color: isPinned ? 'var(--accent)' : 'var(--text-secondary)',
-            opacity: 0.7,
+            position: 'absolute',
+            top: -18,
+            right: -18,
+            width: 62,
+            height: 62,
+            borderRadius: '50%',
+            background: cover.accent,
+            opacity: 0.35,
           }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.opacity = '1';
+        />
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            bottom: -20,
+            left: -16,
+            width: 52,
+            height: 52,
+            borderRadius: '50%',
+            background: cover.accent,
+            opacity: 0.25,
           }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.opacity = '0.7';
+        />
+        <div
+          style={{
+            position: 'relative',
+            zIndex: 1,
+            width: 58,
+            height: 58,
+            borderRadius: '50%',
+            border: '3px solid var(--an-ink)',
+            background: 'var(--an-card)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 4px 0 var(--an-ink)',
+            color: 'var(--an-ink)',
           }}
-          title="更多操作"
-          aria-label="更多操作"
-          aria-expanded={menuOpen}
         >
-          {isPinned && <Icon name="pin" size={12} />}
-          <span>更多</span>
-        </button>
-      </div>
+          <Icon name="bookText" size={28} />
+        </div>
 
-      {/* 顶部左侧：文字按钮组（置顶 / 收藏到 / 删除） */}
-      <div className="absolute top-3 left-3 z-[1] flex items-center gap-1.5">
-        {/* 置顶按钮 */}
-        {onPinned && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onPinned(work.id);
-            }}
-            className="px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors"
-            title={isPinned ? '取消置顶' : '置顶'}
-            style={{
-              background: isPinned ? 'var(--accent-soft)' : 'var(--bg-card)',
-              borderColor: isPinned ? 'var(--accent)' : 'var(--border-color)',
-              color: isPinned ? 'var(--accent)' : 'var(--text-secondary)',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'var(--bg-hover)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = isPinned
-                ? 'var(--accent-soft)'
-                : 'var(--bg-card)';
-            }}
+        {isPinned && (
+          <span
+            className="an-chip"
+            style={{ position: 'absolute', top: 8, left: 8, background: 'var(--an-lemon)' }}
+            title="已置顶"
           >
-            置顶
-          </button>
+            <Icon name="pin" size={11} /> 置顶
+          </span>
         )}
-        {/* 收藏到按钮 */}
-        {onMoveToFavorite && (
+
+        <span className="an-chip" style={{ position: 'absolute', bottom: 8, left: 8 }}>
+          <Icon name="dices" size={11} /> 安科
+        </span>
+        <span className="an-chip" style={{ position: 'absolute', bottom: 8, right: 8 }}>
+          {work.chapterCount} 章 · {work.sectionCount} 节
+        </span>
+
+        {/* 更多菜单入口 */}
+        <div style={{ position: 'absolute', top: 8, right: 8 }} onClick={(e) => e.stopPropagation()}>
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onMoveToFavorite(work.id);
-            }}
-            className="bg-[var(--bg-card)] border-[color:var(--border-color)] text-[var(--text-secondary)] px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors"
-            title="收藏到指定收藏夹"
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'var(--bg-hover)';
-              e.currentTarget.style.color = 'var(--accent)';
-              e.currentTarget.style.borderColor = 'var(--accent)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'var(--bg-card)';
-              e.currentTarget.style.color = 'var(--text-secondary)';
-              e.currentTarget.style.borderColor = 'var(--border-color)';
-            }}
+            ref={menuBtnRef}
+            onClick={openMenu}
+            className="an-pill"
+            style={{ minHeight: 28, padding: '3px 10px', fontSize: 12, background: 'var(--an-card)' }}
+            title="更多操作"
+            aria-label="更多操作"
+            aria-expanded={menuOpen}
           >
-                      <Icon name="folder" size={14} /> 收藏到
+            <Icon name="menu" size={13} /> 更多
           </button>
-        )}
-        {/* 删除按钮（始终可见，醒目颜色） */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            setConfirmDelete(true);
-          }}
-          className="bg-[var(--bg-card)] border-[color:var(--border-color)] text-[var(--danger)] px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors"
-          title="删除到回收站"
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'var(--danger-soft)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'var(--bg-card)';
-          }}
-        >
-          删除
-        </button>
-      </div>
-
-      {/* 无封面的顶部区域 - 使用渐变背景和图标组合 */}
-      <div
-        className="relative h-24 flex items-center justify-center overflow-hidden"
-        style={{ background: 'linear-gradient(135deg, var(--accent-soft) 0%, var(--bg-card) 100%)' }}
-      >
-        {/* 背景装饰图案 */}
-        <div className="absolute inset-0 opacity-10">
-          <div className="bg-[var(--accent)] absolute top-0 left-0 w-16 h-16 rounded-full -translate-x-1/2 -translate-y-1/2" />
-          <div className="bg-[var(--accent)] absolute bottom-0 right-0 w-20 h-20 rounded-full translate-x-1/2 translate-y-1/2" />
-          <div className="bg-[var(--accent)] absolute top-1/2 left-1/2 w-12 h-12 rounded-full -translate-x-1/2 -translate-y-1/2" />
-        </div>
-        {/* 主图标 */}
-        <div className="relative z-10 flex flex-col items-center">
-          <Icon name="bookText" size={36} />
-          <div className="text-[var(--text-secondary)] text-[10px] mt-1 font-medium">安科作品</div>
-        </div>
-        {/* 安科骰点标记 */}
-        <div className="bg-[var(--bg-card)] border-[color:var(--border-color)] text-[var(--accent)] absolute bottom-2 left-3 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full backdrop-blur-sm border text-[10px] font-medium shadow-sm"
-        >
-          <Icon name="dices" size={12} />
-          <span>安科</span>
-        </div>
-        {/* 章节计数 */}
-        <div className="bg-[var(--bg-card)] border-[color:var(--border-color)] text-[var(--text-secondary)] absolute bottom-2 right-3 inline-flex items-center gap-1 px-2 py-0.5 rounded-full backdrop-blur-sm border text-[10px] font-medium shadow-sm"
-        >
-          <span><Icon name="bookText" size={11} /></span>
-          <span>{work.chapterCount}章·{work.sectionCount}节</span>
         </div>
       </div>
 
-      {/* 底部信息 */}
-      <div className="p-4">
-        <h3 className="text-[var(--text-primary)] text-sm font-semibold truncate transition-colors"
+      {/* 信息 */}
+      <div style={{ padding: '14px 16px 16px', display: 'flex', flexDirection: 'column', flex: '1 1 auto' }}>
+        <h3
+          style={{
+            margin: 0,
+            fontFamily: 'var(--an-font-display)',
+            fontSize: 18,
+            lineHeight: 1.3,
+            color: 'var(--an-ink)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
           title={work.title}
-          onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent)'}
-          onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-primary)'}
         >
           {work.title}
         </h3>
-        <div className="text-[var(--text-secondary)] mt-1.5 flex items-center gap-3 text-xs">
-          <span className="inline-flex items-center gap-1">
-            <span><Icon name="pen" size={12} /></span>
-            <span className="tabular-nums">{work.wordCount.toLocaleString()} 字</span>
+        <p
+          style={{
+            margin: '6px 0 0',
+            minHeight: 34,
+            fontSize: 12,
+            lineHeight: 1.5,
+            color: 'var(--an-ink-soft)',
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+          }}
+        >
+          {work.description || '还没有简介'}
+        </p>
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+          <span className="an-chip">
+            <Icon name="pen" size={11} />
+            <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+              {work.wordCount.toLocaleString()} 字
+            </span>
           </span>
-          <span className="inline-flex items-center gap-1">
-            <Icon name="dices" size={12} />
-            <span className="tabular-nums">{work.diceCount}</span>
+          <span className="an-chip">
+            <Icon name="dices" size={11} />
+            <span style={{ fontVariantNumeric: 'tabular-nums' }}>{work.diceCount}</span>
           </span>
-          <span className="ml-auto">{formattedDate}</span>
+          <span className="an-chip" style={{ marginLeft: 'auto' }}>
+            <Icon name="clock" size={11} /> {formattedDate}
+          </span>
         </div>
       </div>
 
@@ -319,22 +324,30 @@ function WorkCardInner({
       {menuOpen && menuPos && createPortal(
         <div
           id="workcard-menu-portal"
-          className="fixed min-w-[180px] rounded-xl shadow-xl border py-1.5"
+          className="an-card an-pop-in"
           style={{
+            position: 'fixed',
             top: menuPos.top,
             left: menuPos.left,
+            minWidth: 190,
+            padding: '6px 0',
             zIndex: 9000,
-            background: 'var(--bg-card)',
-            borderColor: 'var(--border-color)',
+            boxShadow: 'var(--an-shadow-pop-lg)',
           }}
           onClick={(e) => e.stopPropagation()}
         >
-          <MenuItem icon="pen" label="重命名" onClick={() => { onRename(work.id); setMenuOpen(false); }} />
-          {onEditDescription && (
+          {onPinned && (
             <MenuItem
-              icon="fileText"
-              label="修改简介"
-              onClick={() => { onEditDescription(work.id); setMenuOpen(false); }}
+              icon="pin"
+              label={isPinned ? '取消置顶' : '置顶'}
+              onClick={() => { onPinned(work.id); setMenuOpen(false); }}
+            />
+          )}
+          {onMoveToFavorite && (
+            <MenuItem
+              icon="folder"
+              label="收藏到…"
+              onClick={() => { onMoveToFavorite(work.id); setMenuOpen(false); }}
             />
           )}
           {onReader && (
@@ -342,6 +355,14 @@ function WorkCardInner({
               icon="bookText"
               label="进入阅读模式"
               onClick={() => { onReader(work.id); setMenuOpen(false); }}
+            />
+          )}
+          <MenuItem icon="pen" label="重命名" onClick={() => { onRename(work.id); setMenuOpen(false); }} />
+          {onEditDescription && (
+            <MenuItem
+              icon="fileText"
+              label="修改简介"
+              onClick={() => { onEditDescription(work.id); setMenuOpen(false); }}
             />
           )}
           <MenuItem icon="save" label="导出为安科文件" onClick={() => { onExport(work.id); setMenuOpen(false); }} />
@@ -352,6 +373,13 @@ function WorkCardInner({
               onClick={() => { onExportEpub(work.id); setMenuOpen(false); }}
             />
           )}
+          <div style={{ height: 1, background: 'var(--an-ink-faint)', margin: '4px 8px' }} />
+          <MenuItem
+            icon="trash"
+            label="删除到回收站"
+            danger
+            onClick={() => { setMenuOpen(false); setConfirmDelete(true); }}
+          />
         </div>,
         document.body
       )}
@@ -375,18 +403,30 @@ function MenuItem({
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-left transition-colors"
       style={{
-        color: danger ? 'var(--danger)' : 'var(--text-secondary)',
+        width: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '8px 14px',
+        fontSize: 12,
+        fontWeight: 600,
+        textAlign: 'left',
+        color: danger ? '#c0392b' : 'var(--an-ink)',
+        background: 'transparent',
+        border: 'none',
+        cursor: 'pointer',
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.background = danger ? 'var(--danger-soft)' : 'var(--bg-hover)';
+        e.currentTarget.style.background = danger ? 'var(--an-pink-soft)' : 'var(--an-paper-2)';
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.background = 'transparent';
       }}
     >
-      <span className="w-4 text-center"><Icon name={icon} size={14} /></span>
+      <span style={{ width: 16, display: 'inline-flex', justifyContent: 'center' }}>
+        <Icon name={icon} size={14} />
+      </span>
       <span>{label}</span>
     </button>
   );

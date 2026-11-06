@@ -37,7 +37,7 @@ const numberInputStyle: React.CSSProperties = {
 const btnStyle: React.CSSProperties = {
   height: 24,
   padding: '0 8px',
-  fontSize: 11,
+  fontSize: 12,
   border: '1px dashed var(--accent)',
   borderRadius: 'var(--radius-sm)',
   background: 'transparent',
@@ -211,14 +211,14 @@ export function ManualFormatEditor({ value, onChange, maxFloor }: ManualFormatEd
                 <div className="pl-[12px] flex flex-col gap-[4px]">
                   {ch.sections.map((sec, si) => (
                     <div key={si} className="flex gap-[6px] items-center flex-wrap">
-                      <span className="text-[11px] text-[var(--text-secondary)] min-w-[30px]">节名</span>
+                      <span className="text-[12px] text-[var(--text-secondary)] min-w-[30px]">节名</span>
                       <input
                         style={inputStyle}
                         placeholder="如：第一集"
                         value={sec.title}
                         onChange={(e) => updateSection(vi, ci, si, { ...sec, title: e.target.value })}
                       />
-                      <span className="text-[11px] text-[var(--text-secondary)]">从</span>
+                      <span className="text-[12px] text-[var(--text-secondary)]">从</span>
                       <input
                         type="number"
                         style={numberInputStyle}
@@ -227,7 +227,7 @@ export function ManualFormatEditor({ value, onChange, maxFloor }: ManualFormatEd
                         max={maxFloor}
                         onChange={(e) => updateSection(vi, ci, si, { ...sec, startFloor: Number(e.target.value) })}
                       />
-                      <span className="text-[11px] text-[var(--text-secondary)]">楼到</span>
+                      <span className="text-[12px] text-[var(--text-secondary)]">楼到</span>
                       <input
                         type="number"
                         style={numberInputStyle}
@@ -236,7 +236,7 @@ export function ManualFormatEditor({ value, onChange, maxFloor }: ManualFormatEd
                         max={maxFloor}
                         onChange={(e) => updateSection(vi, ci, si, { ...sec, endFloor: Number(e.target.value) })}
                       />
-                      <span className="text-[11px] text-[var(--text-secondary)]">楼</span>
+                      <span className="text-[12px] text-[var(--text-secondary)]">楼</span>
                       <button style={deleteBtnStyle} title="删除此节" onClick={() => deleteSection(vi, ci, si)}>×</button>
                     </div>
                   ))}
@@ -259,7 +259,7 @@ export function ManualFormatEditor({ value, onChange, maxFloor }: ManualFormatEd
       ))}
       <button style={btnStyle} onClick={addVolume}>+ 添加卷</button>
       {maxFloor && (
-        <div className="text-[11px] text-[var(--text-secondary)] mt-[4px]">
+        <div className="text-[12px] text-[var(--text-secondary)] mt-[4px]">
           提示：当前帖子最高 {maxFloor} 楼，节楼号范围应在此区间内。
         </div>
       )}
@@ -328,7 +328,7 @@ export function ManualFormatEditor({ value, onChange, maxFloor }: ManualFormatEd
             />
             {parseError && (
               <div
-                className="text-[12px] text-[var(--danger)] bg-[var(--bg-danger-soft)] py-[6px] px-[10px] rounded-[var(--radius-sm)] border border-[color:var(--danger)]"
+                className="text-[12px] text-[var(--danger)] bg-[var(--danger-soft)] py-[6px] px-[10px] rounded-[var(--radius-sm)] border border-[color:var(--danger)]"
               >
                 {parseError}
               </div>

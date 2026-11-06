@@ -11,6 +11,7 @@ import path from 'path'
 import fs from 'fs'
 import { getImagesDir } from './paths'
 import { parseLocalUrlToFileName } from '../src/utils/parseLocalUrl'
+import { buildNgaRefererHeaders, NGA_IMAGE_URL_PATTERNS } from './data-core/ngaReferer'
 
 // 本地图片存储目录（用于"本地保存"模式）
 // 路径：<dataRoot>/images/（打包 = <安装路径>/data/images/，dev = <项目根>/data/images/）
@@ -95,21 +96,24 @@ export function registerLocalProtocol(): void {
   })
 }
 
-/** NGA 防盗链绕过：渲染进程加载 img.nga.178.com 图片时自动加 Referer
+/** NGA 防盗链绕过：渲染进程加载 NGA 图床图片时自动加 Referer
  *
- * 根因：NGA 图床检查 Referer 头，Electron 渲染层默认不携带 nga.178.com referer，
+ * 根因：NGA 图床检查 Referer 头，Electron 渲染层默认不携带 nga referer，
  *       导致编辑器内插入的 NGA 图片加载失败
  * 主进程 ngaCrawler 已经在抓取时手动加过 Referer，
  * 但只覆盖 Node.js fetch，不覆盖渲染层 <img> 请求
+ *
+ * 覆盖 nga.cn / ngabbs.com / nga.178.com / nga.com 四类域名，
+ * 域名与请求头由 ./data-core/ngaReferer 统一维护。
  */
 export function setupNgaRefererHook(): void {
   session.defaultSession.webRequest.onBeforeSendHeaders(
-    { urls: ['*://*.nga.178.com/*'] },
+    { urls: NGA_IMAGE_URL_PATTERNS },
     (details, callback) => {
       const headers = { ...details.requestHeaders }
-      // 模拟从 NGA 论坛页面访问图片的 referer
-      if (!headers['Referer'] || headers['Referer'] === '') {
-        headers['Referer'] = 'https://nga.178.com/'
+      // 已有 Referer 时保留调用方语义；缺失时补默认 NGA 论坛 referer
+      if (!headers['Referer'] && !headers['referer']) {
+        headers['Referer'] = buildNgaRefererHeaders().Referer
       }
       callback({ requestHeaders: headers })
     },

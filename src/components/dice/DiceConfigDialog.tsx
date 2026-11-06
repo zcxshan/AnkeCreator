@@ -256,7 +256,7 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
                     >
                       <span className="inline-flex items-center gap-1"><Icon name="check" size={12} /> 导入到选项</span>
                     </button>
-                    <span className="text-[11px] text-[var(--text-muted)]">
+                    <span className="text-[12px] text-[var(--text-muted)]">
                       {ngaParsed.length > 0
                         ? `已解析 ${ngaParsed.length} 个选项`
                         : ngaText.trim()
@@ -266,7 +266,7 @@ export function DiceConfigDialog({ onSaveEdit, onSaveNew }: DiceConfigDialogProp
                   </div>
                   {ngaParsed.length > 0 && (
                     <div
-                      className="rounded-md p-2 space-y-1 max-h-32 overflow-y-auto text-[11px] bg-[var(--bg-card)] border border-[var(--border-color)]"
+                      className="rounded-md p-2 space-y-1 max-h-32 overflow-y-auto text-[12px] bg-[var(--bg-card)] border border-[var(--border-color)]"
                     >
                       {ngaParsed.map((opt, i) => (
                         <div key={i} className="flex items-baseline gap-1.5">
@@ -448,12 +448,12 @@ function DiceStyleEditor({
           <div className="text-xs font-semibold text-[var(--text-primary)]">
             {title}
           </div>
-          <div className="text-[10px] text-[var(--text-secondary)]">
+          <div className="text-[12px] text-[var(--text-secondary)]">
             {description}
           </div>
         </div>
         <button
-          className="text-[10px] px-2 py-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+          className="text-[12px] px-2 py-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)]"
           onClick={onReset}
         >
           重置
@@ -478,7 +478,7 @@ function DiceStyleEditor({
           <div className="flex items-center gap-1">
             <button
               type="button"
-              className={`flex items-center gap-1 text-[10px] px-1 py-0.5 rounded border bg-[var(--bg-card)] text-[var(--text-secondary)] ${colorOpen ? 'border-[var(--accent)]' : 'border-[var(--border-color)]'}`}
+              className={`flex items-center gap-1 text-[12px] px-1 py-0.5 rounded border bg-[var(--bg-card)] text-[var(--text-secondary)] ${colorOpen ? 'border-[var(--accent)]' : 'border-[var(--border-color)]'}`}
               onClick={() => setColorOpen((v) => !v)}
               title="文字颜色"
             >
@@ -496,7 +496,7 @@ function DiceStyleEditor({
             </button>
             {style?.color && (
               <button aria-label="清除颜色"
-                className="text-[9px] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                className="text-[12px] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
                 onClick={() => onChange({ color: undefined })}
                 title="清除颜色"
               >
@@ -535,7 +535,7 @@ function DiceStyleEditor({
         </div>
         {/* 字体：NGA 16 项（参考工具栏） */}
         <label
-          className="flex items-center gap-1 text-[10px] text-[var(--text-secondary)]"
+          className="flex items-center gap-1 text-[12px] text-[var(--text-secondary)]"
         >
           字体
           <select
@@ -546,7 +546,7 @@ function DiceStyleEditor({
               const found = NGA_FONTS.find((f) => f.value === v);
               if (found) onChange({ fontFamily: found.cssFamily });
             }}
-            className="text-[10px] px-1 py-0.5 rounded border bg-[var(--bg-card)] text-[var(--text-primary)] border-[var(--border-color)] min-w-[80px]"
+            className="text-[12px] px-1 py-0.5 rounded border bg-[var(--bg-card)] text-[var(--text-primary)] border-[var(--border-color)] min-w-[80px]"
           >
             <option value="">默认</option>
             {NGA_FONTS.map((f) => (
@@ -558,7 +558,7 @@ function DiceStyleEditor({
         </label>
         {/* 字号：number input + range（参考工具栏） */}
         <label
-          className="flex items-center gap-1 text-[10px] text-[var(--text-secondary)]"
+          className="flex items-center gap-1 text-[12px] text-[var(--text-secondary)]"
         >
           字号
           <input
@@ -588,7 +588,7 @@ function DiceStyleEditor({
                 (e.currentTarget as HTMLInputElement).blur();
               }
             }}
-            className="w-12 text-[10px] px-1 py-0.5 rounded border bg-[var(--bg-card)] text-[var(--text-primary)] border-[var(--border-color)]"
+            className="w-12 text-[12px] px-1 py-0.5 rounded border bg-[var(--bg-card)] text-[var(--text-primary)] border-[var(--border-color)]"
             title="输入 20-500 的百分比"
           />
           <input
@@ -606,7 +606,7 @@ function DiceStyleEditor({
             className="w-[60px] accent-[var(--accent)] cursor-pointer"
             title="拖动调整字号 20%-500%"
           />
-          <span className="text-[10px] text-[var(--text-muted)]">%</span>
+          <span className="text-[12px] text-[var(--text-muted)]">%</span>
         </label>
       </div>
     </div>
@@ -618,7 +618,7 @@ function DiceStyleEditor({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <label className="block text-[11px] font-medium text-[var(--text-secondary)]">{label}</label>
+      <label className="block text-[12px] font-medium text-[var(--text-secondary)]">{label}</label>
       {children}
     </div>
   );
@@ -645,7 +645,7 @@ function KindButton({
       }`}
     >
       <div className="text-xs font-semibold">{label}</div>
-      <div className="text-[10px] mt-0.5 text-[var(--text-secondary)]">{desc}</div>
+      <div className="text-[12px] mt-0.5 text-[var(--text-secondary)]">{desc}</div>
     </button>
   );
 }
@@ -809,7 +809,7 @@ function NumericEditor({
               />
             </Field>
           </div>
-          <div className="text-[11px] text-[var(--text-secondary)]">
+          <div className="text-[12px] text-[var(--text-secondary)]">
             结果将以 NGA 风格展示，例如 <span className="font-mono text-[var(--text-primary)]">[3D6=2+5+3=10]</span>
           </div>
         </>
@@ -837,7 +837,7 @@ function NumericEditor({
             </div>
           )}
           <details
-            className="text-[11px] rounded-md px-3 py-2 bg-[var(--bg-toolbar)] text-[var(--text-secondary)] border border-[var(--border-color)]"
+            className="text-[12px] rounded-md px-3 py-2 bg-[var(--bg-toolbar)] text-[var(--text-secondary)] border border-[var(--border-color)]"
           >
             <summary
               className="cursor-pointer select-none font-medium text-[var(--text-primary)]"

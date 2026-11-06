@@ -201,14 +201,14 @@ const TUTORIAL_TOPICS: TutorialTopic[] = [
     ],
   },
   {
-    id: 'worldbuilding',
-    icon: 'globe',
-    title: '世界观与模板',
-    summary: '世界观设定、模板库管理',
+    id: 'characters',
+    icon: 'user',
+    title: '人物角色与人物模板',
+    summary: '人物管理、差分插入、模板库',
     steps: [
-      { title: '1. 世界观设定', description: '在编辑页面中，可以添加世界观设定条目（如魔法体系、地理环境、社会制度等）。每个条目有标题和内容，方便在创作时查阅参考。' },
-      { title: '2. 模板库', description: '在首页点击「模板库」进入模板管理页面。模板分为两类：世界观模板和人物模板。模板独立于具体作品，可以被任意作品引用。' },
-      { title: '3. 创建自定义模板', description: '在模板库页面中，点击「+ 新建」按钮创建新的世界观或人物模板。编辑模板的内容、属性等信息后保存，之后在任何作品中都可以导入使用。' },
+      { title: '1. 人物角色面板', description: '在编辑页面右侧栏切换到「人物」标签，可以添加、编辑、删除人物，并按名称搜索人物或差分。可在「按人物」与「按差分」两种视图之间切换。' },
+      { title: '2. 插入人物差分', description: '在人物面板中点击某个差分，即可把它插入到当前编辑区光标位置。' },
+      { title: '3. 人物模板库', description: '在首页点击「模板库」进入模板管理页面，可创建、导入、导出人物模板。模板独立于具体作品，可被任意作品复用。' },
     ],
   },
   {
@@ -414,7 +414,7 @@ const TUTORIAL_TOPICS: TutorialTopic[] = [
       {
         title: '1. 导出/导入作品数据',
         description: [
-          '在「我的作品」列表点击作品卡片菜单选择「导出」，系统会将该作品完整数据（章节正文、世界观、人物差分、大纲等）打包为 ',
+          '在「我的作品」列表点击作品卡片菜单选择「导出」，系统会将该作品完整数据（章节正文、人物差分、大纲等）打包为 ',
           <code>.anke.json</code>,
           ' 文件。点击「',
           <span className="inline-flex items-center gap-1"><Icon name="download" size={12} />导入作品</span>,
@@ -684,26 +684,30 @@ export function TutorialPage({ onBack, onShowAuthor }: TutorialPageProps) {
 
   return (
     <div
-      className="bg-[var(--bg-base)] text-[var(--text-primary)] min-h-full w-full flex flex-col items-center"
+      className="an-page text-[var(--text-primary)] min-h-full w-full flex flex-col items-center"
     >
-      <div className="w-full max-w-3xl px-6 py-8">
+      <div className="w-full max-w-[1100px] px-6 py-8">
         {/* 顶部导航（非 sticky，跟随内容一起滚动） */}
-        <div className="bg-[var(--bg-base)] flex items-center gap-3 mb-6">
+        <div
+          className="flex items-center gap-3 mb-6 px-5 py-4"
+          style={{ background: 'var(--an-paper-2)', border: '3px solid var(--an-ink)', borderRadius: 'var(--an-radius-md)' }}
+        >
           <button
             onClick={onBack}
-            className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)] inline-flex items-center gap-1 px-4 py-2 rounded-xl text-sm font-medium transition-all"
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
+            className="an-pill"
           >
             <Icon name="back" size={16} /> 返回首页
           </button>
-          <h1 className="text-2xl font-bold inline-flex items-center gap-2"><Icon name="bookText" size={24} /> 安科创作教程</h1>
+          <h1
+            className="inline-flex items-center gap-2 text-[var(--an-ink)]"
+            style={{ fontFamily: 'var(--an-font-display)', fontSize: 24 }}
+          >
+            <Icon name="bookText" size={22} /> 安科创作教程
+          </h1>
           {onShowAuthor && (
             <button
               onClick={onShowAuthor}
-              className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)] inline-flex items-center gap-1 px-4 py-2 rounded-xl text-sm font-medium transition-all ml-auto"
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
+              className="an-pill ml-auto"
             >
               <span className="inline-flex items-center gap-1.5"><Icon name="info" size={14} /> 关于作者</span>
             </button>
@@ -711,83 +715,108 @@ export function TutorialPage({ onBack, onShowAuthor }: TutorialPageProps) {
         </div>
 
         {/* 说明条 */}
-        <div
-          className="bg-[var(--accent-bg)] border border-[color:var(--accent)] text-[var(--text-primary)] px-5 py-4 mb-6 rounded-2xl"
-        >
-          <div className="text-[var(--accent)] text-sm font-semibold mb-1">快速上手</div>
-          <div className="text-[var(--text-secondary)] text-xs">
-            点击下方任意主题卡片展开详细步骤指南，共 {TUTORIAL_TOPICS.length} 个主题，涵盖从创建作品到导出 NGA BBCode 的完整创作流程。
-          </div>
+        <div className="an-bubble mb-6" style={{ fontSize: 13, lineHeight: 1.8 }}>
+          <b className="text-[var(--an-pink)]">快速上手：</b>
+          点击下方任意主题卡片展开详细步骤指南，共 {TUTORIAL_TOPICS.length} 个主题，涵盖从创建作品到导出 NGA BBCode 的完整创作流程。
         </div>
 
-        {/* 教程卡片网格 */}
-        <div className="space-y-3">
-          {TUTORIAL_TOPICS.map((topic) => {
-            const isExpanded = expandedId === topic.id;
-            return (
-              <div
-                key={topic.id}
-                className="anke-card overflow-hidden"
-                style={{
-                  borderColor: isExpanded ? 'var(--accent)' : undefined,
-                  boxShadow: isExpanded ? 'var(--shadow-md)' : undefined,
-                }}
-              >
-                {/* 卡片头部（可点击展开/收起） */}
+        <div className="lg:grid lg:grid-cols-[190px_1fr] lg:gap-6 lg:items-start">
+          {/* 右侧（宽屏时左侧）sticky 目录锚点胶囊 */}
+          <nav className="hidden lg:block sticky top-9 self-start">
+            <div
+              className="an-card p-3 space-y-1.5"
+              style={{ background: 'var(--an-paper-2)' }}
+            >
+              <div className="text-[var(--an-ink-soft)] text-xs font-semibold px-2 pb-1">教程目录</div>
+              {TUTORIAL_TOPICS.map((topic) => (
                 <button
-                  onClick={() => setExpandedId(isExpanded ? null : topic.id)}
-                  className="bg-transparent w-full px-5 py-4 flex items-center gap-3 transition-colors"
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                  key={topic.id}
+                  onClick={() => {
+                    setExpandedId(topic.id);
+                    document
+                      .getElementById(`topic-${topic.id}`)
+                      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }}
+                  className="an-pill w-full justify-start text-left"
+                  style={{ height: 32, fontSize: 12 }}
                 >
-                  <div
-                    className="flex w-[40px] h-[40px] rounded-[var(--radius-lg)] bg-[var(--bg-hover)] items-center justify-center flex-shrink-0"
-                  >
-                    <Icon name={topic.icon} size={20} />
-                  </div>
-                  <div className="flex-1 text-left">
-                    <div className="text-[var(--text-primary)] text-sm font-semibold">
-                      {topic.title}
-                    </div>
-                    <div className="text-[var(--text-secondary)] text-xs mt-0.5">
-                      {topic.summary}
-                    </div>
-                  </div>
-                  <span
-                    className="text-sm font-bold transition-transform"
-                    style={{
-                      color: isExpanded ? 'var(--accent)' : 'var(--text-secondary)',
-                      transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                      display: 'inline-block',
-                    }}
-                  >
-                    ▼
-                  </span>
+                  {topic.title.replace(/^\d+\.\s*/, '')}
                 </button>
+              ))}
+            </div>
+          </nav>
 
-                {/* 展开内容（步骤列表） */}
-                {isExpanded && (
-                  <div
-                    className="border-t border-t-[color:var(--border-color)] px-5 pb-5"
+          {/* 教程卡片 */}
+          <div className="space-y-3 min-w-0">
+            {TUTORIAL_TOPICS.map((topic) => {
+              const isExpanded = expandedId === topic.id;
+              return (
+                <div
+                  key={topic.id}
+                  id={`topic-${topic.id}`}
+                  className="an-card overflow-hidden scroll-mt-4"
+                  style={{
+                    borderColor: isExpanded ? 'var(--an-ink)' : undefined,
+                    boxShadow: isExpanded ? '0 5px 0 var(--an-ink)' : undefined,
+                  }}
+                >
+                  {/* 卡片头部（可点击展开/收起） */}
+                  <button
+                    onClick={() => setExpandedId(isExpanded ? null : topic.id)}
+                    className="w-full px-5 py-4 flex items-center gap-3 transition-colors"
+                    style={{ background: isExpanded ? 'var(--an-lemon-soft)' : 'var(--an-card)' }}
                   >
-                    <div className="pt-4 space-y-2">
-                      {topic.steps.map((step, idx) => (
-                        <div
-                          key={idx}
-                          className="bg-[var(--bg-base)] border border-[color:var(--border-color)] p-3 rounded-xl flex gap-3"
-                        >
+                    <div
+                      className="flex w-10 h-10 rounded-full items-center justify-center flex-shrink-0"
+                      style={{ background: 'var(--an-sky-soft)', border: '2px solid var(--an-ink)' }}
+                    >
+                      <Icon name={topic.icon} size={20} />
+                    </div>
+                    <div className="flex-1 text-left">
+                      <div className="text-[var(--an-ink)] text-sm font-semibold">
+                        {topic.title}
+                      </div>
+                      <div className="text-[var(--text-secondary)] text-xs mt-0.5">
+                        {topic.summary}
+                      </div>
+                    </div>
+                    <span
+                      className="text-sm font-bold transition-transform"
+                      style={{
+                        color: 'var(--an-ink)',
+                        transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                        display: 'inline-block',
+                      }}
+                    >
+                      ▼
+                    </span>
+                  </button>
+
+                  {/* 展开内容（步骤列表） */}
+                  {isExpanded && (
+                    <div className="px-5 pb-5" style={{ borderTop: '2px solid var(--an-ink)' }}>
+                      <div className="pt-4 space-y-2">
+                        {topic.steps.map((step, idx) => (
                           <div
-                            className="bg-[var(--accent)] text-[var(--text-on-accent)] flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold"
+                            key={idx}
+                            className="p-3 flex gap-3"
+                            style={{
+                              background: 'var(--an-paper-2)',
+                              border: '2px solid var(--an-ink)',
+                              borderRadius: 12,
+                            }}
                           >
-                            {idx + 1}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-[var(--accent)] text-xs font-semibold mb-1">
-                              {step.title.replace(/^\d+\.\s*/, '')}
-                            </div>
                             <div
-                              className="text-[var(--text-primary)] text-xs leading-relaxed"
+                              className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold"
+                              style={{ background: 'var(--an-pink)', color: '#3a2340', border: '2px solid var(--an-ink)' }}
                             >
+                              {idx + 1}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-[var(--an-ink)] text-xs font-semibold mb-1">
+                                {step.title.replace(/^\d+\.\s*/, '')}
+                              </div>
+                              <div className="text-[var(--text-primary)] text-xs leading-relaxed">
                               {step.description}
                             </div>
                           </div>
@@ -799,6 +828,7 @@ export function TutorialPage({ onBack, onShowAuthor }: TutorialPageProps) {
               </div>
             );
           })}
+          </div>
         </div>
 
         {/* 底部提示 */}

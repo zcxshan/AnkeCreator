@@ -11,6 +11,8 @@ import { CreationLogPage } from './components/pages/CreationLogPage';
 import { ReaderPage } from './components/pages/ReaderPage';
 import { DicePlaygroundPage } from './components/pages/DicePlaygroundPage';
 import { WheelPage } from './components/pages/WheelPage';
+import { DiscoveryHubPage } from './components/pages/DiscoveryHubPage';
+import { PlaygroundHubPage } from './components/pages/PlaygroundHubPage';
 import { TitleBar } from './components/common/TitleBar';
 import { AuthorInfo } from './components/common/AuthorInfo';
 import { ToastContainer } from './components/common/Toast';
@@ -26,7 +28,7 @@ import { useSettingStore } from './store/settingStore';
 import { flushDebouncedSave } from './store/editorStore';
 import './index.css';
 
-type Route = 'home' | 'works' | 'editor' | 'reader' | 'resource-library' | 'tutorial' | 'anjia-collect' | 'anke-collect' | 'find-anke' | 'dice-playground' | 'creation-log' | 'wheel-playground';
+type Route = 'home' | 'works' | 'editor' | 'reader' | 'resource-library' | 'tutorial' | 'anjia-collect' | 'anke-collect' | 'find-anke' | 'dice-playground' | 'creation-log' | 'wheel-playground' | 'discovery' | 'playground';
 
 function App() {
   const { activeStoryId } = useStoryStore();
@@ -175,11 +177,8 @@ function App() {
           onShowResourceLibrary={() => setRoute('resource-library')}
           onShowTutorial={() => setRoute('tutorial')}
           onShowAuthor={() => setShowAuthor(true)}
-          onShowAnjiaCollect={() => setRoute('anjia-collect')}
-          onShowAnkeCollect={() => setRoute('anke-collect')}
-          onShowFindAnke={() => setRoute('find-anke')}
-          onShowDicePlayground={() => setRoute('dice-playground')}
-          onShowWheelPlayground={() => setRoute('wheel-playground')}
+          onShowDiscovery={() => setRoute('discovery')}
+          onShowPlayground={() => setRoute('playground')}
           onShowCreationLog={(storyId) => {
             setCreationLogStoryId(storyId);
             setRoute('creation-log');
@@ -190,15 +189,36 @@ function App() {
     );
   }
 
+  if (route === 'discovery') {
+    return renderWithTitleBar(
+      <DiscoveryHubPage
+        onBack={() => setRoute('home')}
+        onOpenAnjiaCollect={() => setRoute('anjia-collect')}
+        onOpenAnkeCollect={() => setRoute('anke-collect')}
+        onOpenFindAnke={() => setRoute('find-anke')}
+      />,
+    );
+  }
+
+  if (route === 'playground') {
+    return renderWithTitleBar(
+      <PlaygroundHubPage
+        onBack={() => setRoute('home')}
+        onOpenDice={() => setRoute('dice-playground')}
+        onOpenWheel={() => setRoute('wheel-playground')}
+      />,
+    );
+  }
+
   if (route === 'dice-playground') {
     return renderWithTitleBar(
-      <DicePlaygroundPage onBack={() => setRoute('home')} />,
+      <DicePlaygroundPage onBack={() => setRoute('playground')} />,
     );
   }
 
   if (route === 'wheel-playground') {
     return renderWithTitleBar(
-      <WheelPage onBack={() => setRoute('home')} />,
+      <WheelPage onBack={() => setRoute('playground')} />,
     );
   }
 
@@ -242,19 +262,19 @@ function App() {
 
   if (route === 'anjia-collect') {
     return renderWithTitleBar(
-      <AnjiaCollectPage onBack={() => setRoute('home')} />,
+      <AnjiaCollectPage onBack={() => setRoute('discovery')} />,
     );
   }
 
   if (route === 'anke-collect') {
     return renderWithTitleBar(
-      <AnkeCollectPage onBack={() => setRoute('home')} />,
+      <AnkeCollectPage onBack={() => setRoute('discovery')} />,
     );
   }
 
   if (route === 'find-anke') {
     return renderWithTitleBar(
-      <FindAnkePage onBack={() => setRoute('home')} />,
+      <FindAnkePage onBack={() => setRoute('discovery')} />,
     );
   }
 

@@ -18,3 +18,4 @@ export * from './anjia';
 export * from './image-library';
 export * from './creation-log';
 export * from './material-site';
+export * from './nga';

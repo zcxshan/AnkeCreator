@@ -2,25 +2,18 @@ import { useEffect, useState, useRef } from 'react';
 import { useMetaStore } from '../../store/metaStore';
 import { useToastStore } from '../../store/toastStore';
 import { Icon } from '../common/Icon';
-import { WorldTemplatesPanel } from '../templates/WorldTemplatesPanel';
 import { CharacterTemplatesPanel } from '../templates/CharacterTemplatesPanel';
 
 interface TemplatesPanelProps {
   onShowAuthor?: () => void;
-  initialTab?: TabKey;
-  /** 子 Tab 切换回调（让外层记住用户选择，切走再切回不重置）（#3） */
-  onTabChange?: (tab: TabKey) => void;
 }
 
-type TabKey = 'world' | 'character';
-
 /**
- * 模板面板：两个 Tab（世界观 / 人物），CRUD + 复制为草稿。
- * 嵌入 ResourceLibraryPage 使用；initialTab 控制初始展示的子 Tab。
+ * 人物模板面板：CRUD + 复制为草稿。
+ * 原「设定模板（世界观）」已随设定备忘录一并移除，这里只保留人物模板。
  */
-export function TemplatesPanel({ onShowAuthor, initialTab = 'world', onTabChange }: TemplatesPanelProps) {
+export function TemplatesPanel({ onShowAuthor }: TemplatesPanelProps) {
   const loadTemplates = useMetaStore((s) => s.loadTemplates);
-  const [tab, setTab] = useState<TabKey>(initialTab);
   const importFileRef = useRef<HTMLInputElement | null>(null);
 
   // 模板加载三态：读取失败不能静默（否则用户只看到空模板库）
@@ -28,15 +21,7 @@ export function TemplatesPanel({ onShowAuthor, initialTab = 'world', onTabChange
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
-  // 两个 Tab 各自的选中 ID（用于导出模板功能）
-  const [worldSelectedIds, setWorldSelectedIds] = useState<string[]>([]);
   const [characterSelectedIds, setCharacterSelectedIds] = useState<string[]>([]);
-
-  // 切换子 Tab 时同步通知外层（#3）
-  const handleTabChange = (next: TabKey) => {
-    setTab(next);
-    onTabChange?.(next);
-  };
 
   useEffect(() => {
     let cancelled = false;
@@ -57,12 +42,11 @@ export function TemplatesPanel({ onShowAuthor, initialTab = 'world', onTabChange
     };
   }, [loadTemplates, reloadKey]);
 
-  // 导出选中的模板为 JSON 文件
+  // 导出选中的人物模板为 JSON 文件
   const handleExport = () => {
-    const { worldSettingTemplates, characterTemplates } = useMetaStore.getState();
-    const filteredWorld = worldSettingTemplates.filter((t) => worldSelectedIds.includes(t.id));
+    const { characterTemplates } = useMetaStore.getState();
     const filteredChar = characterTemplates.filter((t) => characterSelectedIds.includes(t.id));
-    if (filteredWorld.length === 0 && filteredChar.length === 0) {
+    if (filteredChar.length === 0) {
       useToastStore.getState().showToast(
         '请先勾选需要导出的模板（点击列表前的复选框）',
         'warning',
@@ -72,28 +56,22 @@ export function TemplatesPanel({ onShowAuthor, initialTab = 'world', onTabChange
     const data = {
       version: 1,
       exportedAt: new Date().toISOString(),
-      worldSettingTemplates: filteredWorld,
       characterTemplates: filteredChar,
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `anke-templates-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `anke-character-templates-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    useToastStore.getState().showToast(
-      `已导出 ${filteredWorld.length} 个世界观模板、${filteredChar.length} 个人物模板`,
-      'success',
-    );
+    useToastStore.getState().showToast(`已导出 ${filteredChar.length} 个人物模板`, 'success');
   };
 
-  // 触发导入文件选择
   const handleImportClick = () => {
     importFileRef.current?.click();
   };
 
-  // 读取并导入模板 JSON
   const handleImportFile = async (file: File) => {
     try {
       const text = await file.text();
@@ -102,9 +80,10 @@ export function TemplatesPanel({ onShowAuthor, initialTab = 'world', onTabChange
         useToastStore.getState().showToast('文件格式不正确', 'error');
         return;
       }
+      // 旧版模板文件里的 worldSettingTemplates 会被 importTemplates 识别但忽略
       const result = await useMetaStore.getState().importTemplates(data);
       useToastStore.getState().showToast(
-        `已导入 ${result.worldCount} 个世界观模板、${result.charCount} 个人物模板${result.failed > 0 ? `（失败 ${result.failed} 个）` : ''}`,
+        `已导入 ${result.charCount} 个人物模板${result.failed > 0 ? `（失败 ${result.failed} 个）` : ''}`,
         result.failed > 0 ? 'warning' : 'success',
       );
     } catch (err) {
@@ -121,6 +100,7 @@ export function TemplatesPanel({ onShowAuthor, initialTab = 'world', onTabChange
         className="border-b border-b-[color:var(--border-color)] flex items-center justify-between px-6 py-3"
       >
         <div className="flex items-center gap-3">
+          <div className="text-sm font-medium">人物模板</div>
           {onShowAuthor && (
             <button
               onClick={onShowAuthor}
@@ -168,13 +148,6 @@ export function TemplatesPanel({ onShowAuthor, initialTab = 'world', onTabChange
         </div>
       </header>
 
-      <div
-        className="border-b border-b-[color:var(--border-color)] flex items-center gap-1 px-6 py-2"
-      >
-        <TabBtn label={<span className="inline-flex items-center gap-1"><Icon name="globe" size={13} /> 世界观模板</span>} active={tab === 'world'} onClick={() => handleTabChange('world')} />
-        <TabBtn label={<span className="inline-flex items-center gap-1"><Icon name="user" size={13} /> 人物模板</span>} active={tab === 'character'} onClick={() => handleTabChange('character')} />
-      </div>
-
       <div className="flex-1 overflow-y-auto px-6 py-5">
         {error ? (
           <div
@@ -201,29 +174,10 @@ export function TemplatesPanel({ onShowAuthor, initialTab = 'world', onTabChange
           >
             正在加载模板…
           </div>
-        ) : tab === 'world' ? (
-          <WorldTemplatesPanel onSelectionChange={setWorldSelectedIds} />
         ) : (
           <CharacterTemplatesPanel onSelectionChange={setCharacterSelectedIds} />
         )}
       </div>
     </div>
-  );
-}
-
-function TabBtn({ label, active, onClick }: { label: React.ReactNode; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="px-4 py-1.5 text-sm rounded-md transition-all"
-      style={{
-        background: active ? 'var(--accent-bg)' : 'transparent',
-        color: active ? 'var(--accent)' : 'var(--text-secondary)',
-        border: `1px solid ${active ? 'var(--accent)' : 'transparent'}`,
-        fontWeight: active ? 600 : 400,
-      }}
-    >
-      {label}
-    </button>
   );
 }

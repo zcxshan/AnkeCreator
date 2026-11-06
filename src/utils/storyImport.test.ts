@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateImportFormat, ensureDefaultVolumeAndChapter, type EnsureDefaultDeps } from './storyImport';
+import { validateImportFormat, ensureDefaultVolumeAndChapter, normalizeImportPayload, parseImportText, type EnsureDefaultDeps } from './storyImport';
 
 describe('validateImportFormat', () => {
   it('合法 JSON 返回 valid: true', () => {
@@ -288,5 +288,207 @@ describe('ensureDefaultVolumeAndChapter', () => {
     const c2 = calls.chapters.find((c) => c.title === '第二章');
     expect(c1!.volume_id).toBe(result.volumeIdMap['v1']);
     expect(c2!.volume_id).toBe(result.volumeIdMap['v2']);
+  });
+});
+
+// ============================================================
+// normalizeImportPayload / parseImportText 单测
+// ============================================================
+
+// fixture a：收集安科（ankeCollect.ts:314-405）的输出结构
+const collectorPayload = {
+  format: 'anke-creator-export',
+  version: '1.1',
+  exportedAt: '2026-11-05T00:00:00.000Z',
+  appVersion: '0.1.0',
+  data: {
+    title: '收集作品',
+    description: '源：NGA tid=123，第 1-10 楼',
+    category: '安科',
+    volumes: [{ id: 'vol-default', title: '第一卷', order_index: 0 }],
+    chapters: [
+      {
+        title: '第一章',
+        volume_id: 'vol-default',
+        order_index: 0,
+        sections: [{ title: '第1-10楼', order_index: 0, content: '<p>收集正文</p>' }],
+      },
+    ],
+    characters: [],
+    world_settings: [],
+    outlines: [],
+    character_relations: [],
+    dice_history: [],
+  },
+};
+
+// fixture b：旧版 anke-creator-story（data 包裹 + 顶层 sections + 无 volumes）
+const legacyStoryPayload = {
+  format: 'anke-creator-story',
+  version: '1.0',
+  data: {
+    title: '旧版作品',
+    chapters: [{ id: 'c1', title: '第一章', volume_id: 'v1', order_index: 0 }],
+    sections: [{ id: 's1', chapter_id: 'c1', title: '第1节', content: '<p>旧版正文</p>' }],
+  },
+};
+
+// fixture c：当前 WorksListPage.tsx:323-334 的导出结构
+const worksListPagePayload = {
+  format: 'anke-creator-export',
+  version: '1.1',
+  exportedAt: '2026-11-05T00:00:00.000Z',
+  appVersion: '0.1.0',
+  data: {
+    id: 'story-1',
+    title: '页面导出作品',
+    description: '页面导出',
+    category: '测试',
+    volumes: [{ id: 'v1', story_id: 'story-1', title: '第一卷', order_index: 0 }],
+    chapters: [
+      {
+        id: 'c1',
+        story_id: 'story-1',
+        volume_id: 'v1',
+        title: '第一章',
+        order_index: 0,
+        sections: [{ id: 's1', chapter_id: 'c1', title: '第1节', order_index: 0, content: '<p>页面正文</p>' }],
+      },
+    ],
+    world_settings: [],
+    characters: [],
+    character_relations: [{ id: 'r1', source_id: 'a', target_id: 'b', relation: '朋友' }],
+    outlines: [],
+    dice_history: [{ id: 'd1', result: '1d100=42' }],
+  },
+};
+
+describe('normalizeImportPayload', () => {
+  it('接受内部 StoryBundle（anke-creator-story-v2）根格式', () => {
+    const result = normalizeImportPayload(
+      {
+        format: 'anke-creator-story-v2',
+        story: { title: '根格式' },
+        volumes: [{ id: 'v1', title: '第一卷' }],
+        chapters: [{ id: 'c1', volume_id: 'v1', title: '第一章' }],
+        sections: [{ id: 's1', chapter_id: 'c1', title: '第1节', content: '<p>正文</p>' }],
+      },
+      'story.json',
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.format).toBe('story-v2');
+    expect(result.data.title).toBe('根格式');
+    expect(result.data.sections[0].content).toBe('<p>正文</p>');
+  });
+
+  it('接受收集安科输出（anke-creator-export，章内嵌 sections）', () => {
+    const result = normalizeImportPayload(collectorPayload, 'collector.json');
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.format).toBe('export');
+    expect(result.data.title).toBe('收集作品');
+    expect(result.data.volumes).toHaveLength(1);
+    expect(result.data.chapters).toHaveLength(1);
+    expect(result.data.chapters[0].id).toBe('import-ch-1');
+    expect(result.data.sections).toHaveLength(1);
+    expect(result.data.sections[0].chapter_id).toBe('import-ch-1');
+    expect(result.data.sections[0].content).toBe('<p>收集正文</p>');
+    expect(validateImportFormat(collectorPayload).valid).toBe(true);
+  });
+
+  it('接受旧版 anke-creator-story（data 包裹 + 顶层 sections）', () => {
+    const result = normalizeImportPayload(legacyStoryPayload, 'legacy.json');
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.format).toBe('story');
+    expect(result.data.volumes[0].title).toBe('第一卷');
+    expect(result.data.sections[0].chapter_id).toBe('c1');
+    expect(result.data.sections[0].content).toBe('<p>旧版正文</p>');
+    expect(validateImportFormat(legacyStoryPayload).valid).toBe(true);
+  });
+
+  it('接受当前 WorksListPage 导出结构', () => {
+    const result = normalizeImportPayload(worksListPagePayload, 'page-export.json');
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.format).toBe('export');
+    expect(result.data.title).toBe('页面导出作品');
+    expect(result.data.sections[0].content).toBe('<p>页面正文</p>');
+    expect(result.data.character_relations).toHaveLength(1);
+    expect(result.data.dice_history).toHaveLength(1);
+  });
+
+  it('接受没有 format 的旧文件', () => {
+    const result = normalizeImportPayload(
+      {
+        title: '旧文件',
+        story: { id: 'story-1', title: '旧文件' },
+        volumes: [{ id: 'v1', title: '第一卷' }],
+        chapters: [{ id: 'c1', volume_id: 'v1', title: '第一章' }],
+        sections: [{ id: 's1', chapter_id: 'c1', title: '第1节', content: '<p>旧正文</p>' }],
+      },
+      'old.json',
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.format).toBe('legacy');
+    expect(result.data.title).toBe('旧文件');
+  });
+
+  it('没有卷或章时补默认卷章', () => {
+    const result = normalizeImportPayload(
+      { title: '补默认', sections: [{ title: '第1节', content: '<p>正文</p>' }] },
+      'minimal.json',
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.volumes).toHaveLength(1);
+    expect(result.data.chapters).toHaveLength(1);
+    expect(result.data.sections[0].chapter_id).toBe(result.data.chapters[0].id);
+    expect(result.data.sections[0].order_index).toBe(0);
+  });
+
+  it('未知字段保留到 extras', () => {
+    const result = normalizeImportPayload(
+      {
+        title: '保留字段',
+        cover_gradient: 'linear-gradient(#fff, #000)',
+        author_note: '作者备注',
+        sections: [{ title: '第1节', content: '<p>正文</p>', layout_hint: 'wide' }],
+      },
+      'extra.json',
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.cover_gradient).toBe('linear-gradient(#fff, #000)');
+    expect(result.data.extras).toMatchObject({ author_note: '作者备注' });
+    expect(result.data.sections[0].extras.layout_hint).toBe('wide');
+  });
+
+  it('缺正文时报中文错误', () => {
+    const result = normalizeImportPayload(
+      { title: '坏节', sections: [{ title: '空节' }] },
+      'bad-section.json',
+    );
+    expect(result).toEqual({ ok: false, error: '第 1 节「空节」缺少正文' });
+  });
+
+  it('拒绝未知 format', () => {
+    const result = normalizeImportPayload(
+      { format: 'anke-creator-export-v9', data: { title: '未知格式' } },
+      'unknown.json',
+    );
+    expect(result).toEqual({
+      ok: false,
+      error: '不支持的文件格式：anke-creator-export-v9，仅支持 anke-creator-export / anke-creator-story / anke-creator-story-v2 或无包装旧文件',
+    });
+  });
+
+  it('损坏 JSON 在 parseImportText 阶段报中文错误', () => {
+    expect(parseImportText('{broken', 'broken.json')).toEqual({
+      ok: false,
+      error: '文件不是合法的 JSON：broken.json',
+    });
   });
 });

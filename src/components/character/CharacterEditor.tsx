@@ -110,7 +110,7 @@ export function CharacterPanel({
         <div className="flex items-center gap-1">
           {selectedIds.size > 0 ? (
             <>
-              <span className="text-[var(--text-secondary)] text-[10px]">
+              <span className="text-[var(--text-secondary)] text-[12px]">
                 已选 {selectedIds.size}
               </span>
               <button
@@ -120,7 +120,7 @@ export function CharacterPanel({
                     .map((c) => c.name);
                   setPendingBatchDelete({ ids: Array.from(selectedIds), names });
                 }}
-                className="bg-[var(--danger)] text-[var(--text-on-accent)] text-xs px-2 py-1 rounded"
+                className="bg-[var(--danger)] text-[var(--text-on-danger)] text-xs px-2 py-1 rounded"
                 title="删除所选"
               >
                 <span className="inline-flex items-center gap-1"><Icon name="trash" size={12} /> 批量删除</span>
@@ -234,8 +234,8 @@ export function CharacterPanel({
   );
 }
 
-/** "从模板导入" 人物 */
-function ImportCharacterTemplateButton() {
+/** "从模板导入" 人物（同时供编辑页右侧紧凑人物面板复用） */
+export function ImportCharacterTemplateButton() {
   const activeStoryId = useStoryStore((s) => s.activeStoryId);
   const templates = useMetaStore((s) => s.characterTemplates);
   const [open, setOpen] = useState(false);
@@ -312,8 +312,8 @@ function ImportCharacterTemplateButton() {
     <button
       key={t.id}
       onClick={() => importOne(t as any)}
-      className="text-[var(--text-primary)] rounded-[var(--radius-control)] w-full text-left px-3 py-2 transition-colors"
-      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-bg)' }}
+      className="text-[var(--an-ink)] w-full text-left px-3 py-2 rounded-[10px] transition-colors"
+      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--an-pink-soft)' }}
       onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
     >
       <div className="flex items-center gap-2">
@@ -321,7 +321,8 @@ function ImportCharacterTemplateButton() {
           <img src={t.avatar} alt="" className="w-6 h-6 rounded-md object-cover shrink-0"
             onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
         ) : (
-          <div className="bg-[var(--accent-soft)] text-[var(--accent)] w-6 h-6 rounded-md shrink-0 flex items-center justify-center text-[11px]">
+          <div className="w-6 h-6 rounded-full shrink-0 flex items-center justify-center text-[12px]"
+            style={{ background: 'var(--an-lilac-soft)', color: 'var(--an-ink)', border: '2px solid var(--an-ink)' }}>
             {(t.name || '?').slice(0, 1)}
           </div>
         )}
@@ -331,7 +332,7 @@ function ImportCharacterTemplateButton() {
       </div>
       {t.personality && (
         <div className="mt-0.5 ml-8" style={{
-          fontSize: 11,
+          fontSize: 12,
           color: 'var(--text-secondary)',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
@@ -355,10 +356,10 @@ function ImportCharacterTemplateButton() {
         minWidth: 320,
         maxHeight: 'min(480px, calc(100vh - 80px))',
         zIndex: 9999,
-        background: 'var(--bg-card)',
-        border: '1px solid var(--border-color)',
-        borderRadius: 'var(--radius-md)',
-        boxShadow: 'var(--shadow-pop)',
+        background: 'var(--an-card)',
+        border: '2px solid var(--an-ink)',
+        borderRadius: 'var(--an-radius-sm)',
+        boxShadow: 'var(--an-shadow-pop), var(--an-shadow-soft)',
         display: 'flex',
         flexDirection: 'column',
       }}
@@ -369,7 +370,8 @@ function ImportCharacterTemplateButton() {
           placeholder="搜索模板..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="bg-[var(--bg-input)] border-[color:var(--border-color)] text-[var(--text-primary)] w-full px-2 py-1.5 text-xs rounded border outline-none"
+          className="w-full px-2.5 py-1.5 text-xs rounded-full outline-none"
+          style={{ background: 'var(--an-paper)', border: '2px solid var(--an-ink)', color: 'var(--an-ink)' }}
         />
       </div>
       {templates.length === 0 ? (
@@ -396,7 +398,8 @@ function ImportCharacterTemplateButton() {
         ref={btnRef}
         onClick={() => { setOpen((v) => !v); setSearch(''); }}
         disabled={!activeStoryId}
-        className="bg-[var(--bg-card)] text-[var(--text-primary)] border-[color:var(--border-color)] text-xs px-2 py-1 rounded border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        className="text-[12px] px-2 h-8 rounded-full font-semibold transition-transform hover:-translate-y-[1px] disabled:opacity-40 disabled:cursor-not-allowed"
+        style={{ background: 'var(--an-mint)', color: '#123a2e', border: '2px solid var(--an-ink)', boxShadow: '0 2px 0 var(--an-ink)' }}
       >
         导入模板
       </button>
@@ -825,13 +828,13 @@ function CharacterEditorModal({
                   }
                 }}
                 placeholder="或填写图片URL/路径"
-                className="w-40 text-[10px] border rounded px-2 py-1 outline-none"
+                className="w-40 text-[12px] border rounded px-2 py-1 outline-none"
                 style={inputStyle}
               />
               {avatar && (
                 <button
                   onClick={() => setAvatar('')}
-                  className="text-[10px] transition-colors"
+                  className="text-[12px] transition-colors"
                   style={{ color: labelColor }}
                   onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--danger)')}
                   onMouseLeave={(e) => (e.currentTarget.style.color = labelColor)}
@@ -882,7 +885,7 @@ function CharacterEditorModal({
               <label className="text-xs" style={{ color: labelColor }}>属性表</label>
               <button
                 onClick={() => setBatchAttrOpen(true)}
-                className="bg-[var(--bg-sidebar)] text-[var(--text-secondary)] border border-[color:var(--border-color)] text-[10px] px-2 py-0.5 rounded whitespace-nowrap"
+                className="bg-[var(--bg-sidebar)] text-[var(--text-secondary)] border border-[color:var(--border-color)] text-[12px] px-2 py-0.5 rounded whitespace-nowrap"
                 title="批量添加属性"
               >
                 批量添加
@@ -901,12 +904,12 @@ function CharacterEditorModal({
                 人物差分（表情/姿势/服饰等图片变体）
               </label>
               <div className="flex items-center gap-2">
-                <span className="text-[10px]" style={{ color: labelColor }}>
+                <span className="text-[12px]" style={{ color: labelColor }}>
                   共 {(character.variants || []).length} 个
                 </span>
                 <button
                   onClick={() => setBatchVariantOpen(true)}
-                  className="bg-[var(--bg-sidebar)] text-[var(--text-secondary)] border border-[color:var(--border-color)] text-[10px] px-2 py-0.5 rounded whitespace-nowrap"
+                  className="bg-[var(--bg-sidebar)] text-[var(--text-secondary)] border border-[color:var(--border-color)] text-[12px] px-2 py-0.5 rounded whitespace-nowrap"
                   title="批量添加差分（差分名:url，每行一个）"
                 >
                   批量添加
@@ -1012,7 +1015,7 @@ function CharacterEditorModal({
               ))}
               {(character.variants || []).length === 0 && (
                 <div
-                  className="text-[10px] italic text-center py-2"
+                  className="text-[12px] italic text-center py-2"
                   style={{ color: labelColor }}
                 >
                   暂无差分，下方添加

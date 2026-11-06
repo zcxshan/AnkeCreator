@@ -47,13 +47,11 @@ function initMemory(): void {
   if (memoryInitialized) return
   memoryTables = {
     stories: {},
-    world_settings: {},
     characters: {},
     outlines: {},
     chapters: {},
     sections: {},
     character_variants: {},
-    world_setting_templates: {},
     character_templates: {},
     character_relations: {},
   }

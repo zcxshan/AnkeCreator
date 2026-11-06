@@ -28,6 +28,24 @@ import {
  */
 const DICE_SENTINEL = '\u0001DICE\u0001';
 
+/** 本地图片占位符前缀：BBCode 中每出现一次代表一张 NGA 无法访问的本地图片 */
+const LOCAL_IMAGE_PLACEHOLDER = '[本地图片：';
+
+/**
+ * 统计 BBCode 中被占位符替换的本地图片数量。
+ * 发送到 NGA 前用于提示用户：这些图片不会真正上传，只会显示占位文字。
+ */
+export function countLocalImagePlaceholders(bbcode: string | null | undefined): number {
+  if (!bbcode) return 0;
+  let count = 0;
+  let index = bbcode.indexOf(LOCAL_IMAGE_PLACEHOLDER);
+  while (index !== -1) {
+    count += 1;
+    index = bbcode.indexOf(LOCAL_IMAGE_PLACEHOLDER, index + LOCAL_IMAGE_PLACEHOLDER.length);
+  }
+  return count;
+}
+
 /** 公开入口：把 HTML 字符串转成 NGA BBCode */
 export function htmlToNGABBCode(html: string | null | undefined): string {
   if (!html) return '';

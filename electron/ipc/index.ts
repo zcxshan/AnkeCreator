@@ -8,7 +8,6 @@ import { BrowserWindow, ipcMain, shell } from 'electron'
 import { registerStoryIpc } from './story'
 import { registerCharacterIpc } from './character'
 import { registerRelationIpc } from './relation'
-import { registerWorldIpc } from './world'
 import { registerTemplateIpc } from './template'
 import { registerOutlineIpc } from './outline'
 import { registerStructureIpc } from './structure'
@@ -29,7 +28,6 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   registerStoryIpc(getWindow)
   registerCharacterIpc()
   registerRelationIpc()
-  registerWorldIpc()
   registerTemplateIpc()
   registerOutlineIpc()
   registerStructureIpc()

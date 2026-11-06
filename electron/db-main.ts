@@ -4,7 +4,7 @@
 // 每个 story 一个独立 JSON 文件，包含该 story 的所有关联数据：
 //   - story 元数据
 //   - volumes / chapters / sections
-//   - world_settings / characters / character_variants / character_relations
+//   - characters / character_variants / character_relations
 //   - outlines
 //   - dice_history（由渲染层通过导出/导入携带，日常读写仍由 zustand 管理）
 //   - stats（缓存统计）
@@ -28,7 +28,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import type { WorldSettingTemplate, CharacterTemplate, CharacterVariant } from '../src/types';
+import type { CharacterTemplate, CharacterVariant } from '../src/types';
 import { appendUrlRecord, removeUrlRecord } from '../src/utils/urlRecordStore';
 import { migrateV13RootFolderBug } from '../src/utils/migrateImageLibraryRootFolder';
 import { syncDiskToDbPure, type SyncDiskToDbResult } from '../src/utils/syncDiskToDb';
@@ -41,6 +41,27 @@ import {
   getSectionsDir,
   migrateFromUserDataIfNeeded,
 } from './paths';
+import {
+  readStoryDirectoryAt,
+  writeStoryDirectoryAt,
+  type DirectoryPayload,
+} from './data-core/storyStore';
+import { readStoryManifest, readSectionFromManifest } from './data-core/manifest';
+import {
+  getStoryDir,
+  getLegacyBundlePath,
+  getLegacyBundleBakPath,
+} from './data-core/storyPaths';
+import {
+  resolveStorageLayout,
+  initializeStorageLayout,
+  readStorageLayout,
+  writeStorageLayout,
+} from './data-core/storageLayout';
+import { migrateAllLegacyBundles } from './data-core/bundleToDirectory';
+import { ensureDailySnapshot } from './snapshot';
+import { repairEmptySectionContent } from './data-core/sectionRepair';
+import { validateLocalUrlForFileOp } from '../src/utils/parseLocalUrl';
 
 // —— 工具函数 —— //
 
@@ -157,16 +178,6 @@ type SectionRow = {
   updated_at: string;
 };
 
-type WorldSettingRow = {
-  id: string;
-  story_id: string;
-  title: string;
-  content: string;
-  order_index: number;
-  created_at: string;
-  updated_at: string;
-};
-
 type CharacterVariantRow = {
   id: string;
   name: string;
@@ -252,7 +263,6 @@ interface StoryBundle {
   volumes: VolumeRow[];
   chapters: ChapterRow[];
   sections: SectionRow[];
-  world_settings: WorldSettingRow[];
   characters: CharacterRow[];
   character_relations: RelationRow[];
   outlines: OutlineRow[];
@@ -269,12 +279,80 @@ function emptyBundle(story: StoryRow): StoryBundle {
     volumes: [],
     chapters: [],
     sections: [],
-    world_settings: [],
     characters: [],
     character_relations: [],
     outlines: [],
     dice_history: [],
     stats: { word_count: 0, section_count: 0, chapter_count: 0 },
+  };
+}
+
+/**
+ * 解析节正文的落盘内容：bundle 内联字段优先，缺失时回退全局侧车。
+ * 导入链路（bulkCreateSections / 旧 bundle）会把正文只写进侧车，
+ * 此时若直接把 bundle 的 null 写进作品目录，编辑器会读到空正文。
+ */
+function resolveSectionContentForPersist(section: {
+  id: string;
+  content?: string | null;
+  bbcode?: string | null;
+}): { content: string | null; bbcode: string | null } {
+  let content = section.content ?? null;
+  let bbcode = section.bbcode ?? null;
+  if (content == null || bbcode == null) {
+    const side = readSectionContentFile(section.id);
+    if (content == null) content = side?.content ?? null;
+    if (bbcode == null) bbcode = side?.bbcode ?? null;
+  }
+  return { content, bbcode };
+}
+
+function bundleToDirectoryPayload(bundle: StoryBundle): DirectoryPayload {
+  return {
+    story: { ...bundle.story, stats: bundle.stats },
+    volumes: bundle.volumes as unknown as Record<string, unknown>[],
+    chapters: {
+      list: bundle.chapters as unknown as Record<string, unknown>[],
+      sections: bundle.sections.map(({ content: _content, bbcode: _bbcode, ...meta }) => meta),
+    },
+    world: {
+      character_relations: bundle.character_relations as unknown as Record<string, unknown>[],
+      outlines: bundle.outlines as unknown as Record<string, unknown>[],
+    },
+    characters: bundle.characters as unknown as Record<string, unknown>[],
+    dice: { dice_history: bundle.dice_history as unknown as Record<string, unknown>[] },
+    sections: bundle.sections.map((section) => {
+      const resolved = resolveSectionContentForPersist(section);
+      return {
+        id: section.id,
+        content: resolved.content,
+        bbcode: resolved.bbcode,
+        word_count: section.word_count || 0,
+        updated_at: section.updated_at,
+      };
+    }),
+  };
+}
+
+function directoryToBundle(dir: DirectoryPayload): StoryBundle {
+  const stats = dir.story.stats as StoryBundle['stats'] | undefined;
+  return {
+    format: 'anke-creator-story-v2',
+    version: '2.0',
+    exportedAt: String(dir.story.exportedAt ?? nowISO()),
+    story: dir.story as unknown as StoryRow,
+    volumes: dir.volumes as unknown as VolumeRow[],
+    chapters: dir.chapters.list as unknown as ChapterRow[],
+    sections: dir.chapters.sections.map((section) => ({
+      ...(section as unknown as SectionRow),
+      content: null,
+      bbcode: null,
+    })),
+    characters: dir.characters as unknown as CharacterRow[],
+    character_relations: (dir.world.character_relations ?? []) as unknown as RelationRow[],
+    outlines: (dir.world.outlines ?? []) as unknown as OutlineRow[],
+    dice_history: (dir.dice.dice_history ?? []) as unknown as DiceHistoryRecord[],
+    stats: stats ?? { word_count: 0, section_count: 0, chapter_count: 0 },
   };
 }
 
@@ -451,9 +529,25 @@ function deleteSectionContentFile(sectionId: string): void {
  * 读取节正文（侧车优先；旧数据回退到 bundle 内联内容）。
  * row 传 null 时只查侧车。
  */
-function hydrateSectionRow(row: SectionRow): SectionRow {
+function hydrateSectionRow(row: SectionRow, storyId?: string): SectionRow {
   // 旧数据：正文还内联在 bundle 里，直接返回（迁移后此分支基本不会命中）
   if (row.content != null) return row;
+  // perStory 布局：正文存在 stories/<id>/sections/<sectionId>.json
+  if (storyId && resolveStorageLayout(getDataDir()) === 'perStory') {
+    const dir = getStoryDir(getDataDir(), storyId);
+    const manifest = readStoryManifest(dir);
+    const section = manifest
+      ? readSectionFromManifest<SectionContentFile>(dir, manifest, row.id)
+      : null;
+    if (section && section.content != null) {
+      return {
+        ...row,
+        content: section.content,
+        bbcode: section.bbcode ?? row.bbcode ?? null,
+        word_count: section.word_count ?? row.word_count,
+      };
+    }
+  }
   const side = readSectionContentFile(row.id);
   if (!side) return row;
   return {
@@ -512,21 +606,69 @@ function splitInlineSectionContent(bundle: StoryBundle): boolean {
 
 /** 读取 per-story 文件 */
 function readStoryFile(storyId: string): StoryBundle | null {
-  return loadJSONWithRecovery<StoryBundle | null>(storyFilePath(storyId), storyBakPath(storyId), null);
+  if (resolveStorageLayout(getDataDir()) === 'perStory') {
+    const dir = getStoryDir(getDataDir(), storyId);
+    const payload = readStoryDirectoryAt(dir);
+    if (payload) {
+      const bundle = directoryToBundle(payload);
+      // 目录布局下正文按节分散在 sections/ 中；读回时补齐，
+      // 保证后续 read-modify-write 不会把已有正文覆盖成 null。
+      const manifest = readStoryManifest(dir);
+      if (manifest) {
+        bundle.sections = bundle.sections.map((row) => {
+          const section = readSectionFromManifest<SectionContentFile>(dir, manifest, row.id);
+          if (!section) return row;
+          return {
+            ...row,
+            content: section.content ?? null,
+            bbcode: section.bbcode ?? row.bbcode ?? null,
+            word_count: section.word_count ?? row.word_count,
+          };
+        });
+      }
+      return bundle;
+    }
+  }
+  return loadJSONWithRecovery<StoryBundle | null>(
+    getLegacyBundlePath(getDataDir(), storyId),
+    getLegacyBundleBakPath(getDataDir(), storyId),
+    null,
+  );
 }
 
 /** 写入 per-story 文件（带 .bak 备份） */
 function writeStoryFile(storyId: string, bundle: StoryBundle): void {
   bundle.exportedAt = nowISO();
-  saveJSONWithBackup(storyFilePath(storyId), storyBakPath(storyId), bundle);
+  if (resolveStorageLayout(getDataDir()) === 'perStory') {
+    writeStoryDirectoryAt(getStoryDir(getDataDir(), storyId), bundleToDirectoryPayload(bundle));
+  } else {
+    saveJSONWithBackup(
+      getLegacyBundlePath(getDataDir(), storyId),
+      getLegacyBundleBakPath(getDataDir(), storyId),
+      bundle,
+    );
+  }
   // 同步维护实体索引（未构建时不做，首次查询会整体构建）
   refreshStoryIndex(storyId, bundle);
+}
+
+/** 删除作品在两种布局下的落盘文件（单文件 + .bak，或 perStory 目录） */
+function removeStoryStorageFiles(storyId: string): void {
+  try {
+    if (fs.existsSync(storyFilePath(storyId))) fs.unlinkSync(storyFilePath(storyId));
+  } catch {}
+  try {
+    if (fs.existsSync(storyBakPath(storyId))) fs.unlinkSync(storyBakPath(storyId));
+  } catch {}
+  try {
+    const dir = getStoryDir(getDataDir(), storyId);
+    if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+  } catch {}
 }
 
 // —— 实体 id → storyId 索引 —— //
 // 避免每次保存正文都遍历解析整个作品库。索引在进程内常驻，写盘/删除时增量维护。
 type IndexedEntityType =
-  | 'world_settings'
   | 'characters'
   | 'character_relations'
   | 'outlines'
@@ -554,7 +696,6 @@ function refreshStoryIndex(storyId: string, bundle: StoryBundle): void {
     entityStoryIndex!.set(key, storyId);
     keys.add(key);
   };
-  for (const row of bundle.world_settings) add('world_settings', row.id);
   for (const row of bundle.characters) add('characters', row.id);
   for (const row of bundle.character_relations) add('character_relations', row.id);
   for (const row of bundle.outlines) add('outlines', row.id);
@@ -582,14 +723,19 @@ function forgetStoryIndex(storyId: string): void {
   }
 }
 
-/** 列出 stories/ 目录下所有 storyId（排除 .bak 和 __trash） */
+/** 列出 stories/ 目录下所有 storyId（兼容单文件与 perStory 目录；排除 __trash） */
 function listStoryIds(): string[] {
   const dir = getStoriesDir();
   try {
-    const files = fs.readdirSync(dir);
-    return files
-      .filter((f) => f.endsWith('.json') && !f.endsWith('.json.bak'))
-      .map((f) => f.replace(/\.json$/, ''))
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    return entries
+      .filter((entry) => {
+        if (entry.isDirectory()) {
+          return entry.name !== '__trash' && !entry.name.startsWith('.');
+        }
+        return entry.name.endsWith('.json') && !entry.name.endsWith('.json.bak');
+      })
+      .map((entry) => (entry.isDirectory() ? entry.name : entry.name.replace(/\.json$/, '')))
       .filter((id) => id !== '__trash');
   } catch {
     return [];
@@ -609,30 +755,16 @@ function listTrashedStoryIds(): string[] {
   }
 }
 
-/** 读取全局 JSON 文件（无 .bak，用于 favorites/story_favorites/story_stats） */
+/** 读取全局 JSON 文件（带 .bak 恢复，用于 favorites/story_favorites/story_stats） */
 function loadGlobalJSON<T>(name: string, fallback: T): T {
-  const p = dataFilePath(name);
-  try {
-    if (!fs.existsSync(p)) return fallback;
-    const raw = fs.readFileSync(p, 'utf-8');
-    return JSON.parse(raw) as T;
-  } catch (e) {
-    console.error('[db-main] loadGlobalJSON failed for', name, e);
-    return fallback;
-  }
+  const filePath = dataFilePath(name);
+  return loadJSONWithRecovery<T>(filePath, `${filePath}.bak`, fallback);
 }
 
-/** 写入全局 JSON 文件（tmp + rename，无 .bak） */
+/** 写入全局 JSON 文件（tmp + rename 原子替换 + .bak 备份） */
 function saveGlobalJSON(name: string, data: unknown): void {
-  const p = dataFilePath(name);
-  try {
-    const tmp = p + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 0), 'utf-8');
-    fs.renameSync(tmp, p);
-  } catch (e) {
-    console.error('[db-main] saveGlobalJSON failed for', name, e);
-    throw e;
-  }
+  const filePath = dataFilePath(name);
+  saveJSONWithBackup(filePath, `${filePath}.bak`, data);
 }
 
 /** 读取模板文件（带 .bak） */
@@ -659,6 +791,23 @@ export function initMainDatabase(): void {
   getStoriesDir();
   getTrashDir();
   getTemplatesDir();
+
+  // 存储布局：首次启动确定「单文件 / perStory 目录」；旧单文件数据先迁移到目录布局
+  // 已显式选择 bundle（如用户回滚）时不再次迁移，否则回滚无效
+  const hadLayout = readStorageLayout(dir);
+  const layout = initializeStorageLayout(dir);
+  if (layout === 'bundle' && !hadLayout) {
+    try {
+      const migration = migrateAllLegacyBundles(dir, {
+        createSnapshot: () => ensureDailySnapshot(dir),
+      });
+      if (migration.migrated > 0) {
+        writeStorageLayout(dir, 'perStory');
+      }
+    } catch (e) {
+      console.warn('[db-main] per-story 迁移失败，继续使用单文件布局:', e);
+    }
+  }
 
   // 迁移旧格式（AnkeCreatorData/ 下的 10 个全局文件）
   migrateFromOldFormatIfNeeded();
@@ -706,6 +855,19 @@ export function initMainDatabase(): void {
 
   // v3.6：把内联在 bundle 里的节正文拆分到 <data>/sections/（后台分批执行，不阻塞启动）
   startSectionSidecarMigration();
+
+  // 导入缺陷修复：作品目录 content 为空但侧车存有正文 → 幂等回填
+  // （导入链路只写侧车，直接读作品目录会得到空正文）
+  try {
+    const repaired = repairEmptySectionContent({ dataDir: getDataDir() });
+    if (repaired.repaired > 0) {
+      console.log(
+        `[db-main] 已从侧车回填 ${repaired.repaired} 个节的正文（扫描 ${repaired.stories} 个作品）`,
+      );
+    }
+  } catch (e) {
+    console.warn('[db-main] 节正文回填失败（不影响启动）:', e);
+  }
 }
 
 const SECTION_SIDECAR_MARKER = '.migrated-sections-sidecar-v1';
@@ -815,7 +977,6 @@ function migrateFromOldFormatIfNeeded(): void {
     };
 
     const oldStories = readOld<StoryRow>('stories');
-    const oldWorldSettings = readOld<WorldSettingRow>('world_settings');
     const oldCharacters = readOld<CharacterRow>('characters');
     const oldOutlines = readOld<OutlineRow>('outlines');
     const oldVolumes = readOld<VolumeRow>('volumes');
@@ -831,7 +992,6 @@ function migrateFromOldFormatIfNeeded(): void {
       const chapters = Object.values(oldChapters).filter((c) => c.story_id === storyId);
       const chapterIds = new Set(chapters.map((c) => c.id));
       const sections = Object.values(oldSections).filter((s) => s.chapter_id && chapterIds.has(s.chapter_id));
-      const worldSettings = Object.values(oldWorldSettings).filter((w) => w.story_id === storyId);
       const characters = Object.values(oldCharacters).filter((c) => c.story_id === storyId);
       const relations = Object.values(oldRelations).filter((r) => r.story_id === storyId);
       const outlines = Object.values(oldOutlines).filter((o) => o.story_id === storyId);
@@ -845,7 +1005,6 @@ function migrateFromOldFormatIfNeeded(): void {
         volumes,
         chapters,
         sections,
-        world_settings: worldSettings,
         characters,
         character_relations: relations,
         outlines,
@@ -867,15 +1026,8 @@ function migrateFromOldFormatIfNeeded(): void {
       }
     }
 
-    // 复制模板文件
-    const oldWorldTpl = path.join(legacyDir, 'world_templates.json');
+    // 复制人物模板文件
     const oldCharTpl = path.join(legacyDir, 'character_templates.json');
-    if (fs.existsSync(oldWorldTpl)) {
-      try {
-        const data = JSON.parse(fs.readFileSync(oldWorldTpl, 'utf-8'));
-        writeTemplateFile('world_templates', data);
-      } catch {}
-    }
     if (fs.existsSync(oldCharTpl)) {
       try {
         const data = JSON.parse(fs.readFileSync(oldCharTpl, 'utf-8'));
@@ -1139,11 +1291,8 @@ export function deleteStory(id: string): void {
   if (bundle) {
     for (const s of bundle.sections) deleteSectionContentFile(s.id);
   }
-  // 物理删除 per-story 文件 + .bak
-  const mainPath = storyFilePath(id);
-  const bakPath = storyBakPath(id);
-  try { if (fs.existsSync(mainPath)) fs.unlinkSync(mainPath); } catch {}
-  try { if (fs.existsSync(bakPath)) fs.unlinkSync(bakPath); } catch {}
+  // 物理删除落盘文件（单文件 or perStory 目录）
+  removeStoryStorageFiles(id);
   // 维护 stats 缓存
   deleteStoryStats(id);
   // 维护实体索引
@@ -1161,9 +1310,8 @@ export function softDeleteStory(id: string): void {
   const trashPath = trashedStoryFilePath(id);
   try {
     fs.writeFileSync(trashPath, JSON.stringify(bundle, null, 0), 'utf-8');
-    // 删除 stories/ 下的主文件和 .bak
-    try { if (fs.existsSync(storyFilePath(id))) fs.unlinkSync(storyFilePath(id)); } catch {}
-    try { if (fs.existsSync(storyBakPath(id))) fs.unlinkSync(storyBakPath(id)); } catch {}
+    // 删除 stories/ 下的落盘文件（单文件 + .bak，或 perStory 目录）
+    removeStoryStorageFiles(id);
   } catch (e) {
     console.error('[db-main] softDeleteStory failed:', e);
   }
@@ -1230,69 +1378,6 @@ export function cleanupOldTrashed(days: number): number {
     }
   }
   return count;
-}
-
-// —— WorldSetting —— //
-
-export function listWorldSettings(storyId: string): WorldSettingRow[] {
-  const bundle = readStoryFile(storyId);
-  if (!bundle) return [];
-  return bundle.world_settings
-    .filter((r) => r.story_id === storyId)
-    .sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
-}
-
-export function createWorldSetting(data: Omit<WorldSettingRow, 'id' | 'created_at' | 'updated_at'> & Partial<Pick<WorldSettingRow, 'order_index'>>): WorldSettingRow {
-  const bundle = readStoryFile(data.story_id);
-  if (!bundle) throw new Error('story not found: ' + data.story_id);
-  const existing = bundle.world_settings;
-  const order = typeof data.order_index === 'number' ? data.order_index : nextOrderIndex(existing);
-  const now = nowISO();
-  const row: WorldSettingRow = {
-    id: uuid4(),
-    story_id: data.story_id,
-    title: data.title || '未命名世界观',
-    content: data.content || '',
-    order_index: order,
-    created_at: now,
-    updated_at: now,
-  };
-  bundle.world_settings.push(row);
-  writeStoryFile(data.story_id, bundle);
-  return row;
-}
-
-export function updateWorldSetting(id: string, patch: Partial<WorldSettingRow>): WorldSettingRow | undefined {
-  // 需要先找到所属 story
-  const storyId = findStoryIdByEntityId(id, 'world_settings');
-  if (!storyId) return undefined;
-  const bundle = readStoryFile(storyId);
-  if (!bundle) return undefined;
-  const idx = bundle.world_settings.findIndex((r) => r.id === id);
-  if (idx < 0) return undefined;
-  bundle.world_settings[idx] = { ...bundle.world_settings[idx], ...patch, updated_at: nowISO() };
-  writeStoryFile(storyId, bundle);
-  return bundle.world_settings[idx];
-}
-
-export function deleteWorldSetting(id: string): void {
-  const storyId = findStoryIdByEntityId(id, 'world_settings');
-  if (!storyId) return;
-  const bundle = readStoryFile(storyId);
-  if (!bundle) return;
-  bundle.world_settings = bundle.world_settings.filter((r) => r.id !== id);
-  writeStoryFile(storyId, bundle);
-}
-
-export function reorderWorldSettings(storyId: string, orderedIds: string[]): void {
-  const bundle = readStoryFile(storyId);
-  if (!bundle) return;
-  const orderMap: Record<string, number> = {};
-  orderedIds.forEach((id, i) => (orderMap[id] = i));
-  bundle.world_settings = bundle.world_settings
-    .map((r) => ({ ...r, order_index: orderMap[r.id] ?? r.order_index }))
-    .sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
-  writeStoryFile(storyId, bundle);
 }
 
 // —— Character —— //
@@ -1890,7 +1975,7 @@ function listSectionRowsRaw(chapterId: string): SectionRow[] {
 }
 
 export function listSections(chapterId: string): SectionRow[] {
-  return listSectionRowsRaw(chapterId).map(hydrateSectionRow);
+  return listSectionRowsRaw(chapterId).map((row) => hydrateSectionRow(row));
 }
 
 export function listSectionMetadata(chapterId: string) {
@@ -1918,13 +2003,14 @@ export function createSection(data: { chapter_id: string; title: string; content
     const bbcode = data.bbcode ?? null;
     const wc = countWordsInHtml(content);
     const now = nowISO();
+    // perStory：正文直接落在作品目录的 sections 文件里；bundle 布局只存元数据
+    const isPerStory = resolveStorageLayout(getDataDir()) === 'perStory';
     const row: SectionRow = {
       id: uuid4(),
       chapter_id: data.chapter_id,
       title: data.title,
-      // bundle 只存元数据；正文写入 <data>/sections/<id>.json
-      content: null,
-      bbcode: null,
+      content: isPerStory ? content : null,
+      bbcode: isPerStory ? bbcode : null,
       word_count: wc,
       order_index: order,
       created_at: now,
@@ -1956,11 +2042,16 @@ export function updateSection(id: string, patch: Partial<SectionRow>): Promise<S
     let row: SectionRow = { ...bundle.sections[idx], ...patch, updated_at: nowISO() };
     if (contentChanged) row.word_count = countWordsInHtml(patch.content ?? null);
     if (contentChanged || bbcodeChanged) {
-      // 正文 / BBCode 写入侧车，bundle 只保留元数据
-      row = persistSectionContentSidecar(row, {
-        ...(contentChanged ? { content: patch.content ?? null } : {}),
-        ...(bbcodeChanged ? { bbcode: patch.bbcode ?? null } : {}),
-      });
+      if (resolveStorageLayout(getDataDir()) === 'perStory') {
+        // perStory：正文随 bundle 行一起写入作品目录的 sections 文件
+        row = { ...row, updated_at: nowISO() };
+      } else {
+        // 正文 / BBCode 写入侧车，bundle 只保留元数据
+        row = persistSectionContentSidecar(row, {
+          ...(contentChanged ? { content: patch.content ?? null } : {}),
+          ...(bbcodeChanged ? { bbcode: patch.bbcode ?? null } : {}),
+        });
+      }
     }
     bundle.sections[idx] = row;
     if (contentChanged && chId) recomputeChapterAndVolumeWordCount(bundle, chId);
@@ -2147,10 +2238,24 @@ export async function bulkCreateSections(rows: Array<{ chapter_id: string; title
   return result;
 }
 
+function readSectionFromPerStory(id: string): SectionContentFile | null {
+  if (resolveStorageLayout(getDataDir()) !== 'perStory') return null;
+  const storyId = findStoryIdByEntityId(id, 'sections');
+  if (!storyId) return null;
+  const dir = getStoryDir(getDataDir(), storyId);
+  const manifest = readStoryManifest(dir);
+  return manifest ? readSectionFromManifest<SectionContentFile>(dir, manifest, id) : null;
+}
+
 export function getSectionContent(id: string): string | null {
-  // 侧车是正文的唯一事实来源：命中即可直接返回，无需读取整个作品
+  // perStory：正文存在 stories/<id>/sections/<sectionId>.json
+  // 注意：导入后的作品目录 content 可能为 null（正文只在侧车），不能直接返回 null
+  const fromDir = readSectionFromPerStory(id);
+  if (fromDir?.content != null) return fromDir.content;
+  // 侧车是 bundle 布局的正文唯一事实来源；perStory 下也用于回填空正文
   const side = readSectionContentFile(id);
-  if (side) return side.content;
+  if (side?.content != null) return side.content;
+  if (fromDir) return null;
   // 旧数据兼容：正文还内联在 bundle 中
   const storyId = findStoryIdByEntityId(id, 'sections');
   if (!storyId) return null;
@@ -2160,10 +2265,13 @@ export function getSectionContent(id: string): string | null {
   return sec ? sec.content : null;
 }
 
-/** 读取节的 BBCode 缓存（与 content 同一份侧车；旧数据回退到 bundle 内联字段） */
+/** 读取节的 BBCode 缓存（与 content 同一份落盘位置；旧数据回退到 bundle 内联字段） */
 export function getSectionBBCode(id: string): string | null {
+  const fromDir = readSectionFromPerStory(id);
+  if (fromDir?.bbcode != null) return fromDir.bbcode;
   const side = readSectionContentFile(id);
-  if (side) return side.bbcode ?? null;
+  if (side?.bbcode != null) return side.bbcode;
+  if (fromDir) return null;
   const storyId = findStoryIdByEntityId(id, 'sections');
   if (!storyId) return null;
   const bundle = readStoryFile(storyId);
@@ -2191,14 +2299,33 @@ export function setSectionContent(
     if (idx < 0) return;
     const oldWc = bundle.sections[idx].word_count || 0;
     const wc = countWordsInHtml(content);
-    // 1) 先写正文侧车（失败会抛错，bundle 保持原样）
+    const now = nowISO();
+    const isPerStory = resolveStorageLayout(getDataDir()) === 'perStory';
+    let existingBbcode: string | null = bundle.sections[idx].bbcode ?? null;
+    if (isPerStory) {
+      const dir = getStoryDir(getDataDir(), storyId);
+      const manifest = readStoryManifest(dir);
+      const existing = manifest
+        ? readSectionFromManifest<SectionContentFile>(dir, manifest, id)
+        : null;
+      existingBbcode = existing?.bbcode ?? existingBbcode;
+    }
+    // 1) 先写正文（perStory 写进作品目录的 sections 文件；bundle 布局写侧车）
+    //    失败会抛错，bundle 保持原样
     //    bbcode 显式传入时与 content 同一次原子写入，避免出现「正文已变、缓存未变」的中间态
-    const metadataRow = persistSectionContentSidecar(
-      { ...bundle.sections[idx], word_count: wc },
-      bbcode === undefined ? { content } : { content, bbcode },
-    );
+    const metadataRow = isPerStory
+      ? { ...bundle.sections[idx], content: null, bbcode: null, word_count: wc, updated_at: now }
+      : persistSectionContentSidecar(
+          { ...bundle.sections[idx], word_count: wc },
+          bbcode === undefined ? { content } : { content, bbcode },
+        );
     // 2) 再更新 bundle 中的元数据（字数统计等）
     bundle.sections[idx] = { ...metadataRow, word_count: wc };
+    if (isPerStory) {
+      bundle.sections[idx].content = content ?? null;
+      bundle.sections[idx].bbcode =
+        bbcode === undefined ? existingBbcode : (bbcode ?? null);
+    }
     const chId = bundle.sections[idx].chapter_id;
     if (chId) recomputeChapterAndVolumeWordCount(bundle, chId);
     // 单次写入:同时更新 per-story 文件中的 stats 字段
@@ -2367,10 +2494,9 @@ function findStoryIdByEntityId(entityId: string, entityType: IndexedEntityType):
       entityType === 'sections' ? bundle.sections
         : entityType === 'chapters' ? bundle.chapters
           : entityType === 'volumes' ? bundle.volumes
-            : entityType === 'world_settings' ? bundle.world_settings
-              : entityType === 'characters' ? bundle.characters
-                : entityType === 'character_relations' ? bundle.character_relations
-                  : bundle.outlines;
+            : entityType === 'characters' ? bundle.characters
+              : entityType === 'character_relations' ? bundle.character_relations
+                : bundle.outlines;
     if (rows.some((r) => r.id === entityId)) {
       refreshStoryIndex(storyId, bundle);
       return storyId;
@@ -2384,55 +2510,6 @@ function findStoryIdByChapterId(chapterId: string): string | null {
 }
 
 // —— Templates —— //
-
-export function listWorldSettingTemplates(): WorldSettingTemplate[] {
-  const all = readTemplateFile<Record<string, WorldSettingTemplate>>('world_templates', {});
-  return Object.values(all).sort(
-    (a, b) =>
-      (a.order_index ?? 0) - (b.order_index ?? 0) ||
-      new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
-  );
-}
-
-export function createWorldSettingTemplate(data: { title: string; content?: string }): WorldSettingTemplate {
-  const all = readTemplateFile<Record<string, WorldSettingTemplate>>('world_templates', {});
-  const order = Object.values(all).length;
-  const now = nowISO();
-  const row: WorldSettingTemplate = {
-    id: uuid4(),
-    title: data.title,
-    content: data.content || '',
-    order_index: order,
-    created_at: now,
-    updated_at: now,
-  } as any;
-  all[row.id] = row;
-  writeTemplateFile('world_templates', all);
-  return row;
-}
-
-export function updateWorldSettingTemplate(id: string, patch: Partial<{ title: string; content: string; order_index: number }>): WorldSettingTemplate | undefined {
-  const all = readTemplateFile<Record<string, WorldSettingTemplate>>('world_templates', {});
-  if (!all[id]) return undefined;
-  all[id] = { ...all[id], ...patch, updated_at: nowISO() } as WorldSettingTemplate;
-  writeTemplateFile('world_templates', all);
-  return all[id];
-}
-
-export function deleteWorldSettingTemplate(id: string): void {
-  const all = readTemplateFile<Record<string, WorldSettingTemplate>>('world_templates', {});
-  if (!all[id]) return;
-  delete all[id];
-  writeTemplateFile('world_templates', all);
-}
-
-export function reorderWorldSettingTemplates(orderedIds: string[]): void {
-  const all = readTemplateFile<Record<string, WorldSettingTemplate>>('world_templates', {});
-  orderedIds.forEach((id, i) => {
-    if (all[id]) all[id] = { ...all[id], order_index: i, updated_at: nowISO() } as WorldSettingTemplate;
-  });
-  writeTemplateFile('world_templates', all);
-}
 
 export function listCharacterTemplates(): CharacterTemplate[] {
   const all = readTemplateFile<Record<string, any>>('character_templates', {});
@@ -2555,11 +2632,10 @@ export function getStoryWithAll(storyId: string): any {
   const bundle = readStoryFile(storyId);
   if (!bundle) return undefined;
   const story = bundle.story;
-  // 正文从侧车补齐（导出 / EPUB / 阅读需要完整内容）
-  const sections = bundle.sections.map(hydrateSectionRow);
+  // 正文从侧车 / 作品目录补齐（导出 / EPUB / 阅读需要完整内容）
+  const sections = bundle.sections.map((row) => hydrateSectionRow(row, storyId));
   return {
     ...story,
-    world_settings: bundle.world_settings,
     characters: bundle.characters.map((r) => ({
       ...r,
       attributes: parseJSON<Record<string, string | number>>(r.attributes, {}),
@@ -2651,8 +2727,13 @@ export function addStoryToFavorite(storyId: string, favoriteId: string): boolean
   }
   const favs = loadGlobalJSON<Record<string, FavoriteRow>>('favorites', {});
   if (!favs[favoriteId]) return false;
-  // 故事存在校验：检查 per-story 文件
-  if (!fs.existsSync(storyFilePath(storyId))) return false;
+  // 故事存在校验：检查落盘文件（单文件 or perStory 目录）
+  if (
+    !fs.existsSync(storyFilePath(storyId)) &&
+    !readStoryManifest(getStoryDir(getDataDir(), storyId))
+  ) {
+    return false;
+  }
   const row: StoryFavoriteRow = {
     story_id: storyId,
     favorite_id: favoriteId,
@@ -2964,10 +3045,14 @@ export function moveImageLibraryItem(id: string, folderId: string | null): Image
   // 改动 v3：磁盘文件也搬到目标 folder 子目录（仅 local:// 图片）
   if (row.url.startsWith('local://') && row.source === 'local') {
     try {
-      const oldUrlPath = row.url.replace(/^local:\/\//, '');
-      if (oldUrlPath.includes('..') || oldUrlPath.startsWith('/') || oldUrlPath.startsWith('\\')) {
-        // 非法 url，忽略磁盘搬移
+      // 用统一的 local:// 解析器：支持 local:/// / 子目录 / 中文目录
+      // 旧实现直接 replace 得到以 / 开头的路径，被判非法后跳过磁盘搬移，
+      // 导致 DB 改了 folderId 但文件没动，刷新时又被 reconcile 回滚（表现为拖拽无效）
+      const parsed = validateLocalUrlForFileOp(row.url);
+      if (!parsed.ok) {
+        console.warn('[imageLibrary] 跳过非法本地 URL 的磁盘搬移:', row.url, parsed.error);
       } else {
+        const oldUrlPath = parsed.relPath;
         const oldFullPath = path.join(getImagesDir(), oldUrlPath);
         const oldFolder = path.dirname(oldFullPath);
         // 目标子目录

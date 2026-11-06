@@ -6,7 +6,7 @@ import { Icon, type IconName } from './Icon';
 import { useToastStore } from '../../store/toastStore';
 
 // 节行高度（与原 renderSectionRow 的 py-1.5 + 文字行高一致）
-const SECTION_ROW_HEIGHT = 30;
+const SECTION_ROW_HEIGHT = 34;
 // 节数超过此阈值时启用虚拟滚动（避免大章节渲染卡顿）
 const VIRTUALIZE_THRESHOLD = 20;
 // 单章节虚拟列表最大高度（从 400 降至 300，避免与状态栏重叠；降低 overscan 总高度）
@@ -50,6 +50,8 @@ interface DirectoryTreeProps {
   onMoveChapters: (targetVolumeId: string | null, orderedIds: string[]) => void;
   onMoveSections: (targetChapterId: string, orderedIds: string[]) => void;
   onSyncToOutline?: () => void;
+  /** 打开大纲弹窗（按钮位于目录顶栏中间） */
+  onOpenOutline?: () => void;
 }
 
 function DirectoryTreeInner(props: DirectoryTreeProps) {
@@ -84,6 +86,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
     onCreateSectionAt,
     onCreateChapterAt,
     onCreateVolumeAt,
+    onOpenOutline,
   } = props;
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -301,7 +304,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
             onToggleChapter(ch.id);
           }}
         >
-          <span className="text-[var(--text-secondary)] w-4 h-4 flex items-center justify-center text-[10px] shrink-0">
+          <span className="text-[var(--text-secondary)] w-4 h-4 flex items-center justify-center text-[12px] shrink-0">
             {isExpanded ? <Icon name="chevronDown" size={12} /> : <Icon name="chevronRight" size={12} />}
           </span>
           <span className="shrink-0"><Icon name="book" size={13} /></span>
@@ -321,48 +324,9 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
           ) : (
             <span className="flex-1 font-medium truncate">{ch.title}</span>
           )}
-          <span className="text-[var(--text-secondary)] shrink-0 text-[10px]">
+          <span className="text-[var(--text-secondary)] shrink-0 text-[12px]">
             {`${chapterWordCount}字`}
           </span>
-          <div
-            className={[
-              'shrink-0 flex items-center gap-0.5 transition-opacity min-w-[40px] justify-end',
-              // 默认隐藏，hover 时显示（避免视觉拥挤）
-              // 编辑时强制显示（用户可能需要重命名）
-              editingId === ch.id
-                ? 'opacity-100'
-                : 'opacity-0 group-hover:opacity-100',
-            ].join(' ')}
-          >
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onSelectChapter(ch.id);
-                onToggleChapter(ch.id);
-                onCreateSection(ch.id);
-              }}
-              className="text-[var(--text-secondary)] w-5 h-5 flex items-center justify-center rounded text-xs"
-              onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.background = 'var(--accent-soft)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = ''; }}
-              title="添加节"
-            >
-              +
-            </button>
-            <button aria-label="重命名"
-              onClick={(e) => {
-                e.stopPropagation();
-                setEditingId(ch.id);
-                setEditingType('chapter');
-                setEditingValue(ch.title);
-              }}
-              className="text-[var(--text-secondary)] w-5 h-5 flex items-center justify-center rounded text-[10px]"
-              onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'var(--bg-hover)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = ''; }}
-              title="重命名"
-            >
-              <Icon name="pen" size={11} />
-            </button>
-          </div>
         </div>
 
         {isExpanded && chapterSecs.length === 0 && (
@@ -373,7 +337,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
                 onSelectChapter(ch.id);
                 onCreateSection(ch.id);
               }}
-              className="text-[var(--accent)] w-full text-left text-[10px] px-2 py-1 rounded transition-colors"
+              className="text-[var(--accent)] w-full text-left text-[12px] px-2 py-1 rounded transition-colors"
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-soft)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = ''; }}
             >
@@ -408,7 +372,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
                 onSelectChapter(ch.id);
                 onCreateSection(ch.id);
               }}
-              className="text-[var(--accent)] w-full text-left px-3 py-1.5 text-[10px] rounded-md transition-colors flex items-center gap-2 ml-2"
+              className="text-[var(--accent)] w-full text-left px-3 py-1.5 text-[12px] rounded-md transition-colors flex items-center gap-2 ml-2"
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-soft)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = ''; }}
             >
@@ -427,20 +391,39 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
     <aside
       className="bg-[var(--bg-card)] flex flex-col overflow-hidden h-full"
     >
-      <div className="border-[color:var(--border-color)] shrink-0 flex items-center justify-between px-3 py-2 border-b">
-        <div className="text-[var(--text-primary)] text-xs font-semibold">目录</div>
-        {onSyncToOutline && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onSyncToOutline();
-            }}
-            className="bg-[var(--accent-soft)] text-[var(--accent)] border border-[color:var(--accent-soft)] px-2 py-1 text-[10px] font-medium rounded-md transition-colors"
-            title="将目录的卷/章结构同步到大纲"
-          >
-            同步
-          </button>
-        )}
+      <div className="border-[color:var(--border-color)] shrink-0 grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-3 py-2 border-b">
+        <div className="text-[var(--text-primary)] min-w-0 flex items-baseline gap-1.5">
+          <span className="text-xs font-semibold truncate">目录</span>
+          <span className="text-[var(--text-secondary)] text-[12px] shrink-0">
+            {sections.length} 节
+          </span>
+        </div>
+        <button
+          onClick={onOpenOutline}
+          disabled={!onOpenOutline}
+          className="inline-flex items-center gap-1 px-2.5 py-1 text-[12px] font-medium rounded-md bg-[var(--accent-soft)] text-[var(--accent)] disabled:opacity-40"
+          title="打开大纲"
+        >
+          <Icon name="bookText" size={12} />
+          <span>大纲</span>
+        </button>
+        <div className="flex justify-end">
+          {onSyncToOutline && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onSyncToOutline();
+              }}
+              className="text-[var(--text-secondary)] w-7 h-7 inline-flex items-center justify-center rounded-md transition-colors"
+              onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.background = 'var(--accent-soft)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = ''; }}
+              title="将目录的卷/章结构同步到大纲"
+              aria-label="同步大纲"
+            >
+              <Icon name="refresh" size={13} />
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="shrink-0 px-2 pt-2">
@@ -530,7 +513,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
                   onMouseLeave={(e) => { e.currentTarget.style.background = ''; }}
                   onClick={() => onToggleVolume(v.id)}
                 >
-                  <span className="text-[var(--text-secondary)] w-4 h-4 flex items-center justify-center text-[10px] shrink-0">
+                  <span className="text-[var(--text-secondary)] w-4 h-4 flex items-center justify-center text-[12px] shrink-0">
                     {vExpanded ? <Icon name="chevronDown" size={12} /> : <Icon name="chevronRight" size={12} />}
                   </span>
                   <span className="shrink-0"><Icon name="book" size={13} /></span>
@@ -550,45 +533,9 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
                   ) : (
                     <span className="flex-1 font-semibold truncate">{v.title}</span>
                   )}
-                  <span className="text-[var(--text-secondary)] shrink-0 text-[10px]">
+                  <span className="text-[var(--text-secondary)] shrink-0 text-[12px]">
                     {`${vWordCount}字`}
                   </span>
-                  <div
-                    className={[
-                      'shrink-0 flex items-center gap-0.5 transition-opacity min-w-[40px] justify-end',
-                      // 默认隐藏，hover/编辑时显示
-                      editingId === v.id
-                        ? 'opacity-100'
-                        : 'opacity-0 group-hover:opacity-100',
-                    ].join(' ')}
-                  >
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onCreateChapter(v.id);
-                      }}
-                      className="text-[var(--text-secondary)] w-5 h-5 flex items-center justify-center rounded text-xs"
-                      onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.background = 'var(--accent-soft)'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = ''; }}
-                      title="添加章"
-                    >
-                      +
-                    </button>
-                    <button aria-label="重命名"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setEditingId(v.id);
-                        setEditingType('volume');
-                        setEditingValue(v.title);
-                      }}
-                      className="text-[var(--text-secondary)] w-5 h-5 flex items-center justify-center rounded text-[10px]"
-                      onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'var(--bg-hover)'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = ''; }}
-                      title="重命名"
-                    >
-                      <Icon name="pen" size={11} />
-                    </button>
-                  </div>
                 </div>
 
                 {vExpanded && (
@@ -599,7 +546,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
                         e.stopPropagation();
                         onCreateChapter(v.id);
                       }}
-                      className="text-[var(--accent)] w-full text-left px-3 py-1.5 text-[10px] rounded-md transition-colors flex items-center gap-2 ml-2"
+                      className="text-[var(--accent)] w-full text-left px-3 py-1.5 text-[12px] rounded-md transition-colors flex items-center gap-2 ml-2"
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-soft)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = ''; }}
                     >
@@ -614,7 +561,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
 
           {orphanChapters.length > 0 && (
             <div className="mt-2">
-              <div className="text-[var(--text-secondary)] px-2 py-1 text-[10px] uppercase">未归卷</div>
+              <div className="text-[var(--text-secondary)] px-2 py-1 text-[12px] uppercase">未归卷</div>
               {orphanChapters.map((c) => renderChapterGroup(c, orphanChapters))}
             </div>
           )}
@@ -628,7 +575,7 @@ function DirectoryTreeInner(props: DirectoryTreeProps) {
         >
           <div className="text-[14px] mb-1 flex justify-center"><Icon name="lightbulb" size={16} /></div>
           <div>目录已显示所有内容</div>
-          <div className="mt-1 text-[10px]">可在右侧编辑区开始写作</div>
+          <div className="mt-1 text-[12px]">可在右侧编辑区开始写作</div>
         </div>
       )}
 
@@ -863,8 +810,9 @@ const SectionRowView = memo(function SectionRowView({
       // 避免 JSX duplicate "style" attribute
       style={{
         ...(style || {}),
-        color: isSecActive ? 'var(--accent)' : 'var(--text-primary)',
-        background: isSecActive ? 'var(--accent-soft)' : 'transparent',
+        color: isSecActive ? 'var(--an-ink)' : 'var(--text-primary)',
+        background: isSecActive ? 'var(--an-mint-soft)' : 'transparent',
+        boxShadow: isSecActive ? 'inset 3px 0 0 var(--an-ink)' : 'none',
       }}
       draggable
       onDragStart={(e) => {
@@ -921,15 +869,16 @@ const SectionRowView = memo(function SectionRowView({
         });
       }}
       className={[
-        'group flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer text-xs transition-all relative',
+        'group flex items-center gap-1.5 px-2 py-2 rounded-[10px] cursor-pointer text-[12px] min-h-[34px] transition-colors relative',
+        isSecActive ? 'bg-[var(--an-pink-soft)] font-semibold text-[var(--an-ink)]' : 'hover:bg-[var(--an-pink-soft)] text-[var(--an-ink)]',
         data.dragSectionId === sec.id ? 'opacity-50' : '',
       ].join(' ')}
       onClick={() => data.onSelectSection(sec.id)}
     >
       {isSecActive && (
-        <span className="bg-[var(--accent)] absolute left-0 top-1 bottom-1 w-0.5 rounded-r-full" />
+        <span className="bg-[var(--an-pink)] absolute left-0 top-1 bottom-1 w-[3px] rounded-r-full" />
       )}
-      <span className="shrink-0"><Icon name="fileText" size={11} /></span>
+      <span className="shrink-0"><Icon name="fileText" size={12} /></span>
       {data.editingId === sec.id ? (
         <input
           ref={data.editingRef}
@@ -941,15 +890,15 @@ const SectionRowView = memo(function SectionRowView({
             if (e.key === 'Enter') data.commitRename();
             if (e.key === 'Escape') data.setEditingId(null);
           }}
-          className="border-[color:var(--accent)] bg-[var(--bg-input)] text-[var(--text-primary)] flex-1 min-w-0 text-xs px-1 py-0.5 rounded border outline-none"
+          className="border-[color:var(--an-ink)] bg-[var(--an-paper)] text-[var(--an-ink)] flex-1 min-w-0 text-[12px] px-1.5 py-0.5 rounded-md border-2 outline-none"
         />
       ) : (
-        <span className={`flex-1 truncate ${isSecActive ? 'font-medium' : ''}`}>{sec.title}</span>
+        <span className={`flex-1 truncate ${isSecActive ? 'font-semibold' : ''}`}>{sec.title}</span>
       )}
       {stats.dice > 0 && (
-        <span className="text-[var(--accent)] bg-[var(--accent-soft)] shrink-0 text-[9px] px-1 rounded inline-flex items-center gap-0.5"><Icon name="dices" size={9} />{stats.dice}</span>
+        <span className="shrink-0 text-[11px] px-1.5 py-0.5 rounded-full inline-flex items-center gap-0.5" style={{ color: 'var(--an-ink)', background: 'var(--an-lemon-soft)', border: '2px solid var(--an-ink)' }}><Icon name="dices" size={9} />{stats.dice}</span>
       )}
-      <span className="text-[var(--text-secondary)] shrink-0 text-[10px]">
+      <span className="text-[var(--an-ink-faint)] shrink-0 text-[11px]">
         {`${stats.words}字`}
       </span>
     </div>

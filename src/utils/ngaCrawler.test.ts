@@ -186,7 +186,7 @@ describe('extractPostsFromHtml - 图片爬取', () => {
     const posts = extractPostsFromHtml(html);
     expect(posts.length).toBe(1);
     expect(posts[0].content).toContain(
-      '[img]https://img.nga.178.com/attachments/mon_202606/18/lsQ57-7bhzK10T3cSsg-fs.jpg.medium.jpg[/img]',
+      '[img]https://img.nga.cn/attachments/mon_202606/18/lsQ57-7bhzK10T3cSsg-fs.jpg.medium.jpg[/img]',
     );
   });
 
@@ -195,7 +195,7 @@ describe('extractPostsFromHtml - 图片爬取', () => {
     const posts = extractPostsFromHtml(html);
     expect(posts.length).toBe(1);
     expect(posts[0].content).toContain(
-      '[img]https://img.nga.178.com/attachments/mon_202606/18/foo.jpg[/img]',
+      '[img]https://img.nga.cn/attachments/mon_202606/18/foo.jpg[/img]',
     );
   });
 
@@ -210,7 +210,7 @@ describe('extractPostsFromHtml - 图片爬取', () => {
     const html = buildHtmlWithImage(1, "<img src='./mon_202606/18/single.jpg'>");
     const posts = extractPostsFromHtml(html);
     expect(posts[0].content).toContain(
-      '[img]https://img.nga.178.com/attachments/mon_202606/18/single.jpg[/img]',
+      '[img]https://img.nga.cn/attachments/mon_202606/18/single.jpg[/img]',
     );
   });
 });

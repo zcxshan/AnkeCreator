@@ -82,19 +82,20 @@ export function InputDialog({
       initialFocusRef={inputRef}
       labelledBy="input-dialog-title"
       contentStyle={{
-        background: 'var(--bg-card)',
-        borderRadius: 'var(--radius-toolbar)',
-        boxShadow: 'var(--shadow-modal)',
-        padding: '24px 28px 20px',
+        background: 'var(--an-card)',
+        borderRadius: 'var(--an-radius-md)',
+        boxShadow: 'var(--an-shadow-pop-lg), var(--an-shadow-soft)',
+        padding: '20px 22px 18px',
         width: 420,
         maxWidth: '90vw',
-        animation: 'modalSlideIn 0.18s ease-out',
-        border: '1px solid var(--border-color)',
+        animation: 'modalSlideIn 0.18s var(--an-ease-bounce)',
+        border: 'var(--an-line)',
       }}
     >
         <h3
           id="input-dialog-title"
-          className="m-[0px] mb-[16px] text-[16px] font-semibold text-[var(--text-primary)]"
+          className="m-[0px] mb-[14px] text-[17px] font-bold text-[var(--an-ink)]"
+          style={{ fontFamily: 'var(--an-font-display)' }}
         >
           {title}
         </h3>
@@ -111,10 +112,10 @@ export function InputDialog({
               boxSizing: 'border-box',
               padding: '10px 12px',
               fontSize: 14,
-              border: '1px solid var(--border-color)',
-              borderRadius: 'var(--radius-control)',
-              background: 'var(--bg-base)',
-              color: 'var(--text-primary)',
+              border: '2px solid var(--an-ink)',
+              borderRadius: 'var(--an-radius-sm)',
+              background: 'var(--an-paper-2)',
+              color: 'var(--an-ink)',
               resize: 'vertical',
               fontFamily: 'inherit',
               lineHeight: 1.5,
@@ -129,33 +130,23 @@ export function InputDialog({
             onChange={(e) => setValue(e.target.value)}
             placeholder={placeholder}
             maxLength={maxLength}
-            className="w-full box-border py-[10px] px-[12px] text-[14px] border border-[color:var(--border-color)] rounded-[var(--radius-control)] bg-[var(--bg-base)] text-[var(--text-primary)] outline-none"
+            className="w-full box-border py-[10px] px-[12px] text-[14px] outline-none"
+            style={{
+              border: '2px solid var(--an-ink)',
+              borderRadius: 'var(--an-radius-sm)',
+              background: 'var(--an-paper-2)',
+              color: 'var(--an-ink)',
+            }}
           />
         )}
-        <div
-          className="flex justify-end gap-[8px] mt-[20px]"
-        >
-          <button
-            onClick={onCancel}
-            className="py-[8px] px-[18px] text-[13px] border border-[color:var(--border-color)] rounded-[var(--radius-control)] bg-transparent text-[var(--text-primary)] cursor-pointer"
-          >
+        <div className="flex justify-end gap-[8px] mt-[18px]">
+          <button onClick={onCancel} className="an-btn an-btn--sm an-btn--ghost">
             {cancelText}
           </button>
           <button
             onClick={handleConfirm}
             disabled={!value.trim()}
-            style={{
-              padding: '8px 18px',
-              fontSize: 13,
-              fontWeight: 600,
-              border: '1px solid var(--tone-info-border)',
-              borderRadius: 'var(--radius-control)',
-              background: !value.trim()
-                ? 'var(--scrim-soft)'
-                : 'var(--tone-info-veil)',
-              color: !value.trim() ? 'var(--text-secondary)' : 'var(--tone-info)',
-              cursor: value.trim() ? 'pointer' : 'not-allowed',
-            }}
+            className="an-btn an-btn--sm an-btn--pink"
           >
             {confirmText}
           </button>

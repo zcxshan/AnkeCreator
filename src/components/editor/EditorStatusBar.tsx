@@ -24,17 +24,18 @@ export const EditorBreadcrumb = memo(function EditorBreadcrumb({
 }) {
   return (
     <div
-      className="bg-[var(--bg-card)] border-b border-b-[color:var(--border-color)] text-[var(--text-secondary)] shrink-0 flex items-center gap-1.5 px-4 py-1.5 text-[11px] flex-wrap"
+      className="shrink-0 flex items-center gap-1.5 px-4 py-1.5 text-[12px] flex-wrap"
+      style={{ background: 'var(--an-paper-2)', borderBottom: '2px solid var(--an-ink)', color: 'var(--an-ink-soft)' }}
     >
-      <span className="text-[var(--text-primary)] font-medium">
+      <span className="text-[var(--an-ink)] font-semibold">
         {volumeTitle || '未命名卷'}
       </span>
-      <span className="text-[var(--border-color)]">›</span>
-      <span className="text-[var(--text-primary)] font-medium">
+      <span className="text-[var(--an-ink-faint)]">›</span>
+      <span className="text-[var(--an-ink)] font-semibold">
         {chapterTitle || '未命名章'}
       </span>
-      <span className="text-[var(--border-color)]">›</span>
-      <span className="text-[var(--accent)] font-semibold">
+      <span className="text-[var(--an-ink-faint)]">›</span>
+      <span className="text-[var(--an-pink)] font-bold">
         {sectionTitle || '未命名节'}
       </span>
     </div>
@@ -48,15 +49,15 @@ export function BottomStatusBar({
   const selectionStats = useEditorStore((s) => s.selectionStats);
   const cursorStyles = useEditorStore((s) => s.cursorStyles) ?? {};
   const tabStyle = (active: boolean): CSSProperties => ({
-    padding: '6px 14px',
+    padding: '5px 14px',
     fontSize: 12,
-    fontWeight: 500,
-    border: 'none',
-    borderRadius: 'var(--radius-control)',
+    fontWeight: active ? 700 : 500,
+    border: `2px solid ${active ? 'var(--an-ink)' : 'transparent'}`,
+    borderRadius: '999px',
     cursor: 'pointer',
     transition: 'all 0.15s',
-    background: active ? 'var(--accent)' : 'var(--bg-hover)',
-    color: active ? 'var(--text-on-accent)' : 'var(--text-secondary)',
+    background: active ? 'var(--an-pink)' : 'transparent',
+    color: active ? '#2a1a33' : 'var(--an-ink-soft)',
   });
 
   // 解析当前样式为标签文字（Word 风格格式查看器）
@@ -94,11 +95,13 @@ export function BottomStatusBar({
 
   return (
     <footer
-      className="bg-[var(--bg-card)] border-t border-t-[color:var(--border-color)] shrink-0 flex items-center justify-between px-4 py-2 text-xs"
+      className="shrink-0 flex items-center justify-between px-4 py-2 text-xs"
+      style={{ background: 'var(--an-paper-2)', borderTop: '2px solid var(--an-ink)', color: 'var(--an-ink-soft)' }}
     >
       {/* 左侧：视图切换 */}
       <div
-        className="bg-[var(--bg-hover)] flex items-center gap-1 p-0.5 rounded-lg"
+        className="flex items-center gap-1 p-0.5 rounded-full"
+        style={{ background: 'var(--an-paper)', border: '2px solid var(--an-ink-faint)' }}
       >
         <button
           onClick={() => onSwitchMode('visual')}
@@ -141,9 +144,9 @@ export function BottomStatusBar({
       </div>
 
       {/* 右侧：当前视图模式提示 + 快捷提示 */}
-      <div className="text-[var(--text-secondary)] flex items-center gap-3">
+      <div className="flex items-center gap-3" style={{ color: 'var(--an-ink-soft)' }}>
         {selectionStats && (
-          <span className="text-[var(--accent)]">
+          <span style={{ color: 'var(--an-pink)' }}>
             选中：{selectionStats.words} 字{selectionStats.dice > 0 ? ` · ${selectionStats.dice} 原子块` : ''}
           </span>
         )}
@@ -151,10 +154,11 @@ export function BottomStatusBar({
         {hasAnyStyle && (
           <span
             style={{
-              color: 'var(--text-primary)',
-              background: 'var(--bg-hover)',
+              color: 'var(--an-ink)',
+              background: 'var(--an-lemon-soft)',
+              border: '2px solid var(--an-ink)',
               padding: '2px 8px',
-              borderRadius: 'var(--radius-sm)',
+              borderRadius: '999px',
               maxWidth: 360,
               overflow: 'hidden',
               textOverflow: 'ellipsis',
@@ -164,7 +168,7 @@ export function BottomStatusBar({
           >
             {hasSelection ? '选区样式' : '光标样式'}：
             {styleLabels.length > 0 && (
-              <span className="text-[var(--accent)]">[{styleLabels.join('/')}]</span>
+              <span style={{ color: 'var(--an-pink)' }}>[{styleLabels.join('/')}]</span>
             )}
             {fontName && <span> {fontName}</span>}
             {fontSize && <span> {fontSize}px</span>}

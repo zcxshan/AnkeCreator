@@ -3,9 +3,9 @@
 // 高内聚：本页只负责顶栏 + 顶部 Tab 切换 + 渲染对应子面板
 // 低耦合：不侵入图片库/模板库内部逻辑，仅组合现有面板
 //
-// 3 个顶级 Tab（#3 美化）：
+// 3 个顶级 Tab：
 // - 🖼️ 图片         → ImageLibraryPanel
-// - 📋 模板         → TemplatesPanel（内部子 Tab：世界观 / 人物）
+// - 📋 人物模板     → TemplatesPanel
 // - 🔍 寻找素材     → FindMaterialPanel（素材网站推荐，增删改查）
 // ============================================================
 
@@ -21,53 +21,45 @@ interface ResourceLibraryPageProps {
 }
 
 type ResourceTab = 'image' | 'template' | 'material';
-type TemplateSubTab = 'world' | 'character';
 
 const TABS: { key: ResourceTab; label: string; icon: IconName }[] = [
   { key: 'image', label: '图片', icon: 'bookText' },
-  { key: 'template', label: '模板', icon: 'copy' },
+  { key: 'template', label: '人物模板', icon: 'copy' },
   { key: 'material', label: '寻找素材', icon: 'search' },
 ];
 
 export function ResourceLibraryPage({ onBack, onShowAuthor }: ResourceLibraryPageProps) {
   const [activeTab, setActiveTab] = useState<ResourceTab>('image');
-  // 记住用户在「模板」Tab 下选中的子 Tab，切走再切回不重置（#3）
-  const [templateSubTab, setTemplateSubTab] = useState<TemplateSubTab>('world');
 
   return (
     <div
-      className="bg-[var(--bg-base)] text-[var(--text-primary)] h-full w-full flex flex-col"
+      className="an-page text-[var(--an-ink)] h-full w-full flex flex-col"
     >
       {/* 顶栏（非 sticky，随 body 滚动） */}
       <div
-        className="border-[color:var(--border-color)] bg-[var(--bg-base)] flex items-center justify-between gap-3 px-6 py-4 border-b"
+        className="bg-[var(--an-paper-2)] flex items-center justify-between gap-3 px-6 py-4"
+        style={{ borderBottom: '3px solid var(--an-ink)' }}
       >
         <div className="flex items-center gap-3">
           <button
             onClick={onBack}
-            className="text-[var(--text-secondary)] flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors"
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'var(--bg-hover)';
-              e.currentTarget.style.color = 'var(--text-primary)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'transparent';
-              e.currentTarget.style.color = 'var(--text-secondary)';
-            }}
+            className="an-pill"
           >
-            <Icon name="back" size={16} /> 返回
+            <span className="inline-flex items-center gap-1"><Icon name="back" size={16} /> 返回</span>
           </button>
           <h1
-            className="text-[var(--text-primary)] text-lg font-semibold flex items-center gap-2"
+            className="text-[var(--an-ink)] flex items-center gap-2"
+            style={{ fontFamily: 'var(--an-font-display)', fontSize: 22 }}
           >
             <Icon name="folder" size={20} /> 资源库
           </h1>
         </div>
       </div>
 
-      {/* 顶部主 Tab 切换（2 个：图片 / 模板） */}
+      {/* 顶部主 Tab 切换（3 个：图片 / 人物模板 / 寻找素材） */}
       <div
-        className="border-[color:var(--border-color)] flex items-center gap-2 px-6 py-3 border-b"
+        className="flex items-center gap-2 px-6 py-3"
+        style={{ borderBottom: '3px solid var(--an-ink)', background: 'var(--an-paper)' }}
       >
         {TABS.map((t) => {
           const active = activeTab === t.key;
@@ -75,26 +67,7 @@ export function ResourceLibraryPage({ onBack, onShowAuthor }: ResourceLibraryPag
             <button
               key={t.key}
               onClick={() => setActiveTab(t.key)}
-              className="px-5 h-10 text-sm rounded-lg transition-all flex items-center gap-2"
-              style={{
-                background: active ? 'var(--accent-bg)' : 'transparent',
-                color: active ? 'var(--accent)' : 'var(--text-secondary)',
-                border: `1px solid ${active ? 'var(--accent)' : 'var(--border-color)'}`,
-                fontWeight: active ? 600 : 400,
-                boxShadow: active ? 'var(--shadow-sm)' : 'none',
-              }}
-              onMouseEnter={(e) => {
-                if (!active) {
-                  e.currentTarget.style.background = 'var(--bg-hover)';
-                  e.currentTarget.style.color = 'var(--text-primary)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!active) {
-                  e.currentTarget.style.background = 'transparent';
-                  e.currentTarget.style.color = 'var(--text-secondary)';
-                }
-              }}
+              className={`an-pill px-5 h-9 ${active ? 'is-active' : ''}`}
             >
               <Icon name={t.icon} size={16} />
               {t.label}
@@ -104,16 +77,10 @@ export function ResourceLibraryPage({ onBack, onShowAuthor }: ResourceLibraryPag
       </div>
 
       {/* 内容区 */}
-      <div className="flex-1 overflow-hidden p-4">
+      <div className="flex-1 overflow-hidden px-4 md:px-6 py-5" style={{ width: '100%', maxWidth: 1180, margin: '0 auto' }}>
         <div className="anke-card h-full w-full overflow-hidden">
           {activeTab === 'image' && <ImageLibraryPanel />}
-          {activeTab === 'template' && (
-            <TemplatesPanel
-              initialTab={templateSubTab}
-              onTabChange={(sub) => setTemplateSubTab(sub)}
-              onShowAuthor={onShowAuthor}
-            />
-          )}
+          {activeTab === 'template' && <TemplatesPanel onShowAuthor={onShowAuthor} />}
           {activeTab === 'material' && <FindMaterialPanel />}
         </div>
       </div>

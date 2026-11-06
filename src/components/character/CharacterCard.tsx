@@ -155,7 +155,7 @@ export function CharacterCard({
           {topAttrs.map(([k, v]) => (
             <span
               key={k}
-              className="text-[10px] px-1.5 py-0.5 rounded border"
+              className="text-[12px] px-1.5 py-0.5 rounded border"
               style={{
                 background: isActive ? 'var(--accent-bg)' : 'var(--bg-toolbar)',
                 borderColor: 'var(--border-color)',

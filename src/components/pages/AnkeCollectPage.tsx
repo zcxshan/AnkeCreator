@@ -21,7 +21,13 @@ import { GululuCollectPanel } from './GululuCollectPage';
 import { webSaveStoryAsFile } from '../../utils/storyFileIO';
 import { isCapacitor, isElectron } from '../../utils/platform';
 import { CollectDecisionDialog } from '../common/CollectDecisionDialog';
+import { ConfirmDialog } from '../common/ConfirmDialog';
 import { useNgaCollectCommon } from '../../hooks/useNgaCollectCommon';
+
+/** 失败页自动重试次数（只重抓失败页，不整帖重爬） */
+const RETRY_ATTEMPTS = 3;
+/** 重试间隔，避免请求过于密集 */
+const RETRY_DELAY_MS = 800;
 
 interface AnkeCollectPageProps {
   onBack: () => void;
@@ -51,6 +57,13 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
   // 因为 active: running || ankeRetrying 需要在调用 hook 前引用 ankeRetrying，
   // 若从 hook 返回值解构会导致 TDZ（Cannot access 'X' before initialization）。
   const [ankeRetrying, setAnkeRetrying] = useState(false);
+
+  // 仍有失败页时：先不导出，等用户确认是否忽略后再写 JSON
+  const [pendingExport, setPendingExport] = useState<{
+    jsonData: unknown;
+    fileName: string;
+    stats: { totalFloors: number; sectionCount: number };
+  } | null>(null);
 
   // 共享管道逻辑
   const {
@@ -86,6 +99,74 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
   // 非 Electron 桌面端（Web 浏览器 / Capacitor 无 IPC）时，展示不支持提示卡片
   const isMobileUnsupported = (!isElectron && !isCapacitor) || (isCapacitor && !window.electronAPI?.collectNga);
 
+  /** 保存收集结果（Electron 系统对话框优先，回退 Web 下载） */
+  const saveCollectedJson = async (
+    jsonData: unknown,
+    fileName: string,
+    stats: { totalFloors: number; sectionCount: number },
+  ): Promise<boolean> => {
+    try {
+      if (window.electronAPI?.saveStoryAsFile) {
+        const res = await window.electronAPI.saveStoryAsFile(jsonData, fileName);
+        if (!res) {
+          showToast('保存失败：IPC 返回为空', 'error');
+          return false;
+        }
+        if (res.canceled) return false;
+        if (!res.ok) {
+          showToast(`保存失败：${res.error}`, 'error');
+          return false;
+        }
+        showToast(`已保存：${res.filePath}`, 'success');
+        setResultMsg(
+          `已保存 ${stats.totalFloors} 楼（${stats.sectionCount} 节）到：${res.filePath}\n请到「我的作品 → 导入作品」选此 JSON 还原。`,
+        );
+        return true;
+      }
+      const res = await webSaveStoryAsFile(jsonData, fileName);
+      if (!res.ok) {
+        showToast(`保存失败：${res.error}`, 'error');
+        return false;
+      }
+      showToast(`已下载：${res.fileName}`, 'success');
+      setResultMsg(
+        `已下载 ${stats.totalFloors} 楼（${stats.sectionCount} 节）：${res.fileName}\n请到「我的作品 → 导入作品」选此 JSON 还原。`,
+      );
+      return true;
+    } catch (e) {
+      showToast(`保存失败：${e instanceof Error ? e.message : String(e)}`, 'error');
+      return false;
+    }
+  };
+
+  /**
+   * 失败页自动重试：最多 3 轮，每轮只重抓失败页（避免整帖重爬、请求过密）。
+   * 返回最终结果；仍有失败页时由调用方询问用户是否忽略后再导出。
+   */
+  const collectWithAutoRetry = async (
+    baseOpts: Parameters<typeof collectAnkeToWorkJson>[0],
+    first: Awaited<ReturnType<typeof collectAnkeToWorkJson>>,
+  ) => {
+    let cur = first;
+    for (let attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++) {
+      const failed = cur.failedPages ?? [];
+      if (!cur.ok || failed.length === 0) break;
+      setProgressMsg(`自动重试失败页（${attempt}/${RETRY_ATTEMPTS}，${failed.length} 页）…`);
+      setAnkeFailedPages(failed);
+      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+      const next = await collectAnkeToWorkJson({
+        ...baseOpts,
+        retryPages: failed,
+        existingItems: (cur.items ?? []) as any,
+      });
+      if (!next.ok) break;
+      cur = next;
+      setAnkeCollectedItems(next.items ?? []);
+      setAnkeFailedPages(next.failedPages ?? []);
+    }
+    return cur;
+  };
+
   const handleStart = async () => {
     if (running) return;
     const urlTrim = url.trim();
@@ -110,25 +191,30 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
     setAnkeFailedPagesExpanded(false);
     setAnkeCollectedItems([]);
     setProgress({ current: 0, total: 0 });
+    setPendingExport(null);
+
+    const baseOpts = {
+      url: urlTrim,
+      startFloor: startF,
+      endFloor: endF,
+      workTitle: workTitle.trim(),
+      sectionMode,
+      floorsPerSection: fps,
+      cookies: ngaCookies || undefined,
+      authorid: parsedAuthorid,
+      manualFormat,
+    };
 
     try {
-      const result = await collectAnkeToWorkJson({
-        url: urlTrim,
-        startFloor: startF,
-        endFloor: endF,
-        workTitle: workTitle.trim(),
-        sectionMode,
-        floorsPerSection: fps,
-        cookies: ngaCookies || undefined,
-        authorid: parsedAuthorid,
-        manualFormat,
-      });
-      if (!result.ok) {
-        showToast(`收集失败：${result.error}`, 'error');
-        setRunning(false);
+      const first = await collectAnkeToWorkJson(baseOpts);
+      if (!first.ok) {
+        showToast(`收集失败：${first.error}`, 'error');
         setProgressMsg('');
         return;
       }
+
+      // 有失败页 → 先自动重试 3 次；仍失败则不导出，交给用户确认
+      const result = await collectWithAutoRetry(baseOpts, first);
 
       // 加固空值守卫：所有 result.xxx 字段加默认值，避免 undefined 访问
       const items = result.items ?? [];
@@ -137,13 +223,13 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
       if (items.length > 0) {
         setAnkeCollectedItems(items);
       }
-      if (failedPages.length > 0) {
-        setAnkeFailedPages(failedPages);
-      }
+      setAnkeFailedPages(failedPages);
 
       const warns: string[] = [];
       if (failedPages.length > 0) {
-        warns.push(`${failedPages.length} 页抓取失败（页码：${failedPages.join(', ')}），已跳过这些页的内容`);
+        warns.push(
+          `${failedPages.length} 页抓取失败（已自动重试 ${RETRY_ATTEMPTS} 次，页码：${failedPages.join(', ')}）`,
+        );
       }
       if (result.actualMaxFloor && endF > result.actualMaxFloor) {
         if (failedPages.length > 0) {
@@ -152,52 +238,22 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
           warns.push(`帖子实际最高楼为 ${result.actualMaxFloor} 楼，已爬取所有存在的内容（您指定的 ${endF} 楼超出范围）`);
         }
       }
-      if (warns.length > 0) setAnkeWarnings(warns);
+      setAnkeWarnings(warns);
 
-      setProgressMsg(
-        `已收集 ${stats.totalFloors} 楼，分 ${stats.sectionCount} 节`,
-      );
+      setProgressMsg(`已收集 ${stats.totalFloors} 楼，分 ${stats.sectionCount} 节`);
 
-      // 保存：优先 Electron 系统对话框，回退 Web 下载
-      if (window.electronAPI?.saveStoryAsFile) {
-        const res = await window.electronAPI.saveStoryAsFile(
-          result.jsonData,
-          result.fileName,
-        );
-        if (!res) {
-          showToast('保存失败：IPC 返回为空', 'error');
-          setRunning(false);
-          setProgressMsg('');
-          return;
-        }
-        if (res.canceled) {
-          setRunning(false);
-          setProgressMsg('');
-          return;
-        }
-        if (!res.ok) {
-          showToast(`保存失败：${res.error}`, 'error');
-          setRunning(false);
-          setProgressMsg('');
-          return;
-        }
-        showToast(`已保存：${res.filePath}`, 'success');
-        setResultMsg(
-          `已保存 ${stats.totalFloors} 楼（${stats.sectionCount} 节）到：${res.filePath}\n请到「我的作品 → 导入作品」选此 JSON 还原。`,
-        );
-      } else {
-        const res = await webSaveStoryAsFile(result.jsonData, result.fileName);
-        if (!res.ok) {
-          showToast(`保存失败：${res.error}`, 'error');
-          setRunning(false);
-          setProgressMsg('');
-          return;
-        }
-        showToast(`已下载：${res.fileName}`, 'success');
-        setResultMsg(
-          `已下载 ${stats.totalFloors} 楼（${stats.sectionCount} 节）：${res.fileName}\n请到「我的作品 → 导入作品」选此 JSON 还原。`,
-        );
+      if (failedPages.length > 0) {
+        // 关键：先不导出 JSON，等用户确认是否忽略失败页
+        setPendingExport({
+          jsonData: result.jsonData,
+          fileName: result.fileName || '安科作品',
+          stats,
+        });
+        showToast(`仍有 ${failedPages.length} 页抓取失败，请确认是否忽略后再导出`, 'warning');
+        return;
       }
+
+      await saveCollectedJson(result.jsonData, result.fileName || '安科作品', stats);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       showToast(`收集失败：${msg}`, 'error');
@@ -218,26 +274,32 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
     setAnkeRetrying(true);
     setProgressMsg(`正在重试 ${ankeFailedPages.length} 个失败页...`);
     setProgress({ current: 0, total: ankeFailedPages.length });
+    setPendingExport(null);
+
+    const baseOpts = {
+      url: urlTrim,
+      startFloor: startF,
+      endFloor: endF,
+      workTitle: workTitle.trim(),
+      sectionMode,
+      floorsPerSection: fps,
+      cookies: ngaCookies || undefined,
+      authorid: parsedAuthorid,
+      manualFormat,
+      retryPages: ankeFailedPages,
+      existingItems: ankeCollectedItems as any,
+    };
 
     try {
-      const result = await collectAnkeToWorkJson({
-        url: urlTrim,
-        startFloor: startF,
-        endFloor: endF,
-        workTitle: workTitle.trim(),
-        sectionMode,
-        floorsPerSection: fps,
-        cookies: ngaCookies || undefined,
-        authorid: parsedAuthorid,
-        manualFormat,
-        retryPages: ankeFailedPages,
-        existingItems: ankeCollectedItems as any,
-      });
-      if (!result.ok) {
-        showToast(`重试失败：${result.error}`, 'error');
+      const first = await collectAnkeToWorkJson(baseOpts);
+      if (!first.ok) {
+        showToast(`重试失败：${first.error}`, 'error');
         setAnkeFailedPages(ankeFailedPages);
         return;
       }
+      // 手动重试同样自动连试 3 次
+      const result = await collectWithAutoRetry(baseOpts, first);
+
       // 加固空值守卫：所有 result.xxx 字段加默认值
       const items = result.items ?? [];
       const newFailed = result.failedPages ?? [];
@@ -247,33 +309,22 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
       }
       setAnkeFailedPages(newFailed);
       setAnkeFailedPagesExpanded(false);
+      setProgressMsg(`已收集 ${stats.totalFloors} 楼，分 ${stats.sectionCount} 节`);
+
       if (newFailed.length > 0) {
-        showToast(
-          `已补齐 ${stats.totalFloors} 楼，仍有 ${newFailed.length} 页未成功`,
-          'warning',
-        );
-      } else {
-        showToast(`全部 ${stats.totalFloors} 楼已补齐`, 'success');
-        setAnkeWarnings([]);
+        // 仍失败：先不导出，等用户确认是否忽略
+        setPendingExport({
+          jsonData: result.jsonData,
+          fileName: result.fileName || '安科作品',
+          stats,
+        });
+        showToast(`已补齐 ${stats.totalFloors} 楼，仍有 ${newFailed.length} 页未成功，请确认是否忽略`, 'warning');
+        return;
       }
-      setProgressMsg(
-        `已收集 ${stats.totalFloors} 楼，分 ${stats.sectionCount} 节`,
-      );
-      if (window.electronAPI?.saveStoryAsFile) {
-        const res = await window.electronAPI.saveStoryAsFile(
-          result.jsonData,
-          result.fileName,
-        );
-        if (!res) {
-          showToast('保存失败：IPC 返回为空', 'error');
-        } else if (!res.canceled && (res.filePath || res.fileName)) {
-          setResultMsg(
-            `已重试并保存 ${stats.totalFloors} 楼（${stats.sectionCount} 节）：${res.filePath || res.fileName}\n请到「我的作品 → 导入作品」选此 JSON 还原。`,
-          );
-        } else if (!res.ok && !res.canceled) {
-          showToast(`保存失败：${res.error || '未知错误'}`, 'error');
-        }
-      }
+
+      showToast(`全部 ${stats.totalFloors} 楼已补齐`, 'success');
+      setAnkeWarnings([]);
+      await saveCollectedJson(result.jsonData, result.fileName || '安科作品', stats);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       showToast(`重试失败：${msg}`, 'error');
@@ -290,50 +341,52 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
     showToast('已接受当前结果', 'success');
   };
 
-  // 共享样式
+  // 共享样式（贴纸手账风：墨线 + 卡片底色）
   const labelStyle: React.CSSProperties = {
     display: 'block',
     fontSize: 12,
-    fontWeight: 500,
+    fontWeight: 600,
     marginBottom: 6,
-    color: 'var(--text-secondary)',
+    color: 'var(--an-ink-soft)',
   };
   const inputStyle: React.CSSProperties = {
     width: '100%',
     padding: '8px 14px',
     fontSize: 14,
-    borderRadius: 'var(--radius-md)',
+    borderRadius: 'var(--an-radius-sm)',
     outline: 'none',
-    background: 'var(--bg-input)',
-    border: '1px solid var(--border-color)',
-    color: 'var(--text-primary)',
+    background: 'var(--an-card)',
+    border: '2px solid var(--an-ink)',
+    color: 'var(--an-ink)',
   };
 
   if (isMobileUnsupported) {
     return (
-      <div
-        className="bg-[var(--bg-base)] text-[var(--text-primary)] min-h-full w-full flex flex-col"
-      >
+      <div className="an-page text-[var(--an-ink)] min-h-full w-full flex flex-col">
         <div
-          className="border-[color:var(--border-color)] bg-[var(--bg-base)] flex items-center gap-3 px-6 py-4 border-b sticky top-8 z-40"
+          className="flex items-center gap-3 px-6 py-4 sticky top-9 z-40"
+          style={{ background: 'var(--an-paper-2)', borderBottom: '3px solid var(--an-ink)' }}
         >
-          <button
-            onClick={onBack}
-            className="text-[var(--text-secondary)] flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors"
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
-          >
+          <button onClick={onBack} className="an-pill">
             <span className="inline-flex items-center gap-1"><Icon name="back" size={16} /> 返回</span>
           </button>
-          <h1 className="text-[var(--text-primary)] text-lg font-semibold flex items-center gap-2">
+          <h1
+            className="m-0 flex items-center gap-2"
+            style={{ fontFamily: 'var(--an-font-display)', fontSize: 22, color: 'var(--an-ink)' }}
+          >
             <span className="inline-flex items-center gap-1"><Icon name="bookText" size={20} /> 收集安科</span>
           </h1>
         </div>
         <div className="flex-1 flex items-center justify-center p-8">
-          <div className="text-center max-w-sm">
-            <div className="text-4xl mb-3"><Icon name="bot" size={48} /></div>
-            <p className="text-[var(--text-primary)] font-medium">移动端暂不支持收集安科</p>
-            <p className="text-[var(--text-secondary)] text-sm mt-1">请在桌面端（Electron）使用此功能</p>
+          <div className="an-card text-center max-w-sm p-8">
+            <div
+              className="mb-4 inline-flex items-center justify-center w-20 h-20 rounded-full"
+              style={{ background: 'var(--an-lilac-soft)', border: '3px solid var(--an-ink)', boxShadow: '0 4px 0 var(--an-ink)' }}
+            >
+              <Icon name="bot" size={40} />
+            </div>
+            <p className="text-[var(--an-ink)] font-semibold m-0">移动端暂不支持收集安科</p>
+            <p className="text-[var(--an-ink-soft)] text-sm mt-1 m-0">请在桌面端（Electron）使用此功能</p>
           </div>
         </div>
       </div>
@@ -342,46 +395,35 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
 
   return (
     <div
-      className="bg-[var(--bg-base)] text-[var(--text-primary)] min-h-full w-full flex flex-col"
+      className="an-page text-[var(--text-primary)] min-h-full w-full flex flex-col"
     >
       {/* 顶栏 */}
       <div
-        className="border-[color:var(--border-color)] flex items-center gap-3 px-6 py-4 border-b flex-wrap"
+        className="flex items-center gap-3 px-6 py-4 flex-wrap"
+        style={{ background: 'var(--an-paper-2)', borderBottom: '3px solid var(--an-ink)' }}
       >
         <button
           onClick={onBack}
-          className="text-[var(--text-secondary)] flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors"
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'var(--bg-hover)';
-            e.currentTarget.style.color = 'var(--text-primary)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'transparent';
-            e.currentTarget.style.color = 'var(--text-secondary)';
-          }}
+          className="an-pill"
         >
           <span className="inline-flex items-center gap-1"><Icon name="back" size={16} /> 返回</span>
         </button>
         <h1
-          className="text-[var(--text-primary)] text-lg font-semibold flex items-center gap-2"
+          className="text-[var(--an-ink)] flex items-center gap-2"
+          style={{ fontFamily: 'var(--an-font-display)', fontSize: 22 }}
         >
           <span className="inline-flex items-center gap-1"><Icon name="bookText" size={20} /> 收集安科</span>
         </h1>
         {/* Tab 切换：NGA / 骨碌碌 */}
         <div
-          className="bg-[var(--bg-card)] border border-[color:var(--border-color)] inline-flex items-center gap-1 p-1 rounded-xl"
+          className="inline-flex items-center gap-2"
           role="tablist"
         >
           <button
             onClick={() => setTab('nga')}
             role="tab"
             aria-selected={tab === 'nga'}
-            className="px-3 py-1.5 rounded-lg text-sm transition-colors"
-            style={{
-              background: tab === 'nga' ? 'var(--accent)' : 'transparent',
-              color: tab === 'nga' ? 'var(--text-on-accent)' : 'var(--text-primary)',
-              fontWeight: tab === 'nga' ? 600 : 400,
-            }}
+            className={`an-pill ${tab === 'nga' ? 'is-active' : ''}`}
           >
             <span className="inline-flex items-center gap-1"><Icon name="bookText" size={14} /> NGA 安科</span>
           </button>
@@ -389,12 +431,7 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
             onClick={() => setTab('gululu')}
             role="tab"
             aria-selected={tab === 'gululu'}
-            className="px-3 py-1.5 rounded-lg text-sm transition-colors"
-            style={{
-              background: tab === 'gululu' ? 'var(--accent)' : 'transparent',
-              color: tab === 'gululu' ? 'var(--text-on-accent)' : 'var(--text-primary)',
-              fontWeight: tab === 'gululu' ? 600 : 400,
-            }}
+            className={`an-pill ${tab === 'gululu' ? 'is-active' : ''}`}
           >
             <span className="inline-flex items-center gap-1"><Icon name="book" size={14} />骨碌碌安科</span>
           </button>
@@ -404,13 +441,13 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
       {/* Tab 内容区：条件渲染 NGA 或 骨碌碌 */}
       {tab === 'nga' ? (
         <div className="flex-1 overflow-y-auto px-3 py-3 md:px-6 md:py-6">
-        <div className="max-w-4xl mx-auto space-y-4 md:space-y-5">
+        <div className="max-w-[1100px] mx-auto space-y-4 md:space-y-5">
           <section
-            className="bg-[var(--bg-card)] border border-[color:var(--border-color)] rounded-2xl p-5"
+            className="an-card p-5"
           >
             <h2
-              className="text-sm font-semibold mb-4 inline-flex items-center gap-1"
-              style={{ color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600 }}
+              className="text-sm font-bold mb-4 inline-flex items-center gap-1 px-3 py-1 rounded-full"
+              style={{ fontFamily: 'var(--an-font-display)', color: 'var(--an-ink)', background: 'var(--an-lemon-soft)', border: '2px solid var(--an-ink)' }}
             >
               <Icon name="settings" size={14} />
               收集条件
@@ -438,17 +475,8 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
                   <button
                     onClick={handleAutoDetect}
                     disabled={running || detecting}
-                    className="bg-[var(--bg-hover)] text-[var(--text-primary)] border border-[color:var(--border-color)] px-3 py-2 text-xs rounded-lg transition-colors disabled:opacity-50 whitespace-nowrap anke-btn"
-                    onMouseEnter={(e) => {
-                      if (!running && !detecting) {
-                        e.currentTarget.style.borderColor = 'var(--accent)';
-                        e.currentTarget.style.color = 'var(--accent)';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = 'var(--border-color)';
-                      e.currentTarget.style.color = 'var(--text-primary)';
-                    }}
+                    className="text-[var(--text-primary)] px-4 h-10 text-[13px] rounded-full transition-colors disabled:opacity-50 whitespace-nowrap inline-flex items-center"
+                    style={{ background: 'var(--an-card)', border: '2px solid var(--an-ink)' }}
                     title="自动检测主题帖总页数"
                   >
                     {detecting ? (
@@ -489,7 +517,7 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
               <div className="flex gap-[8px] flex-wrap">
                 <div className="flex-[1_1_120px]">
                   <label style={labelStyle}>
-                    起始楼层 <span className="text-[var(--text-secondary)] text-[11px]">（NGA 含 0 楼）</span>
+                    起始楼层 <span className="text-[var(--text-secondary)] text-[12px]">（NGA 含 0 楼）</span>
                   </label>
                   <input
                     type="number"
@@ -591,25 +619,14 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
                 <button
                   onClick={handleStart}
                   disabled={running}
-                  className="inline-flex items-center gap-1.5 px-5 py-2 rounded-lg text-sm font-medium transition-all anke-btn-primary"
+                  className="inline-flex items-center gap-1.5 px-5 h-10 rounded-full text-sm font-bold transition-transform hover:-translate-y-[1px]"
                   style={{
-                    background: 'var(--accent-bg)',
-                    color: 'var(--accent)',
-                    border: '1px solid var(--accent)',
+                    background: running ? 'var(--an-pink-soft)' : 'var(--an-pink)',
+                    color: running ? 'var(--an-ink)' : '#fff',
+                    border: '2px solid var(--an-ink)',
+                    boxShadow: '0 3px 0 var(--an-ink)',
                     cursor: running ? 'not-allowed' : 'pointer',
-                    opacity: running ? 0.6 : 1,
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!running) {
-                      e.currentTarget.style.background = 'var(--accent)';
-                      e.currentTarget.style.color = 'var(--text-on-accent)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!running) {
-                      e.currentTarget.style.background = 'var(--accent-bg)';
-                      e.currentTarget.style.color = 'var(--accent)';
-                    }
+                    opacity: running ? 0.7 : 1,
                   }}
                 >
                   {running ? (
@@ -626,14 +643,16 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
                     <button
                       type="button"
                       onClick={handleTogglePause}
-                      className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)] cursor-pointer inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all anke-btn"
+                      className="cursor-pointer inline-flex items-center gap-1.5 px-4 h-9 rounded-full text-sm font-semibold transition-transform hover:-translate-y-[1px]"
+                      style={{ background: 'var(--an-lemon)', color: 'var(--an-ink)', border: '2px solid var(--an-ink)', boxShadow: '0 2px 0 var(--an-ink)' }}
                     >
                       <span className="inline-flex items-center gap-1">{paused ? <><Icon name="play" size={13} /> 恢复</> : <><Icon name="pause" size={13} /> 暂停</>}</span>
                     </button>
                     <button
                       type="button"
                       onClick={handleCancel}
-                      className="bg-[var(--bg-card)] text-[var(--error)] border border-[color:var(--error)] cursor-pointer inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all anke-btn"
+                      className="cursor-pointer inline-flex items-center gap-1.5 px-4 h-9 rounded-full text-sm font-semibold transition-transform hover:-translate-y-[1px]"
+                      style={{ background: 'var(--an-pink-soft)', color: '#8a1f43', border: '2px solid var(--an-ink)', boxShadow: '0 2px 0 var(--an-ink)' }}
                     >
                       取消
                     </button>
@@ -754,6 +773,28 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
               </div>
             </section>
           )}
+
+          <ConfirmDialog
+            open={!!pendingExport}
+            title="仍有页面抓取失败"
+            message={
+              pendingExport
+                ? `已自动重试 ${RETRY_ATTEMPTS} 次，仍有 ${ankeFailedPages.length} 页抓取失败。\n是否忽略这些失败页面并导出 JSON？\n（忽略后这些页的内容会缺失，可稍后在失败页列表手动继续重试）`
+                : ''
+            }
+            confirmText="忽略并导出"
+            cancelText="先不导出"
+            danger
+            onConfirm={() => {
+              const pending = pendingExport;
+              setPendingExport(null);
+              if (pending) void saveCollectedJson(pending.jsonData, pending.fileName, pending.stats);
+            }}
+            onCancel={() => {
+              setPendingExport(null);
+              showToast('已保留当前结果，可在失败页列表继续重试', 'info');
+            }}
+          />
 
           <CollectDecisionDialog
             open={ankeDecision.open}

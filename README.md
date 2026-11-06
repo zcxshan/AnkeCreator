@@ -83,7 +83,7 @@ npm run dev          # 启动 Vite + Electron，自动 reload
 
 ```
 release/
-└── 安科作者助手-3.5.4-x64.exe    # NSIS 安装包
+└── 安科作者助手-4.0.0-x64.exe    # NSIS 安装包
 ```
 
 ### Android 本地签名

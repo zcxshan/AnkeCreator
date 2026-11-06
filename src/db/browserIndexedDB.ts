@@ -13,10 +13,8 @@
 
 import type {
   Story,
-  WorldSetting,
   Character,
   CharacterVariant,
-  WorldSettingTemplate,
   CharacterTemplate,
   Outline,
   Volume,
@@ -29,31 +27,28 @@ import type {
 
 const DB_NAME = 'anke-creator';
 // v2: 删除旧版 content_blocks store（已切换到新版富文本，不再使用）
-const DB_VERSION = 2;
+// v3: 删除世界设定 / 世界设定模板 store（设定模板与设定备忘录功能已移除）
+const DB_VERSION = 3;
 
 type StoreName =
   | 'stories'
-  | 'world_settings'
   | 'characters'
   | 'outlines'
   | 'volumes'
   | 'chapters'
   | 'sections'
   | 'character_variants'
-  | 'world_setting_templates'
   | 'character_templates'
   | 'character_relations';
 
 const STORES: StoreName[] = [
   'stories',
-  'world_settings',
   'characters',
   'outlines',
   'volumes',
   'chapters',
   'sections',
   'character_variants',
-  'world_setting_templates',
   'character_templates',
   'character_relations',
 ];
@@ -63,10 +58,6 @@ const INDEX_DEFS: Record<StoreName, { name: string; keyPath: string; unique?: bo
   stories: [
     { name: 'updated_at', keyPath: 'updated_at' },
     { name: 'is_deleted', keyPath: 'is_deleted' },
-    { name: 'order_index', keyPath: 'order_index' },
-  ],
-  world_settings: [
-    { name: 'story_id', keyPath: 'story_id' },
     { name: 'order_index', keyPath: 'order_index' },
   ],
   characters: [
@@ -94,7 +85,6 @@ const INDEX_DEFS: Record<StoreName, { name: string; keyPath: string; unique?: bo
     { name: 'character_id', keyPath: 'character_id' },
     { name: 'order_index', keyPath: 'order_index' },
   ],
-  world_setting_templates: [{ name: 'order_index', keyPath: 'order_index' }],
   character_templates: [{ name: 'order_index', keyPath: 'order_index' }],
   character_relations: [
     { name: 'story_id', keyPath: 'story_id' },
@@ -142,6 +132,15 @@ export function initBrowserDB(): Promise<IDBDatabase> {
       if (oldVersion < 2) {
         if (db.objectStoreNames.contains('content_blocks')) {
           db.deleteObjectStore('content_blocks');
+        }
+      }
+
+      // v3：删除世界设定相关 store（设定模板 / 设定备忘录功能已移除）
+      if (oldVersion < 3) {
+        for (const legacy of ['world_settings', 'world_setting_templates']) {
+          if (db.objectStoreNames.contains(legacy)) {
+            db.deleteObjectStore(legacy);
+          }
         }
       }
     };
@@ -379,7 +378,6 @@ async function restoreStory(id: string): Promise<boolean> {
 
 async function permanentlyDeleteStory(id: string): Promise<boolean> {
   // 级联删除
-  await deleteWhere('world_settings', 'story_id', id);
   await deleteWhere('characters', 'story_id', id);
   await deleteWhere('character_relations', 'story_id', id);
   await deleteWhere('outlines', 'story_id', id);
@@ -414,55 +412,6 @@ async function cleanupOldTrashed(days: number): Promise<number> {
     }
   }
   return count;
-}
-
-// ============================================================
-// WorldSetting
-// ============================================================
-
-async function listWorldSettings(storyId: string): Promise<WorldSetting[]> {
-  const rows = await getAll<WorldSetting>('world_settings', 'story_id', IDBKeyRange.only(storyId));
-  rows.sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0));
-  return rows;
-}
-
-async function createWorldSetting(data: Record<string, unknown>): Promise<WorldSetting> {
-  const now = nowISO();
-  const idx = await autoOrderIndex('world_settings', 'story_id', data.story_id as string, data.order_index as number | undefined);
-  const row: WorldSetting = {
-    id: uuid4(),
-    story_id: data.story_id as string,
-    title: (data.title as string) || '',
-    content: (data.content as string) || '',
-    order_index: idx,
-    created_at: now,
-    updated_at: now,
-  };
-  await putOne('world_settings', row as unknown as Record<string, unknown>);
-  return row;
-}
-
-async function updateWorldSetting(id: string, patch: Record<string, unknown>): Promise<WorldSetting | undefined> {
-  const cur = await getOne<WorldSetting>('world_settings', id);
-  if (!cur) return undefined;
-  const next = { ...cur, ...patch, updated_at: nowISO() };
-  await putOne('world_settings', next as unknown as Record<string, unknown>);
-  return getOne<WorldSetting>('world_settings', id);
-}
-
-async function deleteWorldSetting(id: string): Promise<boolean> {
-  return deleteOne('world_settings', id);
-}
-
-async function reorderWorldSettings(storyId: string, orderedIds: string[]): Promise<boolean> {
-  const now = nowISO();
-  for (let i = 0; i < orderedIds.length; i++) {
-    const cur = await getOne<Record<string, unknown>>('world_settings', orderedIds[i]);
-    if (cur && cur.story_id === storyId) {
-      await putOne('world_settings', { ...cur, order_index: i, updated_at: now } as Record<string, unknown>);
-    }
-  }
-  return true;
 }
 
 // ============================================================
@@ -1008,53 +957,6 @@ async function setSectionContent(
 // Templates
 // ============================================================
 
-async function listWorldSettingTemplates(): Promise<WorldSettingTemplate[]> {
-  const rows = await getAll<WorldSettingTemplate>('world_setting_templates');
-  rows.sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0));
-  return rows;
-}
-
-async function createWorldSettingTemplate(data: Record<string, unknown>): Promise<WorldSettingTemplate> {
-  const now = nowISO();
-  const all = await getAll<Record<string, unknown>>('world_setting_templates');
-  const order = all.length;
-  const row: WorldSettingTemplate = {
-    id: uuid4(),
-    title: (data.title as string) || '',
-    content: (data.content as string) || '',
-    order_index: order,
-    created_at: now,
-    updated_at: now,
-  };
-  await putOne('world_setting_templates', row as unknown as Record<string, unknown>);
-  return row;
-}
-
-async function updateWorldSettingTemplate(
-  id: string,
-  patch: Record<string, unknown>,
-): Promise<WorldSettingTemplate | undefined> {
-  const cur = await getOne<WorldSettingTemplate>('world_setting_templates', id);
-  if (!cur) return undefined;
-  const next = { ...cur, ...patch, updated_at: nowISO() };
-  await putOne('world_setting_templates', next as unknown as Record<string, unknown>);
-  return getOne<WorldSettingTemplate>('world_setting_templates', id);
-}
-
-async function deleteWorldSettingTemplate(id: string): Promise<boolean> {
-  return deleteOne('world_setting_templates', id);
-}
-
-async function reorderWorldSettingTemplates(orderedIds: string[]): Promise<boolean> {
-  for (let i = 0; i < orderedIds.length; i++) {
-    const cur = await getOne<Record<string, unknown>>('world_setting_templates', orderedIds[i]);
-    if (cur) {
-      await putOne('world_setting_templates', { ...cur, order_index: i } as Record<string, unknown>);
-    }
-  }
-  return true;
-}
-
 async function listCharacterTemplates(): Promise<CharacterTemplate[]> {
   const rows = await getAll<CharacterTemplate>('character_templates');
   rows.sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0));
@@ -1114,8 +1016,7 @@ async function getStoryWithAll(storyId: string): Promise<StoryWithAll | undefine
   const story = await getStory(storyId);
   if (!story) return undefined;
 
-  const [worldSettings, characters, outlines, volumes, chapters] = await Promise.all([
-    listWorldSettings(storyId),
+  const [characters, outlines, volumes, chapters] = await Promise.all([
     listCharacters(storyId),
     listOutlines(storyId),
     listVolumes(storyId),
@@ -1132,7 +1033,6 @@ async function getStoryWithAll(storyId: string): Promise<StoryWithAll | undefine
 
   return {
     ...story,
-    world_settings: worldSettings,
     characters,
     outlines,
     volumes,
@@ -1156,12 +1056,6 @@ export const BROWSER_DB = {
   permanentlyDeleteStory,
   listTrashedStories,
   cleanupOldTrashed,
-  // WorldSettings
-  listWorldSettings,
-  createWorldSetting,
-  updateWorldSetting,
-  deleteWorldSetting,
-  reorderWorldSettings,
   // Characters
   listCharacters,
   createCharacter,
@@ -1211,11 +1105,6 @@ export const BROWSER_DB = {
   getSectionBBCode,
   setSectionContent,
   // Templates
-  listWorldSettingTemplates,
-  createWorldSettingTemplate,
-  updateWorldSettingTemplate,
-  deleteWorldSettingTemplate,
-  reorderWorldSettingTemplates,
   listCharacterTemplates,
   createCharacterTemplate,
   updateCharacterTemplate,

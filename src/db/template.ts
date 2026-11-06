@@ -1,111 +1,17 @@
 // ============================================================
-// 模板 facade（世界观模板 + 人物模板，独立表）
+// 模板 facade（仅人物模板，独立表）
+// 世界观模板已随「设定模板」功能移除
 // ============================================================
 
-import type { CharacterTemplate, CharacterVariant, WorldSettingTemplate } from '../types'
+import type { CharacterTemplate, CharacterVariant } from '../types'
 import { BROWSER_DB, isBrowserDBAvailable } from './browserIndexedDB'
-import { allSQL, doUpdate, getSQL, nowISO, parseJSON, runSQL, stringifyJSON, uuid4 } from './shared'
-
-type NewWorldSettingTemplate = Omit<
-  WorldSettingTemplate,
-  'id' | 'created_at' | 'updated_at' | 'order_index'
-> & {
-  order_index?: number
-}
+import { allSQL, getSQL, nowISO, parseJSON, runSQL, stringifyJSON, uuid4 } from './shared'
 
 type NewCharacterTemplate = Omit<
   CharacterTemplate,
   'id' | 'created_at' | 'updated_at' | 'order_index'
 > & {
   order_index?: number
-}
-
-// ---- World templates ----
-
-export async function listWorldSettingTemplates(): Promise<WorldSettingTemplate[]> {
-  if (window.dbAPI) {
-    return window.dbAPI.listWorldSettingTemplates()
-  } else if (isBrowserDBAvailable()) {
-    return BROWSER_DB.listWorldSettingTemplates()
-  }
-  return Promise.resolve(
-    allSQL<WorldSettingTemplate>(
-      'SELECT * FROM world_setting_templates ORDER BY order_index, updated_at DESC',
-    ).map((t) => ({ ...t })),
-  )
-}
-
-export async function createWorldSettingTemplate(
-  data: NewWorldSettingTemplate,
-): Promise<WorldSettingTemplate> {
-  if (window.dbAPI) {
-    return window.dbAPI.createWorldSettingTemplate(data as Record<string, unknown>)
-  } else if (isBrowserDBAvailable()) {
-    return BROWSER_DB.createWorldSettingTemplate(data as Record<string, unknown>)
-  }
-  const now = nowISO()
-  const existing = allSQL<{ id: string }>('SELECT id FROM world_setting_templates')
-  const order = existing.length
-  const row: WorldSettingTemplate = {
-    id: uuid4(),
-    title: data.title,
-    content: data.content || '',
-    order_index: order,
-    created_at: now,
-    updated_at: now,
-  }
-  runSQL(
-    'INSERT INTO world_setting_templates (id, title, content, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-    row.id,
-    row.title,
-    row.content,
-    row.order_index,
-    row.created_at,
-    row.updated_at,
-  )
-  return Promise.resolve(row)
-}
-
-export async function updateWorldSettingTemplate(
-  id: string,
-  patch: Partial<Pick<WorldSettingTemplate, 'title' | 'content' | 'order_index'>>,
-): Promise<WorldSettingTemplate | undefined> {
-  if (window.dbAPI) {
-    return window.dbAPI.updateWorldSettingTemplate(id, patch as Record<string, unknown>)
-  } else if (isBrowserDBAvailable()) {
-    return BROWSER_DB.updateWorldSettingTemplate(id, patch as Record<string, unknown>)
-  }
-  doUpdate('world_setting_templates', id, patch)
-  return Promise.resolve(
-    getSQL<WorldSettingTemplate>('SELECT * FROM world_setting_templates WHERE id = ?', id),
-  )
-}
-
-export async function deleteWorldSettingTemplate(id: string): Promise<void> {
-  if (window.dbAPI) {
-    await window.dbAPI.deleteWorldSettingTemplate(id)
-    return
-  } else if (isBrowserDBAvailable()) {
-    await BROWSER_DB.deleteWorldSettingTemplate(id)
-    return
-  }
-  runSQL('DELETE FROM world_setting_templates WHERE id = ?', id)
-  return Promise.resolve()
-}
-
-/** 重新排序所有世界观模板 */
-export async function reorderWorldSettingTemplates(orderedIds: string[]): Promise<void> {
-  if (window.dbAPI) {
-    await window.dbAPI.reorderWorldSettingTemplates(orderedIds)
-    return
-  } else if (isBrowserDBAvailable()) {
-    await BROWSER_DB.reorderWorldSettingTemplates(orderedIds)
-    return
-  }
-  orderedIds.forEach((id, i) => {
-    runSQL('UPDATE world_setting_templates SET order_index = ? WHERE id = ?', i, id)
-  })
-  return Promise.resolve()
 }
 
 // ---- Character templates ----

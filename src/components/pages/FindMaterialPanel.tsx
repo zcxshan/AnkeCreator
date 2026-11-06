@@ -183,13 +183,15 @@ export function FindMaterialPanel() {
 
   return (
     <div
-      className="bg-[var(--bg-base)] text-[var(--text-primary)] h-full w-full flex flex-col overflow-hidden"
+      className="h-full w-full flex flex-col overflow-hidden"
+      style={{ background: 'var(--an-paper)', color: 'var(--an-ink)' }}
     >
       {/* 工具栏：标题 + 筛选 + 添加按钮 */}
       <div
-        className="border-[color:var(--border-color)] flex items-center gap-3 px-6 py-3 border-b flex-wrap"
+        className="flex items-center gap-3 px-6 py-3 flex-wrap"
+        style={{ background: 'var(--an-pink-soft)', borderBottom: 'var(--an-line)' }}
       >
-        <h2 className="text-[var(--text-primary)] text-base font-semibold flex items-center gap-2">
+        <h2 className="text-base font-bold flex items-center gap-2" style={{ fontFamily: 'var(--an-font-display)', color: 'var(--an-ink)' }}>
           <Icon name="search" size={16} /> 寻找素材
         </h2>
         <div className="flex items-center gap-1.5 flex-wrap flex-1">
@@ -199,12 +201,13 @@ export function FindMaterialPanel() {
               <button
                 key={chip.key}
                 onClick={() => setFilter(chip.key)}
-                className="px-3 py-1 text-xs rounded-full transition-all"
+                className="px-3 h-8 text-xs rounded-full transition-transform hover:-translate-y-[1px]"
                 style={{
-                  background: active ? 'var(--accent-bg)' : 'transparent',
-                  color: active ? 'var(--accent)' : 'var(--text-secondary)',
-                  border: `1px solid ${active ? 'var(--accent)' : 'var(--border-color)'}`,
-                  fontWeight: active ? 600 : 400,
+                  background: active ? 'var(--an-pink)' : 'var(--an-card)',
+                  color: active ? '#fff' : 'var(--an-ink)',
+                  border: '2px solid var(--an-ink)',
+                  boxShadow: '0 2px 0 var(--an-ink)',
+                  fontWeight: active ? 700 : 500,
                 }}
               >
                 {chip.label}
@@ -214,13 +217,8 @@ export function FindMaterialPanel() {
         </div>
         <button
           onClick={openAdd}
-          className="bg-[var(--accent)] text-[var(--text-on-accent)] border border-[color:var(--accent)] font-medium px-4 py-1.5 text-sm rounded-lg transition-all flex items-center gap-1.5"
-          onMouseEnter={(e) => {
-            e.currentTarget.style.opacity = '0.9';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.opacity = '1';
-          }}
+          className="font-semibold px-4 h-9 text-sm transition-transform hover:-translate-y-[1px] flex items-center gap-1.5"
+          style={{ background: 'var(--an-pink)', color: '#fff', border: '2px solid var(--an-ink)', borderRadius: 999, boxShadow: '0 3px 0 var(--an-ink)' }}
         >
           <Icon name="plus" size={14} /> 添加
         </button>
@@ -256,29 +254,36 @@ export function FindMaterialPanel() {
             {filtered.map((site) => (
               <div
                 key={site.id}
-                className="bg-[var(--bg-secondary)] border border-[color:var(--border-color)] rounded-lg p-4 transition-all"
+                className="p-4 transition-transform hover:-translate-y-0.5"
+                style={{
+                  background: 'var(--an-card)',
+                  border: '2px solid var(--an-ink)',
+                  borderRadius: 'var(--an-radius-md)',
+                  boxShadow: '0 4px 0 var(--an-ink)',
+                }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = 'var(--accent)';
+                  e.currentTarget.style.borderColor = 'var(--an-pink)';
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = 'var(--border-color)';
+                  e.currentTarget.style.borderColor = 'var(--an-ink)';
                 }}
               >
                 {/* 卡片头部：名称 + 分类标签 */}
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <div className="flex items-center gap-2 min-w-0 flex-1">
                     <h3
-                      className="text-[var(--text-primary)] text-sm font-semibold truncate"
+                      className="text-sm font-bold truncate"
+                      style={{ color: 'var(--an-ink)', fontFamily: 'var(--an-font-display)' }}
                       title={site.name}
                     >
                       {site.name}
                     </h3>
                     <span
-                      className="px-2 py-0.5 text-xs rounded-full flex-shrink-0"
+                      className="px-2 py-0.5 text-xs rounded-full flex-shrink-0 font-semibold"
                       style={{
-                        background: `${CATEGORY_COLORS[site.category]}20`,
+                        background: 'var(--an-card)',
                         color: CATEGORY_COLORS[site.category],
-                        border: `1px solid ${CATEGORY_COLORS[site.category]}40`,
+                        border: '2px solid var(--an-ink)',
                       }}
                     >
                       {site.category}
@@ -289,7 +294,8 @@ export function FindMaterialPanel() {
                 {/* 描述 */}
                 {site.description && (
                   <p
-                    className="text-[var(--text-secondary)] text-xs mb-3 line-clamp-2"
+                    className="text-xs mb-3 line-clamp-2"
+                    style={{ color: 'var(--an-ink-soft)' }}
                   >
                     {site.description}
                   </p>
@@ -297,7 +303,8 @@ export function FindMaterialPanel() {
 
                 {/* URL 显示 */}
                 <div
-                  className="text-[var(--text-tertiary)] text-xs mb-3 truncate font-mono"
+                  className="text-[12px] mb-3 truncate font-mono"
+                  style={{ color: 'var(--an-ink-faint)' }}
                   title={site.url}
                 >
                   {site.url}
@@ -307,45 +314,22 @@ export function FindMaterialPanel() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => handleOpen(site.url)}
-                    className="bg-[var(--accent-bg)] text-[var(--accent)] border border-[color:var(--accent)] flex-1 px-3 py-1.5 text-xs rounded-md transition-all flex items-center justify-center gap-1"
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'var(--accent)';
-                      e.currentTarget.style.color = 'var(--text-on-accent)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'var(--accent-bg)';
-                      e.currentTarget.style.color = 'var(--accent)';
-                    }}
+                    className="flex-1 h-9 text-xs font-semibold transition-transform hover:-translate-y-[1px] flex items-center justify-center gap-1"
+                    style={{ background: 'var(--an-mint)', color: '#123a2e', border: '2px solid var(--an-ink)', borderRadius: 999, boxShadow: '0 2px 0 var(--an-ink)' }}
                   >
                     <span className="inline-flex items-center gap-1"><Icon name="globe" size={13} /> 打开</span>
                   </button>
                   <button aria-label="编辑"
                     onClick={() => openEdit(site)}
-                    className="bg-transparent text-[var(--text-secondary)] border border-[color:var(--border-color)] px-3 py-1.5 text-xs rounded-md transition-all"
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'var(--bg-hover)';
-                      e.currentTarget.style.color = 'var(--text-primary)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'transparent';
-                      e.currentTarget.style.color = 'var(--text-secondary)';
-                    }}
+                    className="w-9 h-9 flex items-center justify-center text-xs transition-transform hover:-translate-y-[1px]"
+                    style={{ background: 'var(--an-sky-soft)', color: 'var(--an-ink)', border: '2px solid var(--an-ink)', borderRadius: 999, boxShadow: '0 2px 0 var(--an-ink)' }}
                   >
                     <Icon name="pen" size={13} />
                   </button>
                   <button aria-label="删除"
                     onClick={() => handleDelete(site.id, site.name)}
-                    className="bg-transparent text-[var(--text-secondary)] border border-[color:var(--border-color)] px-3 py-1.5 text-xs rounded-md transition-all"
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'var(--tone-danger-soft)';
-                      e.currentTarget.style.color = 'var(--tone-danger)';
-                      e.currentTarget.style.borderColor = 'var(--tone-danger)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'transparent';
-                      e.currentTarget.style.color = 'var(--text-secondary)';
-                      e.currentTarget.style.borderColor = 'var(--border-color)';
-                    }}
+                    className="w-9 h-9 flex items-center justify-center text-xs transition-transform hover:-translate-y-[1px]"
+                    style={{ background: 'var(--an-pink-soft)', color: '#8a1f43', border: '2px solid var(--an-ink)', borderRadius: 999, boxShadow: '0 2px 0 var(--an-ink)' }}
                   >
                     <Icon name="trash" size={13} />
                   </button>
@@ -380,7 +364,7 @@ export function FindMaterialPanel() {
                 value={edit.form.name}
                 onChange={(e) => setEdit((p) => ({ ...p, form: { ...p.form, name: e.target.value } }))}
                 placeholder="如：Unsplash"
-                className="bg-[var(--bg-secondary)] border border-[color:var(--border-color)] text-[var(--text-primary)] w-full px-3 py-2 text-sm rounded-md outline-none"
+                className="bg-[var(--bg-input)] border border-[color:var(--border-color)] text-[var(--text-primary)] w-full px-3 py-2 text-sm rounded-md outline-none"
                 autoFocus
               />
             </div>
@@ -395,7 +379,7 @@ export function FindMaterialPanel() {
                 value={edit.form.url}
                 onChange={(e) => setEdit((p) => ({ ...p, form: { ...p.form, url: e.target.value } }))}
                 placeholder="https://example.com"
-                className="bg-[var(--bg-secondary)] border border-[color:var(--border-color)] text-[var(--text-primary)] w-full px-3 py-2 text-sm rounded-md outline-none font-mono"
+                className="bg-[var(--bg-input)] border border-[color:var(--border-color)] text-[var(--text-primary)] w-full px-3 py-2 text-sm rounded-md outline-none font-mono"
               />
             </div>
 
@@ -412,7 +396,7 @@ export function FindMaterialPanel() {
                     form: { ...p.form, category: e.target.value as MaterialCategory },
                   }))
                 }
-                className="bg-[var(--bg-secondary)] border border-[color:var(--border-color)] text-[var(--text-primary)] w-full px-3 py-2 text-sm rounded-md outline-none"
+                className="bg-[var(--bg-input)] border border-[color:var(--border-color)] text-[var(--text-primary)] w-full px-3 py-2 text-sm rounded-md outline-none"
               >
                 {MATERIAL_CATEGORIES.map((c) => (
                   <option key={c} value={c}>
@@ -434,7 +418,7 @@ export function FindMaterialPanel() {
                 }
                 placeholder="简要描述这个素材网站的用途"
                 rows={3}
-                className="bg-[var(--bg-secondary)] border border-[color:var(--border-color)] text-[var(--text-primary)] w-full px-3 py-2 text-sm rounded-md outline-none resize-none"
+                className="bg-[var(--bg-input)] border border-[color:var(--border-color)] text-[var(--text-primary)] w-full px-3 py-2 text-sm rounded-md outline-none resize-none"
               />
             </div>
 

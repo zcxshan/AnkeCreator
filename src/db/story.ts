@@ -181,7 +181,6 @@ export async function permanentlyDeleteStory(id: string): Promise<void> {
   }
   runSQL('DELETE FROM stories WHERE id = ?', id)
   // 级联：删除关联数据
-  runSQL('DELETE FROM world_settings WHERE story_id = ?', id)
   runSQL('DELETE FROM characters WHERE story_id = ?', id)
   runSQL('DELETE FROM character_relations WHERE story_id = ?', id)
   runSQL('DELETE FROM outlines WHERE story_id = ?', id)

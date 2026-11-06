@@ -543,10 +543,6 @@ export async function getStoryWithAll(storyId: string): Promise<StoryWithAll | u
   }
   const story = getStoryInMem(storyId)
   if (!story) return Promise.resolve(undefined)
-  const worldSettings = allSQL<any>(
-    'SELECT * FROM world_settings WHERE story_id = ? ORDER BY order_index',
-    storyId,
-  )
   const characters = await listCharacters(storyId)
   const outlines = allSQL<any>(
     'SELECT * FROM outlines WHERE story_id = ? ORDER BY order_index',
@@ -565,7 +561,6 @@ export async function getStoryWithAll(storyId: string): Promise<StoryWithAll | u
   }))
   return Promise.resolve({
     ...story,
-    world_settings: worldSettings,
     characters,
     outlines,
     volumes,

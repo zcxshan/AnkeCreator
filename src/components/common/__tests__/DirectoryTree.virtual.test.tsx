@@ -144,4 +144,5 @@ describe('VirtualSectionRow uses chapter-specific sections', () => {
     const smallTexts = text.match(/小节\d+/g) || [];
     expect(smallTexts.length).toBe(10);
   });
+
 });

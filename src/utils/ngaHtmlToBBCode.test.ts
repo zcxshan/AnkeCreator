@@ -11,7 +11,7 @@
  * 注：函数会在末尾补一个 \n（NGA BBCode 习惯），测试用 trim 后比较
  */
 import { describe, it, expect } from 'vitest';
-import { htmlToNGABBCode } from './ngaHtmlToBBCode';
+import { htmlToNGABBCode, countLocalImagePlaceholders } from './ngaHtmlToBBCode';
 import { bbcodeToHtml } from './ngaBBCodeToHtml';
 
 const trim = (s: string) => s.replace(/^\s+|\s+$/g, '');
@@ -203,6 +203,25 @@ describe('htmlToNGABBCode - 边界', () => {
     expect(out).toContain('[collapse=外层]');
     expect(out).toContain('[collapse=内层]');
     expect(out).toContain('嵌套内容');
+  });
+});
+
+describe('countLocalImagePlaceholders - 发送前本地图片提示', () => {
+  it('统计 BBCode 中本地图片占位符数量', () => {
+    const bbcode = '[本地图片：a.png（已用占位符替换）]\n正文\n[本地图片：b.png（已用占位符替换）]';
+    expect(countLocalImagePlaceholders(bbcode)).toBe(2);
+  });
+  it('没有占位符时为 0，空值安全', () => {
+    expect(countLocalImagePlaceholders('[img]https://x/a.png[/img]')).toBe(0);
+    expect(countLocalImagePlaceholders('')).toBe(0);
+    expect(countLocalImagePlaceholders(null)).toBe(0);
+    expect(countLocalImagePlaceholders(undefined)).toBe(0);
+  });
+  it('本地图片 HTML 转 BBCode 后能被统计到', () => {
+    const out = htmlToNGABBCode(
+      '<div data-type="image-block"><img src="local://abc.png" alt="立绘" /></div>',
+    );
+    expect(countLocalImagePlaceholders(out)).toBe(1);
   });
 });
 

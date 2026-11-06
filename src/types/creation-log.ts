@@ -16,4 +16,8 @@ export interface CreationLogStats {
   thisMonth: { wordCount: number; sectionCount: number; chapterCount: number };
   thisYear: { wordCount: number; sectionCount: number; chapterCount: number };
   dailyStats: { date: string; wordCount: number; sectionCount: number }[];
+  /** 近 13 周（91 天）创作热力图数据 */
+  heatmap: { date: string; wordCount: number; sectionCount: number }[];
+  /** 连续创作天数（今天未写时从昨天起算） */
+  streak: number;
 }

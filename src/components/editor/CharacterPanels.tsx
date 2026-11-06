@@ -15,6 +15,7 @@ import {
 import { NGA_DEFAULT_IMAGE_SIZE } from '../../types';
 import type { RichTextEditorCommands } from '../../editor/tiptap/TiptapEditorPane';
 import { RelationshipPanel } from './RelationshipPanel';
+import { ImportCharacterTemplateButton } from '../character/CharacterEditor';
 
 // ========== 紧凑型人物角色面板 ==========
 
@@ -27,6 +28,8 @@ export function CompactCharacterPanel({
 }) {
   const activeStoryId = useStoryStore((s) => s.activeStoryId);
   const [panelTab, setPanelTab] = useState<'by-character' | 'by-variant' | 'relation'>('by-character');
+  // 按名称搜索人物 / 差分（大小写不敏感）
+  const [keyword, setKeyword] = useState('');
 
   return (
     <div className="flex flex-col h-full bg-[var(--bg-card)]">
@@ -59,10 +62,35 @@ export function CompactCharacterPanel({
         })}
       </div>
 
+      {/* 搜索：人物名 / 笔记 / 差分名 */}
+      {panelTab !== 'relation' && (
+        <div className="shrink-0 px-2 py-1.5 border-b border-[var(--border-color)]">
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-[var(--bg-input)] border border-[var(--border-color)]">
+            <Icon name="search" size={13} />
+            <input
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              placeholder="搜索人物 / 差分名"
+              className="flex-1 min-w-0 bg-transparent text-[var(--text-primary)] text-[12px] outline-none"
+            />
+            {keyword && (
+              <button
+                onClick={() => setKeyword('')}
+                className="text-[var(--text-secondary)] text-[12px] shrink-0"
+                aria-label="清空搜索"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {panelTab === 'by-character' && (
         <ByCharacterContent
           richTextEditorCommandsRef={richTextEditorCommandsRef}
           onShowToast={onShowToast}
+          keyword={keyword}
         />
       )}
 
@@ -70,6 +98,7 @@ export function CompactCharacterPanel({
         <ByVariantContent
           richTextEditorCommandsRef={richTextEditorCommandsRef}
           onShowToast={onShowToast}
+          keyword={keyword}
         />
       )}
 
@@ -86,9 +115,11 @@ export function CompactCharacterPanel({
 function ByCharacterContent({
   richTextEditorCommandsRef,
   onShowToast,
+  keyword,
 }: {
   richTextEditorCommandsRef: React.MutableRefObject<RichTextEditorCommands | null>;
   onShowToast?: (msg: string) => void;
+  keyword: string;
 }) {
   const activeStoryId = useStoryStore((s) => s.activeStoryId);
   const characters = useMetaStore((s) => s.characters);
@@ -103,16 +134,22 @@ function ByCharacterContent({
   const [pendingBatchDelete, setPendingBatchDelete] = useState<{ ids: string[]; names: string[] } | null>(null);
 
   // useMemo: 缓存过滤+排序结果，避免每次 render 都重算（人物多时卡顿）
-  const filtered = useMemo(
-    () =>
-      activeStoryId
-        ? characters
-            .filter((c) => c.story_id === activeStoryId)
-            .slice()
-            .sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
-        : [],
-    [activeStoryId, characters],
-  );
+  const filtered = useMemo(() => {
+    const kw = keyword.trim().toLowerCase();
+    return activeStoryId
+      ? characters
+          .filter((c) => c.story_id === activeStoryId)
+          .filter(
+            (c) =>
+              !kw ||
+              (c.name || '').toLowerCase().includes(kw) ||
+              (c.notes || '').toLowerCase().includes(kw) ||
+              (c.variants || []).some((v) => (v.name || '').toLowerCase().includes(kw)),
+          )
+          .slice()
+          .sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
+      : [];
+  }, [activeStoryId, characters, keyword]);
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -149,13 +186,13 @@ function ByCharacterContent({
         <div className="text-xs font-semibold text-[var(--text-primary)]">人物角色</div>
         {selectedIds.length > 0 ? (
           <div className="flex items-center gap-1">
-            <span className="text-[10px] text-[var(--text-secondary)]">已选 {selectedIds.length}</span>
+            <span className="text-[12px] text-[var(--text-secondary)]">已选 {selectedIds.length}</span>
             <button
               onClick={() => {
                 const names = filtered.filter((c) => selectedIds.includes(c.id)).map((c) => c.name || '未命名');
                 setPendingBatchDelete({ ids: [...selectedIds], names });
               }}
-              className="text-[10px] px-2 py-1 rounded transition-colors ancke-btn ancke-btn-danger"
+              className="text-[12px] px-2 py-1 rounded transition-colors ancke-btn ancke-btn-danger"
               title="删除所选"
             >
               <span className="inline-flex items-center gap-1">
@@ -165,19 +202,23 @@ function ByCharacterContent({
             </button>
             <button
               onClick={clearSelection}
-              className="text-[10px] px-2 py-1 rounded transition-colors bg-[var(--bg-card)] text-[var(--text-primary)] border border-[var(--border-color)]"
+              className="text-[12px] px-2 py-1 rounded transition-colors bg-[var(--bg-card)] text-[var(--text-primary)] border border-[var(--border-color)]"
             >
               取消
             </button>
           </div>
         ) : (
-          <button
-            onClick={() => activeStoryId && createCharacter(activeStoryId)}
-            disabled={!activeStoryId}
-            className="text-[10px] px-2 py-1 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-[var(--accent)] text-[var(--text-on-accent)]"
-          >
-            + 新建角色
-          </button>
+          <div className="flex items-center gap-1">
+            <ImportCharacterTemplateButton />
+            <button
+              onClick={() => activeStoryId && createCharacter(activeStoryId)}
+              disabled={!activeStoryId}
+              className="text-[12px] px-2 h-8 rounded-full font-semibold transition-transform hover:-translate-y-[1px] disabled:opacity-40 disabled:cursor-not-allowed"
+              style={{ background: 'var(--an-pink)', color: '#fff', border: '2px solid var(--an-ink)', boxShadow: '0 2px 0 var(--an-ink)' }}
+            >
+              + 新建角色
+            </button>
+          </div>
         )}
       </div>
 
@@ -186,10 +227,10 @@ function ByCharacterContent({
         className="shrink-0 p-2 border-b max-h-48 overflow-y-auto border-[var(--border-color)]"
       >
         {!activeStoryId && (
-          <div className="text-[10px] italic px-2 py-3 text-center text-[var(--text-secondary)]">请先选择一个故事</div>
+          <div className="text-[12px] italic px-2 py-3 text-center text-[var(--text-secondary)]">请先选择一个故事</div>
         )}
         {activeStoryId && filtered.length === 0 && (
-          <div className="text-[10px] italic px-2 py-3 text-center text-[var(--text-secondary)]">
+          <div className="text-[12px] italic px-2 py-3 text-center text-[var(--text-secondary)]">
             暂无角色，点击上方"新建"
           </div>
         )}
@@ -202,16 +243,18 @@ function ByCharacterContent({
               return (
                 <div
                   key={ch.id}
-                  className={`rounded-lg transition-colors border relative overflow-hidden ${
-                    isSel || isActive
-                      ? 'bg-[var(--accent-bg)] text-[var(--accent)] border-[var(--accent)]'
-                      : 'bg-[var(--bg-page)] text-[var(--text-primary)] border-[var(--border-color)] hover:bg-[var(--bg-hover)]'
-                  }`}
+                  className="rounded-[12px] border-2 relative overflow-hidden transition-transform hover:-translate-y-0.5"
+                  style={{
+                    borderColor: isSel || isActive ? 'var(--an-pink)' : 'var(--an-ink)',
+                    background: isSel || isActive ? 'var(--an-pink-soft)' : 'var(--an-card)',
+                    boxShadow: '0 2px 0 var(--an-ink)',
+                  }}
                 >
                   {/* 选中态左侧色条 */}
                   {(isActive || isSel) && (
                     <div
-                      className="absolute left-0 top-0 bottom-0 w-[3px] bg-[var(--accent)]"
+                      className="absolute left-0 top-0 bottom-0 w-[3px]"
+                      style={{ background: 'var(--an-pink)' }}
                     />
                   )}
                   <div className="flex items-center gap-2 px-2.5 py-2">
@@ -241,20 +284,21 @@ function ByCharacterContent({
                         />
                       ) : (
                         <div
-                          className="w-9 h-9 rounded-full shrink-0 flex items-center justify-center bg-[var(--accent-soft)] text-[var(--accent)]"
+                          className="w-9 h-9 rounded-full shrink-0 flex items-center justify-center"
+                          style={{ background: 'var(--an-lilac-soft)', color: 'var(--an-ink)', border: '2px solid var(--an-ink)' }}
                         >
                           <Icon name="user" size={16} />
                         </div>
                       )}
                       <div className="flex-1 min-w-0">
                         <div className="text-xs font-semibold truncate">{ch.name || '未命名'}</div>
-                        <div className="text-[10px] truncate mt-0.5 text-[var(--text-secondary)]">
+                        <div className="text-[12px] truncate mt-0.5 text-[var(--text-secondary)]">
                           {(ch.personality || '暂无角色描述').slice(0, 30)}
                         </div>
                       </div>
                       {variants.length > 0 && (
                         <span
-                          className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0 bg-[var(--bg-tag,var(--bg-hover))] text-[var(--text-secondary)]"
+                          className="text-[12px] px-1.5 py-0.5 rounded-full shrink-0 bg-[var(--bg-tag,var(--bg-hover))] text-[var(--text-secondary)]"
                         >
                           差分 {variants.length}
                         </span>
@@ -285,7 +329,7 @@ function ByCharacterContent({
                             }}
                           />
                           <div
-                            className="img-fallback absolute inset-0 hidden items-center justify-center text-[10px] font-semibold text-[var(--text-muted)]"
+                            className="img-fallback absolute inset-0 hidden items-center justify-center text-[12px] font-semibold text-[var(--text-muted)]"
                           >
                             {(v.name || '?').charAt(0)}
                           </div>
@@ -309,7 +353,7 @@ function ByCharacterContent({
             <div className="anke-card flex flex-col items-center gap-2 px-6 py-10 text-center border-dashed">
               <Icon name="palette" size={48} className="opacity-40" />
               <div className="text-xs text-[var(--text-secondary)]">选择或新建一个角色</div>
-              <div className="text-[10px] text-[var(--text-secondary)]">点击上方列表中的角色进行编辑</div>
+              <div className="text-[12px] text-[var(--text-secondary)]">点击上方列表中的角色进行编辑</div>
             </div>
           </div>
         )}
@@ -338,37 +382,62 @@ function ByCharacterContent({
 function ByVariantContent({
   richTextEditorCommandsRef,
   onShowToast,
+  keyword,
 }: {
   richTextEditorCommandsRef: React.MutableRefObject<RichTextEditorCommands | null>;
   onShowToast?: (msg: string) => void;
+  keyword: string;
 }) {
   const activeStoryId = useStoryStore((s) => s.activeStoryId);
   const characters = useMetaStore((s) => s.characters);
   const [subTab, setSubTab] = useState<'all' | 'grouped'>('all');
 
+  const kw = keyword.trim().toLowerCase();
+
   // useMemo: 缓存过滤+排序结果，避免每次 render 都重算（人物多时卡顿）
-  const filteredChars = useMemo(
-    () =>
-      activeStoryId
-        ? characters
-            .filter((c) => c.story_id === activeStoryId)
-            .slice()
-            .sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
-        : [],
-    [activeStoryId, characters],
-  );
+  const filteredChars = useMemo(() => {
+    return activeStoryId
+      ? characters
+          .filter((c) => c.story_id === activeStoryId)
+          .filter(
+            (c) =>
+              !kw ||
+              (c.name || '').toLowerCase().includes(kw) ||
+              (c.notes || '').toLowerCase().includes(kw) ||
+              (c.variants || []).some((v) => (v.name || '').toLowerCase().includes(kw)),
+          )
+          .slice()
+          .sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
+      : [];
+  }, [activeStoryId, characters, kw]);
 
   // 拍平所有差分（带所属人物名）—— 依赖 filteredChars，缓存避免每次 render 重算 flatMap
   const allVariants = useMemo(
     () =>
       filteredChars.flatMap((ch) =>
-        (ch.variants || []).map((v) => ({
-          ...v,
-          characterName: ch.name || '未命名',
-          characterId: ch.id,
-        })),
+        (ch.variants || [])
+          .filter((v) => !kw || (v.name || '').toLowerCase().includes(kw))
+          .map((v) => ({
+            ...v,
+            characterName: ch.name || '未命名',
+            characterId: ch.id,
+          })),
       ),
-    [filteredChars],
+    [filteredChars, kw],
+  );
+
+  // 按人物分组时只保留命中的差分
+  const groupedChars = useMemo(
+    () =>
+      filteredChars
+        .map((ch) => ({
+          ...ch,
+          variants: (ch.variants || []).filter(
+            (v) => !kw || (v.name || '').toLowerCase().includes(kw),
+          ),
+        }))
+        .filter((ch) => ch.variants.length > 0),
+    [filteredChars, kw],
   );
 
   const handleInsert = (variantName: string, url: string, charName: string) => {
@@ -395,7 +464,7 @@ function ByVariantContent({
             <button
               key={t.key}
               onClick={() => setSubTab(t.key as 'all' | 'grouped')}
-              className={`text-[10px] px-2.5 py-1 rounded-md transition-colors border ${
+              className={`text-[12px] px-2.5 py-1 rounded-md transition-colors border ${
                 active
                   ? 'bg-[var(--accent)] text-[var(--text-on-accent)] border-[var(--accent)]'
                   : 'bg-[var(--bg-toolbar)] text-[var(--text-secondary)] border-[var(--border-color)]'
@@ -411,14 +480,14 @@ function ByVariantContent({
       <div className="flex-1 overflow-y-auto p-3">
         {!activeStoryId && (
           <div
-            className="text-[10px] italic py-6 text-center text-[var(--text-secondary)]"
+            className="text-[12px] italic py-6 text-center text-[var(--text-secondary)]"
           >
             请先选择一个故事
           </div>
         )}
         {activeStoryId && allVariants.length === 0 && (
           <div
-            className="text-[10px] italic py-6 text-center text-[var(--text-secondary)]"
+            className="text-[12px] italic py-6 text-center text-[var(--text-secondary)]"
           >
             暂无差分
           </div>
@@ -440,22 +509,20 @@ function ByVariantContent({
         {/* 按人物子 tab：分组 */}
         {activeStoryId && allVariants.length > 0 && subTab === 'grouped' && (
           <div className="space-y-4">
-            {filteredChars
-              .filter((c) => (c.variants || []).length > 0)
-              .map((ch) => (
+            {groupedChars.map((ch) => (
                 <div key={ch.id}>
                   <div
-                    className="text-[11px] font-semibold mb-1.5 flex items-baseline gap-1.5 text-[var(--text-primary)]"
+                    className="text-[12px] font-semibold mb-1.5 flex items-baseline gap-1.5 text-[var(--text-primary)]"
                   >
                     <span>{ch.name || '未命名'}</span>
                     <span
-                      className="text-[10px] font-normal text-[var(--text-muted)]"
+                      className="text-[12px] font-normal text-[var(--text-muted)]"
                     >
-                      {(ch.variants || []).length} 个差分
+                      {ch.variants.length} 个差分
                     </span>
                   </div>
                   <div className="grid grid-cols-4 gap-2">
-                    {(ch.variants || []).map((v) => (
+                    {ch.variants.map((v) => (
                       <VariantThumbnail
                         key={v.id}
                         variant={{ ...v, characterName: ch.name || '未命名' }}
@@ -512,7 +579,7 @@ function VariantThumbnail({
         </div>
       </div>
       <div
-        className="text-[9px] px-1 py-0.5 truncate text-[var(--text-secondary)]"
+        className="text-[12px] px-1 py-0.5 truncate text-[var(--text-secondary)]"
       >
         {variant.name}
       </div>
@@ -542,7 +609,7 @@ const AttributeRow = memo(function AttributeRow({
     <div
       className="flex items-center gap-2 px-2 py-1 rounded border border-[var(--border-color)]"
     >
-      <span className="text-[10px] font-medium w-16 shrink-0 truncate text-[var(--text-primary)]">
+      <span className="text-[12px] font-medium w-16 shrink-0 truncate text-[var(--text-primary)]">
         {attrKey}
       </span>
       <input
@@ -555,11 +622,11 @@ const AttributeRow = memo(function AttributeRow({
             (e.target as HTMLInputElement).blur();
           }
         }}
-        className="flex-1 text-[10px] px-1.5 py-0.5 rounded border outline-none bg-[var(--bg-input)] border-[var(--border-color)] text-[var(--text-primary)]"
+        className="flex-1 text-[12px] px-1.5 py-0.5 rounded border outline-none bg-[var(--bg-input)] border-[var(--border-color)] text-[var(--text-primary)]"
       />
       <button
         onClick={() => onDelete(attrKey)}
-        className="text-[10px] px-1 transition-colors text-[var(--danger)]"
+        className="text-[12px] px-1 transition-colors text-[var(--danger)]"
         title="删除此属性"
       >x</button>
     </div>
@@ -815,7 +882,7 @@ function CharacterEditorInline({
         />
         <div className="flex-1 space-y-2">
           <div>
-            <label className="block text-[10px] font-medium mb-1 text-[var(--text-secondary)]">姓名</label>
+            <label className="block text-[12px] font-medium mb-1 text-[var(--text-secondary)]">姓名</label>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -825,7 +892,7 @@ function CharacterEditorInline({
             />
           </div>
           <div>
-            <label className="block text-[10px] font-medium mb-1 text-[var(--text-secondary)]">性格/特征</label>
+            <label className="block text-[12px] font-medium mb-1 text-[var(--text-secondary)]">性格/特征</label>
             <input
               value={personality}
               onChange={(e) => setPersonality(e.target.value)}
@@ -839,7 +906,7 @@ function CharacterEditorInline({
 
       {/* 描述 */}
       <div>
-        <label className="block text-[10px] font-medium mb-1 text-[var(--text-secondary)]">备注/详情</label>
+        <label className="block text-[12px] font-medium mb-1 text-[var(--text-secondary)]">备注/详情</label>
         <textarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
@@ -853,14 +920,14 @@ function CharacterEditorInline({
       {/* 属性展示（可编辑） */}
       <div>
         <div className="flex items-center justify-between mb-1">
-          <label className="block text-[10px] font-medium text-[var(--text-secondary)]">角色属性</label>
+          <label className="block text-[12px] font-medium text-[var(--text-secondary)]">角色属性</label>
           <div className="flex items-center gap-2">
-            <span className="text-[10px] text-[var(--text-secondary)]">
+            <span className="text-[12px] text-[var(--text-secondary)]">
               {Object.keys(attributes || {}).length} 项
             </span>
             <button
               onClick={() => setPendingNewAttr(true)}
-              className="text-[10px] px-2 py-0.5 rounded transition-colors font-medium inline-flex items-center gap-0.5 bg-[var(--accent)] text-[var(--text-on-accent)]"
+              className="text-[12px] px-2 py-0.5 rounded transition-colors font-medium inline-flex items-center gap-0.5 bg-[var(--accent)] text-[var(--text-on-accent)]"
               title="添加新属性"
             >
               + 添加属性
@@ -868,7 +935,7 @@ function CharacterEditorInline({
           </div>
         </div>
         {Object.keys(attributes || {}).length === 0 ? (
-          <div className="text-[10px] italic text-center py-2 text-[var(--text-secondary)]">暂无属性，点击上方添加</div>
+          <div className="text-[12px] italic text-center py-2 text-[var(--text-secondary)]">暂无属性，点击上方添加</div>
         ) : (
           <div className="space-y-1">
             {Object.entries(attributes || {}).map(([key, value]) => (
@@ -888,16 +955,16 @@ function CharacterEditorInline({
       {/* 差分管理 */}
       <div>
         <div className="flex items-center justify-between mb-1">
-          <label className="block text-[10px] font-medium text-[var(--text-secondary)]">
+          <label className="block text-[12px] font-medium text-[var(--text-secondary)]">
             人物差分（表情/姿势/服饰等图片变体）
           </label>
-          <span className="text-[10px] text-[var(--text-secondary)]">
+          <span className="text-[12px] text-[var(--text-secondary)]">
             {(character.variants || []).length} 个
           </span>
         </div>
 
         {(character.variants || []).length === 0 && (
-          <div className="text-[10px] italic text-center py-1 mb-1 text-[var(--text-secondary)]">
+          <div className="text-[12px] italic text-center py-1 mb-1 text-[var(--text-secondary)]">
             暂无差分
           </div>
         )}
@@ -925,7 +992,7 @@ function CharacterEditorInline({
                   }}
                 />
                 <div
-                  className="img-fallback absolute inset-0 hidden items-center justify-center text-[10px] font-semibold text-[var(--text-muted)]"
+                  className="img-fallback absolute inset-0 hidden items-center justify-center text-[12px] font-semibold text-[var(--text-muted)]"
                 >
                   {(v.name || '?').charAt(0)}
                 </div>
@@ -934,18 +1001,18 @@ function CharacterEditorInline({
                 value={v.name}
                 onChange={(e) => updateVariant(v.id, { name: e.target.value })}
                 placeholder="差分名称"
-                className={`flex-1 min-w-0 px-1.5 py-1 text-[10px] rounded border outline-none ${INPUT_CLASS}`}
+                className={`flex-1 min-w-0 px-1.5 py-1 text-[12px] rounded border outline-none ${INPUT_CLASS}`}
               />
               <input
                 value={v.url}
                 onChange={(e) => updateVariant(v.id, { url: e.target.value })}
                 placeholder="图片 URL"
-                className={`flex-1 min-w-0 px-1.5 py-1 text-[10px] rounded border outline-none ${INPUT_CLASS}`}
+                className={`flex-1 min-w-0 px-1.5 py-1 text-[12px] rounded border outline-none ${INPUT_CLASS}`}
               />
               <button
                 onClick={() => moveVariant(v.id, -1)}
                 disabled={idx === 0}
-                className="text-[10px] px-1 py-0.5 rounded border disabled:opacity-30 bg-[var(--bg-base)] text-[var(--text-secondary)] border-[var(--border-color)]"
+                className="text-[12px] px-1 py-0.5 rounded border disabled:opacity-30 bg-[var(--bg-base)] text-[var(--text-secondary)] border-[var(--border-color)]"
                 title="上移"
               >
                 ↑
@@ -953,7 +1020,7 @@ function CharacterEditorInline({
               <button
                 onClick={() => moveVariant(v.id, 1)}
                 disabled={idx === (character.variants || []).length - 1}
-                className="text-[10px] px-1 py-0.5 rounded border disabled:opacity-30 bg-[var(--bg-base)] text-[var(--text-secondary)] border-[var(--border-color)]"
+                className="text-[12px] px-1 py-0.5 rounded border disabled:opacity-30 bg-[var(--bg-base)] text-[var(--text-secondary)] border-[var(--border-color)]"
                 title="下移"
               >
                 ↓
@@ -966,7 +1033,7 @@ function CharacterEditorInline({
                   }
                 }}
                 disabled={!richTextEditorCommandsRef?.current}
-                className="text-[10px] px-1 py-0.5 rounded border transition-colors disabled:opacity-30 bg-[var(--accent-bg)] text-[var(--accent)] border-[var(--accent)]"
+                className="text-[12px] px-1 py-0.5 rounded border transition-colors disabled:opacity-30 bg-[var(--accent-bg)] text-[var(--accent)] border-[var(--accent)]"
                 title="插入到编辑器"
               >
                 插入
@@ -975,7 +1042,7 @@ function CharacterEditorInline({
                 onClick={() => {
                   setPendingDeleteVariant({ id: v.id, name: v.name });
                 }}
-                className="text-[10px] px-1 py-0.5 rounded bg-[var(--danger-soft)] text-[var(--danger)]"
+                className="text-[12px] px-1 py-0.5 rounded bg-[var(--danger-soft)] text-[var(--danger)]"
                 title="删除"
               >
                 <Icon name="x" size={14} />
@@ -989,13 +1056,13 @@ function CharacterEditorInline({
             value={newVariantName}
             onChange={(e) => setNewVariantName(e.target.value)}
             placeholder="差分名称（可空）"
-            className={`w-28 px-1.5 py-1 text-[10px] rounded border outline-none ${INPUT_CLASS}`}
+            className={`w-28 px-1.5 py-1 text-[12px] rounded border outline-none ${INPUT_CLASS}`}
           />
           <input
             value={newVariantUrl}
             onChange={(e) => setNewVariantUrl(e.target.value)}
             placeholder="图片 URL 或上传"
-            className={`flex-1 min-w-0 px-1.5 py-1 text-[10px] rounded border outline-none ${INPUT_CLASS}`}
+            className={`flex-1 min-w-0 px-1.5 py-1 text-[12px] rounded border outline-none ${INPUT_CLASS}`}
           />
           <button aria-label="选择本地图片"
             onClick={() => {
@@ -1006,7 +1073,7 @@ function CharacterEditorInline({
               variantFileRef.current?.click();
             }}
             disabled={isLocalUploadDisabled}
-            className={`text-[10px] px-1.5 py-1 rounded border bg-[var(--bg-sidebar)] text-[var(--text-primary)] border-[var(--border-color)] ${
+            className={`text-[12px] px-1.5 py-1 rounded border bg-[var(--bg-sidebar)] text-[var(--text-primary)] border-[var(--border-color)] ${
               isLocalUploadDisabled ? 'opacity-45 cursor-not-allowed' : 'cursor-pointer'
             }`}
             title={isLocalUploadDisabled ? localUploadDisabledReason : '上传'}
@@ -1027,7 +1094,7 @@ function CharacterEditorInline({
           <button
             onClick={handleAddVariant}
             disabled={!newVariantUrl.trim()}
-            className="text-[10px] px-2 py-1 rounded disabled:opacity-40 bg-[var(--success)] text-[var(--text-on-accent)]"
+            className="text-[12px] px-2 py-1 rounded disabled:opacity-40 bg-[var(--success)] text-[var(--text-on-accent)]"
           >
             + 添加
           </button>
@@ -1038,7 +1105,7 @@ function CharacterEditorInline({
       <div className="flex items-center justify-between pt-1">
         <button
           onClick={handleDelete}
-          className="px-2 py-1 text-[10px] rounded-md transition-colors bg-[var(--danger-soft)] text-[var(--danger)] hover:bg-[var(--danger)] hover:text-[var(--text-on-accent)]"
+          className="px-2 py-1 text-[12px] rounded-md transition-colors bg-[var(--danger-soft)] text-[var(--danger)] hover:bg-[var(--danger)] hover:text-[var(--text-on-danger)]"
         >
           <span className="inline-flex items-center gap-1">
             <Icon name="trash" size={14} />
@@ -1047,7 +1114,7 @@ function CharacterEditorInline({
         </button>
         <button
           onClick={handleSave}
-          className="px-2 py-1 text-[10px] rounded-md transition-colors bg-[var(--accent-bg)] text-[var(--accent)] border border-[var(--accent)] hover:bg-[var(--accent)] hover:text-[var(--text-on-accent)]"
+          className="px-2 py-1 text-[12px] rounded-md transition-colors bg-[var(--accent-bg)] text-[var(--accent)] border border-[var(--accent)] hover:bg-[var(--accent)] hover:text-[var(--text-on-accent)]"
         >
           <span className="inline-flex items-center gap-1">
             <Icon name="check" size={14} />

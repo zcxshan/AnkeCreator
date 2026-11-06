@@ -16,7 +16,6 @@ import { useStructureSync } from '../../hooks/useStructureSync';
 import { DirectoryTree } from '../common/DirectoryTree';
 import { Icon, type IconName } from '../common/Icon';
 import { DiceConfigDialog } from '../dice/DiceConfigDialog';
-import { WorldSettingPanel } from '../common/WorldSettingPanel';
 import { CharacterPanel } from '../character/CharacterEditor';
 import { type RichTextEditorCommands } from '../../editor/tiptap/TiptapEditorPane';
 import { VisualEditorPane } from '../editor/VisualEditorPane';
@@ -27,6 +26,7 @@ import { OutlineTree } from '../outline/OutlineTree';
 import { OutlineEditor } from '../outline/OutlineEditor';
 import { SyncDialog } from '../common/SyncDialog';
 import { ConfirmDialog } from '../common/ConfirmDialog';
+import { Modal } from '../common/Modal';
 import { useToastStore } from '../../store/toastStore';
 import { useSettingStore } from '../../store/settingStore';
 import { UploadProgressDialog } from '../common/UploadProgressDialog';
@@ -39,13 +39,22 @@ import { isCapacitor, isElectron } from '../../utils/platform';
 import { BBCodeEditor } from '../editor/BBCodeEditor';
 import { RightPanel } from '../editor/EditorRightPanel';
 import { EditorBreadcrumb, BottomStatusBar } from '../editor/EditorStatusBar';
+import { NgaLinkDialog } from '../editor/NgaLinkDialog';
+import { NgaSendDialog } from '../editor/NgaSendDialog';
+import { NgaUpdateDialog, type NgaUpdateMeta } from '../editor/NgaUpdateDialog';
+import {
+  buildAppendRows,
+  resolveAppendTarget,
+  type IncomingSection,
+} from '../../utils/ngaAppendSections';
+import { EMPTY_NGA_LINK, type StoryNgaLink } from '../../types/nga';
 
 interface EditorPageProps {
   onBack: () => void;
   onOpenReader?: () => void;
 }
 
-type EditorView = 'info' | 'directory' | 'outline' | 'character';
+type EditorPanelKey = 'outline' | 'character';
 
 /** 基于 HTML 字符串统计字数（用于 contenteditable 编辑器）。
  * 规则：
@@ -185,6 +194,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
     reorderSections,
     moveChapters,
     moveSections,
+    refreshSections,
   } = useStoryStore();
 
   // 用 selector 订阅，避免每次 store 更新都触发整个 EditorPage 重渲染。
@@ -195,10 +205,22 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
   const storeSectionId = useEditorStore((s) => s.sectionId);
   const storeSectionBbcode = useEditorStore((s) => s.sectionBbcode);
 
-  const [view, setView] = useState<EditorView>('directory');
+  // 大纲 / 人物角色 从编辑界面弹出的面板弹窗（同一时间只开一个）
+  const [panelModal, setPanelModal] = useState<EditorPanelKey | null>(null);
   const [rightPanelTab, setRightPanelTab] = useState<
-    'properties' | 'world' | 'character' | 'dice' | 'gallery'
+    'properties' | 'dice' | 'gallery' | 'characters'
   >('properties');
+  // NGA 关联：作品 ↔ 帖子（存放在作品目录 nga.json）
+  const [ngaLink, setNgaLink] = useState<StoryNgaLink | null>(null);
+  const [ngaLinkOpen, setNgaLinkOpen] = useState(false);
+  // 发送至 NGA：唯一入口 → 选节 + BBCode 预览 + 二次确认
+  const [ngaSendOpen, setNgaSendOpen] = useState(false);
+  // 从目录行快捷打开发送弹窗时，记录目标节（null=用当前选中节）
+  const [ngaSendSectionId, setNgaSendSectionId] = useState<string | null>(null);
+  // 从 NGA 更新：按已关联帖子爬取楼层 → 追加到作品末尾
+  const [ngaUpdateOpen, setNgaUpdateOpen] = useState(false);
+  const [ngaSending, setNgaSending] = useState(false);
+  const ngaCookies = useSettingStore((s) => s.ngaCookies);
   // 编辑器视图模式：'visual' = 富文本 contenteditable；'bbcode' = 纯文本 BBCode
   const [editorMode, setEditorMode] = useState<'visual' | 'bbcode'>('visual');
   // BBCode 视图的本地草稿（受控 textarea 用）
@@ -338,11 +360,11 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
   const richTextEditorCommandsRef = useRef<RichTextEditorCommands | null>(null);
   const [selectedImage, setSelectedImage] = useState<{ width: number; height: number; src?: string; dataSize?: string } | null>(null);
   const [exportingImage, setExportingImage] = useState(false);
-  const [leftSidebarWidth, setLeftSidebarWidth] = useState(256);
-  const [rightSidebarWidth, setRightSidebarWidth] = useState(384);
+  const [leftSidebarWidth, setLeftSidebarWidth] = useState(260);
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(360);
   // 用户手动拖动记忆值（窗口放大后恢复到此值）
-  const userLeftWidthRef = useRef(256);
-  const userRightWidthRef = useRef(384);
+  const userLeftWidthRef = useRef(260);
+  const userRightWidthRef = useRef(360);
   // 桌面端右栏折叠（窄窗口自动折叠，可手动展开）
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
   // 移动端 + 窄窗口响应式侧栏宽度：窗口缩小时自动收缩，窗口放大时恢复用户设定值
@@ -426,6 +448,160 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
 
   const story = stories.find((s) => s.id === activeStoryId);
   const section = sections.find((s) => s.id === activeSectionId);
+
+  // 载入当前作品与 NGA 帖子的关联
+  useEffect(() => {
+    if (!isElectron || !activeStoryId) {
+      setNgaLink(null);
+      return;
+    }
+    let cancelled = false;
+    window.electronAPI
+      .ngaGetStoryLink(activeStoryId)
+      .then((res: { ok: boolean; link?: unknown }) => {
+        if (cancelled) return;
+        setNgaLink(res?.ok ? ((res.link as StoryNgaLink | null) ?? EMPTY_NGA_LINK) : EMPTY_NGA_LINK);
+      })
+      .catch(() => {
+        if (!cancelled) setNgaLink(EMPTY_NGA_LINK);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeStoryId]);
+
+  /** 读取指定节的 BBCode：当前节优先取编辑区实时内容，其它节取持久化缓存 */
+  const resolveSectionBbcode = useCallback(async (sectionId: string): Promise<string> => {
+    const st = useEditorStore.getState();
+    if (st.sectionId === sectionId) {
+      await flushDebouncedSave();
+      const cur = useEditorStore.getState();
+      return (cur.sectionBbcode ?? htmlToNGABBCode(cur.sectionContent ?? '')).trim();
+    }
+    const cached = await db.getSectionBBCode(sectionId);
+    if (cached && cached.trim()) return cached.trim();
+    const html = await db.getSectionContent(sectionId);
+    return htmlToNGABBCode(html ?? '').trim();
+  }, []);
+
+  /** 真正执行发送：调用主进程回帖并记录 pid；返回是否成功 */
+  const performNgaSend = useCallback(
+    async (sectionId: string, bbcode: string): Promise<boolean> => {
+      if (!activeStoryId || !ngaLink?.thread || !ngaCookies) return false;
+      setNgaSending(true);
+      try {
+        const res: { ok: boolean; pid?: string; error?: string } = await window.electronAPI.ngaReply(
+          {
+            baseUrl: ngaLink.thread.baseUrl,
+            tid: ngaLink.thread.tid,
+            fid: ngaLink.thread.fid,
+            content: bbcode,
+            cookie: ngaCookies,
+          },
+        );
+        if (!res?.ok) {
+          useToastStore.getState().showToast(res?.error || '发送失败', 'error');
+          return false;
+        }
+        const next: StoryNgaLink = {
+          ...ngaLink,
+          posts: {
+            ...ngaLink.posts,
+            [sectionId]: {
+              pid: res.pid,
+              url: res.pid ? `${ngaLink.thread.baseUrl}/read.php?pid=${res.pid}` : undefined,
+              postedAt: new Date().toISOString(),
+            },
+          },
+        };
+        setNgaLink(next);
+        void window.electronAPI.ngaSaveStoryLink(activeStoryId, next);
+        useToastStore
+          .getState()
+          .showToast(res.pid ? `已发送至 NGA（pid ${res.pid}）` : '已发送至 NGA', 'success');
+        return true;
+      } catch (e) {
+        useToastStore.getState().showToast(`发送失败：${(e as Error).message}`, 'error');
+        return false;
+      } finally {
+        setNgaSending(false);
+      }
+    },
+    [activeStoryId, ngaLink, ngaCookies],
+  );
+
+  /** 打开发送弹窗（唯一入口）；入口在主进程不可用时直接提示 */
+  const openNgaSendDialog = useCallback((sectionId?: string) => {
+    if (!isElectron) {
+      useToastStore.getState().showToast('发送至 NGA 仅在桌面版可用', 'error');
+      return;
+    }
+    if (!ngaLink?.thread) {
+      setNgaLinkOpen(true);
+      useToastStore.getState().showToast('请先关联一个 NGA 帖子', 'info');
+      return;
+    }
+    if (!ngaCookies) {
+      useToastStore.getState().showToast('请先在设置中登录 NGA', 'error');
+      return;
+    }
+    setNgaSendSectionId(sectionId ?? null);
+    setNgaSendOpen(true);
+  }, [ngaLink, ngaCookies]);
+
+  /** 打开「从 NGA 更新」弹窗（需已关联帖子） */
+  const openNgaUpdateDialog = useCallback(() => {
+    if (!isElectron) {
+      useToastStore.getState().showToast('从 NGA 更新仅在桌面版可用', 'error');
+      return;
+    }
+    if (!ngaLink?.thread) {
+      setNgaLinkOpen(true);
+      useToastStore.getState().showToast('请先关联一个 NGA 帖子', 'info');
+      return;
+    }
+    setNgaUpdateOpen(true);
+  }, [ngaLink]);
+
+  /** 把爬取到的节追加到作品最后一章末尾（复用 bulkCreateSections） */
+  const handleAppendCollectedSections = useCallback(
+    async (incoming: IncomingSection[], meta: NgaUpdateMeta): Promise<boolean> => {
+      if (!activeStoryId || incoming.length === 0) return false;
+      try {
+        let target = resolveAppendTarget(volumes, chapters, sections);
+        if (!target) {
+          // 空作品：复用最后一个卷（没有卷才新建），补一个章节后追加
+          const lastVolume = [...volumes].sort((a, b) => a.order_index - b.order_index).pop();
+          const volumeId = lastVolume?.id ?? (await createVolume(activeStoryId, '第一卷'));
+          const chapterId = await createChapter(activeStoryId, '新章节', volumeId);
+          target = { chapterId, nextOrder: 0 };
+        }
+        const rows = buildAppendRows(target.chapterId, incoming, target.nextOrder);
+        const created = await db.bulkCreateSections(rows);
+        await refreshSections();
+        if (created.length > 0) {
+          useStoryStore.getState().setActiveSection(created[0].id);
+        }
+        const warn =
+          meta.failedPages.length > 0
+            ? `；${meta.failedPages.length} 页抓取失败已跳过（页码：${meta.failedPages.join(', ')}）`
+            : '';
+        useToastStore
+          .getState()
+          .showToast(
+            `已追加 ${incoming.length} 节（${meta.totalFloors} 楼）到作品末尾${warn}`,
+            meta.failedPages.length > 0 ? 'warning' : 'success',
+          );
+        return true;
+      } catch (e) {
+        useToastStore
+          .getState()
+          .showToast(`追加失败：${(e as Error).message}`, 'error');
+        return false;
+      }
+    },
+    [activeStoryId, volumes, chapters, sections, createVolume, createChapter, refreshSections],
+  );
 
   // ===== 稳定回调（useCallback）=====
   // 传给 VisualEditorPane / RightPanel 的回调必须保持引用稳定，
@@ -732,14 +908,31 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
               )}
             </div>
             <span
-              className="text-[var(--text-secondary)] bg-[var(--bg-hover)] shrink-0 text-[11px] px-2 py-0.5 rounded-md flex items-center gap-1"
+              className="text-[var(--text-secondary)] bg-[var(--bg-hover)] shrink-0 text-[12px] px-2 py-0.5 rounded-md flex items-center gap-1"
             >
               <span
                 className="bg-[var(--accent)] w-1.5 h-1.5 rounded-full"
               />
               <WordCount variant="compact" />
             </span>
-            {section && view === 'directory' && (
+            <button
+              onClick={openNgaUpdateDialog}
+              className="text-[var(--text-secondary)] shrink-0 w-8 h-8 flex items-center justify-center rounded-lg"
+              title="从关联的 NGA 帖子爬取新楼层并追加到作品末尾"
+              aria-label="从 NGA 更新"
+            >
+              <Icon name="refresh" size={15} />
+            </button>
+            <button
+              onClick={() => openNgaSendDialog()}
+              disabled={ngaSending || !section}
+              className="text-[var(--accent)] shrink-0 w-8 h-8 flex items-center justify-center rounded-lg disabled:opacity-40"
+              title="发送至 NGA"
+              aria-label="发送至 NGA"
+            >
+              <Icon name="upload" size={15} />
+            </button>
+            {section && (
               <button
                 onClick={() => setFocusMode(true)}
                 className="text-[var(--text-secondary)] shrink-0 w-8 h-8 flex items-center justify-center rounded-lg"
@@ -759,23 +952,18 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
               </button>
             )}
           </header>
-          {/* 移动端第二行：全宽 tab bar（4 个视图等分，确保全部可见） */}
+          {/* 移动端第二行：功能面板入口（弹窗打开，不占正文空间） */}
           <nav
-            className="bg-[var(--bg-card)] border-[color:var(--border-color)] shrink-0 grid grid-cols-4 border-b"
+            className="bg-[var(--bg-card)] border-[color:var(--border-color)] shrink-0 grid grid-cols-2 border-b"
           >
-            {(['世界观', '目录', '大纲', '人物'] as const).map((label, idx) => {
-              const key: EditorView = ['info', 'directory', 'outline', 'character'][idx] as EditorView;
-              const icons: IconName[] = ['globe', 'scroll', 'pen', 'theater'];
-              const active = view === key;
+            {(['大纲', '人物'] as const).map((label, idx) => {
+              const key: EditorPanelKey = ['outline', 'character'][idx] as EditorPanelKey;
+              const icons: IconName[] = ['pen', 'theater'];
               return (
                 <button
                   key={label}
-                  onClick={() => setView(key)}
-                  className="flex flex-col items-center justify-center py-1.5 text-[11px]"
-                  style={{
-                    color: active ? 'var(--accent)' : 'var(--text-secondary)',
-                    background: active ? 'var(--accent-soft)' : 'transparent',
-                  }}
+                  onClick={() => setPanelModal(key)}
+                  className="flex flex-col items-center justify-center py-1.5 text-[12px] text-[var(--text-secondary)]"
                 >
                   <span className="text-base leading-none mb-0.5 flex items-center justify-center">
                     <Icon name={icons[idx]} size={16} />
@@ -788,19 +976,12 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
         </>
       ) : (
       <header
-        className="bg-[var(--bg-card)] border-b border-b-[color:var(--border-color)] shrink-0 flex items-center gap-2 md:gap-4 px-3 md:px-4 py-2 md:py-2.5"
+        className="ed-topbar shrink-0 flex items-center gap-2 md:gap-4 px-3 md:px-4 py-2 md:py-2.5"
+        style={{ background: 'var(--an-paper-2)', borderBottom: '3px solid var(--an-ink)' }}
       >
         <button aria-label="返回"
           onClick={onBack}
-          className="text-[var(--text-secondary)] shrink-0 w-8 h-8 flex items-center justify-center rounded-lg transition-colors"
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'var(--bg-hover)';
-            e.currentTarget.style.color = 'var(--text-primary)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = '';
-            e.currentTarget.style.color = 'var(--text-secondary)';
-          }}
+          className="shrink-0 w-8 h-8 flex items-center justify-center rounded-[10px] text-[var(--an-ink-soft)] hover:bg-[var(--an-pink-soft)] hover:text-[var(--an-ink)] transition-colors"
           title="返回"
         >
           <Icon name="back" size={14} />
@@ -809,15 +990,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
         {onOpenReader && (
           <button
             onClick={onOpenReader}
-            className="text-[var(--text-secondary)] text-[13px] shrink-0 h-9 px-3 flex items-center gap-1.5 rounded-lg transition-colors"
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'var(--bg-hover)';
-              e.currentTarget.style.color = 'var(--text-primary)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = '';
-              e.currentTarget.style.color = 'var(--text-secondary)';
-            }}
+            className="an-btn an-btn--sm an-btn--ghost shrink-0"
             title="阅读模式"
           >
             <Icon name="bookText" size={14} />
@@ -836,7 +1009,12 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                 if (e.key === 'Enter') handleTitleEditCommit();
                 if (e.key === 'Escape') setIsEditingTitle(false);
               }}
-              className="border border-[color:var(--accent)] text-[var(--text-primary)] bg-[var(--bg-card)] text-sm font-semibold px-2 py-1 rounded outline-none w-full"
+              className="text-sm font-semibold px-2 py-1 rounded-[var(--an-radius-sm)] outline-none w-full"
+              style={{
+                border: '2px solid var(--an-ink)',
+                background: 'var(--an-card)',
+                color: 'var(--an-ink)',
+              }}
             />
           ) : (
             <button
@@ -846,9 +1024,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                   setIsEditingTitle(true);
                 }
               }}
-              className="text-[var(--text-primary)] text-left text-sm font-semibold px-2 py-1 rounded transition-colors truncate block w-full"
-              onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hover)')}
-              onMouseLeave={(e) => (e.currentTarget.style.background = '')}
+              className="ed-topbar__title text-[var(--an-ink)] hover:bg-[var(--an-pink-soft)] text-left text-sm font-semibold px-2 py-1 rounded-[var(--an-radius-sm)] transition-colors truncate block w-full"
               title="点击重命名作品"
             >
               {story?.title || '未命名作品'}
@@ -856,56 +1032,43 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
           )}
         </div>
 
-        <nav className="flex-1 flex items-center justify-center gap-0.5 md:gap-1">
-          {(['世界观', '目录编辑', '大纲', '人物角色'] as const).map((label, idx) => {
-            const key: EditorView = ['info', 'directory', 'outline', 'character'][idx] as EditorView;
-            const icons: IconName[] = ['globe', 'scroll', 'pen', 'theater'];
-            const active = view === key;
-            return (
-              <button
-                key={label}
-                onClick={() => {
-                  setView(key);
-                }}
-                className="relative px-2 md:px-3 py-1.5 text-xs font-medium rounded-lg transition-all shrink-0 whitespace-nowrap"
-                style={{
-                  color: active ? 'var(--accent)' : 'var(--text-secondary)',
-                  background: active ? 'var(--accent-soft)' : 'transparent',
-                }}
-                onMouseEnter={(e) => {
-                  if (!active) {
-                    e.currentTarget.style.color = 'var(--text-primary)';
-                    e.currentTarget.style.background = 'var(--bg-hover)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!active) {
-                    e.currentTarget.style.color = 'var(--text-secondary)';
-                    e.currentTarget.style.background = 'transparent';
-                  }
-                }}
-              >
-                <span className="inline-flex items-center gap-1">
-                  <Icon name={icons[idx]} size={16} />
-                  <span>{label}</span>
-                </span>
-                {active && (
-                  <span
-                    className="bg-[var(--accent)] absolute bottom-0 left-1/2 -translate-x-1/2 w-6 h-0.5 rounded-full"
-                  />
-                )}
-              </button>
-            );
-          })}
-        </nav>
+        <div className="flex-1" />
 
-        <div className="shrink-0 flex items-center gap-1 md:gap-1.5">
-          <span
-            className="text-[var(--text-secondary)] bg-[var(--bg-hover)] text-xs px-2 py-1 rounded-md flex items-center gap-1"
+        <div className="ed-topbar__actions shrink-0 flex items-center gap-1 md:gap-1.5">
+          <button
+            onClick={() => setNgaLinkOpen(true)}
+            className="h-8 px-2.5 text-xs rounded-full flex items-center gap-1 text-[var(--an-ink)] hover:bg-[var(--an-pink-soft)] transition-colors"
+            style={{ background: 'var(--an-card)', border: '2px solid var(--an-ink)' }}
+            title={ngaLink?.thread ? `已关联：${ngaLink.thread.url}` : '关联 NGA 帖子'}
           >
-            <span
-              className="bg-[var(--accent)] w-1.5 h-1.5 rounded-full"
-            />
+            <Icon name="link" size={14} />
+            <span className="hidden md:inline">{ngaLink?.thread ? '已关联 NGA' : '关联 NGA'}</span>
+          </button>
+          <button
+            onClick={openNgaUpdateDialog}
+            className="h-8 px-2.5 text-xs rounded-full flex items-center gap-1 text-[var(--an-ink)] hover:bg-[var(--an-pink-soft)] transition-colors"
+            style={{ background: 'var(--an-card)', border: '2px solid var(--an-ink)' }}
+            title="从关联的 NGA 帖子爬取新楼层并追加到作品末尾"
+            aria-label="从 NGA 更新"
+          >
+            <Icon name="refresh" size={14} />
+            <span className="hidden md:inline">更新</span>
+          </button>
+          <button
+            onClick={() => openNgaSendDialog()}
+            disabled={ngaSending || !section}
+            className="h-8 px-2.5 text-xs rounded-full flex items-center gap-1 disabled:opacity-40 text-[#3a2340] transition-transform hover:-translate-y-0.5"
+            style={{ background: 'var(--an-pink)', border: '2px solid var(--an-ink)', boxShadow: '0 2px 0 var(--an-ink)' }}
+            title="发送至 NGA"
+          >
+            <Icon name="upload" size={14} />
+            <span className="hidden md:inline">{ngaSending ? '发送中…' : '发送至 NGA'}</span>
+          </button>
+          <span
+            className="an-badge text-xs"
+            style={{ background: 'var(--an-lemon-soft)', border: '2px solid var(--an-ink)' }}
+          >
+            <span style={{ background: 'var(--an-pink)', width: 6, height: 6, borderRadius: 999 }} />
             <WordCount />
           </span>
         </div>
@@ -915,16 +1078,13 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
       {/* 本地保存模式常驻警告横幅（仅在 imageStoreMode === 'local' 时显示） */}
       <LocalModeBanner />
 
-      {/* 主体：根据 view 切换不同内容 */}
-      {view === 'info' && <WorldSettingPanel />}
-      {view === 'character' && <CharacterPanel richTextEditorCommandsRef={richTextEditorCommandsRef} />}
-
-      {view === 'directory' && !focusMode && (
+      {/* 主体：编辑区常驻；设定备忘录 / 大纲 / 人物角色 通过弹窗查看 */}
+      {!focusMode && (
         <div className="flex-1 flex overflow-hidden min-h-0 relative md:min-h-[500px]">
           {/* ===== 桌面端：3 列布局（目录 + 编辑区 + 右侧栏） ===== */}
           {!isMobile && (
             <>
-              <div className="shrink-0 flex flex-col overflow-hidden overflow-y-auto" style={{ width: leftSidebarWidth }}>
+              <div className="ed-pane--left shrink-0 flex flex-col overflow-hidden overflow-y-auto" style={{ width: leftSidebarWidth }}>
                 <DirectoryTree
                   volumes={volumes}
                   chapters={chapters}
@@ -936,6 +1096,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                   expandedChapterIds={expandedChapterIds}
                   onSelectChapter={setActiveChapter}
                   onSelectSection={setActiveSection}
+                  onOpenOutline={() => setPanelModal('outline')}
                   onCreateVolume={() => {
                     if (activeStoryId) {
                       const volCount = volumes.length + 1;
@@ -1125,13 +1286,12 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
             >
               {/* 移动端面板头：4 图标 tab（切换内容并自动展开）+ 独立▼/▲折叠按钮 */}
               <div className="border-[color:var(--border-color)] shrink-0 flex items-center border-b">
-                <div className="flex-1 grid grid-cols-5">
+                <div className="flex-1 grid grid-cols-4">
                   {([
                     { key: 'properties', icon: 'settings', label: '属性' },
-                    { key: 'world', icon: 'globe', label: '世界观' },
-                    { key: 'character', icon: 'user', label: '人物' },
                     { key: 'dice', icon: 'dices', label: '骰子' },
                     { key: 'gallery', icon: 'image', label: '图库' },
+                    { key: 'characters', icon: 'theater', label: '人物' },
                   ] as const).map((t) => {
                     const active = rightPanelTab === t.key;
                     return (
@@ -1279,6 +1439,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                     expandedChapterIds={expandedChapterIds}
                     onSelectChapter={(id) => { setActiveChapter(id); }}
                     onSelectSection={(id) => { setActiveSection(id); setLeftDrawerOpen(false); }}
+                    onOpenOutline={() => { setLeftDrawerOpen(false); setPanelModal('outline'); }}
                     onCreateVolume={() => {
                       if (activeStoryId) {
                         const volCount = volumes.length + 1;
@@ -1336,47 +1497,108 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
         </div>
       )}
 
-      {view === 'outline' && (
-        <div className="flex-1 flex overflow-hidden min-h-0">
-          <OutlineTree
-            onJumpToChapter={(chapterId) => {
-              setActiveChapter(chapterId);
-              setView('directory');
-            }}
-          />
-          <main
-            className="border-l border-l-[color:var(--border-color)] bg-[var(--bg-page)] min-h-[0px] flex-1 flex flex-col overflow-hidden"
+      {/* 关联 NGA 帖子弹窗 */}
+      <NgaLinkDialog
+        open={ngaLinkOpen}
+        onClose={() => setNgaLinkOpen(false)}
+        storyId={activeStoryId}
+        link={ngaLink}
+        onChange={setNgaLink}
+      />
+
+      {/* 大纲 / 人物角色 弹窗 */}
+      <Modal
+        open={panelModal !== null}
+        onClose={() => setPanelModal(null)}
+        contentClassName="flex flex-col overflow-hidden w-[min(1120px,94vw)] h-[min(86vh,880px)] max-md:w-screen max-md:h-screen max-md:rounded-none"
+      >
+        <header
+          className="flex items-center justify-between px-4 py-2.5 shrink-0"
+          style={{ background: 'var(--an-paper-2)', borderBottom: '3px solid var(--an-ink)' }}
+        >
+          <div className="text-[var(--an-ink)] flex items-center gap-1.5" style={{ fontFamily: 'var(--an-font-display)', fontSize: 16 }}>
+            <Icon name={panelModal === 'outline' ? 'pen' : 'theater'} size={16} />
+            {panelModal === 'outline' ? '大纲' : '人物角色'}
+          </div>
+          <button
+            aria-label="关闭面板"
+            onClick={() => setPanelModal(null)}
+            className="w-8 h-8 flex items-center justify-center rounded-[10px] text-[var(--an-ink-soft)] hover:bg-[var(--an-pink-soft)] hover:text-[var(--an-ink)] transition-colors"
+            title="关闭"
           >
-            <div
-              className="bg-[var(--bg-card)] border-[color:var(--border-color)] shrink-0 flex items-center justify-end gap-2 px-4 py-2 border-b"
-            >
-              <button
-                onClick={() => structureSync.openDialog('outline')}
-                className="bg-[var(--bg-card)] text-[var(--accent)] border border-[color:var(--accent-soft)] px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
-                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--accent-soft)')}
-                onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--bg-card)')}
-              >
-                <span className="inline-flex items-center gap-1">
-                  <Icon name="copy" size={14} />
-                  同步大纲到目录
-                </span>
-              </button>
-              <button
-                onClick={() => structureSync.openDialog('directory')}
-                className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[color:var(--border-color)] px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
-                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hover)')}
-                onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--bg-card)')}
-              >
-                <span className="inline-flex items-center gap-1">
-                  <Icon name="copy" size={14} />
-                  同步目录到大纲
-                </span>
-              </button>
-            </div>
-            <OutlineEditor />
-          </main>
+            ✕
+          </button>
+        </header>
+        <div className="flex-1 overflow-hidden min-h-0 flex">
+          {panelModal === 'character' && (
+            <CharacterPanel richTextEditorCommandsRef={richTextEditorCommandsRef} />
+          )}
+          {panelModal === 'outline' && (
+            <>
+              <OutlineTree
+                onJumpToChapter={(chapterId) => {
+                  setActiveChapter(chapterId);
+                  setPanelModal(null);
+                }}
+              />
+              <main className="bg-[var(--an-paper)] min-h-[0px] flex-1 flex flex-col overflow-hidden" style={{ borderLeft: '2px solid var(--an-ink)' }}>
+                <div
+                  className="shrink-0 flex items-center justify-end gap-2 px-4 py-2"
+                  style={{ background: 'var(--an-paper-2)', borderBottom: '2px solid var(--an-ink)' }}
+                >
+                  <button
+                    onClick={() => structureSync.openDialog('outline')}
+                    className="an-btn an-btn--sm an-btn--mint"
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      <Icon name="copy" size={14} />
+                      同步大纲到目录
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => structureSync.openDialog('directory')}
+                    className="an-btn an-btn--sm an-btn--ghost"
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      <Icon name="copy" size={14} />
+                      同步目录到大纲
+                    </span>
+                  </button>
+                </div>
+                <OutlineEditor />
+              </main>
+            </>
+          )}
         </div>
-      )}
+      </Modal>
+
+      {/* 发送至 NGA：选节 → BBCode 预览 → 二次确认 */}
+      <NgaSendDialog
+        open={ngaSendOpen}
+        onClose={() => setNgaSendOpen(false)}
+        volumes={volumes}
+        chapters={chapters}
+        sections={sections}
+        defaultSectionId={ngaSendSectionId ?? activeSectionId}
+        ngaLink={ngaLink}
+        sending={ngaSending}
+        isElectron={isElectron}
+        onOpenLink={() => {
+          setNgaSendOpen(false);
+          setNgaLinkOpen(true);
+        }}
+        resolveBbcode={resolveSectionBbcode}
+        onSend={performNgaSend}
+      />
+
+      {/* 从 NGA 更新：检测楼层 → 选范围/切分 → 追加到作品末尾 */}
+      <NgaUpdateDialog
+        open={ngaUpdateOpen}
+        onClose={() => setNgaUpdateOpen(false)}
+        threadUrl={ngaLink?.thread?.url ?? null}
+        cookies={ngaCookies ?? ''}
+        onAppend={handleAppendCollectedSections}
+      />
 
       {/* Toast 提示 */}
       {toast && (
@@ -1409,7 +1631,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
 
       {/* ===== 移动端全屏专注编辑模式 =====
           用户点 ⤢ 按钮进入，编辑器占据全部可视空间（键盘弹出时编辑区不被挤窄） */}
-      {focusMode && section && activeChapter && view === 'directory' && (
+      {focusMode && section && activeChapter && (
         <div
           className="fixed top-0 left-0 right-0 z-50 flex flex-col"
           style={{ height: focusModeViewportHeight, background: 'var(--bg-page)' }}

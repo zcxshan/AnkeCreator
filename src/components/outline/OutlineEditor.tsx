@@ -106,8 +106,8 @@ export function OutlineEditor() {
         className="bg-[var(--bg-page)] flex-1 flex flex-col items-center justify-center p-8"
       >
         <div className="mb-4 opacity-30 flex justify-center"><Icon name="pen" size={56} /></div>
-        <div className="text-sm font-medium text-slate-600">选择左侧目录开始编写大纲</div>
-        <div className="text-xs text-slate-400 mt-1">点击卷或章即可编辑对应的大纲描述</div>
+        <div className="text-sm font-medium text-[var(--text-secondary)]">选择左侧目录开始编写大纲</div>
+        <div className="text-xs text-[var(--text-muted)] mt-1">点击卷或章即可编辑对应的大纲描述</div>
       </div>
     );
   }
@@ -125,7 +125,7 @@ export function OutlineEditor() {
         </span>
         <div className="flex-1 min-w-0">
           <div className="text-[var(--text-primary)] text-sm font-semibold truncate">{displayTitle}</div>
-          <div className="text-[var(--text-secondary)] text-[10px] mt-0.5">
+          <div className="text-[var(--text-secondary)] text-[12px] mt-0.5">
             {payload.target_type === 'volume'
               ? '本卷概述、核心剧情、重要角色等'
               : '本章概要、关键事件、角色互动等'}
@@ -173,9 +173,9 @@ export function OutlineEditor() {
           >
             保存
           </button>
-          {savedFlash && <span className="text-[10px] text-emerald-600">已保存</span>}
+          {savedFlash && <span className="text-[12px] text-[var(--accent)]">已保存</span>}
         </div>
-        <div className="text-[10px] text-slate-400">
+        <div className="text-[12px] text-[var(--text-muted)]">
           {wordCount} 字 · {lineCount} 行 · 停止输入 500ms 自动保存
         </div>
       </footer>

@@ -37,10 +37,7 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   const confirmBtnRef = useRef<HTMLButtonElement>(null);
 
-  const confirmColor = danger ? 'var(--danger)' : 'var(--accent)';
-  const confirmBg = danger
-    ? 'var(--danger-soft)'
-    : 'var(--accent-bg)';
+  const confirmBg = danger ? 'var(--an-pink)' : 'var(--an-mint)';
 
   return (
     <Modal
@@ -52,59 +49,44 @@ export function ConfirmDialog({
       describedBy="confirm-dialog-message"
       initialFocusRef={confirmBtnRef}
       contentStyle={{
-        background: 'var(--bg-card)',
-        borderRadius: 'var(--radius-lg, 10px)',
-        boxShadow: 'var(--shadow-modal)',
-        padding: '24px 28px 20px',
+        background: 'var(--an-card)',
+        borderRadius: 'var(--an-radius-md)',
+        boxShadow: 'var(--an-shadow-pop-lg), var(--an-shadow-soft)',
+        padding: '22px 24px 18px',
         minWidth: 320,
         maxWidth: 480,
-        animation: 'modalSlideIn 0.18s ease-out',
-        border: '1px solid var(--border-color)',
+        animation: 'modalSlideIn 0.18s var(--an-ease-bounce)',
+        border: 'var(--an-line)',
       }}
     >
       <h3
         id="confirm-dialog-title"
-        className="m-[0px] mb-[12px] text-[16px] font-semibold text-[var(--text-primary)]"
+        className="m-[0px] mb-[10px] text-[17px] font-bold text-[var(--an-ink)]"
+        style={{ fontFamily: 'var(--an-font-display)' }}
       >
         {title}
       </h3>
       <p
         id="confirm-dialog-message"
-        className="m-[0px] mb-[24px] text-[13px] leading-[1.6] text-[var(--text-secondary)] whitespace-pre-wrap"
+        className="m-[0px] mb-[20px] text-[13px] leading-[1.7] text-[var(--an-ink-soft)] whitespace-pre-wrap"
       >
         {message}
       </p>
-      <div
-        className="flex justify-end gap-[8px]"
-      >
-        <button
-          type="button"
-          onClick={onCancel}
-          style={{
-            padding: '8px 18px',
-            fontSize: 13,
-            border: '1px solid var(--border-color)',
-            borderRadius: 'var(--radius-md, 6px)',
-            background: 'transparent',
-            color: 'var(--text-primary)',
-            cursor: 'pointer',
-          }}
-        >
+      <div className="flex justify-end gap-[8px]">
+        <button type="button" onClick={onCancel} className="an-btn an-btn--sm an-btn--ghost">
           {cancelText}
         </button>
         <button
           ref={confirmBtnRef}
           type="button"
           onClick={onConfirm}
+          className="an-btn an-btn--sm"
           style={{
-            padding: '8px 18px',
-            fontSize: 13,
-            fontWeight: 600,
-            border: '1px solid var(--border-color, transparent)',
-            borderRadius: 'var(--radius-md, 6px)',
             background: confirmBg,
-            color: confirmColor,
-            cursor: 'pointer',
+            color: '#2a1a33',
+            border: '2px solid var(--an-ink)',
+            boxShadow: '0 2px 0 var(--an-ink)',
+            fontWeight: 700,
           }}
         >
           {confirmText}

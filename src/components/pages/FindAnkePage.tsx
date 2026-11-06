@@ -59,46 +59,39 @@ export function FindAnkePage({ onBack }: FindAnkePageProps) {
     [ngaCookies],
   )
 
-  const tabBtnBase: React.CSSProperties = {
-    padding: '8px 18px',
-    fontSize: 14,
-    fontWeight: 500,
-    border: 'none',
-    cursor: 'pointer',
-    borderRadius: 'var(--radius-md)',
-    transition: 'all 0.15s',
-  }
-
   // 安卓版：搜索依赖 Electron IPC，无法使用
   if (isCapacitor) {
     return (
       <div
-        className="bg-[var(--bg-primary)] text-[var(--text-primary)] flex flex-col min-h-full"
+        className="an-page text-[var(--an-ink)] flex flex-col min-h-full"
       >
         <div
-          className="border-b border-b-[color:var(--border-color)] bg-[var(--bg-primary)] flex items-center gap-3 px-4 py-3 shrink-0 sticky top-8 z-40"
+          className="flex items-center gap-3 px-4 py-3 shrink-0 sticky top-9 z-40"
+          style={{ background: 'var(--an-paper-2)', borderBottom: '3px solid var(--an-ink)' }}
         >
           <button
             onClick={onBack}
-            className="bg-[var(--bg-hover)] text-[var(--text-primary)] inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium"
+            className="an-pill"
           >
             ← 返回
           </button>
           <Icon name="search" size={18} />
-          <h1 className="text-lg font-semibold m-0">寻找安科</h1>
+          <h1 className="text-lg font-bold m-0" style={{ fontFamily: 'var(--an-font-display)' }}>寻找安科</h1>
         </div>
         <div className="flex-1 flex items-center justify-center p-8">
           <div
-            className="bg-[var(--bg-card)] border border-[color:var(--border-color)] text-center max-w-md p-8 rounded-2xl"
+            className="an-card text-center max-w-md p-8"
           >
-            <div className="mb-4"><Icon name="laptop" size={48} /></div>
+            <div className="mb-4 inline-flex items-center justify-center w-20 h-20 rounded-full" style={{ background: 'var(--an-lilac-soft)', border: '3px solid var(--an-ink)', boxShadow: '0 4px 0 var(--an-ink)' }}><Icon name="laptop" size={40} /></div>
             <h2
-              className="text-[var(--text-primary)] text-xl font-semibold mb-2"
+              className="text-xl font-bold mb-2"
+              style={{ fontFamily: 'var(--an-font-display)', color: 'var(--an-ink)' }}
             >
               该功能仅桌面版可用
             </h2>
             <p
-              className="text-[var(--text-secondary)] text-sm leading-relaxed m-0"
+              className="text-sm leading-relaxed m-0"
+              style={{ color: 'var(--an-ink-soft)' }}
             >
               寻找安科需要在 Windows 桌面版使用，安卓版暂不支持。
             </p>
@@ -110,37 +103,38 @@ export function FindAnkePage({ onBack }: FindAnkePageProps) {
 
   return (
     <div
-      className="bg-[var(--bg-primary)] text-[var(--text-primary)] flex flex-col h-full"
+      className="an-page text-[var(--text-primary)] flex flex-col h-full"
     >
       {/* 顶栏 */}
       <div
-        className="border-b border-b-[color:var(--border-color)] flex items-center gap-3 px-4 py-3 shrink-0"
+        className="flex items-center gap-3 px-6 py-4 shrink-0"
+        style={{ background: 'var(--an-paper-2)', borderBottom: '3px solid var(--an-ink)' }}
       >
         <button
           onClick={onBack}
-          className="bg-[var(--bg-hover)] text-[var(--text-primary)] inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors"
-          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-card)')}
-          onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--bg-hover)')}
+          className="an-pill"
         >
           ← 返回
         </button>
         <div className="flex items-center gap-2">
-          <Icon name="search" size={18} />
-          <h1 className="text-lg font-semibold m-0">寻找安科</h1>
+          <Icon name="search" size={20} />
+          <h1
+            className="m-0 text-[var(--an-ink)]"
+            style={{ fontFamily: 'var(--an-font-display)', fontSize: 22 }}
+          >
+            寻找安科
+          </h1>
         </div>
       </div>
 
       {/* Tab 切换栏 */}
       <div
-        className="border-b border-b-[color:var(--border-color)] shrink-0 flex gap-2 px-4 py-2"
+        className="shrink-0 flex gap-2 px-6 py-3"
+        style={{ borderBottom: '2px solid var(--an-ink)' }}
       >
         <button
           onClick={() => setTab('gululu')}
-          style={{
-            ...tabBtnBase,
-            background: tab === 'gululu' ? 'var(--accent)' : 'var(--bg-hover)',
-            color: tab === 'gululu' ? 'var(--text-on-accent)' : 'var(--text-secondary)',
-          }}
+          className={`an-pill ${tab === 'gululu' ? 'is-active' : ''}`}
         >
           <span className="inline-flex items-center gap-1">
             <Icon name="globe" size={14} />
@@ -149,11 +143,7 @@ export function FindAnkePage({ onBack }: FindAnkePageProps) {
         </button>
         <button
           onClick={() => setTab('nga')}
-          style={{
-            ...tabBtnBase,
-            background: tab === 'nga' ? 'var(--accent)' : 'var(--bg-hover)',
-            color: tab === 'nga' ? 'var(--text-on-accent)' : 'var(--text-secondary)',
-          }}
+          className={`an-pill ${tab === 'nga' ? 'is-active' : ''}`}
         >
           <span className="inline-flex items-center gap-1">
             <Icon name="gamepad" size={14} />
@@ -166,8 +156,8 @@ export function FindAnkePage({ onBack }: FindAnkePageProps) {
       <div className="flex-1 overflow-hidden">
         {tab === 'gululu' && (
           <div className="h-full overflow-y-auto p-4">
-            <div className="max-w-4xl mx-auto flex flex-col gap-3">
-              <div className="anke-card p-4">
+            <div className="max-w-[1180px] mx-auto flex flex-col gap-3">
+              <div className="an-card p-4">
                 <SearchSiteSection<GululuResult>
                   siteKey="gululu"
                   icon="globe"
@@ -201,24 +191,25 @@ export function FindAnkePage({ onBack }: FindAnkePageProps) {
         )}
         {tab === 'nga' && (
           <div className="h-full overflow-y-auto p-4">
-            <div className="max-w-4xl mx-auto flex flex-col gap-3">
+            <div className="max-w-[1180px] mx-auto flex flex-col gap-3">
               {!ngaCookies && (
                 <div
-                  className="bg-[var(--tone-warn-veil)] border border-[color:var(--tone-warn-border)] text-[var(--text-primary)] p-3 rounded-lg flex items-start gap-2 text-xs"
+                  className="flex items-start gap-2 text-xs p-3"
+                  style={{ background: 'var(--an-lemon-soft)', border: '2px solid var(--an-ink)', borderRadius: 'var(--an-radius-sm)', color: 'var(--an-ink)' }}
                 >
-                  <span className="text-[var(--tone-warn)] shrink-0">
+                  <span className="shrink-0">
                     <Icon name="alert" size={14} />
                   </span>
                   <div className="flex-1">
-                    <div className="font-medium mb-0.5">未配置 NGA Cookie</div>
-                    <div className="text-[var(--text-secondary)]">
+                    <div className="font-semibold mb-0.5">未配置 NGA Cookie</div>
+                    <div className="text-[var(--an-ink-soft)]">
                       未登录状态下仅能查看部分公开帖子，部分内容可能缺失或被拦截。
                       请在 <strong>设置 → NGA 登录态</strong> 中粘贴 Cookie 后重试。
                     </div>
                   </div>
                 </div>
               )}
-              <div className="anke-card p-4">
+              <div className="an-card p-4">
                 <SearchSiteSection<NgaResult>
                   siteKey="nga"
                   icon="gamepad"

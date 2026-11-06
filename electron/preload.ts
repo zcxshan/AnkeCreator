@@ -162,12 +162,6 @@ const dbAPI = {
   listTrashedStories: (): Promise<any[]> => ipcRenderer.invoke('db:list-trashed-stories'),
   cleanupOldTrashed: (days: number): Promise<number> => ipcRenderer.invoke('db:cleanup-old-trashed', days),
 
-  // WorldSettings
-  listWorldSettings: (storyId: string): Promise<any[]> => ipcRenderer.invoke('db:list-world-settings', storyId),
-  createWorldSetting: (data: any): Promise<any> => ipcRenderer.invoke('db:create-world-setting', data),
-  updateWorldSetting: (id: string, patch: any): Promise<any> => ipcRenderer.invoke('db:update-world-setting', id, patch),
-  deleteWorldSetting: (id: string): Promise<boolean> => ipcRenderer.invoke('db:delete-world-setting', id),
-
   // Characters
   listCharacters: (storyId: string): Promise<any[]> => ipcRenderer.invoke('db:list-characters', storyId),
   createCharacter: (data: any): Promise<any> => ipcRenderer.invoke('db:create-character', data),
@@ -183,8 +177,6 @@ const dbAPI = {
   deleteCharacterVariant: (id: string): Promise<boolean> => ipcRenderer.invoke('db:delete-character-variant', id),
   reorderCharacterVariants: (characterId: string, orderedIds: string[]): Promise<boolean> =>
     ipcRenderer.invoke('db:reorder-character-variants', characterId, orderedIds),
-  reorderWorldSettings: (storyId: string, orderedIds: string[]): Promise<boolean> =>
-    ipcRenderer.invoke('db:reorder-world-settings', storyId, orderedIds),
   reorderCharacters: (storyId: string, orderedIds: string[]): Promise<boolean> =>
     ipcRenderer.invoke('db:reorder-characters', storyId, orderedIds),
 
@@ -238,14 +230,6 @@ const dbAPI = {
   getSectionBBCode: (id: string): Promise<string | null> => ipcRenderer.invoke('db:get-section-bbcode', id),
   setSectionContent: (id: string, content: string | null, bbcode?: string | null): Promise<boolean> =>
     ipcRenderer.invoke('db:set-section-content', id, content, bbcode),
-
-  // World Templates
-  listWorldSettingTemplates: (): Promise<any[]> => ipcRenderer.invoke('db:list-world-setting-templates'),
-  createWorldSettingTemplate: (data: any): Promise<any> => ipcRenderer.invoke('db:create-world-setting-template', data),
-  updateWorldSettingTemplate: (id: string, patch: any): Promise<any> => ipcRenderer.invoke('db:update-world-setting-template', id, patch),
-  deleteWorldSettingTemplate: (id: string): Promise<boolean> => ipcRenderer.invoke('db:delete-world-setting-template', id),
-  reorderWorldSettingTemplates: (orderedIds: string[]): Promise<boolean> =>
-    ipcRenderer.invoke('db:reorder-world-setting-templates', orderedIds),
 
   // Character Templates
   listCharacterTemplates: (): Promise<any[]> => ipcRenderer.invoke('db:list-character-templates'),
@@ -414,6 +398,35 @@ const gululuAPI = {
   },
 }
 
+// NGA 登录 / 回帖 / 作品↔帖子关联
+const ngaSessionAPI = {
+  login: (): Promise<{
+    ok: boolean
+    cookie?: string
+    uid?: string
+    error?: string
+    cancelled?: boolean
+  }> => ipcRenderer.invoke('nga:login'),
+  logout: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('nga:logout'),
+  reply: (payload: {
+    baseUrl?: string
+    tid: string
+    fid?: string
+    content: string
+    cookie?: string
+  }): Promise<{ ok: boolean; pid?: string; error?: string }> =>
+    ipcRenderer.invoke('nga:reply', payload),
+  getStoryLink: (
+    storyId: string,
+  ): Promise<{ ok: boolean; link?: unknown; error?: string }> =>
+    ipcRenderer.invoke('nga:link:get', storyId),
+  saveStoryLink: (
+    storyId: string,
+    link: unknown,
+  ): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('nga:link:save', storyId, link),
+}
+
 contextBridge.exposeInMainWorld('windowAPI', windowAPI)
 contextBridge.exposeInMainWorld('electronAPI', {
   // 保留原有的接口
@@ -515,6 +528,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   cancelGululuCollect: gululuAPI.cancelCollect,
   fetchGululuBookInfo: gululuAPI.fetchBookInfo,
   onGululuCollectProgress: gululuAPI.onCollectProgress,
+  // NGA 登录 / 回帖 / 作品↔帖子关联
+  ngaLogin: ngaSessionAPI.login,
+  ngaLogout: ngaSessionAPI.logout,
+  ngaReply: ngaSessionAPI.reply,
+  ngaGetStoryLink: ngaSessionAPI.getStoryLink,
+  ngaSaveStoryLink: ngaSessionAPI.saveStoryLink,
 })
 contextBridge.exposeInMainWorld('dbAPI', dbAPI)
 contextBridge.exposeInMainWorld('appAPI', appAPI)

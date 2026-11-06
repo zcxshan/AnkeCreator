@@ -185,7 +185,7 @@ export function AddToFavoriteDialog({
                     {fav.name}
                   </span>
                   <span
-                    className="text-[11px] text-[var(--text-secondary)] shrink-0"
+                    className="text-[12px] text-[var(--text-secondary)] shrink-0"
                   >
                     {isSingle
                       ? (inFav ? '当前归属' : '点击移动')

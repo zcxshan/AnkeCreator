@@ -104,7 +104,7 @@ export function EpubExportOptionsDialog({
         <div className="px-6 py-5 space-y-4">
           {storyTitle && (
             <div
-              className="bg-[var(--bg-secondary)] border border-[color:var(--border-color)] p-3 rounded-lg"
+              className="bg-[var(--bg-hover)] border border-[color:var(--border-color)] p-3 rounded-lg"
             >
               <div className="text-[var(--text-secondary)] text-xs mb-1">
                 作品
@@ -126,14 +126,14 @@ export function EpubExportOptionsDialog({
           <label
             className="flex items-start gap-3 p-4 rounded-xl cursor-pointer transition-all"
             style={{
-              background: embedImages ? 'var(--tone-info-soft)' : 'var(--bg-secondary)',
+              background: embedImages ? 'var(--tone-info-soft)' : 'var(--bg-hover)',
               border: embedImages ? '1.5px solid var(--accent)' : '1px solid var(--border-color)',
             }}
             onMouseEnter={(e) => {
               if (!embedImages) e.currentTarget.style.background = 'var(--bg-hover)'
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.background = embedImages ? 'var(--tone-info-soft)' : 'var(--bg-secondary)'
+              e.currentTarget.style.background = embedImages ? 'var(--tone-info-soft)' : 'var(--bg-hover)'
             }}
           >
             <input
@@ -175,7 +175,7 @@ export function EpubExportOptionsDialog({
 
         {/* 按钮栏 */}
         <div
-          className="border-t border-t-[color:var(--border-color)] bg-[var(--bg-secondary)] flex justify-end gap-3 px-6 py-4"
+          className="border-t border-t-[color:var(--border-color)] bg-[var(--bg-hover)] flex justify-end gap-3 px-6 py-4"
         >
           <button
             onClick={onCancel}

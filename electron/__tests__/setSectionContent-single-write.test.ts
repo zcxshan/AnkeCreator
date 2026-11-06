@@ -59,6 +59,13 @@ function cleanup() {
 
 describe('setSectionContent 单次 read-modify-write', () => {
   beforeEach(() => {
+    // 本测试断言单文件布局，固定为 bundle
+    const dataDir = path.join(tmpDir, 'data');
+    fs.mkdirSync(path.join(dataDir, 'settings'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dataDir, 'settings', 'storage-layout.json'),
+      JSON.stringify({ layout: 'bundle' }),
+    );
     cleanup();
   });
 

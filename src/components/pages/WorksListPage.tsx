@@ -29,7 +29,9 @@ import {
   type EpubExportOptions,
 } from '../common/EpubExportOptionsDialog';
 import { AddToFavoriteDialog } from '../common/AddToFavoriteDialog';
-import { validateImportFormat, ensureDefaultVolumeAndChapter } from '../../utils/storyImport';
+import { validateImportFormat } from '../../utils/storyImport';
+import { importStoryFromRawText } from '../../utils/storyImportFlow';
+import { exportStoryBundle } from '../../utils/storyExportBundle';
 import { useDiceHistoryStore } from '../../store/diceHistoryStore';
 import * as favoritesDb from '../../db/favorites';
 import type { Favorite } from '../../types/story';
@@ -71,7 +73,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
   const [confirmState, setConfirmState] = useState<null | { type: 'soft-delete' | 'permanent-delete' | 'clear-trash' | 'duplicate'; work?: WorkSummary }>(null);
   // 修改简介弹窗目标
   const [pendingEditDescription, setPendingEditDescription] = useState<WorkSummary | null>(null);
-  const [importState, setImportState] = useState<null | { originalTitle: string; description?: string; data: any }>(null);
+  const [importState, setImportState] = useState<null | { originalTitle: string; description?: string; data: any; fileName: string }>(null);
   const [importProgress, setImportProgress] = useState<{ current: number; total: number; message: string } | null>(null);
   const [batchMode, setBatchMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -90,6 +92,8 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
   const [favorites, setFavorites] = useState<Favorite[]>([]);
   const [activeFavoriteId, setActiveFavoriteId] = useState<string | null>(null);
   const [favoriteStoryIds, setFavoriteStoryIds] = useState<Set<string>>(new Set());
+  // 各收藏夹的作品数量（用于筛选胶囊上的计数）
+  const [favoriteCounts, setFavoriteCounts] = useState<Record<string, number>>({});
   // 收藏夹操作弹窗
   const [showNewFavorite, setShowNewFavorite] = useState(false);
   const [renameFavoriteTarget, setRenameFavoriteTarget] = useState<Favorite | null>(null);
@@ -112,6 +116,12 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
     try {
       const list = await favoritesDb.listFavorites();
       setFavorites(list);
+      const counts = await Promise.all(
+        list.map((f) => favoritesDb.getFavoriteStoryCount(f.id).catch(() => 0)),
+      );
+      setFavoriteCounts(
+        Object.fromEntries(list.map((f, i) => [f.id, counts[i] ?? 0])),
+      );
       // 当前激活收藏夹被删除时回退到「全部」
       if (activeFavoriteId && !list.find((f) => f.id === activeFavoriteId)) {
         setActiveFavoriteId(null);
@@ -190,14 +200,14 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
     const favCats: Category[] = favorites.map((f) => ({
       key: `fav:${f.id}`,
       label: f.name,
-      count: 0, // 占位，渲染时按需替换为收藏夹内作品数
+      count: favoriteCounts[f.id] ?? 0,
     }));
     return [
       { key: 'all', label: '全部', count: works.length },
       ...favCats,
       { key: 'trash', label: '回收站', count: trashSummaries.length },
     ];
-  }, [works, trashSummaries, favorites]);
+  }, [works, trashSummaries, favorites, favoriteCounts]);
 
   // 当前激活的收藏夹（从 activeFilter 解析出来）
   const activeFavorite = useMemo(() => {
@@ -307,32 +317,30 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
   const handleExportStory = async (id: string) => {
     const story = stories.find((s) => s.id === id);
     if (!story) return;
-    const full = await db.getStoryWithAll(id);
-    if (!full) return;
-    const relations = await db.listCharacterRelations(id);
-    // 导出时剥离每个小节里的旧版 content_blocks（已切到新版富文本编辑器，导入完全不用）
-    // 同时剥离 bbcode（导出 JSON 不带 bbcode，导入时 DB 留空，用户在 BBCode 视图主动加载可视化得到）
-    const sanitizedChapters = (full.chapters || []).map((ch: any) => ({
-      ...ch,
-      sections: (ch.sections || []).map((sec: any) => {
-        const { blocks, bbcode, ...rest } = sec;
-        return rest;
-      }),
-    }));
     const diceHistory = useDiceHistoryStore.getState().getRecordsByStory(id);
-    const exportData = {
-      format: 'anke-creator-export',
-      version: '1.1',
-      exportedAt: new Date().toISOString(),
-      appVersion: '0.1.0',
-      data: {
-        ...full,
-        chapters: sanitizedChapters,
-        character_relations: relations,
-        dice_history: diceHistory,
-      },
-    };
-    const safeTitle = (full.title || 'anke-work').replace(/[\/:*?"<>|]/g, '_');
+    // 单文件导出：正文逐节读取并内嵌到 chapters[].sections[].content，
+    // 导出的 JSON 可直接被导入流程还原为完整作品。
+    let exportData: Awaited<ReturnType<typeof exportStoryBundle>>;
+    try {
+      exportData = await exportStoryBundle(
+        {
+          getStoryWithAll: (storyId) => db.getStoryWithAll(storyId),
+          listSectionMetadata: (chapterId) => db.listSectionMetadata(chapterId),
+          getSectionContent: (sectionId) => db.getSectionContent(sectionId),
+          listCharacterRelations: async (storyId) =>
+            (await db.listCharacterRelations(storyId)).map((row) => ({
+              ...row,
+              note: row.note ?? undefined,
+            })),
+        },
+        id,
+        { diceHistory, readImageAsDataUrl: window.electronAPI?.readAsDataUrl },
+      );
+    } catch (err) {
+      showToast(`导出失败：${err instanceof Error ? err.message : String(err)}`, 'error');
+      return;
+    }
+    const safeTitle = (exportData.data.title || 'anke-work').replace(/[\/:*?"<>|]/g, '_');
 
     // 优先使用 Electron 系统保存对话框
     if (window.electronAPI?.saveStoryAsFile) {
@@ -349,7 +357,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
     // 浏览器降级：触发下载
     const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    showToast(`作品「${full.title || '未命名作品'}」导出成功`, 'success');
+    showToast(`作品「${exportData.data.title || '未命名作品'}」导出成功`, 'success');
     setTimeout(() => {
       const a = document.createElement('a');
       a.href = url;
@@ -556,12 +564,17 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
           showToast(`导入失败：${res.error || '未知错误'}`, 'error');
           return;
         }
-        const validation = validateImportFormat(res.data);
-        if (!validation.valid) {
-          showToast(`导入失败：${validation.error}`, 'error');
-          return;
+        const parsed = res.data;
+        // 只有两种旧包装格式需要预校验；anke-creator-story-v2 与无包装旧文件
+        // 交给 normalizeImportPayload 的格式白名单处理。
+        if (parsed?.format === 'anke-creator-export' || parsed?.format === 'anke-creator-story') {
+          const validation = validateImportFormat(parsed);
+          if (!validation.valid) {
+            showToast(`导入失败：${validation.error}`, 'error');
+            return;
+          }
         }
-        const data = unwrapExportData(res.data);
+        const data = unwrapExportData(parsed);
         if (!data || !data.title) {
           showToast('文件格式不正确，无法导入', 'error');
           return;
@@ -570,6 +583,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
           originalTitle: data.title || '导入作品',
           description: data.description || '',
           data,
+          fileName: 'import.json',
         });
       } catch (err) {
         console.error('[import] 导入失败:', err);
@@ -587,10 +601,12 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
       try {
         const text = await file.text();
         const parsed = JSON.parse(text);
-        const validation = validateImportFormat(parsed);
-        if (!validation.valid) {
-          showToast(`导入失败：${validation.error}`, 'error');
-          return;
+        if (parsed?.format === 'anke-creator-export' || parsed?.format === 'anke-creator-story') {
+          const validation = validateImportFormat(parsed);
+          if (!validation.valid) {
+            showToast(`导入失败：${validation.error}`, 'error');
+            return;
+          }
         }
         const data = unwrapExportData(parsed);
         if (!data || !data.title) {
@@ -601,6 +617,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
           originalTitle: data.title || '导入作品',
           description: data.description || '',
           data,
+          fileName: file.name,
         });
       } catch (err) {
         console.error('[import] 导入失败:', err);
@@ -630,7 +647,6 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
     const sectionCount = Array.isArray(data.chapters)
       ? data.chapters.reduce((acc: number, ch: any) => acc + (Array.isArray(ch.sections) ? ch.sections.length : 0), 0)
       : Array.isArray(data.sections) ? data.sections.length : 0;
-    const wsCount = Array.isArray(data.world_settings) ? data.world_settings.length : 0;
     const charCount = Array.isArray(data.characters) ? data.characters.length : 0;
     const relCount = Array.isArray(data.character_relations) ? data.character_relations.length : 0;
     const outlineCount = Array.isArray(data.outlines) ? data.outlines.length : 0;
@@ -641,7 +657,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
       ? 4 // 上限：1 外层 + 1 批量卷 + 1 批量章 + 1 批量节
       : (1 + volumeCount + chapterCount + sectionCount);
     // +1 for word_count recompute step (导入完成后校准卷/章/节字数)
-    const totalSteps = 1 + structureTicks + wsCount + charCount + relCount + outlineCount + 1 + 1;
+    const totalSteps = 1 + structureTicks + charCount + relCount + outlineCount + 1 + 1;
     let currentStep = 0;
 
     const tick = (msg: string) => {
@@ -653,44 +669,31 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
     try {
       tick('创建作品...');
       await yieldUI();
-      const newStory = await db.createStory({
-        title: customTitle,
-        description: data.description || '',
-        category: data.category,
-      });
-      rollbackState.storyId = newStory.id;
-
-      tick('创建卷/章/节结构...');
-      await yieldUI();
-      const { sectionIdMap } = await ensureDefaultVolumeAndChapter(
-        newStory.id,
-        data,
+      const imported = await importStoryFromRawText(
+        JSON.stringify(importState.data),
+        importState.fileName,
         {
-          createVolume: db.createVolume,
-          createChapter: db.createChapter,
-          createSection: db.createSection,
-          bulkCreateVolumes: db.bulkCreateVolumes,
-          bulkCreateChapters: db.bulkCreateChapters,
-          bulkCreateSections: db.bulkCreateSections,
+          createStory: (storyData) => db.createStory(storyData),
+          createVolume: (volData) => db.createVolume(volData),
+          createChapter: (chData) => db.createChapter(chData),
+          createSection: (secData) => db.createSection(secData),
+          bulkCreateVolumes: typeof db.bulkCreateVolumes === 'function' ? db.bulkCreateVolumes : undefined,
+          bulkCreateChapters: typeof db.bulkCreateChapters === 'function' ? db.bulkCreateChapters : undefined,
+          bulkCreateSections: typeof db.bulkCreateSections === 'function' ? db.bulkCreateSections : undefined,
+          deleteStory: (storyId) => db.permanentlyDeleteStory(storyId),
         },
         (current, total, msg) => {
           tick(msg);
         },
+        { title: customTitle },
       );
-      // 不再强制跳跃 currentStep——让 onProgress 回调的 tick 自然驱动进度
-      // （批量模式 tick 数已通过 structureTicks 计入 totalSteps）
+      if (!imported.ok) throw new Error(imported.error);
+      const newStory = { id: imported.storyId };
+      const sectionIdMap = imported.maps.sectionIdMap;
+      rollbackState.storyId = imported.storyId;
 
-      if (data.world_settings) {
-        for (const ws of data.world_settings) {
-          tick(`导入世界观：${ws.title || '未命名'}...`);
-          await db.createWorldSetting({
-            story_id: newStory.id,
-            title: ws.title,
-            content: ws.content || '',
-            order_index: ws.order_index,
-          });
-        }
-      }
+      tick('创建卷/章/节结构...');
+      await yieldUI();
 
       const characterIdMap: Record<string, string> = {};
       if (data.characters) {
@@ -837,7 +840,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
   };
 
   return (
-    <div className="bg-[var(--bg-base)] text-[var(--text-primary)] min-h-full w-full flex flex-col">
+    <div className="an-page min-h-full w-full flex flex-col">
       {/* 顶部栏（sticky 在 TitleBar 下方 32px 处，z-40） */}
       <WorksHeader
         totalCount={works.length}
@@ -871,7 +874,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
         onActionMenuOpenChange={setActionMenuOpen}
       />
       {/* 主区域 */}
-      <main className="flex-1 max-w-6xl mx-auto w-full px-6 sm:px-8 py-8">
+      <main className="flex-1 w-full" style={{ maxWidth: 1180, margin: '0 auto', padding: '24px 24px 32px' }}>
         {activeFilter === 'trash' ? (
           <TrashView
             totalCount={trashedStories.length}
@@ -923,7 +926,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
         )}
       </main>
 
-      <footer className="text-[var(--text-secondary)] text-center py-6 text-xs">
+      <footer style={{ textAlign: 'center', padding: '20px 0', fontSize: 12, color: 'var(--an-ink-soft)' }}>
         用骰子编织故事 · Anke Creator
       </footer>
 

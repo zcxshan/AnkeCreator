@@ -472,7 +472,7 @@ export function SearchPanel({
   return (
     <div className="p-[12px] flex flex-col gap-[8px]">
       {/* 模式提示 */}
-      <div className="text-[11px] text-[var(--text-muted)] mb-[2px] flex items-center gap-[4px]">
+      <div className="text-[12px] text-[var(--text-muted)] mb-[2px] flex items-center gap-[4px]">
         <Icon name={editorMode === 'bbcode' ? 'scroll' : 'pen'} size={12} />
         {editorMode === 'bbcode' ? 'BBCode 视图' : '可视化视图'} · 按 Ctrl+F 快速打开
       </div>
@@ -695,7 +695,7 @@ export function SearchPanel({
       )}
 
       {/* 状态文本 */}
-      <div className="text-[11px] text-[var(--text-muted)] min-h-[14px]">
+      <div className="text-[12px] text-[var(--text-muted)] min-h-[14px]">
         {statusText}
       </div>
     </div>

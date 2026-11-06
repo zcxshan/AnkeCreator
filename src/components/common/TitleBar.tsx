@@ -51,29 +51,41 @@ export function TitleBar({
 
   return (
     <div
-      className="h-8 flex items-center justify-between select-none"
+      className="h-9 flex items-center justify-between select-none px-1"
       style={{
-        background: 'var(--bg-card)',
-        borderBottom: '1px solid var(--border-color)',
+        background: 'var(--an-paper-2)',
+        borderBottom: '2px solid var(--an-ink)',
         WebkitAppRegion: 'drag',
-        color: 'var(--text-primary)',
+        color: 'var(--an-ink)',
       } as React.CSSProperties}
     >
       {/* 左侧：应用名 + 当前故事/节 */}
-      <div className="flex items-center px-3 text-xs overflow-hidden">
-        <span className="text-[var(--text-primary)] font-medium whitespace-nowrap">
+      <div className="flex items-center px-2 text-xs overflow-hidden gap-2">
+        <span
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full shrink-0"
+          style={{
+            background: 'var(--an-pink)',
+            border: '2px solid var(--an-ink)',
+            boxShadow: '0 2px 0 var(--an-ink)',
+            fontFamily: 'var(--an-font-display)',
+            color: '#fff',
+          }}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 2l2.6 6.2L21 9l-4.8 4.4L17.5 21 12 17.5 6.5 21l1.3-7.6L3 9l6.4-.8z" />
+          </svg>
           安科作者助手
         </span>
         {storyTitle && (
           <>
-            <span className="text-[var(--text-muted)] mx-2">—</span>
-            <span className="text-[var(--text-secondary)] truncate">
+            <span className="text-[var(--an-ink-faint)] mx-1">—</span>
+            <span className="text-[var(--an-ink-soft)] truncate">
               {storyTitle}
             </span>
             {sectionTitle && (
               <>
-                <span className="text-[var(--text-muted)] mx-1">/</span>
-                <span className="text-[var(--text-secondary)] truncate">
+                <span className="text-[var(--an-ink-faint)] mx-1">/</span>
+                <span className="text-[var(--an-ink-soft)] truncate">
                   {sectionTitle}
                 </span>
               </>
@@ -91,14 +103,14 @@ export function TitleBar({
         <button
           onClick={() => setShowSettings(true)}
           title="设置"
-          className="text-[var(--text-secondary)] w-10 h-8 flex items-center justify-center transition-colors"
+          className="text-[var(--an-ink-soft)] w-10 h-9 flex items-center justify-center transition-colors rounded-[10px]"
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'var(--bg-hover)';
-            e.currentTarget.style.color = 'var(--text-primary)';
+            e.currentTarget.style.background = 'var(--an-pink-soft)';
+            e.currentTarget.style.color = 'var(--an-ink)';
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.background = 'transparent';
-            e.currentTarget.style.color = 'var(--text-secondary)';
+            e.currentTarget.style.color = 'var(--an-ink-soft)';
           }}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -111,14 +123,14 @@ export function TitleBar({
         <button
           onClick={toggle}
           title={mode === 'dark' ? '切换到日间模式' : '切换到夜间模式'}
-          className="text-[var(--text-secondary)] w-10 h-8 flex items-center justify-center transition-colors"
+          className="text-[var(--an-ink-soft)] w-10 h-9 flex items-center justify-center transition-colors rounded-[10px]"
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'var(--bg-hover)';
-            e.currentTarget.style.color = 'var(--text-primary)';
+            e.currentTarget.style.background = 'var(--an-pink-soft)';
+            e.currentTarget.style.color = 'var(--an-ink)';
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.background = 'transparent';
-            e.currentTarget.style.color = 'var(--text-secondary)';
+            e.currentTarget.style.color = 'var(--an-ink-soft)';
           }}
         >
           {mode === 'dark' ? (
@@ -146,14 +158,14 @@ export function TitleBar({
         <button
           onClick={() => setShowAuthorInfo(true)}
           title="关于作者"
-          className="text-[var(--text-secondary)] w-10 h-8 flex items-center justify-center transition-colors"
+          className="text-[var(--an-ink-soft)] w-10 h-9 flex items-center justify-center transition-colors rounded-[10px]"
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'var(--bg-hover)';
-            e.currentTarget.style.color = 'var(--text-primary)';
+            e.currentTarget.style.background = 'var(--an-pink-soft)';
+            e.currentTarget.style.color = 'var(--an-ink)';
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.background = 'transparent';
-            e.currentTarget.style.color = 'var(--text-secondary)';
+            e.currentTarget.style.color = 'var(--an-ink-soft)';
           }}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -168,14 +180,14 @@ export function TitleBar({
           onClick={() => window.electronAPI?.minimize()}
           disabled={!hasElectron}
           title="最小化"
-          className="text-[var(--text-secondary)] w-10 h-8 flex items-center justify-center transition-colors disabled:opacity-60"
+          className="text-[var(--an-ink-soft)] w-10 h-9 flex items-center justify-center transition-colors disabled:opacity-60 rounded-[10px]"
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'var(--bg-hover)';
-            e.currentTarget.style.color = 'var(--text-primary)';
+            e.currentTarget.style.background = 'var(--an-pink-soft)';
+            e.currentTarget.style.color = 'var(--an-ink)';
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.background = 'transparent';
-            e.currentTarget.style.color = 'var(--text-secondary)';
+            e.currentTarget.style.color = 'var(--an-ink-soft)';
           }}
         >
           <svg width="12" height="12" viewBox="0 0 12 12">
@@ -195,14 +207,14 @@ export function TitleBar({
           onClick={handleToggleMaximize}
           disabled={!hasElectron}
           title={isMaximized ? '还原' : '最大化'}
-          className="text-[var(--text-secondary)] w-10 h-8 flex items-center justify-center transition-colors disabled:opacity-60"
+          className="text-[var(--an-ink-soft)] w-10 h-9 flex items-center justify-center transition-colors disabled:opacity-60 rounded-[10px]"
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'var(--bg-hover)';
-            e.currentTarget.style.color = 'var(--text-primary)';
+            e.currentTarget.style.background = 'var(--an-pink-soft)';
+            e.currentTarget.style.color = 'var(--an-ink)';
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.background = 'transparent';
-            e.currentTarget.style.color = 'var(--text-secondary)';
+            e.currentTarget.style.color = 'var(--an-ink-soft)';
           }}
         >
           {isMaximized ? (
@@ -244,14 +256,14 @@ export function TitleBar({
           onClick={() => window.electronAPI?.close()}
           disabled={!hasElectron}
           title="关闭"
-          className="text-[var(--text-secondary)] w-10 h-8 flex items-center justify-center transition-colors disabled:opacity-60"
+          className="text-[var(--an-ink-soft)] w-10 h-9 flex items-center justify-center transition-colors disabled:opacity-60 rounded-[10px]"
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'var(--danger)';
-            e.currentTarget.style.color = 'var(--text-on-accent)';
+            e.currentTarget.style.background = 'var(--an-pink)';
+            e.currentTarget.style.color = '#fff';
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.background = 'transparent';
-            e.currentTarget.style.color = 'var(--text-secondary)';
+            e.currentTarget.style.color = 'var(--an-ink-soft)';
           }}
         >
           <svg width="12" height="12" viewBox="0 0 12 12">

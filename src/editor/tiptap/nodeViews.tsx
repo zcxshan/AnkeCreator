@@ -34,6 +34,8 @@ import { getDicePayload, renderDiceCard, setDicePayload } from './diceRender'
 import { rollDice } from '../../utils/diceEngine'
 import { playDiceRollSound } from '../../utils/diceSound'
 import { useSettingStore } from '../../store/settingStore'
+import { resolveImageSrc } from '../../utils/imageSrc'
+import { recordImageEvent } from '../../utils/imageDebug'
 
 // ------------------------------------------------------------
 // 对外回调：NodeView 无法直接拿到 React props，用模块级注册表桥接。
@@ -318,7 +320,24 @@ class ImageBlockNodeView implements NodeView {
   }
 
   private attachFallback(src: string): void {
-    if (src.startsWith('local://')) attachImageErrorHandler(this.img, src)
+    void resolveImageSrc(src, {
+      readAsDataUrl: (path) => window.electronAPI?.readAsDataUrl?.(path) ?? Promise.resolve(undefined),
+    }).then((resolved) => {
+      this.img.src = resolved.src
+      attachImageErrorHandler(this.img, resolved.src, {
+        reason: resolved.reason,
+        fileName: src.split(/[\\/]/).pop(),
+        onReselect: () => {
+          this.img.dispatchEvent(new CustomEvent('anke:image-reselect', { bubbles: true, detail: { src } }))
+        },
+      })
+      recordImageEvent({
+        src,
+        kind: resolved.kind,
+        ok: !resolved.reason,
+        reason: resolved.reason,
+      })
+    })
   }
 
   update(node: PMNode): boolean {

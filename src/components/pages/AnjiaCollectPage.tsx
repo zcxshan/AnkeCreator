@@ -35,7 +35,7 @@ const MAX_FLOOR_RANGE = 1000; // 一次最多 1000 楼（50 页）
 const WARN_FLOOR_RANGE = 200; // 超过 200 楼给提示
 
 /** 卡片容器：白底 + 细边（全部走 token） */
-const CARD_CLASS = 'rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)]';
+const CARD_CLASS = 'an-card';
 /** 表单输入：聚焦时描边强调色 */
 const FIELD_CLASS =
   'bg-[var(--bg-input)] border border-[var(--border-color)] text-[var(--text-primary)] outline-none transition-all focus:border-[var(--accent)] disabled:opacity-50';
@@ -386,25 +386,29 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
   };
 
   return (
-    <div className="min-h-full w-full flex flex-col bg-[var(--bg-base)] text-[var(--text-primary)]">
-      {/* 顶栏（sticky 在 TitleBar 下方 32px 处，z-40） */}
-      <div className="flex items-center gap-3 px-6 py-4 border-b sticky top-8 z-40 border-[var(--border-color)] bg-[var(--bg-base)]">
+    <div className="an-page min-h-full w-full flex flex-col text-[var(--text-primary)]">
+      {/* 顶栏（sticky 在 TitleBar 下方 36px 处，z-40） */}
+      <div
+        className="flex items-center gap-3 px-6 py-4 sticky top-9 z-40"
+        style={{ background: 'var(--an-paper-2)', borderBottom: '3px solid var(--an-ink)' }}
+      >
         <button
           onClick={onBack}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+          className="an-pill"
         >
           <Icon name="back" size={16} /> 返回
         </button>
-        <h1 className="text-lg font-semibold flex items-center gap-2 text-[var(--text-primary)]">
+        <h1
+          className="flex items-center gap-2 text-[var(--an-ink)]"
+          style={{ fontFamily: 'var(--an-font-display)', fontSize: 22 }}
+        >
           <Icon name="scroll" size={20} /> 收集安价
         </h1>
         <div className="ml-auto flex items-center gap-2 relative">
           {/* 历史按钮 */}
           <button
             onClick={() => setHistoryOpen((v) => !v)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-colors border border-[var(--border-color)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] ${
-              historyOpen ? 'bg-[var(--bg-hover)]' : 'bg-transparent'
-            }`}
+            className={`an-pill ${historyOpen ? 'is-active' : ''}`}
           >
             <Icon name="clock" size={14} /> 历史{history.length > 0 ? ` (${history.length})` : ''}
           </button>
@@ -485,10 +489,10 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
       ) : (
         <>
           <div className="flex-1 overflow-y-auto px-3 py-3 md:px-6 md:py-6">
-            <div className="max-w-4xl mx-auto space-y-4 md:space-y-5">
+            <div className="max-w-[1100px] mx-auto space-y-4 md:space-y-5">
               {/* 表单卡片 */}
               <section className={`${CARD_CLASS} p-5`}>
-                <h2 className="text-sm font-semibold mb-4 text-[var(--text-primary)]">
+                <h2 className="text-sm font-bold mb-4 inline-flex items-center gap-1 px-3 py-1 rounded-full w-fit" style={{ fontFamily: 'var(--an-font-display)', color: 'var(--an-ink)', background: 'var(--an-lemon-soft)', border: '2px solid var(--an-ink)' }}>
                   抓取条件
                 </h2>
 
@@ -510,7 +514,8 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
                       <button
                         onClick={handleAutoDetect}
                         disabled={status === 'collecting' || detecting}
-                        className="px-3 py-2 text-xs rounded-lg transition-colors whitespace-nowrap bg-[var(--bg-hover)] text-[var(--text-primary)] border border-[var(--border-color)] hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50"
+                        className="px-4 h-10 text-[13px] rounded-full transition-colors whitespace-nowrap inline-flex items-center gap-1 text-[var(--text-primary)] disabled:opacity-50"
+                        style={{ background: 'var(--an-card)', border: '2px solid var(--an-ink)' }}
                         title="自动检测主题帖总页数"
                       >
                         {detecting ? (
@@ -630,20 +635,23 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
                       <>
                         <button
                           disabled
-                          className={`inline-flex items-center gap-1.5 px-5 py-2 rounded-lg text-sm font-medium opacity-60 ${ACCENT_SOFT_BTN}`}
+                          className="inline-flex items-center gap-1.5 px-5 h-10 rounded-full text-sm font-bold opacity-70"
+                          style={{ background: 'var(--an-pink-soft)', color: 'var(--an-ink)', border: '2px solid var(--an-ink)', boxShadow: '0 3px 0 var(--an-ink)' }}
                         >
                           <span className="inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
                           {paused ? '已暂停' : '抓取中…'}
                         </button>
                         <button
                           onClick={handleTogglePause}
-                          className="px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-[var(--bg-card)] text-[var(--text-primary)] border border-[var(--border-color)]"
+                          className="px-4 h-9 rounded-full text-sm font-semibold transition-transform hover:-translate-y-[1px]"
+                          style={{ background: 'var(--an-lemon)', color: 'var(--an-ink)', border: '2px solid var(--an-ink)', boxShadow: '0 2px 0 var(--an-ink)' }}
                         >
                           {paused ? '▶ 恢复' : '⏸ 暂停'}
                         </button>
                         <button
                           onClick={handleCancel}
-                          className="px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-transparent text-[var(--danger)] border border-[var(--danger)] hover:bg-[var(--tone-danger-veil)]"
+                          className="px-4 h-9 rounded-full text-sm font-semibold transition-transform hover:-translate-y-[1px]"
+                          style={{ background: 'var(--an-pink-soft)', color: '#8a1f43', border: '2px solid var(--an-ink)', boxShadow: '0 2px 0 var(--an-ink)' }}
                         >
                           取消
                         </button>
@@ -652,14 +660,16 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
                       <>
                         <button
                           onClick={handleCollect}
-                          className={`inline-flex items-center gap-1.5 px-5 py-2 rounded-lg text-sm font-medium transition-all ${ACCENT_SOFT_BTN}`}
+                          className="inline-flex items-center gap-1.5 px-5 h-10 rounded-full text-sm font-bold transition-transform hover:-translate-y-[1px]"
+                          style={{ background: 'var(--an-pink)', color: '#fff', border: '2px solid var(--an-ink)', boxShadow: '0 3px 0 var(--an-ink)' }}
                         >
                           开始收集
                         </button>
                         {status !== 'idle' && (
                           <button
                             onClick={handleReset}
-                            className="px-4 py-2 rounded-lg text-sm transition-colors text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+                            className="px-4 h-9 rounded-full text-sm font-semibold transition-transform hover:-translate-y-[1px]"
+                            style={{ background: 'var(--an-sky-soft)', color: 'var(--an-ink)', border: '2px solid var(--an-ink)', boxShadow: '0 2px 0 var(--an-ink)' }}
                           >
                             清空
                           </button>
