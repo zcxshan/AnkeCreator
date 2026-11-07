@@ -218,7 +218,24 @@ export function createAnkeToolbarCommands(deps: AnkeToolbarCommandDeps): AnkeToo
     },
 
     setCodeBlock() {
-      getEditor()?.chain().focus().setNode('codeBlock').run()
+      const editor = getEditor()
+      if (!editor) return
+      // 与引用块 toggle 行为对齐：已在代码块内则还原为普通段落
+      if (editor.isActive('codeBlock')) {
+        editor.chain().focus().setNode('paragraph').run()
+        return
+      }
+      const { state } = editor
+      const { from, to, empty } = state.selection
+      if (empty) {
+        editor.chain().focus().setNode('codeBlock').run()
+        return
+      }
+      // 与引用块包裹选区一致：多行选区合并成「一个」代码块，用换行保留原结构
+      const raw = state.doc.textBetween(from, to, '\n', '\n')
+      const node = state.schema.nodes.codeBlock.create(null, raw ? [state.schema.text(raw)] : [])
+      editor.view.dispatch(state.tr.replaceWith(from, to, node).scrollIntoView())
+      editor.commands.focus()
     },
 
     insertLink(url, label) {

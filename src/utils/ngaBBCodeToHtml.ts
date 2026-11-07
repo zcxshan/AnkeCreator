@@ -482,7 +482,12 @@ function buildOpenNode(tag: string, attrRaw: string): Node {
         const url = expandNgaImageUrl((innerBBCode || '').trim());
         // onerror 兜底：图片加载失败时显示占位（保持和 insertImageBlock 一致）
         // 用内联 JS 而非 base64 SVG 占位图，因为图片可能在 Electron 渲染进程/Capacitor 加载
-        const onerror = `this.onerror=null;this.style.minHeight='40px';this.style.background='var(--bg-hover, #f0f0f0)';this.alt='图片加载失败';this.insertAdjacentHTML('afterend','<span style=&quot;display:inline-block;color:#999;font-size:12px;padding:4px 6px;background:var(--bg-hover,#f0f0f0);border-radius:3px;margin:2px 4px&quot;>[图片无法加载]</span>');`;
+        // NGA 图床域名失效时先自动换备用域名重试一次（img.nga.cn ↔ img.nga.178.com）
+        const altHost = getNgaImageAltHost(url);
+        const ngaFallback = altHost
+          ? `if(!this.dataset.ngaFb){this.dataset.ngaFb='1';this.src='${altHost}';return;}`
+          : '';
+        const onerror = `${ngaFallback}this.onerror=null;this.style.minHeight='40px';this.style.background='var(--bg-hover, #f0f0f0)';this.alt='图片加载失败';this.insertAdjacentHTML('afterend','<span style=&quot;display:inline-block;color:#999;font-size:12px;padding:4px 6px;background:var(--bg-hover,#f0f0f0);border-radius:3px;margin:2px 4px&quot;>[图片无法加载]</span>');`;
         return `<div data-type="image-block" data-size="original" style="display:inline-block;margin:2px 4px;vertical-align:middle;outline:none;user-select:none"><img src="${escapeHtml(url)}" data-original-src="${escapeHtml(url)}" onerror="${onerror}" style="max-width:100%;height:auto;display:inline-block;cursor:pointer;user-select:none" alt=""></div>`;
       });
     }
@@ -505,7 +510,8 @@ function buildOpenNode(tag: string, attrRaw: string): Node {
     }
     case 'code':
       return elNode('code', {}, (inner) => {
-        return `<pre class="code-block" style="background:${NGA_CODE_BG};padding:10px 12px;border-radius:4px;font-family:Consolas,Menlo,monospace;font-size:13px;white-space:pre-wrap;margin:6px 0">${inner}</pre>`;
+        // 与引用块同构：左侧 4px 色条 + 浅底色 + 圆角，仅配色/字体不同
+        return `<pre class="code-block" style="background:var(--code-bg, ${NGA_CODE_BG});border-left:4px solid var(--code-border, #b9bec7);padding:10px 14px;border-radius:4px;font-family:Consolas,Menlo,monospace;font-size:13px;white-space:pre-wrap;margin:8px 0">${inner}</pre>`;
       });
     case '*':
       return elNode('li', {}, (inner) => `<li>${inner}</li>`);
@@ -570,6 +576,29 @@ export function normalizeNgaImageHost(url: string): string {
     /^(https?:)?\/\/(?:img[0-9]*|pic)\.nga\.178\.com/i,
     (_m, scheme?: string) => `${scheme ?? 'https:'}//img.nga.cn`,
   );
+}
+
+/**
+ * 取 NGA 图片的「备用域名」URL（用于加载失败时自动重试一次）：
+ * - img.nga.cn 失败 → img.nga.178.com
+ * - img.nga.178.com 失败 → img.nga.cn
+ * - 非 NGA 图片 → null（不做兜底）
+ */
+export function getNgaImageAltHost(url: string): string | null {
+  if (!url) return null;
+  if (/^(?:https?:)?\/\/(?:img[0-9]*|pic)\.nga\.cn\//i.test(url)) {
+    return url.replace(
+      /^((?:https?:)?\/\/)(?:img[0-9]*|pic)\.nga\.cn/i,
+      (_m, scheme: string) => `${scheme}img.nga.178.com`,
+    );
+  }
+  if (/^(?:https?:)?\/\/(?:img[0-9]*|pic)\.nga\.178\.com\//i.test(url)) {
+    return url.replace(
+      /^((?:https?:)?\/\/)(?:img[0-9]*|pic)\.nga\.178\.com/i,
+      (_m, scheme: string) => `${scheme}img.nga.cn`,
+    );
+  }
+  return null;
 }
 
 /**

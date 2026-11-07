@@ -82,6 +82,10 @@ interface EditorToolbarProps {
   canRedo?: boolean;
   /** 需求2: 快捷键处理函数注册回调 */
   onShortcutReady?: (handlers: ShortcutHandlers) => void;
+  /** 样式面板折叠态（受控；不传时内部自行管理，默认移动端折叠） */
+  collapsed?: boolean;
+  /** 切换样式面板折叠态（受控时必传） */
+  onToggleCollapsed?: () => void;
 }
 
 /** 需求2: 工具栏快捷键处理函数集合 */
@@ -299,16 +303,23 @@ export function EditorToolbar({
   canUndo = false,
   canRedo = false,
   onShortcutReady,
+  collapsed: collapsedProp,
+  onToggleCollapsed,
 }: EditorToolbarProps) {
   const [urlInput, setUrlInput] = useState('');
   const [showUrlBox, setShowUrlBox] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [styleRowCollapsed, setStyleRowCollapsed] = useState(
+  const [styleRowCollapsedInternal, setStyleRowCollapsedInternal] = useState(
     () => {
       if (typeof window === 'undefined') return false;
       return window.innerWidth < 768;
     }
   );
+  const styleRowCollapsed = collapsedProp ?? styleRowCollapsedInternal;
+  const toggleStyleRow = () => {
+    if (onToggleCollapsed) onToggleCollapsed();
+    else setStyleRowCollapsedInternal((v) => !v);
+  };
 
   // 订阅本地上传总开关：关闭时把"本地上传"按钮置灰
   const localUploadEnabled = useSettingStore((s) => s.localUploadEnabled);
@@ -507,7 +518,11 @@ export function EditorToolbar({
         ref.current.click();
       } else {
         // 工具栏折叠时先展开再延迟点击
-        setStyleRowCollapsed(false);
+        if (onToggleCollapsed) {
+          if (styleRowCollapsed) onToggleCollapsed();
+        } else {
+          setStyleRowCollapsedInternal(false);
+        }
         requestAnimationFrame(() => {
           ref.current?.click();
         });
@@ -715,12 +730,12 @@ export function EditorToolbar({
         className="absolute top-0 left-0 w-[1px] h-[1px] opacity-[0] overflow-hidden border-[0px] p-[0px] pointer-events-none"
       />
 
-      {/* 折叠状态下：仅显示一个右对齐的展开按钮，不占用完整行高 */}
-      {styleRowCollapsed && (
+      {/* 折叠状态下：样式开关由外部（编辑区「导出图片」工具行）承载，这里不再占用整行 */}
+      {styleRowCollapsed && collapsedProp === undefined && (
         <div className="flex justify-end py-[2px]">
           <ToolbarBtn
             title="展开所有样式工具"
-            onClick={() => setStyleRowCollapsed((v) => !v)}
+            onClick={toggleStyleRow}
             style={{ minWidth: 24, fontSize: 12 }}
           >
             ▸ 样式
@@ -1065,7 +1080,7 @@ export function EditorToolbar({
         </div>
         <ToolbarBtn
           title="折叠所有样式工具"
-          onClick={() => setStyleRowCollapsed((v) => !v)}
+          onClick={toggleStyleRow}
           style={{ marginLeft: 'auto', minWidth: 24, fontSize: 12 }}
         >
           ▾ 样式
@@ -1322,7 +1337,7 @@ export function EditorToolbar({
 
         {/* 代码 */}
         <ToolbarBtn
-          title="代码块 [code]…[/code]（#f1f1f1）"
+          title="代码块 [code]…[/code]（再次点击还原为普通段落）"
           onClick={() => {
             if (ttCmd) {
               ttCmd.setCodeBlock();

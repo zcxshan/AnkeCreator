@@ -120,9 +120,11 @@ function App() {
   }, [activeStoryId, loadMetaForStory, route]);
 
   const handleOpenStory = (storyId: string) => {
-    // 兜底：调用方（HomePage/WorksListPage）通常已自行 setActiveStory，
-    // 这里再调一次保证所有入口（包括 MobileBottomNav 等未来路径）都设置 activeStoryId
-    void setActiveStory(storyId);
+    // 调用方（HomePage/WorksListPage）通常已 await setActiveStory 完成加载，
+    // 这里仅在作品确实未激活时兜底加载，避免重复清空 + 重新加载造成闪屏与数据竞态
+    if (useStoryStore.getState().activeStoryId !== storyId) {
+      void setActiveStory(storyId);
+    }
     setRoute('editor');
   };
 

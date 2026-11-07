@@ -5,11 +5,14 @@
 // 并补充加载失败占位信息（文件名、失败原因、「重新选择图片」入口）。
 // ============================================================
 
+import { getNgaImageAltHost } from '../../utils/ngaBBCodeToHtml'
+
 export interface ImageErrorOptions {
   reason?: string
   fileName?: string
   onReselect?: () => void
 }
+
 
 function imageFileName(src: string): string {
   const clean = src.split('?')[0].split('#')[0]
@@ -31,7 +34,17 @@ export function attachImageErrorHandler(
   options: ImageErrorOptions = {},
 ): void {
   let fallbackTried = false;
+  let ngaAltTried = false;
   img.addEventListener('error', async () => {
+    // NGA 图床域名失效兜底：img.nga.cn ↔ img.nga.178.com 自动重试一次
+    if (!ngaAltTried) {
+      const alt = getNgaImageAltHost(img.getAttribute('src') || src);
+      if (alt) {
+        ngaAltTried = true;
+        img.src = alt;
+        return;
+      }
+    }
     if (src.startsWith('local://') && !fallbackTried) {
       fallbackTried = true;
       try {

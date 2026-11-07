@@ -223,6 +223,10 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
   const ngaCookies = useSettingStore((s) => s.ngaCookies);
   // 编辑器视图模式：'visual' = 富文本 contenteditable；'bbcode' = 纯文本 BBCode
   const [editorMode, setEditorMode] = useState<'visual' | 'bbcode'>('visual');
+  // 样式工具面板折叠态（与「导出图片」工具行合并，折叠后不再占据独立一行）
+  const [stylePanelCollapsed, setStylePanelCollapsed] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth < 768,
+  );
   // BBCode 视图的本地草稿（受控 textarea 用）
 
   // 搜索面板需要访问的编辑器 DOM ref
@@ -1180,8 +1184,20 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                   <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative">
                     {!(isMobile && keyboardOpen) && (
                       <div
-                        className="bg-[var(--bg-card)] border-b border-b-[color:var(--border-color)] text-[var(--text-secondary)] shrink-0 flex items-center gap-2 px-3 py-1.5 text-xs"
+                        className="bg-[var(--bg-card)] border-b border-b-[color:var(--border-color)] text-[var(--text-secondary)] shrink-0 flex items-center gap-2 px-3 py-1 text-xs"
                       >
+                        <button
+                          type="button"
+                          onClick={() => setStylePanelCollapsed((v) => !v)}
+                          className="px-2 py-1 rounded text-xs ancke-btn"
+                          title={stylePanelCollapsed ? '展开样式工具' : '折叠样式工具'}
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            <Icon name="palette" size={14} />
+                            样式
+                            <Icon name={stylePanelCollapsed ? 'chevronRight' : 'chevronDown'} size={13} />
+                          </span>
+                        </button>
                         <button
                           type="button"
                           onClick={handleExportSectionAsImage}
@@ -1204,6 +1220,8 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                       onImageSelected={setSelectedImage}
                       onShowToast={setToast}
                       onSearchOpen={handleOpenSearchPanel}
+                      stylePanelCollapsed={stylePanelCollapsed}
+                      onToggleStylePanel={() => setStylePanelCollapsed((v) => !v)}
                     />
                   </div>
                 ) : (

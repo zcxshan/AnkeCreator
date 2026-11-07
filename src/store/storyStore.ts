@@ -104,7 +104,14 @@ interface StoryState {
 }
 
 // 加载指定故事的卷/章节/节/大纲数据（节只加载元数据，content 由 editorStore 按需加载）
-async function loadStoryData(set: (patch: Partial<StoryState>) => void, storyId: string) {
+// get 用于「落地前再确认 activeStoryId 仍是本次请求的作品」：
+// 快速连续打开多个作品时会有多个 loadStoryData 并发，若不做校验，
+// 先发起但后完成的旧作品数据会覆盖当前作品，表现为「编辑器里出现其他作品内容」。
+async function loadStoryData(
+  set: (patch: Partial<StoryState>) => void,
+  get: () => StoryState,
+  storyId: string,
+) {
   const [volumes, chapters, outlines] = await Promise.all([
     db.listVolumes(storyId),
     db.listChapters(storyId),
@@ -115,6 +122,8 @@ async function loadStoryData(set: (patch: Partial<StoryState>) => void, storyId:
   const expandedChapters: Record<string, boolean> = {};
   volumes.forEach((v) => (expandedVolumes[v.id] = true));
   chapters.forEach((ch) => (expandedChapters[ch.id] = true));
+  // 并发保护：本次加载期间用户已切到别的作品，丢弃这批过期数据
+  if (get().activeStoryId !== storyId) return;
   set({
     volumes,
     chapters,
@@ -127,6 +136,9 @@ async function loadStoryData(set: (patch: Partial<StoryState>) => void, storyId:
     activeOutlineId: outlines.length > 0 ? outlines[0].id : null,
   });
 }
+
+/** 作品切换令牌：只有最后一次 setActiveStory 的结果允许落地（防并发切换互相覆盖） */
+let storySwitchToken = 0;
 
 export const useStoryStore = create<StoryState>((set, get) => ({
   stories: [],
@@ -148,7 +160,7 @@ export const useStoryStore = create<StoryState>((set, get) => ({
     if (stories.length > 0 && !get().activeStoryId) {
       const first = stories[0];
       set({ activeStoryId: first.id });
-      await loadStoryData(set, first.id);
+      await loadStoryData(set, get, first.id);
     }
   },
 
@@ -306,6 +318,8 @@ export const useStoryStore = create<StoryState>((set, get) => ({
   },
 
   setActiveStory: async (id) => {
+    const prevId = get().activeStoryId;
+    const token = ++storySwitchToken;
     if (!id) {
       set({
         activeStoryId: null,
@@ -318,6 +332,7 @@ export const useStoryStore = create<StoryState>((set, get) => ({
     }
     // 先清空旧 story 数据，避免渲染期间显示其他作品内容
     set({
+      activeStoryId: id,
       volumes: [],
       chapters: [],
       sections: [],
@@ -328,8 +343,13 @@ export const useStoryStore = create<StoryState>((set, get) => ({
       expandedVolumeIds: {},
       expandedChapterIds: {},
     });
-    set({ activeStoryId: id });
-    await loadStoryData(set, id);
+    // 作品切换：清空编辑器内存中的上一作品正文，避免加载新作品期间仍显示旧作品内容
+    if (prevId !== id) {
+      const { useEditorStore } = await import('./editorStore');
+      if (token !== storySwitchToken) return;
+      useEditorStore.getState().clearSection();
+    }
+    await loadStoryData(set, get, id);
   },
 
   createVolume: async (storyId, title) => {

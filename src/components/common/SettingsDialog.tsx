@@ -312,6 +312,86 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
 
       {/* 内容区（可滚动） */}
       <div className="flex-1 overflow-y-auto px-6 pt-1 pb-2">
+        {/* 分组：NGA 登录态（可选）——放到最前，登录后可解锁受限抓取与回帖 */}
+        <Section title="NGA 登录态（可选）">
+          <div>
+            <div className="text-[12px] text-[var(--text-secondary)] mb-1.5 leading-normal">
+              登录 NGA 后，可访问"饼干/扣扣"等登录受限内容，并可把安科正文直接发送到关联的帖子。
+              <br />
+              推荐使用应用内登录；也可手动粘贴浏览器 Cookie。
+            </div>
+            <div className="flex items-center gap-2 mb-2">
+              <SettingsBtn
+                variant="primary"
+                onClick={async () => {
+                  if (!isElectron || !window.electronAPI?.ngaLogin) {
+                    showToast('应用内登录仅在桌面版可用，请手动粘贴 Cookie', 'error');
+                    return;
+                  }
+                  setNgaLoggingIn(true);
+                  try {
+                    const res = await window.electronAPI.ngaLogin();
+                    if (res?.cancelled) return;
+                    if (!res?.ok || !res.cookie) {
+                      showToast(res?.error || 'NGA 登录失败', 'error');
+                      return;
+                    }
+                    setNgaCookies(res.cookie);
+                    setCookieDraft(res.cookie);
+                    showToast('NGA 登录成功', 'success');
+                  } finally {
+                    setNgaLoggingIn(false);
+                  }
+                }}
+                disabled={ngaLoggingIn}
+              >
+                {ngaLoggingIn ? '登录中…' : '打开 NGA 登录窗口'}
+              </SettingsBtn>
+              {ngaCookies && (
+                <span className="text-[12px] text-[var(--success)]">
+                  <span className="inline-flex items-center gap-1"><Icon name="check" size={13} /> 已登录</span>
+                </span>
+              )}
+            </div>
+            <textarea
+              rows={3}
+              value={cookieDraft}
+              onChange={(e) => setCookieDraft(e.target.value)}
+              placeholder="ngaPassportCid=xxx; ngaPassportUid=xxx; ngaPassportToken=xxx"
+              className="w-full px-2.5 py-2 text-[12px] font-mono rounded-[var(--radius-sm)] bg-[var(--bg-input)] border border-[var(--border-color)] text-[var(--text-primary)] resize-y outline-none focus:border-[var(--accent)]"
+            />
+            <div className="flex items-center gap-2 mt-2">
+              <SettingsBtn
+                variant="primary"
+                onClick={() => {
+                  if (cookieDraft === ngaCookies) return;
+                  setNgaCookies(cookieDraft);
+                }}
+                disabled={cookieDraft === ngaCookies}
+              >
+                保存 Cookie
+              </SettingsBtn>
+              <SettingsBtn
+                variant="ghost"
+                onClick={() => {
+                  if (!ngaCookies) return;
+                  clearNgaCookies();
+                  setCookieDraft('');
+                  if (isElectron) void window.electronAPI?.ngaLogout?.();
+                }}
+                disabled={!ngaCookies}
+              >
+                退出登录
+              </SettingsBtn>
+              {ngaCookies && (
+                <span className="text-[12px] text-[var(--success)]">
+                  <span className="inline-flex items-center gap-1"><Icon name="check" size={13} /> 已配置</span>
+                </span>
+              )}
+            </div>
+          </div>
+        </Section>
+
         {/* 分组：图片存储模式 */}
         <Section title="图片存储模式">
           {/* 本地上传总开关（统一控制 4 个上传入口） */}
@@ -579,85 +659,6 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
           )}
         </Section>
 
-        {/* 分组：NGA 登录态（可选） */}
-        <Section title="NGA 登录态（可选）">
-          <div>
-            <div className="text-[12px] text-[var(--text-secondary)] mb-1.5 leading-normal">
-              登录 NGA 后，可访问"饼干/扣扣"等登录受限内容，并可把安科正文直接发送到关联的帖子。
-              <br />
-              推荐使用应用内登录；也可手动粘贴浏览器 Cookie。
-            </div>
-            <div className="flex items-center gap-2 mb-2">
-              <SettingsBtn
-                variant="primary"
-                onClick={async () => {
-                  if (!isElectron || !window.electronAPI?.ngaLogin) {
-                    showToast('应用内登录仅在桌面版可用，请手动粘贴 Cookie', 'error');
-                    return;
-                  }
-                  setNgaLoggingIn(true);
-                  try {
-                    const res = await window.electronAPI.ngaLogin();
-                    if (res?.cancelled) return;
-                    if (!res?.ok || !res.cookie) {
-                      showToast(res?.error || 'NGA 登录失败', 'error');
-                      return;
-                    }
-                    setNgaCookies(res.cookie);
-                    setCookieDraft(res.cookie);
-                    showToast('NGA 登录成功', 'success');
-                  } finally {
-                    setNgaLoggingIn(false);
-                  }
-                }}
-                disabled={ngaLoggingIn}
-              >
-                {ngaLoggingIn ? '登录中…' : '打开 NGA 登录窗口'}
-              </SettingsBtn>
-              {ngaCookies && (
-                <span className="text-[12px] text-[var(--success)]">
-                  <span className="inline-flex items-center gap-1"><Icon name="check" size={13} /> 已登录</span>
-                </span>
-              )}
-            </div>
-            <textarea
-              rows={3}
-              value={cookieDraft}
-              onChange={(e) => setCookieDraft(e.target.value)}
-              placeholder="ngaPassportCid=xxx; ngaPassportUid=xxx; ngaPassportToken=xxx"
-              className="w-full px-2.5 py-2 text-[12px] font-mono rounded-[var(--radius-sm)] bg-[var(--bg-input)] border border-[var(--border-color)] text-[var(--text-primary)] resize-y outline-none focus:border-[var(--accent)]"
-            />
-            <div className="flex items-center gap-2 mt-2">
-              <SettingsBtn
-                variant="primary"
-                onClick={() => {
-                  if (cookieDraft === ngaCookies) return;
-                  setNgaCookies(cookieDraft);
-                }}
-                disabled={cookieDraft === ngaCookies}
-              >
-                保存 Cookie
-              </SettingsBtn>
-              <SettingsBtn
-                variant="ghost"
-                onClick={() => {
-                  if (!ngaCookies) return;
-                  clearNgaCookies();
-                  setCookieDraft('');
-                  if (isElectron) void window.electronAPI?.ngaLogout?.();
-                }}
-                disabled={!ngaCookies}
-              >
-                退出登录
-              </SettingsBtn>
-              {ngaCookies && (
-                <span className="text-[12px] text-[var(--success)]">
-                  <span className="inline-flex items-center gap-1"><Icon name="check" size={13} /> 已配置</span>
-                </span>
-              )}
-            </div>
-          </div>
-        </Section>
       </div>
 
       {/* 底部按钮 */}

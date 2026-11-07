@@ -815,7 +815,7 @@ function processInlineElement(el: HTMLElement): string {
       const name = safeName || '本地图片';
       return `[本地图片：${name}（已用占位符替换）]`;
     }
-    return `[img]${src}[/img]`;
+    return `[img]${toNgaBbcodeImageSrc(src)}[/img]`;
   }
   if (tag === 'font') {
     const opens: string[] = [];
@@ -885,6 +885,21 @@ function processInlineElement(el: HTMLElement): string {
 // ============================================================
 // 自定义节点处理
 // ============================================================
+
+const NGA_ATTACHMENT_URL_RE =
+  /^(?:https?:)?\/\/(?:img[0-9]*|pic)\.nga(?:\.178\.com|\.cn)\/attachments\/(.+)$/i
+
+/**
+ * NGA 站内附件图片转 BBCode 时必须用相对路径（如 `./mon_202508/18/xxx.webp`），
+ * 绝对地址会受防盗链/域名容灾影响，导致回帖里不显示。
+ */
+export function toNgaBbcodeImageSrc(src: string): string {
+  if (!src) return src;
+  const m = NGA_ATTACHMENT_URL_RE.exec(src);
+  if (!m) return src;
+  return `./${m[1].replace(/^\/+/, '')}`;
+}
+
 function processDiceCard(el: HTMLElement): string[] {
   try {
     const payloadStr = el.getAttribute('data-payload') || '';
@@ -917,14 +932,14 @@ function processImageBlock(el: HTMLElement): string[] {
 
   const sizeInfo = NGA_IMAGE_SIZES.find((s) => s.value === size);
   const sfx = sizeInfo?.suffix || '';
-  if (!sfx) return [`[img]${src}[/img]`];
+  if (!sfx) return [`[img]${toNgaBbcodeImageSrc(src)}[/img]`];
 
   // 在完整 URL 后面追加后缀（在查询字符串之前）
   // 例如 image.jpg → image.jpg.medium.jpg
   try {
     const urlObj = new URL(src);
     urlObj.pathname = urlObj.pathname + sfx;
-    return [`[img]${urlObj.toString()}[/img]`];
+    return [`[img]${toNgaBbcodeImageSrc(urlObj.toString())}[/img]`];
   } catch {
     // 非 URL 格式（如 data: 或相对路径），简单追加
     const qIdx = src.indexOf('?');
@@ -934,7 +949,7 @@ function processImageBlock(el: HTMLElement): string[] {
     if (hIdx >= 0) cut = Math.min(cut, hIdx);
     const base = src.slice(0, cut);
     const rest = src.slice(cut);
-    return [`[img]${base}${sfx}${rest}[/img]`];
+    return [`[img]${toNgaBbcodeImageSrc(base + sfx)}${rest}[/img]`];
   }
 }
 

@@ -105,7 +105,7 @@ export function WorksHeader({
 
   return (
     <header
-      className="sticky top-9 z-40"
+      className="sticky top-0 z-40"
       style={{
         background: 'var(--an-paper-2)',
         borderBottom: '3px solid var(--an-ink)',

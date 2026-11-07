@@ -131,9 +131,9 @@ export function DicePlaygroundPage({ onBack }: DicePlaygroundPageProps) {
     <div
       className="an-page text-[var(--text-primary)] flex flex-col min-h-full"
     >
-      {/* 顶栏（sticky 在 TitleBar 下方 36px 处，z-40） */}
+      {/* 顶栏（sticky 在内容滚动区顶部，即 TitleBar 下方；z-40） */}
       <div
-        className="flex items-center gap-3 px-6 py-4 shrink-0 sticky top-9 z-40"
+        className="flex items-center gap-3 px-6 py-4 shrink-0 sticky top-0 z-40"
         style={{ background: 'var(--an-paper-2)', borderBottom: '3px solid var(--an-ink)' }}
       >
         <button

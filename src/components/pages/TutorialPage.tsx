@@ -722,7 +722,7 @@ export function TutorialPage({ onBack, onShowAuthor }: TutorialPageProps) {
 
         <div className="lg:grid lg:grid-cols-[190px_1fr] lg:gap-6 lg:items-start">
           {/* 右侧（宽屏时左侧）sticky 目录锚点胶囊 */}
-          <nav className="hidden lg:block sticky top-9 self-start">
+          <nav className="hidden lg:block sticky top-0 self-start">
             <div
               className="an-card p-3 space-y-1.5"
               style={{ background: 'var(--an-paper-2)' }}

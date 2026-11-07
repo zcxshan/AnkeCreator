@@ -144,7 +144,7 @@ export function BottomStatusBar({
       </div>
 
       {/* 右侧：当前视图模式提示 + 快捷提示 */}
-      <div className="flex items-center gap-3" style={{ color: 'var(--an-ink-soft)' }}>
+      <div className="flex items-center gap-4 min-w-0" style={{ color: 'var(--an-ink-soft)' }}>
         {selectionStats && (
           <span style={{ color: 'var(--an-pink)' }}>
             选中：{selectionStats.words} 字{selectionStats.dice > 0 ? ` · ${selectionStats.dice} 原子块` : ''}
@@ -182,9 +182,12 @@ export function BottomStatusBar({
               可直接使用工具栏富文本编辑
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1">
+            <span
+              className="inline-flex items-center gap-1 truncate"
+              title="BBCode 与可视化共用同一份正文，编辑后会自动同步；BBCode 无法表达的格式以可视化视图为准"
+            >
               <Icon name="lightbulb" size={14} />
-              BBCode 与可视化共用同一份正文，编辑后会自动同步；BBCode 无法表达的格式以可视化视图为准
+              BBCode 与可视化共用正文，编辑后自动同步
             </span>
           )}
         </span>

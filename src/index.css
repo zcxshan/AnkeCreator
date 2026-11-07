@@ -37,6 +37,9 @@
 
   --quote-bg: #f2eddf;
   --quote-border: #c8b88a;
+  /* 代码块：与引用块同构（左侧色条 + 浅底 + 圆角），仅配色/字体不同 */
+  --code-bg: #f1f1f1;
+  --code-border: #b9bec7;
   --collapse-head-bg: #f1e7d3;
   --collapse-body-bg: #faf6e9;
 
@@ -225,6 +228,8 @@
 
   --quote-bg: #3e4c5b;
   --quote-border: #2a3645;
+  --code-bg: #2b2b2b;
+  --code-border: #4a4a4a;
   --collapse-head-bg: #333f4f;
   --collapse-body-bg: #3e4c5b;
 
@@ -549,14 +554,14 @@ body {
   margin: 6px 0;
 }
 .anke-editor-content li {
-  line-height: 1.8;
+  line-height: 1.7;
   color: var(--text-primary);
 }
 
 .anke-editor-content .ProseMirror {
   min-height: 600px;
   font-size: 14px;
-  line-height: 1.8;
+  line-height: 1.7;
   color: var(--text-primary);
   outline: none;
   word-break: break-word;
@@ -564,7 +569,7 @@ body {
 }
 
 .anke-editor-content .ProseMirror p {
-  margin: 0 0 12px 0;
+  margin: 0 0 8px 0;
   text-indent: 0;
 }
 
@@ -621,7 +626,7 @@ body {
 
 .anke-editor-content .ProseMirror li {
   margin: 4px 0;
-  line-height: 1.8;
+  line-height: 1.7;
   color: var(--text-primary);
 }
 
@@ -651,6 +656,83 @@ body {
   border: none;
   border-top: 1px dashed var(--prose-hr);
   margin: 18px 0;
+}
+
+/* 表格（Tiptap Table）：补上边框/表头/选中单元格，插入后可视化视图才能看出是表格 */
+.anke-editor-content .ProseMirror .tableWrapper {
+  overflow-x: auto;
+  margin: 12px 0;
+}
+
+.anke-editor-content .ProseMirror table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  overflow: hidden;
+}
+
+.anke-editor-content .ProseMirror table td,
+.anke-editor-content .ProseMirror table th {
+  border: 1px solid var(--border-color);
+  padding: 6px 10px;
+  vertical-align: top;
+  min-width: 48px;
+  position: relative;
+}
+
+.anke-editor-content .ProseMirror table th {
+  background: var(--bg-toolbar);
+  font-weight: 700;
+  text-align: left;
+}
+
+.anke-editor-content .ProseMirror table p {
+  margin: 0;
+}
+
+.anke-editor-content .ProseMirror table .selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--accent-soft);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* 代码块 / 行内代码
+   与引用块同构：左侧 4px 色条 + 浅底色 + 统一圆角；
+   仅配色（--code-*）与等宽字体不同，BBCode 对应 [code]…[/code] */
+.anke-editor-content .ProseMirror pre {
+  margin: 8px 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  border-left: 4px solid var(--code-border);
+  background: var(--code-bg);
+  color: var(--text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+}
+
+.anke-editor-content .ProseMirror pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+  font-family: inherit;
+}
+
+.anke-editor-content .ProseMirror code {
+  background: var(--bg-hover);
+  border-radius: 4px;
+  padding: 1px 4px;
+  color: var(--text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
 }
 
 .anke-editor-content .ProseMirror a {
@@ -1031,7 +1113,7 @@ html.capacitor-platform-ios {
   /* 富文本编辑器移动端优化 */
   .anke-editor-content[contenteditable="true"] {
     font-size: 16px;
-    line-height: 2.0;
+    line-height: 1.8;
     padding: 16px !important;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;

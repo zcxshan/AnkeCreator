@@ -307,8 +307,9 @@ class ImageBlockNodeView implements NodeView {
     img.setAttribute('data-original-src', original)
     if (attrs.dataName != null) img.setAttribute('data-name', String(attrs.dataName))
     else img.removeAttribute('data-name')
-    if (attrs.onerror != null) img.setAttribute('onerror', String(attrs.onerror))
-    else img.removeAttribute('onerror')
+    // 旧文档里的内联 onerror 会直接插入「加载失败」占位，和我们的兜底监听重复触发；
+    // 统一交给 attachImageErrorHandler（它支持 NGA 域名自动重试 + local:// base64 兜底）
+    img.removeAttribute('onerror')
 
     applyImageStyles(img, size)
     // 已由 data-width/data-height 覆盖的精确尺寸（用户拖拽过）

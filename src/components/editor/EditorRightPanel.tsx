@@ -111,7 +111,7 @@ export const RightPanel = memo(function RightPanel({
     { key: 'properties', label: '属性', icon: 'settings' },
     { key: 'dice', label: '骰点', icon: 'dices' },
     { key: 'gallery', label: '图库', icon: 'image' },
-    { key: 'characters', label: '人物', icon: 'theater' },
+    { key: 'characters', label: '人物', icon: 'users' },
   ];
 
   return (

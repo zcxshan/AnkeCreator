@@ -62,6 +62,8 @@ interface EditorState {
 
   // 加载
   loadSection: (sectionId: string | null) => void;
+  /** 清空内存中的正文（作品切换时调用，避免编辑器残留上一作品内容） */
+  clearSection: () => void;
 
   // 新一代富文本内容
   /**
@@ -110,6 +112,8 @@ let pendingSaveContent: string | null = null;
 let pendingSaveBbcode: string | null | undefined = undefined;
 let inFlightSave: Promise<boolean> | null = null;
 let lastFailureToastAt = 0;
+/** 节加载请求令牌：快速切换节时只有最后一次请求的结果允许落地 */
+let loadRequestToken = 0;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -261,7 +265,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   sectionScrollPositions: loadScrollPositions(),
 
   loadSection: async (sectionId) => {
+    const token = ++loadRequestToken;
     await flushPendingSave();
+    // 等待 flush 期间又发起了更新的加载 → 放弃本次，避免旧结果覆盖新节
+    if (token !== loadRequestToken) return;
     if (!sectionId) {
       set({
         sectionId: null,
@@ -285,7 +292,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       db.getSectionBBCode(sectionId),
     ]);
     // 仅当仍是当前请求的 section 时才更新状态（防止快速切换覆盖）
-    if (get().loadingSectionId === sectionId) {
+    if (token === loadRequestToken && get().loadingSectionId === sectionId) {
       set({
         sectionId,
         sectionContent: content,
@@ -298,6 +305,18 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       });
     }
   },
+
+  clearSection: () =>
+    set({
+      sectionId: null,
+      sectionContent: null,
+      sectionBbcode: null,
+      sectionLoading: false,
+      loadingSectionId: null,
+      activeStyles: {},
+      activeStylesLocked: false,
+      selectionStats: null,
+    }),
 
   setSectionContent: (content, bbcode) => {
     // 更新内存状态 + 防抖保存到数据库（content 与 bbcode 在同一次落盘写入）

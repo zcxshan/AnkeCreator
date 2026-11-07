@@ -187,6 +187,10 @@ export interface RichTextEditorProps {
   editorRef?: React.MutableRefObject<HTMLDivElement | null>;
   /** Ctrl+F / 右键搜索触发回调（切换到搜索面板） */
   onSearchOpen?: () => void;
+  /** 样式工具栏是否折叠（受控，由编辑器外层统一管理） */
+  stylePanelCollapsed?: boolean;
+  /** 切换样式工具栏折叠态 */
+  onToggleStylePanel?: () => void;
 }
 
 export interface RichTextEditorCommands {
@@ -224,6 +228,8 @@ export function TiptapEditorPane({
   onShowToast,
   editorRef,
   onSearchOpen,
+  stylePanelCollapsed,
+  onToggleStylePanel,
 }: RichTextEditorProps) {
   const internalDivRef = useRef<HTMLDivElement | null>(null);
   const divRef = (editorRef ?? internalDivRef) as React.MutableRefObject<HTMLElement | null>;
@@ -801,6 +807,8 @@ export function TiptapEditorPane({
         onRedo={() => editor?.commands.redo()}
         canUndo={historyFlags.canUndo}
         canRedo={historyFlags.canRedo}
+        collapsed={stylePanelCollapsed}
+        onToggleCollapsed={onToggleStylePanel}
         onShortcutReady={(handlers) => {
           shortcutHandlersRef.current = handlers;
         }}

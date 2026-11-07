@@ -66,7 +66,7 @@ export function FindAnkePage({ onBack }: FindAnkePageProps) {
         className="an-page text-[var(--an-ink)] flex flex-col min-h-full"
       >
         <div
-          className="flex items-center gap-3 px-4 py-3 shrink-0 sticky top-9 z-40"
+          className="flex items-center gap-3 px-4 py-3 shrink-0 sticky top-0 z-40"
           style={{ background: 'var(--an-paper-2)', borderBottom: '3px solid var(--an-ink)' }}
         >
           <button

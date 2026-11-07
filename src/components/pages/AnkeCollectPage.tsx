@@ -364,7 +364,7 @@ export function AnkeCollectPage({ onBack }: AnkeCollectPageProps) {
     return (
       <div className="an-page text-[var(--an-ink)] min-h-full w-full flex flex-col">
         <div
-          className="flex items-center gap-3 px-6 py-4 sticky top-9 z-40"
+          className="flex items-center gap-3 px-6 py-4 sticky top-0 z-40"
           style={{ background: 'var(--an-paper-2)', borderBottom: '3px solid var(--an-ink)' }}
         >
           <button onClick={onBack} className="an-pill">

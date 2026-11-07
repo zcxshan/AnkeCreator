@@ -841,7 +841,7 @@ export function WorksListPage({ onOpenStory, onBack, onShowAuthor, onOpenReader 
 
   return (
     <div className="an-page min-h-full w-full flex flex-col">
-      {/* 顶部栏（sticky 在 TitleBar 下方 32px 处，z-40） */}
+      {/* 顶部栏（sticky 在内容滚动区顶部，即 TitleBar 下方；z-40） */}
       <WorksHeader
         totalCount={works.length}
         trashCount={trashedStories.length}

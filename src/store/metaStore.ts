@@ -148,6 +148,11 @@ function rowToRelation(row: db.CharacterRelationRow): CharacterRelation {
   };
 }
 
+/** 当前已加载的作品 id（用于切换作品时立即清空旧数据） */
+let metaStoryId: string | null = null;
+/** 元数据加载令牌：只允许最后一次请求的结果落地 */
+let metaLoadToken = 0;
+
 export const useMetaStore = create<MetaState>((set, get) => ({
   activeView: null,
 
@@ -166,17 +171,28 @@ export const useMetaStore = create<MetaState>((set, get) => ({
 
   // —— 加载 ——
   loadMetaForStory: async (storyId) => {
+    const token = ++metaLoadToken;
     if (!storyId) {
+      metaStoryId = null;
       get().clearMeta();
       return;
     }
-    const characters = await db.listCharacters(storyId);
-    const outlines = await db.listOutlines(storyId);
-    const relations = (await db.listCharacterRelations(storyId)).map(rowToRelation);
+    // 切换作品：先立即清空上一作品的人物/大纲/关系，
+    // 否则异步加载完成前右栏仍会显示上一个作品的内容
+    if (metaStoryId !== storyId) {
+      metaStoryId = storyId;
+      get().clearMeta();
+    }
+    const [characters, outlines, relations] = await Promise.all([
+      db.listCharacters(storyId),
+      db.listOutlines(storyId),
+      db.listCharacterRelations(storyId),
+    ]);
+    if (token !== metaLoadToken) return;
     set({
       characters,
       outlines,
-      relations,
+      relations: relations.map(rowToRelation),
       editingCharacterId: null,
       showCharacterEditor: false,
     });

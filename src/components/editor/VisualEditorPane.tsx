@@ -16,6 +16,9 @@ interface VisualEditorPaneProps {
   onImageSelected: (info: { width: number; height: number; src?: string; dataSize?: string } | null) => void;
   onShowToast: (msg: string) => void;
   onSearchOpen: () => void;
+  /** 样式工具栏折叠态（由 EditorPage 统一管理，与「导出图片」工具行合并） */
+  stylePanelCollapsed?: boolean;
+  onToggleStylePanel?: () => void;
 }
 
 export const VisualEditorPane = React.memo(function VisualEditorPane({
@@ -26,6 +29,8 @@ export const VisualEditorPane = React.memo(function VisualEditorPane({
   onImageSelected,
   onShowToast,
   onSearchOpen,
+  stylePanelCollapsed,
+  onToggleStylePanel,
 }: VisualEditorPaneProps) {
   const content = useEditorStore((s) => s.sectionContent);
   const setSectionContent = useEditorStore((s) => s.setSectionContent);
@@ -44,6 +49,8 @@ export const VisualEditorPane = React.memo(function VisualEditorPane({
       onImageSelected={onImageSelected}
       commandsRef={commandsRef}
       editable={!sectionLoading}
+      stylePanelCollapsed={stylePanelCollapsed}
+      onToggleStylePanel={onToggleStylePanel}
       onShowToast={onShowToast}
       editorRef={editorRef}
       onSearchOpen={onSearchOpen}

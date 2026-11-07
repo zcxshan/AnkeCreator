@@ -5,7 +5,7 @@ import {
   Image, Inbox, Info, Laptop, LayoutGrid, Lightbulb, Link2, MapPin, Menu, MessageSquare, Monitor,
   Moon, Music, Package, Palette, PartyPopper, Pause, PenLine, Play, Plus, Quote, Rocket, RotateCcw, Save,
   ScrollText, Search, SearchX, Settings, Smartphone, Sparkles, Sun, Table2, Target, Theater, Trash2,
-  TrendingUp, Upload, User, Volume2, X,
+  TrendingUp, Upload, User, UserRound, UsersRound, Volume2, X,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -79,6 +79,8 @@ const MAP = {
   trendingUp: TrendingUp,
   upload: Upload,
   user: User,
+  userRound: UserRound,
+  users: UsersRound,
   volume: Volume2,
   x: X,
 } as const
