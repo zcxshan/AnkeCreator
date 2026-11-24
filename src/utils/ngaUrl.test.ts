@@ -52,8 +52,22 @@ describe('NGA url 规则候选地址', () => {
     expect(list).toContain('https://img.nga.178.com/attachments/mon_x.jpg');
   });
 
-  it('非法正则不会抛错，按未命中处理', () => {
+  it('绝对地址命中规则时也提供自定义前缀回退', () => {
     setNgaUrlConfigProvider(() => ({
+      autoPrefix: true,
+      rules: [
+        { id: 'a', pattern: 'mon_', prefix: 'https://img.nga.cn/attachments', enabled: true },
+        { id: 'b', pattern: 'mon_', prefix: 'https://mirror.example.com/attachments', enabled: true },
+      ],
+    }));
+    const list = buildNgaUrlCandidates('https://img.nga.cn/attachments/mon_x.jpg');
+    expect(list[0]).toBe('https://img.nga.cn/attachments/mon_x.jpg');
+    expect(list).toContain('https://mirror.example.com/attachments/mon_x.jpg');
+    // 不能出现重复的 attachments 目录
+    expect(list.every((url) => !url.includes('/attachments/attachments/'))).toBe(true);
+  });
+
+  it('非法正则不会抛错，按未命中处理', () => {    setNgaUrlConfigProvider(() => ({
       autoPrefix: true,
       rules: [{ id: 'bad', pattern: '([', prefix: 'https://a.example.com', enabled: true }],
     }));

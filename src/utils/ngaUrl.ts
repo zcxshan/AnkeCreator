@@ -92,6 +92,16 @@ export function ngaRelativePath(url: string): string {
   return trimmed.replace(/^\/+/, '');
 }
 
+/** 去掉前缀里与相对路径重复的目录段（如 prefix 带 /attachments，相对路径也以 attachments/ 开头） */
+function pathAfterPrefix(rel: string, prefix: string): string {
+  const prefixPath = prefix
+    .replace(/^https?:\/\/[^/]+/i, '')
+    .replace(/^\/+|\/+$/g, '');
+  if (!prefixPath) return rel;
+  if (rel === prefixPath) return '';
+  return rel.startsWith(`${prefixPath}/`) ? rel.slice(prefixPath.length + 1) : rel;
+}
+
 /**
  * 生成一组候选 URL（按优先级）。
  * - 绝对地址：返回自身 + NGA 图床镜像，供加载失败时依次重试
@@ -117,6 +127,14 @@ export function buildNgaUrlCandidates(raw: string): string[] {
       push(`https://img.nga.cn${path}`);
       push(`https://img.nga.178.com${path}`);
       push(`https://img4.nga.178.com${path}`);
+      // 自定义规则前缀也作为绝对地址的回退候选（例如主前缀失效、第二个前缀是别的域名）
+      const rel = path.replace(/^\/+/, '');
+      for (const rule of getNgaUrlConfig().rules) {
+        if (!rule.enabled) continue;
+        const base = normalizeNgaUrlPrefix(rule.prefix);
+        if (!base || !testNgaUrlRulePattern(rule.pattern, rel)) continue;
+        push(`${base}/${pathAfterPrefix(rel, base)}`);
+      }
     }
     return out;
   }
