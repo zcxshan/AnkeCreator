@@ -71,4 +71,21 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
   },
+  build: {
+    chunkSizeWarningLimit: 900,
+    rollupOptions: {
+      output: {
+        // 依赖分块：重依赖从入口包拆出，配合路由懒加载按需下载
+        manualChunks(id: string) {
+          if (!id.includes('node_modules')) return
+          if (id.includes('@tiptap') || id.includes('prosemirror')) return 'tiptap'
+          if (id.includes('lucide-react')) return 'icons'
+          if (id.includes('jszip')) return 'jszip'
+          if (id.includes('html-to-image')) return 'to-image'
+          if (id.includes('react') || id.includes('scheduler')) return 'react-vendor'
+          return
+        },
+      },
+    },
+  },
 })

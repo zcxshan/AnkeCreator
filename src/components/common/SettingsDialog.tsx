@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useSettingStore, type ImageStoreMode } from '../../store/settingStore';
 import { useToastStore } from '../../store/toastStore';
 import { isElectron } from '../../utils/platform';
-import { DEFAULT_NGA_URL_PREFIX, DEFAULT_NGA_URL_RULES, normalizeNgaUrlPrefix, type NgaUrlRule } from '../../utils/ngaUrl';
+import { DEFAULT_NGA_URL_CONFIG, DEFAULT_NGA_URL_PREFIX, normalizeNgaUrlPrefix, type NgaUrlPattern, type NgaUrlPrefixItem } from '../../utils/ngaUrl';
 import { Icon } from './Icon';
 import { Modal } from './Modal';
 import { askConfirm } from './confirmPrompt';
@@ -28,8 +28,10 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   const ngaCookies = useSettingStore((s) => s.ngaCookies);
   const setNgaCookies = useSettingStore((s) => s.setNgaCookies);
   const clearNgaCookies = useSettingStore((s) => s.clearNgaCookies);
-  const ngaUrlRules = useSettingStore((s) => s.ngaUrlRules);
-  const setNgaUrlRules = useSettingStore((s) => s.setNgaUrlRules);
+  const ngaUrlPatterns = useSettingStore((s) => s.ngaUrlPatterns);
+  const setNgaUrlPatterns = useSettingStore((s) => s.setNgaUrlPatterns);
+  const ngaUrlPrefixes = useSettingStore((s) => s.ngaUrlPrefixes);
+  const setNgaUrlPrefixes = useSettingStore((s) => s.setNgaUrlPrefixes);
   const ngaAutoPrefixEnabled = useSettingStore((s) => s.ngaAutoPrefixEnabled);
   const setNgaAutoPrefixEnabled = useSettingStore((s) => s.setNgaAutoPrefixEnabled);
   const soundEnabled = useSettingStore((s) => s.soundEnabled);
@@ -40,7 +42,8 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   const showToast = useToastStore((s) => s.showToast);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [cookieDraft, setCookieDraft] = useState('');
-  const [rulesDraft, setRulesDraft] = useState<NgaUrlRule[]>(ngaUrlRules);
+  const [patternsDraft, setPatternsDraft] = useState<NgaUrlPattern[]>(ngaUrlPatterns);
+  const [prefixesDraft, setPrefixesDraft] = useState<NgaUrlPrefixItem[]>(ngaUrlPrefixes);
   const [autoPrefixDraft, setAutoPrefixDraft] = useState(ngaAutoPrefixEnabled);
   const [ngaLoggingIn, setNgaLoggingIn] = useState(false);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
@@ -48,15 +51,16 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   // 打开时同步外部设置到本地草稿
   useEffect(() => {
     if (open) {
-      setRulesDraft(ngaUrlRules);
+      setPatternsDraft(ngaUrlPatterns);
+      setPrefixesDraft(ngaUrlPrefixes);
       setAutoPrefixDraft(ngaAutoPrefixEnabled);
     }
-  }, [open, ngaUrlRules, ngaAutoPrefixEnabled]);
+  }, [open, ngaUrlPatterns, ngaUrlPrefixes, ngaAutoPrefixEnabled]);
 
-  // 保存 NGA url 规则（校验正则合法性）
+  // 保存 NGA url 规则（校验正则合法性，前缀去空去重）
   const saveNgaUrlRules = () => {
-    const invalid = rulesDraft.find((rule) => {
-      const source = rule.pattern.trim();
+    const invalid = patternsDraft.find((item) => {
+      const source = item.pattern.trim();
       if (!source) return true;
       try {
         new RegExp(source);
@@ -69,14 +73,21 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
       showToast('正则表达式为空或格式不正确', 'error');
       return;
     }
-    const next = rulesDraft.map((rule) => ({
-      ...rule,
-      pattern: rule.pattern.trim(),
-      prefix: normalizeNgaUrlPrefix(rule.prefix),
-    }));
-    setNgaUrlRules(next);
+    const seenPrefixes = new Set<string>();
+    const nextPrefixes: NgaUrlPrefixItem[] = [];
+    for (const item of prefixesDraft) {
+      if (!item.prefix.trim()) continue;
+      const base = normalizeNgaUrlPrefix(item.prefix);
+      if (seenPrefixes.has(base)) continue;
+      seenPrefixes.add(base);
+      nextPrefixes.push({ ...item, prefix: base });
+    }
+    const nextPatterns = patternsDraft.map((item) => ({ ...item, pattern: item.pattern.trim() }));
+    setNgaUrlPatterns(nextPatterns);
+    setNgaUrlPrefixes(nextPrefixes.length > 0 ? nextPrefixes : DEFAULT_NGA_URL_CONFIG.prefixes);
     setNgaAutoPrefixEnabled(autoPrefixDraft);
-    setRulesDraft(next);
+    setPatternsDraft(nextPatterns);
+    setPrefixesDraft(nextPrefixes.length > 0 ? nextPrefixes : DEFAULT_NGA_URL_CONFIG.prefixes);
     showToast('已保存 NGA url 规则', 'success');
   };
 
@@ -462,15 +473,15 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
           </div>
         </Section>
 
-        {/* 分组：NGA url 规则（相对图片 / BGM 地址补全 + 失效回退） */}
+        {/* 分组：NGA url 规则（匹配规则 × 前缀 多对多 + 失效回退） */}
         <Section title="NGA 的 url 规则">
           <div className="px-1.5 pt-1">
             <div className="text-[12px] text-[var(--text-secondary)] mb-2 leading-normal">
-              编辑界面里不完整的图片 / BGM 地址会按规则补全成完整 URL。正则匹配原始地址，默认规则匹配包含
-              <code className="bg-[var(--bg-input)] px-1 mx-0.5 rounded-[var(--radius-chip)]">mon_</code>
-              的地址。多条规则按顺序尝试，某个前缀加载失败会自动切换下一个前缀。
+              编辑界面里不完整的图片 / BGM 地址会按规则补全成完整 URL：命中下方任意一条匹配规则后，会依次尝试全部前缀（某个前缀失效自动切换下一个）。默认匹配以
+              <code className="bg-[var(--bg-input)] px-1 mx-0.5 rounded-[var(--radius-chip)]">./mon_</code>
+              开头的地址，补全时前缀会替换掉开头的「.」。
             </div>
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center gap-2 mb-3">
               <ToggleSwitch
                 label="自动补全不完整 url"
                 checked={autoPrefixDraft}
@@ -480,83 +491,111 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 {autoPrefixDraft ? '仅编辑界面生效' : '已关闭，保留原始地址'}
               </span>
             </div>
-            <div className="space-y-2">
-              {rulesDraft.map((rule, idx) => (
-                <div key={rule.id} className="flex items-center gap-2 flex-wrap">
-                  <input
-                    aria-label="url 匹配正则"
-                    value={rule.pattern}
-                    onChange={(e) =>
-                      setRulesDraft((prev) =>
-                        prev.map((r, i) => (i === idx ? { ...r, pattern: e.target.value } : r))
-                      )
-                    }
-                    placeholder="正则，如 mon_"
-                    className="w-[120px] px-2 py-[6px] text-[12px] font-mono rounded-[var(--radius-sm)] bg-[var(--bg-input)] border border-[var(--border-color)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
-                  />
-                  <span className="text-[11px] text-[var(--text-muted)]">→</span>
-                  <input
-                    aria-label="url 前缀"
-                    value={rule.prefix}
-                    onChange={(e) =>
-                      setRulesDraft((prev) =>
-                        prev.map((r, i) => (i === idx ? { ...r, prefix: e.target.value } : r))
-                      )
-                    }
-                    placeholder={DEFAULT_NGA_URL_PREFIX}
-                    className="flex-1 min-w-[200px] px-2.5 py-[6px] text-[12px] font-mono rounded-[var(--radius-sm)] bg-[var(--bg-input)] border border-[var(--border-color)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
-                  />
-                  <label className="flex items-center gap-1 text-[11px] text-[var(--text-secondary)] cursor-pointer">
+
+            <div className="mb-3">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[12px] font-medium text-[var(--text-primary)]">匹配规则（正则）</span>
+                <SettingsBtn
+                  variant="ghost"
+                  onClick={() =>
+                    setPatternsDraft((prev) => [...prev, { id: `pattern-${Date.now()}`, pattern: '' }])
+                  }
+                >
+                  + 添加规则
+                </SettingsBtn>
+              </div>
+              <div className="space-y-2">
+                {patternsDraft.map((item, idx) => (
+                  <div key={item.id} className="flex items-center gap-2">
                     <input
-                      type="checkbox"
-                      checked={rule.enabled}
+                      aria-label="url 匹配正则"
+                      value={item.pattern}
                       onChange={(e) =>
-                        setRulesDraft((prev) =>
-                          prev.map((r, i) => (i === idx ? { ...r, enabled: e.target.checked } : r))
+                        setPatternsDraft((prev) =>
+                          prev.map((p, i) => (i === idx ? { ...p, pattern: e.target.value } : p))
                         )
                       }
+                      placeholder="^\\./mon_"
+                      className="flex-1 min-w-[200px] px-2.5 py-[6px] text-[12px] font-mono rounded-[var(--radius-sm)] bg-[var(--bg-input)] border border-[var(--border-color)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
                     />
-                    启用
-                  </label>
-                  <button
-                    type="button"
-                    title="删除规则"
-                    onClick={() => setRulesDraft((prev) => prev.filter((_, i) => i !== idx))}
-                    className="w-6 h-6 rounded-full text-[12px] leading-none text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--bg-hover)]"
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-              {rulesDraft.length === 0 && (
-                <div className="text-[12px] text-[var(--text-muted)]">还没有规则，将使用默认前缀。</div>
-              )}
+                    <button
+                      type="button"
+                      title="删除规则"
+                      onClick={() => setPatternsDraft((prev) => prev.filter((_, i) => i !== idx))}
+                      className="w-6 h-6 rounded-full text-[12px] leading-none text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--bg-hover)]"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+                {patternsDraft.length === 0 && (
+                  <div className="text-[12px] text-[var(--text-muted)]">还没有匹配规则；没有规则时不会自动补全。</div>
+                )}
+              </div>
+              <div className="text-[11px] text-[var(--text-muted)] mt-1">默认：以 ./mon_ 开头的图片 / BGM 地址</div>
             </div>
-            <div className="flex items-center gap-2 mt-2.5 flex-wrap">
-              <SettingsBtn
-                variant="ghost"
-                onClick={() =>
-                  setRulesDraft((prev) => [
-                    ...prev,
-                    { id: `rule-${Date.now()}`, pattern: 'mon_', prefix: DEFAULT_NGA_URL_PREFIX, enabled: true },
-                  ])
-                }
-              >
-                + 添加规则
-              </SettingsBtn>
+
+            <div className="mb-3">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[12px] font-medium text-[var(--text-primary)]">url 前缀（按顺序尝试）</span>
+                <SettingsBtn
+                  variant="ghost"
+                  onClick={() =>
+                    setPrefixesDraft((prev) => [
+                      ...prev,
+                      { id: `prefix-${Date.now()}`, prefix: DEFAULT_NGA_URL_PREFIX },
+                    ])
+                  }
+                >
+                  + 添加前缀
+                </SettingsBtn>
+              </div>
+              <div className="space-y-2">
+                {prefixesDraft.map((item, idx) => (
+                  <div key={item.id} className="flex items-center gap-2">
+                    <input
+                      aria-label="url 前缀"
+                      value={item.prefix}
+                      onChange={(e) =>
+                        setPrefixesDraft((prev) =>
+                          prev.map((p, i) => (i === idx ? { ...p, prefix: e.target.value } : p))
+                        )
+                      }
+                      placeholder={DEFAULT_NGA_URL_PREFIX}
+                      className="flex-1 min-w-[200px] px-2.5 py-[6px] text-[12px] font-mono rounded-[var(--radius-sm)] bg-[var(--bg-input)] border border-[var(--border-color)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
+                    />
+                    {idx === 0 && <span className="text-[11px] text-[var(--accent)] whitespace-nowrap">主前缀</span>}
+                    <button
+                      type="button"
+                      title="删除前缀"
+                      onClick={() => setPrefixesDraft((prev) => prev.filter((_, i) => i !== idx))}
+                      className="w-6 h-6 rounded-full text-[12px] leading-none text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--bg-hover)]"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+                {prefixesDraft.length === 0 && (
+                  <div className="text-[12px] text-[var(--text-muted)]">还没有前缀，保存时将回退默认前缀。</div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
               <SettingsBtn variant="primary" onClick={saveNgaUrlRules}>
                 保存
               </SettingsBtn>
               <SettingsBtn
                 variant="ghost"
                 onClick={() => {
-                  setRulesDraft(DEFAULT_NGA_URL_RULES.map((r) => ({ ...r })));
+                  setPatternsDraft(DEFAULT_NGA_URL_CONFIG.patterns.map((p) => ({ ...p })));
+                  setPrefixesDraft(DEFAULT_NGA_URL_CONFIG.prefixes.map((p) => ({ ...p })));
                   setAutoPrefixDraft(true);
                 }}
               >
                 恢复默认
               </SettingsBtn>
-              <span className="text-[11px] text-[var(--text-muted)]">默认匹配包含 /mon_ 的图片地址</span>
+              <span className="text-[11px] text-[var(--text-muted)]">默认前缀：img.nga.cn / img.nga.178.com</span>
             </div>
           </div>
         </Section>

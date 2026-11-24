@@ -11,7 +11,8 @@ import { isCapacitor } from './utils/platform'
 setNgaUrlPrefixProvider(() => useSettingStore.getState().ngaUrlPrefix)
 // 注入完整规则配置：编辑界面拼接候选前缀 / 失效自动切换下一个前缀
 setNgaUrlConfigProvider(() => ({
-  rules: useSettingStore.getState().ngaUrlRules,
+  patterns: useSettingStore.getState().ngaUrlPatterns,
+  prefixes: useSettingStore.getState().ngaUrlPrefixes,
   autoPrefix: useSettingStore.getState().ngaAutoPrefixEnabled,
 }))
 

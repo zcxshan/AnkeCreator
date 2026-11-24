@@ -1,55 +1,42 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { DiceNGAImportDialog } from '../DiceNGAImportDialog';
 
-function seedHistory() {
-  window.localStorage.setItem(
-    'anjia-history',
-    JSON.stringify([
-      {
-        id: 'h1',
-        url: 'https://bbs.nga.cn/read.php?tid=123',
-        startFloor: 0,
-        endFloor: 2,
-        prefix: '',
-        items: [
-          { floor: 0, author: '楼主', content: '选项A' },
-          { floor: 1, author: '用户B', content: '选项B' },
-        ],
-        createdAt: Date.parse('2026-11-24T10:00:00'),
-        label: 'tid=123 · 0-2楼',
-      },
-    ]),
-  );
-}
-
-describe('DiceNGAImportDialog 收集历史', () => {
-  beforeEach(() => {
-    window.localStorage.clear();
-  });
-
+describe('DiceNGAImportDialog', () => {
   afterEach(() => {
     cleanup();
   });
 
-  it('可以从收集安价历史载入选项并确认', () => {
-    seedHistory();
+  it('粘贴 NGA 文本后确认会解析为选项', () => {
     const onConfirm = vi.fn();
-    render(<DiceNGAImportDialog open onClose={() => {}} onConfirm={onConfirm} />);
+    const onClose = vi.fn();
+    render(<DiceNGAImportDialog open onClose={onClose} onConfirm={onConfirm} />);
 
-    fireEvent.click(screen.getByText(/收集历史/));
-    fireEvent.click(screen.getByText('tid=123 · 0-2楼'));
+    const textarea = screen.getByPlaceholderText(/1楼 用户A/) as HTMLTextAreaElement;
+    fireEvent.change(textarea, {
+      target: { value: '1楼 用户A：选项一\n2楼 用户B：选项二' },
+    });
     fireEvent.click(screen.getByText('导入到骰子'));
 
     expect(onConfirm).toHaveBeenCalledWith([
-      { displayValue: '1', content: '选项A' },
-      { displayValue: '2', content: '选项B' },
+      { displayValue: '1', content: '选项一' },
+      { displayValue: '2', content: '选项二' },
     ]);
+    expect(onClose).toHaveBeenCalled();
   });
 
-  it('没有历史时显示引导文案', () => {
+  it('点击收集安价会内联展开帖子链接面板', () => {
     render(<DiceNGAImportDialog open onClose={() => {}} onConfirm={() => {}} />);
-    fireEvent.click(screen.getByText(/收集历史/));
-    expect(screen.getByText(/先到「收集安价」抓取楼层/)).toBeTruthy();
+
+    expect(screen.queryByPlaceholderText(/read\.php\?tid=/)).toBeNull();
+    fireEvent.click(screen.getByText('收集安价'));
+    expect(screen.getByPlaceholderText(/read\.php\?tid=/)).toBeTruthy();
+    expect(screen.getByText('开始收集')).toBeTruthy();
+  });
+
+  it('文本为空时导入按钮禁用', () => {
+    render(<DiceNGAImportDialog open onClose={() => {}} onConfirm={() => {}} />);
+    const button = screen.getByText('导入到骰子') as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
   });
 });

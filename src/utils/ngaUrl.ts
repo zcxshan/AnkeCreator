@@ -12,35 +12,44 @@
 export const DEFAULT_NGA_URL_PREFIX = 'https://img.nga.cn/attachments';
 
 /**
- * 一条 NGA url 规则：正则匹配不完整地址，命中后用 prefix 补全。
- * 默认规则匹配包含 /mon_ 的附件地址。
+ * 一条匹配规则：正则匹配不完整地址，命中后用任一前缀补全。
+ * 规则与前缀是多对多关系：命中任意规则即按前缀列表顺序尝试补全。
  */
-export interface NgaUrlRule {
+export interface NgaUrlPattern {
   id: string;
   /** 正则表达式源码（对用户输入的原始地址做 test） */
   pattern: string;
-  /** 补全用前缀，如 https://img.nga.cn/attachments */
+}
+
+/** 一个补全前缀，如 https://img.nga.cn/attachments */
+export interface NgaUrlPrefixItem {
+  id: string;
   prefix: string;
-  enabled: boolean;
 }
 
 export interface NgaUrlConfig {
-  rules: NgaUrlRule[];
+  patterns: NgaUrlPattern[];
+  prefixes: NgaUrlPrefixItem[];
   /** 是否自动为不完整地址补前缀（仅在编辑界面生效） */
   autoPrefix: boolean;
 }
 
-export const DEFAULT_NGA_URL_RULES: NgaUrlRule[] = [
+export const DEFAULT_NGA_URL_PATTERNS: NgaUrlPattern[] = [
   {
     id: 'default-mon',
-    pattern: 'mon_',
-    prefix: DEFAULT_NGA_URL_PREFIX,
-    enabled: true,
+    // 默认匹配以 ./mon_ 开头的附件地址（补全时用前缀替换开头的 .）
+    pattern: '^\\./mon_',
   },
 ];
 
+export const DEFAULT_NGA_URL_PREFIXES: NgaUrlPrefixItem[] = [
+  { id: 'prefix-nga-cn', prefix: DEFAULT_NGA_URL_PREFIX },
+  { id: 'prefix-nga-178', prefix: 'https://img.nga.178.com/attachments' },
+];
+
 export const DEFAULT_NGA_URL_CONFIG: NgaUrlConfig = {
-  rules: DEFAULT_NGA_URL_RULES,
+  patterns: DEFAULT_NGA_URL_PATTERNS,
+  prefixes: DEFAULT_NGA_URL_PREFIXES,
   autoPrefix: true,
 };
 
@@ -61,8 +70,14 @@ export function setNgaUrlConfigProvider(provider: () => NgaUrlConfig): void {
 export function getNgaUrlConfig(): NgaUrlConfig {
   try {
     const cfg = configProvider();
-    if (!cfg || !Array.isArray(cfg.rules)) return DEFAULT_NGA_URL_CONFIG;
-    return { rules: cfg.rules, autoPrefix: cfg.autoPrefix !== false };
+    if (!cfg || !Array.isArray(cfg.patterns) || !Array.isArray(cfg.prefixes)) {
+      return DEFAULT_NGA_URL_CONFIG;
+    }
+    return {
+      patterns: cfg.patterns,
+      prefixes: cfg.prefixes,
+      autoPrefix: cfg.autoPrefix !== false,
+    };
   } catch {
     return DEFAULT_NGA_URL_CONFIG;
   }
@@ -127,12 +142,11 @@ export function buildNgaUrlCandidates(raw: string): string[] {
       push(`https://img.nga.cn${path}`);
       push(`https://img.nga.178.com${path}`);
       push(`https://img4.nga.178.com${path}`);
-      // 自定义规则前缀也作为绝对地址的回退候选（例如主前缀失效、第二个前缀是别的域名）
+      // 自定义前缀也作为绝对地址的回退候选（例如主前缀失效、第二个前缀是别的域名）
       const rel = path.replace(/^\/+/, '');
-      for (const rule of getNgaUrlConfig().rules) {
-        if (!rule.enabled) continue;
-        const base = normalizeNgaUrlPrefix(rule.prefix);
-        if (!base || !testNgaUrlRulePattern(rule.pattern, rel)) continue;
+      for (const item of getNgaUrlConfig().prefixes) {
+        const base = normalizeNgaUrlPrefix(item.prefix);
+        if (!base) continue;
         push(`${base}/${pathAfterPrefix(rel, base)}`);
       }
     }
@@ -142,11 +156,13 @@ export function buildNgaUrlCandidates(raw: string): string[] {
   const config = getNgaUrlConfig();
   if (!config.autoPrefix) return [trimmed];
 
+  // 只有命中至少一条匹配规则的不完整地址才自动补全；否则原样返回
+  const matched = config.patterns.some((item) => testNgaUrlRulePattern(item.pattern, trimmed));
+  if (!matched) return [trimmed];
+
+  // 「前缀替换掉前面的 .」：./mon_xxx → 前缀/mon_xxx
   const rel = ngaRelativePath(trimmed);
-  const enabled = config.rules.filter((rule) => rule.enabled && normalizeNgaUrlPrefix(rule.prefix));
-  const matched = enabled.filter((rule) => testNgaUrlRulePattern(rule.pattern, trimmed));
-  const ordered = [...matched, ...enabled.filter((rule) => !matched.includes(rule))];
-  for (const rule of ordered) push(`${normalizeNgaUrlPrefix(rule.prefix)}/${rel}`);
+  for (const item of config.prefixes) push(`${normalizeNgaUrlPrefix(item.prefix)}/${rel}`);
   if (out.length === 0) push(`${DEFAULT_NGA_URL_PREFIX}/${rel}`);
   return out;
 }

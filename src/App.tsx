@@ -1,20 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { HomePage } from './components/pages/HomePage';
-import { WorksListPage } from './components/pages/WorksListPage';
-import { EditorPage } from './components/pages/EditorPage';
-import { ResourceLibraryPage } from './components/pages/ResourceLibraryPage';
-import { TutorialPage } from './components/pages/TutorialPage';
-import { AnjiaCollectPage } from './components/pages/AnjiaCollectPage';
-import { AnkeCollectPage } from './components/pages/AnkeCollectPage';
-import { FindAnkePage } from './components/pages/FindAnkePage';
-import { CreationLogPage } from './components/pages/CreationLogPage';
-import { ReaderPage } from './components/pages/ReaderPage';
-import { DicePlaygroundPage } from './components/pages/DicePlaygroundPage';
-import { WheelPage } from './components/pages/WheelPage';
-import { DiscoveryHubPage } from './components/pages/DiscoveryHubPage';
-import { PlaygroundHubPage } from './components/pages/PlaygroundHubPage';
 import { TitleBar } from './components/common/TitleBar';
-import { AuthorInfo } from './components/common/AuthorInfo';
 import { ToastContainer } from './components/common/Toast';
 import { ConfirmDialogHost } from './components/common/confirmPrompt';
 import { LocalImageWarningDialog } from './components/common/LocalImageWarningDialog';
@@ -29,6 +15,61 @@ import { useSettingStore } from './store/settingStore';
 import { useThemeStore } from './store/themeStore';
 import { flushDebouncedSave } from './store/editorStore';
 import './index.css';
+
+// 路由级代码分割：首屏只加载 HomePage，编辑器（TipTap）/ 资源库 / 收集页等按需加载，
+// 显著降低入口包体积与启动解析时间。
+const WorksListPage = lazy(() =>
+  import('./components/pages/WorksListPage').then((m) => ({ default: m.WorksListPage }))
+);
+const EditorPage = lazy(() =>
+  import('./components/pages/EditorPage').then((m) => ({ default: m.EditorPage }))
+);
+const ResourceLibraryPage = lazy(() =>
+  import('./components/pages/ResourceLibraryPage').then((m) => ({ default: m.ResourceLibraryPage }))
+);
+const TutorialPage = lazy(() =>
+  import('./components/pages/TutorialPage').then((m) => ({ default: m.TutorialPage }))
+);
+const AnjiaCollectPage = lazy(() =>
+  import('./components/pages/AnjiaCollectPage').then((m) => ({ default: m.AnjiaCollectPage }))
+);
+const AnkeCollectPage = lazy(() =>
+  import('./components/pages/AnkeCollectPage').then((m) => ({ default: m.AnkeCollectPage }))
+);
+const FindAnkePage = lazy(() =>
+  import('./components/pages/FindAnkePage').then((m) => ({ default: m.FindAnkePage }))
+);
+const CreationLogPage = lazy(() =>
+  import('./components/pages/CreationLogPage').then((m) => ({ default: m.CreationLogPage }))
+);
+const ReaderPage = lazy(() =>
+  import('./components/pages/ReaderPage').then((m) => ({ default: m.ReaderPage }))
+);
+const DicePlaygroundPage = lazy(() =>
+  import('./components/pages/DicePlaygroundPage').then((m) => ({ default: m.DicePlaygroundPage }))
+);
+const WheelPage = lazy(() =>
+  import('./components/pages/WheelPage').then((m) => ({ default: m.WheelPage }))
+);
+const DiscoveryHubPage = lazy(() =>
+  import('./components/pages/DiscoveryHubPage').then((m) => ({ default: m.DiscoveryHubPage }))
+);
+const PlaygroundHubPage = lazy(() =>
+  import('./components/pages/PlaygroundHubPage').then((m) => ({ default: m.PlaygroundHubPage }))
+);
+const AuthorInfo = lazy(() =>
+  import('./components/common/AuthorInfo').then((m) => ({ default: m.AuthorInfo }))
+);
+
+/** 懒加载页面的轻量占位（纯 CSS，避免额外依赖） */
+function PageLoading() {
+  return (
+    <div className="flex-1 min-h-[40vh] flex items-center justify-center text-[var(--text-muted)] text-xs">
+      <span className="inline-block w-4 h-4 mr-2 rounded-full border-2 border-[color:var(--accent)] border-t-transparent animate-spin" />
+      加载中…
+    </div>
+  );
+}
 
 type Route = 'home' | 'works' | 'editor' | 'reader' | 'resource-library' | 'tutorial' | 'anjia-collect' | 'anke-collect' | 'find-anke' | 'dice-playground' | 'creation-log' | 'wheel-playground' | 'discovery' | 'playground';
 
@@ -214,27 +255,45 @@ function App() {
     return () => unsubscribe?.();
   }, []);
 
-  // 启动时扫描可用骰子音效（仅 Electron）
+  // 启动后的非关键任务（骰子音效扫描 + 预热）延迟到浏览器空闲时执行，
+  // 避免与首屏渲染/数据库初始化抢占主线程。
   useEffect(() => {
     if (!isElectron) return;
-    const scan = async () => {
-      try {
-        const sounds = await window.electronAPI?.listDiceSounds?.();
-        if (sounds && sounds.length > 0) {
-          useSettingStore.getState().setAvailableDiceSounds(sounds);
+    let cancelled = false;
+    let ran = false;
+    const run = () => {
+      if (cancelled || ran) return;
+      ran = true;
+      void (async () => {
+        try {
+          const sounds = await window.electronAPI?.listDiceSounds?.();
+          if (sounds && sounds.length > 0) {
+            useSettingStore.getState().setAvailableDiceSounds(sounds);
+          }
+        } catch {
+          // 扫描失败保持默认
         }
-      } catch {
-        // 扫描失败保持默认
-      }
+        try {
+          const { preloadDiceSound } = await import('./utils/diceSound');
+          void preloadDiceSound();
+        } catch {
+          // 音效预加载失败不影响使用
+        }
+      })();
     };
-    scan();
-  }, []);
-
-  // 预热骰子音效（提前加载 Audio 对象，减少首次播放延迟）（#4）
-  useEffect(() => {
-    import('./utils/diceSound').then(({ preloadDiceSound }) => {
-      void preloadDiceSound()
-    })
+    const hasIdle = typeof window.requestIdleCallback === 'function';
+    let idleId: number | undefined;
+    let timer: number | undefined;
+    if (hasIdle) {
+      idleId = window.requestIdleCallback(run, { timeout: 2000 });
+    } else {
+      timer = window.setTimeout(run, 1200);
+    }
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+      if (idleId !== undefined) window.cancelIdleCallback(idleId);
+    };
   }, []);
 
   // 注意:节加载由 EditorPage 内的 useSectionEditor 负责,这里不再重复触发
@@ -289,7 +348,9 @@ function App() {
       <ErrorBoundary>
         <div
           className={`anke-app-content flex-1 min-h-0 flex flex-col overflow-x-hidden${hideBottomNav ? ' no-bottom-nav' : ''}`}
-        >{content}</div>
+        >
+          <Suspense fallback={<PageLoading />}>{content}</Suspense>
+        </div>
       </ErrorBoundary>
       {/* 移动端底部导航栏（仅 Capacitor 生效，isElectron / isWeb 不渲染） */}
       {!hideBottomNav && (

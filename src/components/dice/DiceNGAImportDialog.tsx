@@ -2,34 +2,24 @@
 // DiceNGAImportDialog - 从 NGA 文本导入选项
 // ------------------------------------------------------------
 // 用途：
-//   - 接收用户粘贴的 "1楼 用户名：内容" 格式文本
-//   - 解析为选项列表（displayValue=序号, content=内容）
-//   - 确认后调 onConfirm 回调（由调用方传给 DiceConfigDialog 预填）
-//
-// 适用场景：
-//   - 用户在「收集安价」页面抓取了 NGA 帖子
-//   - 点击「复制 NGA 格式」得到 BBCode 文本
-//   - 在编辑器里点击「📥 导入安价」→ 粘贴 → 生成对应选项骰子
+//   - 一个粘贴文本框：接收 "1楼 用户名：内容" 格式文本
+//   - 文本框上方「收集安价」按钮：内联展开收集面板，复用应用的
+//     收集安价管道（默认帖子 = 当前安科作品关联帖），结果回填文本框
+//   - 确认后解析为选项列表（displayValue=序号, content=内容）并回调 onConfirm
 // ============================================================
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Icon } from '../common/Icon';
-import {
-  formatHistoryTime,
-  loadHistory,
-  saveToHistory,
-  type AnjiaHistoryEntry,
-} from '../../utils/anjiaHistory';
-import { useSettingStore } from '../../store/settingStore';
+import { saveToHistory } from '../../utils/anjiaHistory';
+import { useNgaCollectCommon } from '../../hooks/useNgaCollectCommon';
 import { useStoryStore } from '../../store/storyStore';
+import { CollectDecisionDialog } from '../common/CollectDecisionDialog';
 
 export interface DiceNGAOption {
   displayValue: string;
   content: string;
   ok: boolean;
 }
-
-type ImportSource = 'fetch' | 'paste' | 'history';
 
 interface DiceNGAImportDialogProps {
   open: boolean;
@@ -59,250 +49,204 @@ function parseNgaTextToOptions(text: string): DiceNGAOption[] {
   });
 }
 
+/** 把收集结果格式化为可回填到文本框的文本（内容空白折叠） */
+function formatCollectedText(items: { floor: number; author: string; content: string }[]): string {
+  return items
+    .map((item) => `${item.floor}楼 ${item.author}：${item.content.replace(/\s+/g, ' ').trim()}`)
+    .join('\n');
+}
+
 export function DiceNGAImportDialog({
   open,
   onClose,
   onConfirm,
 }: DiceNGAImportDialogProps) {
   const [text, setText] = useState('');
-  const [parsed, setParsed] = useState<DiceNGAOption[]>([]);
-  const [source, setSource] = useState<ImportSource>('fetch');
-  const [history, setHistory] = useState<AnjiaHistoryEntry[]>([]);
-  // 在线抓取（复用「收集安价」）：帖子链接默认取当前作品关联的 NGA 帖子
-  const [threadUrl, setThreadUrl] = useState('');
-  const [startFloor, setStartFloor] = useState('1');
-  const [endFloor, setEndFloor] = useState('');
-  const [fetching, setFetching] = useState(false);
-  const [fetchError, setFetchError] = useState('');
-  const ngaCookies = useSettingStore((s) => s.ngaCookies);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [collecting, setCollecting] = useState(false);
+  const [collectError, setCollectError] = useState('');
+  const [collectSummary, setCollectSummary] = useState('');
   const activeStoryId = useStoryStore((s) => s.activeStoryId);
 
-  // 打开时清空状态，并读取「收集安价」保存的抓取历史
+  const {
+    url,
+    setUrl,
+    startFloor,
+    setStartFloor,
+    endFloor,
+    setEndFloor,
+    setEndFloorManuallyEdited,
+    detecting,
+    cookies,
+    progress,
+    progressMessage,
+    paused,
+    decision,
+    handleAutoDetect,
+    handleTogglePause,
+    handleCancel,
+    handleDecide,
+  } = useNgaCollectCommon({ mode: 'anjia', active: collecting });
+
+  // 打开时重置状态，并把默认帖子链接设为当前作品关联帖
   useEffect(() => {
     if (!open) return;
     setText('');
-    setParsed([]);
-    setSource('fetch');
-    setHistory(loadHistory());
-    setFetchError('');
-    setThreadUrl('');
-    // 默认帖子链接 = 当前安科作品关联的 NGA 主题帖
+    setPanelOpen(false);
+    setCollecting(false);
+    setCollectError('');
+    setCollectSummary('');
+    setUrl('');
+    setStartFloor('0');
+    setEndFloor('20');
+    setEndFloorManuallyEdited(false);
     if (activeStoryId && window.electronAPI?.ngaGetStoryLink) {
       void window.electronAPI
         .ngaGetStoryLink(activeStoryId)
         .then((res: { ok: boolean; link?: unknown }) => {
           const link = res?.link as { thread?: { url?: string } } | null;
-          if (res?.ok && link?.thread?.url) setThreadUrl(link.thread.url);
+          if (res?.ok && link?.thread?.url) setUrl(link.thread.url);
         })
         .catch(() => {
           /* 没有关联帖子时保持为空，用户可手动填写 */
         });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, activeStoryId]);
 
   if (!open) return null;
 
-  const handleParse = () => {
-    const result = parseNgaTextToOptions(text);
-    setParsed(result);
-  };
+  // 识别条数（非空行）
+  const lineCount = text.split(/\r?\n/).filter((line) => line.trim()).length;
+  const canConfirm = lineCount > 0;
 
-  const handleConfirm = () => {
-    if (parsed.length === 0) {
-      // 没有解析结果时直接解析当前文本
-      const result = parseNgaTextToOptions(text);
-      if (result.length === 0) {
-        return;
-      }
-      onConfirm(result.map((o) => ({ displayValue: o.displayValue, content: o.content })));
-    } else {
-      onConfirm(parsed.map((o) => ({ displayValue: o.displayValue, content: o.content })));
-    }
-    onClose();
-  };
-
-  const handlePasteSample = () => {
-    setText('1楼 用户A：选项一的内容描述\n2楼 用户B：选项二的内容描述\n3楼 用户C：选项三的内容描述');
-    setParsed([]);
-  };
-
-  /** 从「收集安价」历史载入：同时填充文本框与预览，便于二次编辑 */
-  const handlePickHistory = (entry: AnjiaHistoryEntry) => {
-    setParsed(
-      entry.items.map((item, i) => ({
-        displayValue: String(i + 1),
-        content: item.content,
-        ok: true,
-      })),
-    );
-    setText(
-      entry.items
-        .map((item) => `${item.floor}楼 ${item.author}：${item.content.replace(/\s+/g, ' ')}`)
-        .join('\n'),
-    );
-    setSource('paste');
-  };
-
-  /** 在线抓取：复用「收集安价」的 collectNga 管道，抓完直接生成选项 */
-  const handleFetch = async () => {
-    setFetchError('');
-    const url = threadUrl.trim();
-    if (!url) {
-      setFetchError('请填写 NGA 帖子链接');
+  const handleStartCollect = async () => {
+    setCollectError('');
+    setCollectSummary('');
+    const threadUrl = url.trim();
+    if (!threadUrl) {
+      setCollectError('请填写 NGA 帖子链接');
       return;
     }
-    if (!/[?&]tid=\d+/i.test(url)) {
-      setFetchError('链接格式无效，需包含 tid=XXX 参数');
+    if (!/[?&]tid=\d+/i.test(threadUrl)) {
+      setCollectError('链接格式无效，需包含 tid=XXX 参数');
       return;
     }
     if (!window.electronAPI?.collectNga) {
-      setFetchError('在线抓取仅支持桌面版');
+      setCollectError('收集仅支持桌面版');
       return;
     }
     const start = Math.max(0, Number.parseInt(startFloor, 10) || 0);
     let end = Number.parseInt(endFloor, 10);
-    setFetching(true);
+    setCollecting(true);
     try {
-      // 未填写末尾楼层时先自动检测总楼层
+      // 末尾楼层留空 / 小于起始楼层时自动检测
       if (!Number.isFinite(end) || end < start) {
-        const info = await window.electronAPI.fetchNgaThreadInfo?.(url, ngaCookies || undefined);
+        const info = await window.electronAPI.fetchNgaThreadInfo?.(threadUrl, cookies || undefined);
         if (info?.ok && typeof info.totalFloors === 'number' && info.totalFloors >= start) {
           end = info.totalFloors;
           setEndFloor(String(end));
         } else {
-          setFetchError('无法自动检测楼层，请手动填写末尾楼层');
+          setCollectError('无法自动检测楼层，请手动填写末尾楼层');
           return;
         }
       }
       const res = await window.electronAPI.collectNga({
-        url,
+        url: threadUrl,
         startFloor: start,
         endFloor: end,
         prefix: '',
-        cookies: ngaCookies || undefined,
+        cookies: cookies || undefined,
       });
       if (!res.ok) {
-        setFetchError(res.error || '抓取失败');
+        setCollectError(res.error || '收集失败');
         return;
       }
       const items = (res.items ?? []) as { floor: number; author: string; content: string }[];
-      const options: DiceNGAOption[] = items.map((item, i) => ({
-        displayValue: String(i + 1),
-        content: item.content,
-        ok: true,
-      }));
-      setParsed(options);
-      setText(
-        items
-          .map((item) => `${item.floor}楼 ${item.author}：${item.content.replace(/\s+/g, ' ')}`)
-          .join('\n'),
-      );
-      setHistory(loadHistory());
-      if (options.length === 0) {
-        setFetchError('未抓取到楼层，请检查楼层范围或登录 Cookie');
-      } else {
-        // 与「收集安价」共用同一份历史记录
-        saveToHistory({
-          url,
-          startFloor: start,
-          endFloor: end,
-          prefix: '',
-          items,
-        });
-        setHistory(loadHistory());
+      if (items.length === 0) {
+        setCollectError('未收集到楼层，请检查楼层范围或登录 Cookie');
+        return;
       }
+      setText(formatCollectedText(items));
+      setCollectSummary(`已收集 ${items.length} 条，已填入下方文本框`);
+      // 与「收集安价」共用同一份历史记录
+      saveToHistory({ url: threadUrl, startFloor: start, endFloor: end, prefix: '', items });
     } catch (e) {
-      setFetchError((e as Error).message || '抓取失败');
+      setCollectError((e as Error).message || '收集失败');
     } finally {
-      setFetching(false);
+      setCollecting(false);
     }
   };
 
+  const handleConfirm = () => {
+    const options = parseNgaTextToOptions(text);
+    if (options.length === 0) return;
+    onConfirm(options.map((o) => ({ displayValue: o.displayValue, content: o.content })));
+    onClose();
+  };
+
+  const inputClass =
+    'w-full bg-[var(--bg-input)] border border-[color:var(--border-color)] text-[var(--text-primary)] px-3 py-2 text-xs rounded-lg outline-none font-mono focus:border-[var(--accent)] transition-colors';
+
   return (
     <div
-      className="fixed inset-0 bg-[var(--scrim)] flex items-center justify-center z-[1000]"
+      className="fixed inset-0 bg-[var(--scrim)] flex items-center justify-center z-[1000] p-4"
       onClick={onClose}
     >
       <div
-        className="rounded-2xl shadow-2xl"
+        className="rounded-2xl shadow-2xl overflow-hidden"
         style={{
           background: 'var(--bg-card)',
           border: '1px solid var(--border-color)',
-          width: 'min(640px, 92vw)',
-          maxHeight: '85vh',
+          width: 'min(680px, 94vw)',
+          maxHeight: '88vh',
           display: 'flex',
           flexDirection: 'column',
         }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* 标题 */}
-        <div
-          className="border-[color:var(--border-color)] px-6 py-4 border-b"
-        >
-          <h2
-            className="text-[var(--text-primary)] text-base font-semibold flex items-center gap-2"
-          >
-            <span className="inline-flex items-center"><Icon name="download" size={14} /></span> 从 NGA 导入安价选项
+        <div className="px-6 pt-4 pb-3 border-b border-[color:var(--border-color)]">
+          <h2 className="text-[var(--text-primary)] text-base font-semibold flex items-center gap-2">
+            <span className="inline-flex items-center"><Icon name="download" size={14} /></span> 导入安价选项
           </h2>
-          <p
-            className="text-[var(--text-muted)] text-xs mt-1"
-          >
-            直接抓取当前作品关联的 NGA 主题帖，也可以粘贴文本或从「收集安价」历史载入
+          <p className="text-[var(--text-muted)] text-xs mt-1">
+            从当前作品关联的帖子收集，或直接粘贴 NGA 文本，确认后生成对应选项。
           </p>
         </div>
 
         {/* 主体 */}
-        <div
-          className="min-h-[0px] px-6 py-4 overflow-y-auto flex-1"
-        >
-          <div className="flex items-center gap-2 mb-3">
+        <div className="px-6 py-4 overflow-y-auto flex-1 space-y-3">
+          {/* 收集入口 */}
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => setSource('fetch')}
-              className="px-3 py-1 rounded-lg text-xs font-medium transition-colors"
-              style={
-                source === 'fetch'
-                  ? { background: 'var(--accent-bg)', color: 'var(--accent)', border: '1px solid var(--accent)' }
-                  : { background: 'var(--bg-hover)', color: 'var(--text-secondary)', border: '1px solid transparent' }
-              }
+              onClick={() => setPanelOpen((v) => !v)}
+              className="inline-flex items-center gap-1.5 bg-[var(--accent-bg)] text-[var(--accent)] border border-[color:var(--accent)] px-3.5 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-[var(--accent)] hover:text-[var(--text-on-accent)] disabled:opacity-50"
+              disabled={collecting}
             >
-              在线抓取
+              <Icon name={panelOpen ? 'chevronDown' : 'download'} size={13} />
+              收集安价
             </button>
-            <button
-              onClick={() => setSource('paste')}
-              className="px-3 py-1 rounded-lg text-xs font-medium transition-colors"
-              style={
-                source === 'paste'
-                  ? { background: 'var(--accent-bg)', color: 'var(--accent)', border: '1px solid var(--accent)' }
-                  : { background: 'var(--bg-hover)', color: 'var(--text-secondary)', border: '1px solid transparent' }
-              }
-            >
-              粘贴文本
-            </button>
-            <button
-              onClick={() => setSource('history')}
-              className="px-3 py-1 rounded-lg text-xs font-medium transition-colors"
-              style={
-                source === 'history'
-                  ? { background: 'var(--accent-bg)', color: 'var(--accent)', border: '1px solid var(--accent)' }
-                  : { background: 'var(--bg-hover)', color: 'var(--text-secondary)', border: '1px solid transparent' }
-              }
-            >
-              收集历史{history.length > 0 ? `（${history.length}）` : ''}
-            </button>
+            <span className="text-[var(--text-muted)] text-xs">
+              默认使用当前作品关联的帖子
+            </span>
           </div>
-          {source === 'fetch' && (
-            <div className="space-y-3">
+
+          {/* 内联收集面板 */}
+          {panelOpen && (
+            <div className="rounded-xl border border-[color:var(--border-color)] bg-[var(--bg-base)] p-3 space-y-2.5">
               <label className="block text-[var(--text-secondary)] text-xs font-medium">
-                NGA 帖子链接（默认当前作品关联的主题帖）
+                NGA 帖子链接
                 <input
-                  value={threadUrl}
-                  onChange={(e) => setThreadUrl(e.target.value)}
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
                   placeholder="https://ngabbs.com/read.php?tid=123456"
-                  className="mt-1 w-full bg-[var(--bg-input)] border border-[color:var(--border-color)] text-[var(--text-primary)] px-3 py-2 text-xs rounded-lg outline-none font-mono focus:border-[var(--accent)]"
+                  className={`mt-1 ${inputClass}`}
                 />
               </label>
-              <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
-                <label className="flex items-center gap-1">
+
+              <div className="flex items-end gap-2 flex-wrap">
+                <label className="flex items-center gap-1 text-xs text-[var(--text-secondary)]">
                   起始楼层
                   <input
                     type="number"
@@ -312,204 +256,129 @@ export function DiceNGAImportDialog({
                     className="w-20 bg-[var(--bg-input)] border border-[color:var(--border-color)] text-[var(--text-primary)] px-2 py-1 rounded-lg outline-none focus:border-[var(--accent)]"
                   />
                 </label>
-                <label className="flex items-center gap-1">
+                <label className="flex items-center gap-1 text-xs text-[var(--text-secondary)]">
                   末尾楼层
                   <input
                     type="number"
                     min={0}
                     value={endFloor}
-                    onChange={(e) => setEndFloor(e.target.value)}
-                    placeholder="留空自动检测"
-                    className="w-28 bg-[var(--bg-input)] border border-[color:var(--border-color)] text-[var(--text-primary)] px-2 py-1 rounded-lg outline-none focus:border-[var(--accent)]"
+                    placeholder="自动检测"
+                    onChange={(e) => {
+                      setEndFloor(e.target.value);
+                      setEndFloorManuallyEdited(true);
+                    }}
+                    className="w-24 bg-[var(--bg-input)] border border-[color:var(--border-color)] text-[var(--text-primary)] px-2 py-1 rounded-lg outline-none focus:border-[var(--accent)]"
                   />
                 </label>
                 <button
-                  onClick={handleFetch}
-                  disabled={fetching}
-                  className="ml-auto bg-[var(--accent-bg)] text-[var(--accent)] border border-[color:var(--accent)] px-3.5 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50"
+                  onClick={() => void handleAutoDetect()}
+                  disabled={detecting || collecting}
+                  className="text-[var(--text-secondary)] bg-[var(--bg-hover)] px-2.5 py-1 rounded-lg text-xs transition-colors hover:text-[var(--accent)] disabled:opacity-50"
                 >
-                  <span className="inline-flex items-center gap-1">
-                    <Icon name="download" size={12} /> {fetching ? '抓取中…' : '抓取并生成选项'}
-                  </span>
+                  {detecting ? '检测中…' : '自动检测'}
+                </button>
+                <button
+                  onClick={() => void handleStartCollect()}
+                  disabled={collecting}
+                  className="ml-auto inline-flex items-center gap-1 bg-[var(--accent)] text-[var(--text-on-accent)] px-3.5 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50"
+                >
+                  <Icon name="download" size={12} /> {collecting ? '收集中…' : '开始收集'}
                 </button>
               </div>
-              {!ngaCookies && (
+
+              {!cookies && (
                 <div className="text-[var(--text-muted)] text-[11px]">
                   提示：需要登录的帖子请先在设置里粘贴 NGA Cookie。
                 </div>
               )}
-              {fetchError && (
-                <div className="text-[var(--danger)] text-xs">{fetchError}</div>
-              )}
-              {parsed.length > 0 && (
-                <div className="bg-[var(--bg-base)] border border-[color:var(--border-color)] rounded-lg p-3 space-y-1.5 max-h-60 overflow-y-auto">
-                  <div className="text-[var(--text-secondary)] text-xs font-medium mb-1">
-                    已抓取 {parsed.length} 个选项
+
+              {collecting && (
+                <div className="space-y-1.5">
+                  <div className="h-1.5 rounded-full bg-[var(--bg-hover)] overflow-hidden">
+                    <div
+                      className="h-full bg-[var(--accent)] transition-all"
+                      style={{
+                        width: `${
+                          progress.total > 0
+                            ? Math.min(100, Math.round((progress.current / progress.total) * 100))
+                            : 0
+                        }%`,
+                      }}
+                    />
                   </div>
-                  {parsed.map((opt, i) => (
-                    <div key={i} className="flex items-baseline gap-2 text-sm">
-                      <span className="text-[var(--accent)] flex-shrink-0 w-6 text-right">
-                        {opt.displayValue}.
-                      </span>
-                      <span className="text-[var(--text-primary)] break-words">{opt.content}</span>
-                    </div>
-                  ))}
+                  <div className="flex items-center gap-2 text-[11px] text-[var(--text-muted)]">
+                    <span className="truncate">
+                      {progressMessage || '正在收集…'}
+                      {progress.total > 0 ? `（${progress.current}/${progress.total}）` : ''}
+                    </span>
+                    <button
+                      onClick={() => void handleTogglePause()}
+                      className="ml-auto text-[var(--text-secondary)] hover:text-[var(--accent)]"
+                    >
+                      {paused ? '继续' : '暂停'}
+                    </button>
+                    <button
+                      onClick={() => void handleCancel()}
+                      className="text-[var(--text-secondary)] hover:text-[var(--danger)]"
+                    >
+                      取消
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {collectError && <div className="text-[var(--danger)] text-xs">{collectError}</div>}
+              {collectSummary && !collectError && (
+                <div className="text-[var(--success)] text-xs inline-flex items-center gap-1">
+                  <Icon name="check" size={12} /> {collectSummary}
                 </div>
               )}
             </div>
           )}
-          {source === 'history' && (
-            <div className="space-y-2">
-              {history.length === 0 ? (
-                <div className="text-[var(--text-muted)] text-sm py-8 text-center">
-                  还没有收集记录。先到「收集安价」抓取楼层，结果会自动出现在这里。
-                </div>
-              ) : (
-                history.map((entry) => (
-                  <button
-                    key={entry.id}
-                    onClick={() => handlePickHistory(entry)}
-                    className="w-full text-left bg-[var(--bg-base)] border border-[color:var(--border-color)] rounded-lg px-3 py-2 transition-colors"
-                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; }}
-                  >
-                    <div className="text-[var(--text-primary)] text-sm">{entry.label}</div>
-                    <div className="text-[var(--text-muted)] text-xs mt-0.5">
-                      {formatHistoryTime(entry.createdAt)} · {entry.items.length} 条
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
-          )}
-          {source === 'paste' && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <label
-                className="text-[var(--text-secondary)] text-xs font-medium"
-              >
-                NGA 文本
-              </label>
-              <button
-                onClick={handlePasteSample}
-                className="text-[var(--text-muted)] bg-[var(--bg-hover)] text-xs px-2 py-0.5 rounded transition-colors"
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.color = 'var(--accent)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.color = 'var(--text-muted)';
-                }}
-              >
-                填入示例
-              </button>
+
+          {/* 粘贴文本 */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-[var(--text-secondary)] text-xs font-medium">NGA 文本</label>
+              <span className="text-[var(--text-muted)] text-xs">
+                {lineCount > 0 ? `已识别 ${lineCount} 条` : '每行一条，如 1楼 用户A：内容'}
+              </span>
             </div>
             <textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
               placeholder={`1楼 用户A：选项一的内容\n2楼 用户B：选项二的内容\n3楼 用户C：选项三的内容`}
-              rows={10}
-              className="bg-[var(--bg-input)] border border-[color:var(--border-color)] text-[var(--text-primary)] min-h-[180px] w-full px-3 py-2 text-sm rounded-lg outline-none resize-y font-mono"
-              onFocus={(e) => {
-                e.currentTarget.style.borderColor = 'var(--accent)';
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.borderColor = 'var(--border-color)';
-              }}
+              className="bg-[var(--bg-input)] border border-[color:var(--border-color)] text-[var(--text-primary)] min-h-[220px] w-full px-3 py-2 text-sm rounded-lg outline-none resize-y font-mono focus:border-[var(--accent)] transition-colors"
             />
-
-            <div className="flex items-center justify-between">
-              <button
-                onClick={handleParse}
-                disabled={!text.trim()}
-                className="bg-[var(--bg-input)] text-[var(--text-primary)] border border-[color:var(--border-color)] px-3.5 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
-                onMouseEnter={(e) => {
-                  if (text.trim()) {
-                    e.currentTarget.style.borderColor = 'var(--accent)';
-                    e.currentTarget.style.color = 'var(--accent)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = 'var(--border-color)';
-                  e.currentTarget.style.color = 'var(--text-primary)';
-                }}
-              >
-                <span className="inline-flex items-center gap-1"><Icon name="search" size={12} /> 解析</span>
-              </button>
-              <span
-                className="text-[var(--text-muted)] text-xs"
-              >
-                {parsed.length > 0 ? `已解析 ${parsed.length} 个选项` : text.trim() ? '点击解析' : '请粘贴文本'}
-              </span>
-            </div>
-
-            {/* 预览列表 */}
-            {parsed.length > 0 && (
-              <div
-                className="bg-[var(--bg-base)] border border-[color:var(--border-color)] rounded-lg p-3 space-y-1.5 max-h-60 overflow-y-auto"
-              >
-                <div
-                  className="text-[var(--text-secondary)] text-xs font-medium mb-1"
-                >
-                  预览
-                </div>
-                {parsed.map((opt, i) => (
-                  <div
-                    key={i}
-                    className="flex items-baseline gap-2 text-sm"
-                  >
-                    <span
-                      className="text-[var(--accent)] flex-shrink-0 w-6 text-right"
-                    >
-                      {opt.displayValue}.
-                    </span>
-                    <span
-                      className="text-[var(--text-primary)] break-words"
-                    >
-                      {opt.content}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
-          )}
         </div>
 
         {/* 底部按钮 */}
-        <div
-          className="border-[color:var(--border-color)] px-6 py-3 flex items-center justify-end gap-2 border-t"
-        >
+        <div className="px-6 py-3 flex items-center justify-end gap-2 border-t border-[color:var(--border-color)]">
           <button
             onClick={onClose}
-            className="text-[var(--text-secondary)] px-4 py-1.5 rounded-lg text-sm transition-colors"
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'var(--bg-hover)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'transparent';
-            }}
+            className="text-[var(--text-secondary)] px-4 py-1.5 rounded-lg text-sm transition-colors hover:bg-[var(--bg-hover)]"
           >
             取消
           </button>
           <button
             onClick={handleConfirm}
-            disabled={!text.trim() && parsed.length === 0}
-            className="bg-[var(--accent-bg)] text-[var(--accent)] border border-[color:var(--accent)] px-4 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-            onMouseEnter={(e) => {
-              if (text.trim() || parsed.length > 0) {
-                e.currentTarget.style.background = 'var(--accent)';
-                e.currentTarget.style.color = 'var(--text-on-accent)';
-              }
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'var(--accent-bg)';
-              e.currentTarget.style.color = 'var(--accent)';
-            }}
+            disabled={!canConfirm}
+            className="bg-[var(--accent-bg)] text-[var(--accent)] border border-[color:var(--accent)] px-4 py-1.5 rounded-lg text-sm font-medium transition-colors hover:bg-[var(--accent)] hover:text-[var(--text-on-accent)] disabled:opacity-50 disabled:hover:bg-[var(--accent-bg)] disabled:hover:text-[var(--accent)]"
           >
             导入到骰子
           </button>
         </div>
       </div>
+
+      <CollectDecisionDialog
+        open={decision.open}
+        message={decision.message}
+        failedPages={decision.failedPages}
+        onContinue={() => void handleDecide('continue')}
+        onStop={() => void handleDecide('stop')}
+        onSkip={() => void handleDecide('skip')}
+      />
     </div>
   );
 }

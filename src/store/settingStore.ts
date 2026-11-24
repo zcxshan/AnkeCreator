@@ -11,7 +11,8 @@ import {
   DEFAULT_NGA_URL_CONFIG,
   DEFAULT_NGA_URL_PREFIX,
   normalizeNgaUrlPrefix,
-  type NgaUrlRule,
+  type NgaUrlPattern,
+  type NgaUrlPrefixItem,
 } from '../utils/ngaUrl'
 
 export type ImageStoreMode = 'remote' | 'local'
@@ -26,12 +27,15 @@ interface SettingState {
   ngaCookies: string
   setNgaCookies: (c: string) => void
   clearNgaCookies: () => void
-  /** NGA 相对 URL（./mon_xxx）补全用的头部，默认 https://img.nga.cn/attachments（= 第一条规则的前缀） */
+  /** NGA 相对 URL（./mon_xxx）补全用的头部，默认 https://img.nga.cn/attachments（= 第一条前缀） */
   ngaUrlPrefix: string
   setNgaUrlPrefix: (v: string) => void
-  /** NGA url 规则：正则 + 前缀，按顺序尝试（前一条失效自动换下一个前缀） */
-  ngaUrlRules: NgaUrlRule[]
-  setNgaUrlRules: (rules: NgaUrlRule[]) => void
+  /** NGA url 匹配规则（正则），与前缀是多对多关系：命中任一规则即按前缀顺序补全 */
+  ngaUrlPatterns: NgaUrlPattern[]
+  setNgaUrlPatterns: (patterns: NgaUrlPattern[]) => void
+  /** NGA url 补全前缀列表，按顺序尝试（前一条失效自动换下一个） */
+  ngaUrlPrefixes: NgaUrlPrefixItem[]
+  setNgaUrlPrefixes: (prefixes: NgaUrlPrefixItem[]) => void
   /** 编辑界面是否自动为不完整 url 补前缀 */
   ngaAutoPrefixEnabled: boolean
   setNgaAutoPrefixEnabled: (v: boolean) => void
@@ -58,14 +62,18 @@ export const useSettingStore = create<SettingState>()(
       clearNgaCookies: () => set({ ngaCookies: '' }),
       ngaUrlPrefix: DEFAULT_NGA_URL_PREFIX,
       setNgaUrlPrefix: (v) => set({ ngaUrlPrefix: v }),
-      ngaUrlRules: DEFAULT_NGA_URL_CONFIG.rules,
-      setNgaUrlRules: (rules) => {
-        const list = rules.length > 0 ? rules : DEFAULT_NGA_URL_CONFIG.rules
-        const primary = list.find((r) => r.enabled && r.prefix.trim())
+      ngaUrlPatterns: DEFAULT_NGA_URL_CONFIG.patterns,
+      setNgaUrlPatterns: (patterns) => {
+        const list = patterns.length > 0 ? patterns : DEFAULT_NGA_URL_CONFIG.patterns
+        set({ ngaUrlPatterns: list })
+      },
+      ngaUrlPrefixes: DEFAULT_NGA_URL_CONFIG.prefixes,
+      setNgaUrlPrefixes: (prefixes) => {
+        const list = prefixes.length > 0 ? prefixes : DEFAULT_NGA_URL_CONFIG.prefixes
         set({
-          ngaUrlRules: list,
-          // 主前缀跟随第一条可用规则，兼容旧的单前缀调用方
-          ngaUrlPrefix: normalizeNgaUrlPrefix(primary?.prefix ?? DEFAULT_NGA_URL_PREFIX),
+          ngaUrlPrefixes: list,
+          // 主前缀跟随第一条前缀，兼容旧的单前缀调用方
+          ngaUrlPrefix: normalizeNgaUrlPrefix(list[0]?.prefix ?? DEFAULT_NGA_URL_PREFIX),
         })
       },
       ngaAutoPrefixEnabled: true,
@@ -79,7 +87,7 @@ export const useSettingStore = create<SettingState>()(
     }),
     {
       name: 'anke-creator-settings',
-      version: 6,
+      version: 7,
       migrate: (persisted: any, version: number) => {
         let next = persisted
         // v3 → v4：新增 diceSoundName + availableDiceSounds
@@ -112,6 +120,51 @@ export const useSettingStore = create<SettingState>()(
               },
             ],
             ngaAutoPrefixEnabled: true,
+          }
+        }
+        // v6 → v7：「规则 + 前缀」一对一行升级为多对多（规则列表 + 前缀列表）
+        if (version < 7) {
+          const legacyRules: any[] = Array.isArray(next?.ngaUrlRules) ? next.ngaUrlRules : []
+          // 旧规则中被逐条停用的项不再迁移
+          const active = legacyRules.filter((rule) => rule && rule.enabled !== false)
+
+          const patternKeys = new Set<string>()
+          const patterns: NgaUrlPattern[] = []
+          for (const rule of active) {
+            const source = (rule?.pattern ?? '').trim()
+            if (!source || patternKeys.has(source)) continue
+            patternKeys.add(source)
+            patterns.push({ id: rule.id || `pattern-${patterns.length + 1}`, pattern: source })
+          }
+
+          const prefixKeys = new Set<string>()
+          const prefixes: NgaUrlPrefixItem[] = []
+          for (const rule of active) {
+            const raw = (rule?.prefix ?? '').trim()
+            if (!raw) continue
+            const base = normalizeNgaUrlPrefix(raw)
+            if (prefixKeys.has(base)) continue
+            prefixKeys.add(base)
+            prefixes.push({
+              id: rule.id ? `${rule.id}-prefix` : `prefix-${prefixes.length + 1}`,
+              prefix: base,
+            })
+          }
+
+          if (patterns.length === 0) patterns.push(...DEFAULT_NGA_URL_CONFIG.patterns)
+          if (prefixes.length === 0) {
+            prefixes.push(...DEFAULT_NGA_URL_CONFIG.prefixes)
+          } else if (!prefixKeys.has('https://img.nga.178.com/attachments')) {
+            // 新默认前缀补充为第二条回退前缀
+            prefixes.push({ id: 'prefix-nga-178', prefix: 'https://img.nga.178.com/attachments' })
+          }
+
+          next = {
+            ...next,
+            ngaUrlPatterns: patterns,
+            ngaUrlPrefixes: prefixes,
+            ngaUrlPrefix: normalizeNgaUrlPrefix(prefixes[0]?.prefix ?? DEFAULT_NGA_URL_PREFIX),
+            ngaAutoPrefixEnabled: next?.ngaAutoPrefixEnabled !== false,
           }
         }
         return next
