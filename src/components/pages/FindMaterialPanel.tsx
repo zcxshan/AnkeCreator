@@ -21,6 +21,7 @@ import { MATERIAL_CATEGORIES, type MaterialSite, type MaterialCategory } from '.
 import { useToastStore } from '../../store/toastStore';
 import { Icon } from '../common/Icon';
 import { askConfirm } from '../common/confirmPrompt';
+import { openExternalUrl } from '../../utils/openExternal';
 
 interface EditState {
   open: boolean;
@@ -85,12 +86,7 @@ export function FindMaterialPanel() {
   const filtered = filter === 'all' ? sites : sites.filter((s) => s.category === filter);
 
   const handleOpen = (url: string) => {
-    const electronAPI = (window as any).electronAPI;
-    if (electronAPI?.openExternal) {
-      electronAPI.openExternal(url);
-    } else {
-      window.open(url, '_blank', 'noopener,noreferrer');
-    }
+    void openExternalUrl(url);
   };
 
   const openAdd = () => {

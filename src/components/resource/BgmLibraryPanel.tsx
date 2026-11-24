@@ -1,7 +1,29 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useToastStore } from '../../store/toastStore';
-import { useBgmLibraryStore, type BgmItem } from '../../store/bgmLibraryStore';
+import { getBgmCandidateUrls, useBgmLibraryStore, type BgmItem } from '../../store/bgmLibraryStore';
 import { Icon } from '../common/Icon';
+
+/** 带前缀/镜像回退的试听条：某个前缀失效时自动换下一个候选地址 */
+function BgmAudioPlayer({ item }: { item: BgmItem }) {
+  const [idx, setIdx] = useState(0);
+  const candidates = getBgmCandidateUrls(item);
+
+  useEffect(() => {
+    setIdx(0);
+  }, [item.id, item.url]);
+
+  const src = candidates[Math.min(idx, candidates.length - 1)] ?? item.url;
+  return (
+    <audio
+      key={src}
+      controls
+      preload="none"
+      src={src}
+      className="w-full mt-2 h-8"
+      onError={() => setIdx((i) => (i + 1 < candidates.length ? i + 1 : i))}
+    />
+  );
+}
 
 export interface BgmLibraryPanelProps {
   /** 窄栏模式：编辑器右侧资源库用 */
@@ -117,9 +139,7 @@ export function BgmLibraryPanel({ compact = false, onPick }: BgmLibraryPanelProp
                   <Icon name="trash" size={12} />
                 </button>
               </div>
-              {!compact && (
-                <audio controls preload="none" src={item.url} className="w-full mt-2 h-8" />
-              )}
+              {!compact && <BgmAudioPlayer item={item} />}
             </div>
           ))}
         </div>

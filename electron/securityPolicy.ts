@@ -84,7 +84,8 @@ export function buildCsp(): string {
     "style-src 'self' 'unsafe-inline' file:",
     "img-src 'self' data: blob: local: file: https: http:",
     "font-src 'self' data: file:",
-    "media-src 'self' data: blob: local: file:",
+    // 音频块 / BGM 资源库需要直接播放 NGA 等外链音频
+    "media-src 'self' data: blob: local: file: https: http:",
     "connect-src 'self' data: blob: local:",
     "object-src 'none'",
     "base-uri 'self'",

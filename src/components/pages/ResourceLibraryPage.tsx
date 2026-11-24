@@ -5,9 +5,9 @@
 //
 // 4 个顶级 Tab：
 // - 🖼️ 图片         → ImageLibraryPanel
+// - 🎵 BGM          → BgmLibraryPanel（URL 添加，插入正文为 [flash=audio]）
 // - 📋 人物模板     → TemplatesPanel
 // - 🔍 寻找素材     → FindMaterialPanel（素材网站推荐，增删改查）
-// - 🎵 BGM          → BgmLibraryPanel（URL 添加，插入正文为 [flash=audio]）
 // ============================================================
 
 import { useState } from 'react';
@@ -16,19 +16,23 @@ import { ImageLibraryPanel } from './ImageLibraryPage';
 import { TemplatesPanel } from './TemplatesPage';
 import { FindMaterialPanel } from './FindMaterialPanel';
 import { BgmLibraryPanel } from '../resource/BgmLibraryPanel';
+import { ImageWorkbenchPanel } from '../image/ImageWorkbenchPanel';
 
 interface ResourceLibraryPageProps {
   onBack: () => void;
   onShowAuthor?: () => void;
 }
 
-type ResourceTab = 'image' | 'template' | 'material' | 'bgm';
+type ResourceTab = 'image' | 'imageTools' | 'bgm' | 'template' | 'material';
 
 const TABS: { key: ResourceTab; label: string; icon: IconName }[] = [
   { key: 'image', label: '图片', icon: 'bookText' },
+  // 图片处理是独立工作台面板（格式/压缩/裁剪/拼接/尺寸画布/旋转）
+  { key: 'imageTools', label: '图片处理', icon: 'palette' },
+  // BGM 紧跟在图片之后（与编辑界面资源库里的顺序保持一致）
+  { key: 'bgm', label: 'BGM', icon: 'music' },
   { key: 'template', label: '人物模板', icon: 'copy' },
   { key: 'material', label: '寻找素材', icon: 'search' },
-  { key: 'bgm', label: 'BGM', icon: 'music' },
 ];
 
 export function ResourceLibraryPage({ onBack, onShowAuthor }: ResourceLibraryPageProps) {
@@ -83,6 +87,7 @@ export function ResourceLibraryPage({ onBack, onShowAuthor }: ResourceLibraryPag
       <div className="flex-1 overflow-hidden px-4 md:px-6 py-5" style={{ width: '100%', maxWidth: 1180, margin: '0 auto' }}>
         <div className="anke-card h-full w-full overflow-hidden">
           {activeTab === 'image' && <ImageLibraryPanel />}
+          {activeTab === 'imageTools' && <ImageWorkbenchPanel />}
           {activeTab === 'template' && <TemplatesPanel onShowAuthor={onShowAuthor} />}
           {activeTab === 'material' && <FindMaterialPanel />}
           {activeTab === 'bgm' && (

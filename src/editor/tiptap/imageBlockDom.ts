@@ -5,7 +5,7 @@
 // 并补充加载失败占位信息（文件名、失败原因、「重新选择图片」入口）。
 // ============================================================
 
-import { getNgaImageAltHost } from '../../utils/ngaBBCodeToHtml'
+import { buildNgaUrlCandidates } from '../../utils/ngaUrl'
 
 export interface ImageErrorOptions {
   reason?: string
@@ -34,17 +34,13 @@ export function attachImageErrorHandler(
   options: ImageErrorOptions = {},
 ): void {
   let fallbackTried = false;
-  let ngaAltTried = false;
+  // 按设置里的 url 规则生成候选地址，加载失败时依次换下一个前缀 / 镜像域名
+  // local/data/blob 等协议不做前缀补全；与原始地址相同的第一候选也无需重试
+  const candidates = /^(local|data|blob):/i.test(src)
+    ? []
+    : buildNgaUrlCandidates(src).filter((url) => url !== src);
+  let candidateIdx = 0;
   img.addEventListener('error', async () => {
-    // NGA 图床域名失效兜底：img.nga.cn ↔ img.nga.178.com 自动重试一次
-    if (!ngaAltTried) {
-      const alt = getNgaImageAltHost(img.getAttribute('src') || src);
-      if (alt) {
-        ngaAltTried = true;
-        img.src = alt;
-        return;
-      }
-    }
     if (src.startsWith('local://') && !fallbackTried) {
       fallbackTried = true;
       try {
@@ -56,6 +52,18 @@ export function attachImageErrorHandler(
       } catch {
         // 读取失败后继续显示占位信息
       }
+    }
+    // 候选地址回退：当前前缀失效自动换下一个前缀 / NGA 镜像
+    while (candidateIdx < candidates.length) {
+      const next = candidates[candidateIdx++];
+      if (!next || next === (img.getAttribute('src') || '')) continue;
+      img.style.minHeight = '';
+      img.style.background = '';
+      img.setAttribute('alt', '');
+      img.nextElementSibling?.classList?.contains('img-error-hint') &&
+        img.nextElementSibling?.remove();
+      img.src = next;
+      return;
     }
     img.style.minHeight = '60px';
     img.style.background = 'var(--bg-hover)';

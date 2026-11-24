@@ -324,6 +324,45 @@ async function getStory(id: string): Promise<Story | undefined> {
   return row ? rowToStory(row) : undefined;
 }
 
+/**
+ * 一次性返回所有作品 + 统计数据（wordCount/sectionCount/chapterCount）。
+ * 与 Electron db-main.listStoriesWithStats 语义一致：
+ * 字数 = 各节 word_count 之和，节数 = 节数量，章数 = 章数量。
+ * 此前浏览器/Android 分支直接返回 0，导致首页与作品卡片统计恒为 0。
+ */
+async function listStoriesWithStats(): Promise<
+  Array<Story & { wordCount: number; sectionCount: number; chapterCount: number }>
+> {
+  const stories = await listStories();
+  if (stories.length === 0) return [];
+  const [chapters, sections] = await Promise.all([
+    getAll<Record<string, unknown>>('chapters'),
+    getAll<Record<string, unknown>>('sections'),
+  ]);
+  const agg = new Map<string, { wordCount: number; sectionCount: number; chapterCount: number }>();
+  const chapterToStory = new Map<string, string>();
+  for (const s of stories) {
+    agg.set(s.id, { wordCount: 0, sectionCount: 0, chapterCount: 0 });
+  }
+  for (const c of chapters) {
+    const storyId = String(c.story_id || '');
+    const a = agg.get(storyId);
+    if (a) a.chapterCount++;
+    chapterToStory.set(String(c.id || ''), storyId);
+  }
+  for (const sec of sections) {
+    const storyId = chapterToStory.get(String(sec.chapter_id || ''));
+    const a = storyId ? agg.get(storyId) : undefined;
+    if (!a) continue;
+    a.sectionCount++;
+    a.wordCount += Number(sec.word_count) || 0;
+  }
+  return stories.map((s) => ({
+    ...s,
+    ...(agg.get(s.id) || { wordCount: 0, sectionCount: 0, chapterCount: 0 }),
+  }));
+}
+
 async function createStory(data: { title: string; description?: string; category?: string }): Promise<Story> {
   const now = nowISO();
   const all = await getAll<Record<string, unknown>>('stories');
@@ -809,6 +848,39 @@ function countWordsInHtml(html: string | null | undefined): number {
   return text.length;
 }
 
+/**
+ * 重算章 / 卷的 word_count 缓存。
+ * 与 Electron db-main.recomputeChapterAndVolumeWordCount 语义一致：
+ * 章字数 = 章内各节 word_count 之和；卷字数 = 卷内各章 word_count 之和。
+ * 浏览器后端原先只更新节字数，导致 Android / Web 目录里章、卷字数恒为 0。
+ */
+async function recomputeChapterAndVolumeWordCount(chapterId: string): Promise<void> {
+  const chapter = await getOne<Record<string, unknown>>('chapters', chapterId);
+  if (!chapter) return;
+  const sections = await getAll<Record<string, unknown>>(
+    'sections',
+    'chapter_id',
+    IDBKeyRange.only(chapterId),
+  );
+  const chapterWords = sections.reduce((sum, s) => sum + (Number(s.word_count) || 0), 0);
+  await putOne('chapters', { ...chapter, word_count: chapterWords });
+
+  const volumeId = chapter.volume_id ? String(chapter.volume_id) : '';
+  if (!volumeId) return;
+  const volume = await getOne<Record<string, unknown>>('volumes', volumeId);
+  if (!volume) return;
+  const siblings = await getAll<Record<string, unknown>>(
+    'chapters',
+    'volume_id',
+    IDBKeyRange.only(volumeId),
+  );
+  const volumeWords = siblings.reduce(
+    (sum, c) => sum + (String(c.id || '') === chapterId ? chapterWords : Number(c.word_count) || 0),
+    0,
+  );
+  await putOne('volumes', { ...volume, word_count: volumeWords });
+}
+
 // ============================================================
 // Section
 // ============================================================
@@ -850,6 +922,7 @@ async function createSection(data: Record<string, unknown>): Promise<Section> {
   };
   await putOne('sections', row as unknown as Record<string, unknown>);
   await touchStoryByChapterId(data.chapter_id as string);
+  await recomputeChapterAndVolumeWordCount(data.chapter_id as string);
   return row;
 }
 
@@ -863,11 +936,18 @@ async function updateSection(id: string, patch: Record<string, unknown>): Promis
   }
   await putOne('sections', next as unknown as Record<string, unknown>);
   await touchStoryByChapterId(cur.chapter_id);
+  await recomputeChapterAndVolumeWordCount(cur.chapter_id);
   return getOne<Section>('sections', id);
 }
 
 async function deleteSection(id: string): Promise<boolean> {
-  return deleteOne('sections', id);
+  const cur = await getOne<Record<string, unknown>>('sections', id);
+  if (!cur) return false;
+  const ok = await deleteOne('sections', id);
+  if (ok && cur.chapter_id) {
+    await recomputeChapterAndVolumeWordCount(String(cur.chapter_id));
+  }
+  return ok;
 }
 
 async function reorderSections(chapterId: string, orderedIds: string[]): Promise<boolean> {
@@ -890,9 +970,12 @@ async function moveSections(
   // 避免把节移出所有章节导致"节被永久丢失"。
   if (!targetChapterId) return false;
   const now = nowISO();
+  const affectedChapters = new Set<string>([targetChapterId]);
   for (let i = 0; i < orderedIds.length; i++) {
     const cur = await getOne<Record<string, unknown>>('sections', orderedIds[i]);
     if (cur) {
+      const fromChapter = String(cur.chapter_id || '');
+      if (fromChapter && fromChapter !== targetChapterId) affectedChapters.add(fromChapter);
       await putOne('sections', {
         ...cur,
         chapter_id: targetChapterId,
@@ -900,6 +983,10 @@ async function moveSections(
         updated_at: now,
       } as Record<string, unknown>);
     }
+  }
+  // 跨章移动后，来源章与目标章的字数缓存都要重算
+  for (const chId of affectedChapters) {
+    await recomputeChapterAndVolumeWordCount(chId);
   }
   return true;
 }
@@ -950,6 +1037,7 @@ async function setSectionContent(
   await putOne('sections', next as unknown as Record<string, unknown>);
   // 同步更新 story.updated_at（修复最近编辑排序）
   await touchStoryByChapterId(cur.chapter_id);
+  await recomputeChapterAndVolumeWordCount(cur.chapter_id);
   return true;
 }
 
@@ -1047,6 +1135,7 @@ async function getStoryWithAll(storyId: string): Promise<StoryWithAll | undefine
 export const BROWSER_DB = {
   // Story
   listStories,
+  listStoriesWithStats,
   getStory,
   createStory,
   updateStory,

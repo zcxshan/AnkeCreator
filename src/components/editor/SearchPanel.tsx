@@ -10,6 +10,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Icon } from '../common/Icon';
 import { askConfirm } from '../common/confirmPrompt';
+import { isCapacitor } from '../../utils/platform';
 
 interface Props {
   editorMode: 'visual' | 'bbcode';
@@ -100,8 +101,11 @@ export function SearchPanel({
     setReplaceCount(null);
   }, [editorMode]);
 
-  // 自动 focus 输入框
+  // 自动 focus 输入框（仅非移动端）
+  // 移动端打开面板即聚焦会立刻弹出软键盘：面板被键盘避让逻辑收起，
+  // 用户还没开始输入就“面板自动关闭”了，体验很差。
   useEffect(() => {
+    if (isCapacitor || (typeof window !== 'undefined' && window.innerWidth < 768)) return;
     inputRef.current?.focus();
   }, []);
 

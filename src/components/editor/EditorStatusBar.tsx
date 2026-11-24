@@ -95,7 +95,7 @@ export function BottomStatusBar({
 
   return (
     <footer
-      className="shrink-0 flex items-center justify-between px-4 py-2 text-xs"
+      className="editor-bottom-status-bar shrink-0 flex items-center justify-between px-4 py-2 text-xs"
       style={{ background: 'var(--an-paper-2)', borderTop: '2px solid var(--an-ink)', color: 'var(--an-ink-soft)' }}
     >
       {/* 左侧：视图切换 */}

@@ -54,6 +54,8 @@ import { uploadImagesWithProgress, ensureLocalWarning, type UploadProgressEvent 
 import { UploadProgressDialog } from '../common/UploadProgressDialog';
 import { DiceNGAImportDialog } from '../dice/DiceNGAImportDialog';
 import { FontPicker } from './FontPicker';
+import { SmileyPicker } from './SmileyPicker';
+import { toSmileCode } from '../../types/ngaSmiles';
 import {
   cssColorToNga,
   cssFontToNga,
@@ -198,6 +200,7 @@ function ToolbarBtn({
   style,
   disabled,
   btnRef,
+  className,
 }: {
   children: React.ReactNode;
   onClick: () => void;
@@ -206,6 +209,8 @@ function ToolbarBtn({
   style?: React.CSSProperties;
   disabled?: boolean;
   btnRef?: React.Ref<HTMLButtonElement>;
+  /** 追加 class（如手机端隐藏用的 tb-mobile-hide） */
+  className?: string;
 }) {
   const [hover, setHover] = useState(false);
   const base = active
@@ -215,7 +220,7 @@ function ToolbarBtn({
     <button
       ref={btnRef}
       type="button"
-      className="toolbar-btn active:scale-95"
+      className={`toolbar-btn active:scale-95${className ? ` ${className}` : ''}`}
       onMouseDown={(e) => e.preventDefault()}
       onClick={disabled ? undefined : onClick}
       title={title}
@@ -328,8 +333,6 @@ export function EditorToolbar({
 
   // 状态
   const [smileyOpen, setSmileyOpen] = useState(false);
-  const [smileyPack, setSmileyPack] = useState('');
-  const [smileyFace, setSmileyFace] = useState('');
   const smileyRef = useDismiss(smileyOpen, () => setSmileyOpen(false));
 
   const [linkOpen, setLinkOpen] = useState(false);
@@ -674,22 +677,14 @@ export function EditorToolbar({
     useEditorStore.getState().lockActiveStyles();
   };
 
-  const handleSmileyConfirm = () => {
-    const safePack = (smileyPack || '').trim() || '表情包';
-    const safeFace = (smileyFace || '').trim() || '表情';
-    const text = `[s:${safePack}:${safeFace}]`;
-    if (ttCmd) {
-      ttCmd.insertText(text);
-      setSmileyPack('');
-      setSmileyFace('');
-      setSmileyOpen(false);
-      showToast('已插入表情');
-      return;
-    }
-    setSmileyPack('');
-    setSmileyFace('');
-    setSmileyOpen(false);
-    showToast('已插入表情');
+  /**
+   * 插入 NGA 表情 BBCode（[s:pack:face]）。
+   * 面板保持打开，方便连续插入多个表情。
+   */
+  const handleSmileyPick = (pack: string, face: string) => {
+    const text = toSmileCode(pack, face);
+    ttCmd?.insertText(text);
+    showToast(`已插入 ${text}`);
   };
 
   const handleLinkConfirm = () => {
@@ -717,6 +712,11 @@ export function EditorToolbar({
     }
     setTableOpen(false);
   };
+
+  // 移动端：折叠态由外部按钮统一控制（编辑页第二行「样式」；
+  // 键盘弹出时改由本工具栏内的 ▾ 按钮兜底）。
+  // 此时不渲染空工具栏——否则编辑区上方会多出一条空白条，看起来像渲染异常。
+  if (styleRowCollapsed && collapsedProp !== undefined) return null;
 
   return (
     <div
@@ -803,6 +803,7 @@ export function EditorToolbar({
             title={isCollapsedSelection() ? '请先选中文本' : '上标 [sup]…[/sup]'}
             active={activeSup && !isCollapsedSelection()}
             disabled={isCollapsedSelection()}
+            className="tb-mobile-hide"
             onClick={() => {
               if (ttCmd) {
                 ttCmd.toggleScriptMark('superscript');
@@ -816,6 +817,7 @@ export function EditorToolbar({
             title={isCollapsedSelection() ? '请先选中文本' : '下标 [sub]…[/sub]'}
             active={activeSub && !isCollapsedSelection()}
             disabled={isCollapsedSelection()}
+            className="tb-mobile-hide"
             onClick={() => {
               if (ttCmd) {
                 ttCmd.toggleScriptMark('subscript');
@@ -858,7 +860,7 @@ export function EditorToolbar({
               <span className="tb-label">颜色</span>
             </ToolbarBtn>
             {colorPickerOpen && (
-              <div style={{ ...popoverPanel, top: 30, left: 0, minWidth: 220, flexDirection: 'row', flexWrap: 'wrap', gap: 4, maxHeight: 260, overflowY: 'auto' }}>
+              <div className="tb-popover" style={{ ...popoverPanel, top: 30, left: 0, minWidth: 220, flexDirection: 'row', flexWrap: 'wrap', gap: 4, maxHeight: 260, overflowY: 'auto' }}>
                 {NGA_COLORS.map((c, idx) => {
                   // 改动 2：最后一个色块（黑色）根据主题翻转：
                   // - 暗色模式：value='white', cssColor='#ffffff'（显示白色 + 应用白色）
@@ -1069,9 +1071,12 @@ export function EditorToolbar({
         <ToolbarBtn
           title="折叠所有样式工具"
           onClick={toggleStyleRow}
+          className="tb-mobile-hide tb-toolbar-collapse"
           style={{ marginLeft: 'auto', minWidth: 24, fontSize: 12 }}
         >
-          ▾ 样式
+          {/* 手机端默认隐藏：折叠入口由编辑页顶部「样式」按钮承担；
+              但键盘弹出时顶部按钮随第二行 nav 一起隐藏，此时靠 CSS 放出本按钮兜底 */}
+          ▾<span className="tb-label">样式</span>
         </ToolbarBtn>
       </div>
       )}
@@ -1089,7 +1094,7 @@ export function EditorToolbar({
             <ImageIcon size={14} /> <span className="tb-label">图片</span>
           </ToolbarBtn>
           {imageSizeOpen && (
-            <div style={{ ...popoverPanel, top: 30, left: 0, minWidth: 220 }}>
+            <div className="tb-popover" style={{ ...popoverPanel, top: 30, left: 0, minWidth: 220 }}>
               <div className="text-[12px] text-[var(--text-secondary)]">
                 插入尺寸（导出时拼到 URL 后缀）
               </div>
@@ -1189,40 +1194,21 @@ export function EditorToolbar({
 
         <GroupDivider />
 
-        {/* 表情 */}
+        {/* 表情（NGA 分类面板） */}
         <div className="relative" ref={smileyRef}>
           <ToolbarBtn
-            title="插入表情 [s:表情包名:表情]"
+            title="插入表情（NGA 分类表情）"
             onClick={() => setSmileyOpen((v) => !v)}
             active={smileyOpen}
           >
             <Smile size={14} /> <span className="tb-label">表情</span>
           </ToolbarBtn>
           {smileyOpen && (
-            <div style={{ ...popoverPanel, top: 30, left: 0 }}>
-              <div className="text-[12px] text-[var(--text-secondary)]">
-                表情包名 / 表情名
-              </div>
-              <input
-                autoFocus
-                value={smileyPack}
-                onChange={(e) => setSmileyPack(e.target.value)}
-                placeholder="表情包名（如 熊猫头）"
-                style={popoverInput}
+            <div className="tb-popover" style={{ position: 'absolute', top: 30, left: 0, zIndex: 50 }}>
+              <SmileyPicker
+                onPick={handleSmileyPick}
+                onClose={() => setSmileyOpen(false)}
               />
-              <input
-                value={smileyFace}
-                onChange={(e) => setSmileyFace(e.target.value)}
-                placeholder="表情名（如 开心）"
-                style={popoverInput}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleSmileyConfirm();
-                }}
-              />
-              <div className="flex gap-[4px] justify-end">
-                <ToolbarBtn onClick={handleSmileyConfirm}>插入</ToolbarBtn>
-                <ToolbarBtn onClick={() => setSmileyOpen(false)}>取消</ToolbarBtn>
-              </div>
             </div>
           )}
         </div>
@@ -1251,7 +1237,7 @@ export function EditorToolbar({
             <ChevronDown size={14} /> <span className="tb-label">折叠</span>
           </ToolbarBtn>
           {collapseOpen && (
-            <div style={{ ...popoverPanel, top: 30, left: 0 }}>
+            <div className="tb-popover" style={{ ...popoverPanel, top: 30, left: 0 }}>
               <div className="text-[12px] text-[var(--text-secondary)]">
                 折叠标题（可空）
               </div>
@@ -1283,7 +1269,7 @@ export function EditorToolbar({
             <Table size={14} /> <span className="tb-label">表格</span>
           </ToolbarBtn>
           {tableOpen && (
-            <div style={{ ...popoverPanel, top: 30, left: 0, minWidth: 220 }}>
+            <div className="tb-popover" style={{ ...popoverPanel, top: 30, left: 0, minWidth: 220 }}>
               <div className="text-[12px] text-[var(--text-secondary)]">
                 行 / 列（默认 3×3）
               </div>
@@ -1346,7 +1332,7 @@ export function EditorToolbar({
             <Link size={14} /> <span className="tb-label">链接</span>
           </ToolbarBtn>
           {linkOpen && (
-            <div style={{ ...popoverPanel, top: 30, left: 0 }}>
+            <div className="tb-popover" style={{ ...popoverPanel, top: 30, left: 0 }}>
               <div className="text-[12px] text-[var(--text-secondary)]">链接地址</div>
               <input
                 autoFocus

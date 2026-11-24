@@ -8,6 +8,7 @@
 // ============================================================
 
 import { toPng } from 'html-to-image';
+import { isCapacitor } from './platform';
 
 const MAX_IMAGE_HEIGHT = 8000;
 const MAX_IMAGE_CHARS = 10000;
@@ -124,8 +125,28 @@ function createOffscreenContainer(template: HTMLElement): HTMLElement {
   return div;
 }
 
-/** 触发浏览器下载图片 */
-function downloadImage(dataUrl: string, filename: string) {
+/** 保存/分享图片：
+ *  - 桌面端 / 浏览器：走 <a download> 触发下载；
+ *  - Android 原生端：WebView 里 download 属性基本失效，改为写入缓存目录后
+ *    调起系统分享面板（用户可保存到相册/文件或分享到其它应用）。
+ */
+async function downloadImage(dataUrl: string, filename: string): Promise<void> {
+  if (isCapacitor) {
+    try {
+      const { Filesystem, Directory } = await import('@capacitor/filesystem');
+      const { Share } = await import('@capacitor/share');
+      const base64 = dataUrl.includes(',') ? dataUrl.slice(dataUrl.indexOf(',') + 1) : dataUrl;
+      const written = await Filesystem.writeFile({
+        path: filename,
+        data: base64,
+        directory: Directory.Cache,
+      });
+      await Share.share({ title: filename, url: written.uri, dialogTitle: '保存或分享图片' });
+      return;
+    } catch {
+      // 插件不可用或用户取消：回退到浏览器下载逻辑（多数情况下静默失败，但不崩溃）
+    }
+  }
   const link = document.createElement('a');
   link.download = filename;
   link.href = dataUrl;
@@ -158,7 +179,7 @@ export async function exportSectionAsImages(
         pixelRatio: 2,
         skipAutoScale: true,
       });
-      downloadImage(dataUrl, `${opts.title}.png`);
+      await downloadImage(dataUrl, `${opts.title}.png`);
       return { type: 'success', message: '已导出为图片' };
     }
 
@@ -197,7 +218,7 @@ export async function exportSectionAsImages(
           pixelRatio: 2,
           skipAutoScale: true,
         });
-        downloadImage(dataUrl, `${opts.title}-part${i + 1}.png`);
+        await downloadImage(dataUrl, `${opts.title}-part${i + 1}.png`);
         successCount++;
       } catch (chunkErr) {
         console.error(`[exportImage] chunk ${i + 1} 失败:`, chunkErr);

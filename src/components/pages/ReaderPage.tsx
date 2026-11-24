@@ -4,6 +4,7 @@ import { useStoryStore } from '../../store/storyStore';
 import { useToastStore } from '../../store/toastStore';
 import * as db from '../../db/index';
 import { isCapacitor, isElectron, isMobile } from '../../utils/platform';
+import { openExternalUrl } from '../../utils/openExternal';
 
 interface ReaderPageProps {
   onBack: () => void;
@@ -144,6 +145,24 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
   const readingAreaRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef<number | null>(null);
   const userScrolledRef = useRef(false);
+
+  // Android 物理返回键：优先收起目录抽屉 / 更多菜单，而不是直接退出阅读页
+  useEffect(() => {
+    if (!isCapacitor) return;
+    const onAndroidBack = (e: Event) => {
+      if (moreMenuOpen) {
+        e.preventDefault();
+        setMoreMenuOpen(false);
+        return;
+      }
+      if (leftDrawerOpen) {
+        e.preventDefault();
+        setLeftDrawerOpen(false);
+      }
+    };
+    window.addEventListener('anke:android-back', onAndroidBack);
+    return () => window.removeEventListener('anke:android-back', onAndroidBack);
+  }, [moreMenuOpen, leftDrawerOpen]);
 
   const story = stories.find((s) => s.id === activeStoryId);
   const activeSection = sections.find((s) => s.id === activeSectionId);
@@ -325,7 +344,7 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
 
       const img = target.closest?.('[data-type="image-block"] img') as HTMLImageElement | null;
       if (img) {
-        window.open(img.src, '_blank');
+        void openExternalUrl(img.src);
         e.preventDefault();
         return;
       }

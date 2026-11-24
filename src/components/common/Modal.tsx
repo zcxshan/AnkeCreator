@@ -160,9 +160,17 @@ export function Modal({
 
     // 捕获阶段监听，确保子组件/其他弹窗的 Esc 处理不会抢先
     window.addEventListener('keydown', handler, true);
+    // Android 物理返回键：等同 Esc，关闭当前弹窗
+    const backHandler = (e: Event) => {
+      if (!closeOnEscapeRef.current || !onCloseRef.current) return;
+      e.preventDefault();
+      onCloseRef.current();
+    };
+    window.addEventListener('anke:android-back', backHandler);
     return () => {
       window.clearTimeout(focusTimer);
       window.removeEventListener('keydown', handler, true);
+      window.removeEventListener('anke:android-back', backHandler);
       unlockBodyScroll();
       restoreFocusRef.current?.focus?.();
       restoreFocusRef.current = null;

@@ -1159,6 +1159,29 @@ html.capacitor-platform-ios {
   padding-bottom: env(safe-area-inset-bottom, 0);
 }
 
+/* 底部导航占位：仅窄屏（<768px）渲染底栏时才预留空间；
+   平板 / 横屏（>=768px）不渲染底栏，不能留白。
+   键盘弹出时取消占位，让内容填满可视区。 */
+html.capacitor-platform-android .anke-app-content,
+html.capacitor-platform-ios .anke-app-content {
+  padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+}
+@media (min-width: 768px) {
+  html.capacitor-platform-android .anke-app-content,
+  html.capacitor-platform-ios .anke-app-content {
+    padding-bottom: 0;
+  }
+}
+html.capacitor-platform-android body.keyboard-open .anke-app-content,
+html.capacitor-platform-ios body.keyboard-open .anke-app-content {
+  padding-bottom: 0;
+}
+/* 编辑/阅读页不渲染底部导航，也不保留它的占位 */
+html.capacitor-platform-android .anke-app-content.no-bottom-nav,
+html.capacitor-platform-ios .anke-app-content.no-bottom-nav {
+  padding-bottom: 0;
+}
+
 /* 移动端抽屉动画（仅移动端） */
 @keyframes mobile-drawer-slide-in-left {
   from { transform: translateX(-100%); }
@@ -1353,36 +1376,29 @@ html.capacitor-platform-ios body.keyboard-open .mobile-bottom-nav {
    - 安卓（≤768px）：按钮组垂直堆叠，按钮 40x40，段落间分隔
    ================================ */
 @media (max-width: 768px) {
-  /* 工具栏整体：单行横向滚动，不换行 */
+  /* 工具栏整体：允许换行但不裁剪 —— 弹出层（颜色/字体/表情/图片尺寸等）挂在按钮下方，
+     必须 overflow: visible，否则手机上所有工具弹层都会被工具栏裁掉。 */
   .mobile-toolbar-root {
-    padding: 4px 6px !important;
-    gap: 2px;
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: none;
+    padding: 2px 6px !important;
+    gap: 0 !important;
+    overflow: visible;
     border-bottom: 1px solid var(--border-color);
   }
-  .mobile-toolbar-root::-webkit-scrollbar {
-    display: none;
-  }
-  /* 工具栏内每一行（按钮组）—— 不再换行，单行排列 */
+  /* 每一行：紧凑换行（不横向滚动，避免按钮被隐藏到屏幕外） */
   .mobile-toolbar-root > div {
     display: flex;
-    flex-wrap: nowrap;
+    flex-wrap: wrap !important;
     align-items: center;
-    gap: 2px;
-    padding: 0;
+    gap: 2px 4px !important;
+    padding: 2px 0 !important;
   }
-  /* 组间分隔：移除顶部细线，改用左侧分隔线 + 间距 */
+  /* 组间分隔：竖向细线（换行后仍清晰分组） */
   .mobile-toolbar-root > div + div {
     border-top: none;
     margin-top: 0;
     padding-top: 0;
-    margin-left: 4px;
-    padding-left: 4px;
-    border-left: 1px solid var(--border-color);
   }
-  /* 所有按钮：触屏目标 44×44（可访问性要求）+ 圆角 + 按压反馈；工具栏横向滚动容纳 */
+  /* 所有按钮：触屏目标 44×44（可访问性要求）+ 圆角 + 按压反馈 */
   .mobile-toolbar-root button {
     min-width: 44px !important;
     min-height: 44px !important;
@@ -1404,15 +1420,69 @@ html.capacitor-platform-ios body.keyboard-open .mobile-bottom-nav {
     padding: 4px 6px !important;
     border-radius: var(--radius-control);
   }
-  /* 段间分隔线 <div className="w-px h-5 bg-border-color"> */
-  .mobile-toolbar-root > div > div[class*="w-px"] {
-    height: 18px !important;
-    margin: 0 2px;
-    background: var(--border-color);
+  /* 段间分隔线：手机端换行时会“落单”成行尾一根竖线，直接隐藏，用间距分组 */
+  .mobile-toolbar-root > div > span[class*='w-[1px]'] {
+    display: none !important;
   }
   /* 安卓版：工具栏按钮只留图标，隐藏中文文字描述 */
   .mobile-toolbar-root .tb-label {
     display: none;
+  }
+  /* 手机端隐藏使用频率低、且 BBCode 视图可替代的按钮（上标/下标），缩短工具栏高度 */
+  .mobile-toolbar-root .tb-mobile-hide {
+    display: none !important;
+  }
+  /* 键盘弹出时编辑页第二行 nav（含「样式」开关）整体隐藏，
+     此时放出工具栏自身的折叠按钮，避免用户无法收起工具栏 */
+  html.capacitor-platform-android body.keyboard-open .mobile-toolbar-root .tb-toolbar-collapse,
+  html.capacitor-platform-ios body.keyboard-open .mobile-toolbar-root .tb-toolbar-collapse {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+  }
+  /* 字号组：手机端只保留数字框（显示当前值且可精确输入），隐藏滑动条以缩短工具栏整体高度 */
+  .mobile-toolbar-root input[type='range'] {
+    display: none !important;
+  }
+  .mobile-toolbar-root div[style*='border-radius: 999px'] > input[type='number'] {
+    width: 40px !important;
+    min-height: 36px;
+    font-size: 14px !important;
+    padding: 2px !important;
+  }
+  /* 手机端：工具栏弹层统一固定浮层（水平居中、落在工具栏下方），避免靠右按钮的弹层被屏幕右缘裁掉 */
+  .mobile-toolbar-root .tb-popover {
+    position: fixed !important;
+    left: 50% !important;
+    right: auto !important;
+    top: 42% !important;
+    bottom: auto !important;
+    margin: 0 !important;
+    transform: translateX(-50%) !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: calc(100vw - 20px) !important;
+    max-height: 48vh;
+    overflow-y: auto;
+    z-index: 60 !important;
+  }
+  /* 弹层内部按钮恢复常规尺寸（色块等保持 36px 触控目标） */
+  .mobile-toolbar-root .tb-popover button {
+    width: auto;
+    height: auto;
+    min-width: 36px !important;
+    min-height: 36px !important;
+    padding: 4px !important;
+    font-size: 12px !important;
+  }
+  /* 底部状态栏：手机上压缩高度，把纵向空间尽量留给正文
+     （视图切换胶囊的 padding/字号是内联样式，需要 !important 覆盖） */
+  .editor-bottom-status-bar {
+    padding: 3px 8px !important;
+  }
+  .editor-bottom-status-bar button {
+    padding: 3px 10px !important;
+    font-size: 11px !important;
   }
 }
 

@@ -241,40 +241,43 @@ export const useStoryStore = create<StoryState>((set, get) => ({
 
   deleteStory: async (id) => {
     await db.deleteStory(id);
+    const wasActive = get().activeStoryId === id;
+    const remaining = get().stories.filter((s) => s.id !== id);
+    const nextActive = wasActive ? remaining[0]?.id ?? null : get().activeStoryId;
     set((state) => {
-      const remaining = state.stories.filter((s) => s.id !== id);
-      const nextActive =
-        state.activeStoryId === id
-          ? remaining.length > 0
-            ? remaining[0].id
-            : null
-          : state.activeStoryId;
       const next: Partial<StoryState> = {
         stories: remaining,
         activeStoryId: nextActive,
       };
-      if (state.activeStoryId === id) {
+      if (wasActive) {
+        // 清除被删除作品的卷/章/节/大纲，避免旧内容残留到下一个作品
+        next.volumes = [];
         next.chapters = [];
         next.sections = [];
+        next.outlines = [];
         next.activeChapterId = null;
         next.activeSectionId = null;
+        next.activeOutlineId = null;
+        next.expandedVolumeIds = {};
+        next.expandedChapterIds = {};
       }
       return next;
     });
+    if (wasActive) {
+      const { useEditorStore } = await import('./editorStore');
+      useEditorStore.getState().clearSection();
+      if (nextActive) await loadStoryData(set, get, nextActive);
+    }
   },
 
   softDeleteStory: async (id) => {
     await db.softDeleteStory(id);
     const now = new Date().toISOString();
+    const wasActive = get().activeStoryId === id;
+    const remaining = get().stories.filter((s) => s.id !== id);
+    const nextActive = wasActive ? remaining[0]?.id ?? null : get().activeStoryId;
     set((state) => {
       const target = state.stories.find((s) => s.id === id);
-      const remaining = state.stories.filter((s) => s.id !== id);
-      const nextActive =
-        state.activeStoryId === id
-          ? remaining.length > 0
-            ? remaining[0].id
-            : null
-          : state.activeStoryId;
       const next: Partial<StoryState> = {
         stories: remaining,
         activeStoryId: nextActive,
@@ -282,14 +285,25 @@ export const useStoryStore = create<StoryState>((set, get) => ({
           ? [{ ...target, is_deleted: true, deleted_at: now, updated_at: now }, ...state.trashedStories]
           : state.trashedStories,
       };
-      if (state.activeStoryId === id) {
+      if (wasActive) {
+        // 清除被移入回收站作品的卷/章/节/大纲，避免旧内容残留
+        next.volumes = [];
         next.chapters = [];
         next.sections = [];
+        next.outlines = [];
         next.activeChapterId = null;
         next.activeSectionId = null;
+        next.activeOutlineId = null;
+        next.expandedVolumeIds = {};
+        next.expandedChapterIds = {};
       }
       return next;
     });
+    if (wasActive) {
+      const { useEditorStore } = await import('./editorStore');
+      useEditorStore.getState().clearSection();
+      if (nextActive) await loadStoryData(set, get, nextActive);
+    }
   },
 
   restoreStory: async (id) => {

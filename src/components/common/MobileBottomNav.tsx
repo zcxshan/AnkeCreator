@@ -107,6 +107,19 @@ export function MobileBottomNav({ route, onChangeRoute, onShowAuthor, hasActiveS
     [],
   );
 
+  // Android 物理返回键：优先收起"更多"面板，而不是直接退页
+  useEffect(() => {
+    if (!isCapacitor) return;
+    const onAndroidBack = (e: Event) => {
+      if (moreOpen) {
+        e.preventDefault();
+        setMoreOpen(false);
+      }
+    };
+    window.addEventListener('anke:android-back', onAndroidBack);
+    return () => window.removeEventListener('anke:android-back', onAndroidBack);
+  }, [moreOpen]);
+
   // 桌面端不渲染
   if (!isCapacitor) return null;
 

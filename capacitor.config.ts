@@ -35,12 +35,13 @@ const config: CapacitorConfig = {
       backgroundColor: '#1e293b',
     },
     Keyboard: {
-      // 'body'：WebView 不缩放，body 自动加 padding-bottom 补偿键盘高度
-      // 这样底栏（position: fixed; bottom: 0）保持在原位（被键盘覆盖），
-      // 而不会被「推上去」（'native' 模式的行为）
-      resize: 'body',
+      // 'none'：不做原生缩放，由前端订阅 keyboardWillShow/Hide 事件后
+      // 自行把根容器高度减去键盘高度（App.tsx / EditorPage.tsx）。
+      // 这样 Android（windowSoftInputMode=adjustNothing）下编辑区也能避开键盘，
+      // 且不会与原生 body padding 补偿叠加造成双倍偏移。
+      resize: 'none',
       style: 'DARK',
-      resizeOnFullScreen: true,
+      resizeOnFullScreen: false,
     },
   },
 };

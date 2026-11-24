@@ -132,3 +132,178 @@ export async function renderProcessedImage(options: RenderImageOptions): Promise
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
   return canvasToBlob(canvas, mimeForFormat(options.format), options.quality);
 }
+
+// ============================================================
+// 独立图片处理面板用的变换管线：裁剪 / 旋转翻转 / 尺寸画布
+// ============================================================
+
+export type RotateDeg = 0 | 90 | 180 | 270;
+export type CanvasFit = 'stretch' | 'contain' | 'cover';
+
+export interface CropRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface ImageTransformOptions {
+  rotate: RotateDeg;
+  flipH: boolean;
+  flipV: boolean;
+  /** 源图像素坐标；null 表示不裁剪 */
+  crop?: CropRect | null;
+  /** 目标画布尺寸；不填则沿用裁剪旋转后的尺寸 */
+  targetWidth?: number;
+  targetHeight?: number;
+  /** 目标画布里的适配方式 */
+  fit?: CanvasFit;
+  /** 画布背景色（contain/cover 留白处填充），'transparent' 表示透明 */
+  background?: string;
+  format: ImageOutputFormat;
+  /** 0–1，仅 jpeg/webp 生效 */
+  quality?: number;
+}
+
+function normalizeCrop(crop: CropRect | null | undefined, sw: number, sh: number): CropRect {
+  if (!crop) return { x: 0, y: 0, width: sw, height: sh };
+  const x = Math.min(Math.max(0, Math.round(crop.x)), Math.max(0, sw - 1));
+  const y = Math.min(Math.max(0, Math.round(crop.y)), Math.max(0, sh - 1));
+  const width = Math.min(Math.max(1, Math.round(crop.width)), sw - x);
+  const height = Math.min(Math.max(1, Math.round(crop.height)), sh - y);
+  return { x, y, width, height };
+}
+
+function rotatedSize(width: number, height: number, rotate: RotateDeg): TargetSize {
+  return rotate === 90 || rotate === 270 ? { width: height, height: width } : { width, height };
+}
+
+/**
+ * 同步绘制变换后的图片到离屏 canvas（预览与导出共用，保证所见即所得）。
+ */
+export function drawTransformedImage(
+  img: HTMLImageElement,
+  options: ImageTransformOptions,
+): HTMLCanvasElement {
+  const sw = img.naturalWidth || img.width;
+  const sh = img.naturalHeight || img.height;
+  const crop = normalizeCrop(options.crop, sw, sh);
+  const rotated = rotatedSize(crop.width, crop.height, options.rotate);
+
+  const stage = document.createElement('canvas');
+  stage.width = Math.max(1, rotated.width);
+  stage.height = Math.max(1, rotated.height);
+  const sctx = stage.getContext('2d');
+  if (!sctx) throw new Error('当前环境不支持 canvas');
+  sctx.save();
+  sctx.translate(stage.width / 2, stage.height / 2);
+  sctx.rotate((options.rotate * Math.PI) / 180);
+  sctx.scale(options.flipH ? -1 : 1, options.flipV ? -1 : 1);
+  sctx.drawImage(
+    img,
+    crop.x,
+    crop.y,
+    crop.width,
+    crop.height,
+    -crop.width / 2,
+    -crop.height / 2,
+    crop.width,
+    crop.height,
+  );
+  sctx.restore();
+
+  const tw = options.targetWidth && options.targetWidth > 0 ? Math.round(options.targetWidth) : stage.width;
+  const th = options.targetHeight && options.targetHeight > 0 ? Math.round(options.targetHeight) : stage.height;
+  const out = document.createElement('canvas');
+  out.width = Math.max(1, tw);
+  out.height = Math.max(1, th);
+  const ctx = out.getContext('2d');
+  if (!ctx) throw new Error('当前环境不支持 canvas');
+
+  const bg = options.background ?? 'transparent';
+  if (bg && bg !== 'transparent') {
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, out.width, out.height);
+  }
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+
+  const fit = options.fit ?? 'stretch';
+  if (fit === 'stretch') {
+    ctx.drawImage(stage, 0, 0, out.width, out.height);
+  } else {
+    const scale =
+      fit === 'cover'
+        ? Math.max(out.width / stage.width, out.height / stage.height)
+        : Math.min(out.width / stage.width, out.height / stage.height);
+    const dw = stage.width * scale;
+    const dh = stage.height * scale;
+    ctx.drawImage(stage, (out.width - dw) / 2, (out.height - dh) / 2, dw, dh);
+  }
+  return out;
+}
+
+/** 按变换选项输出 Blob（导出用） */
+export async function renderImageWithTransform(
+  src: string,
+  options: ImageTransformOptions,
+): Promise<Blob> {
+  const img = await loadImageElement(src);
+  const canvas = drawTransformedImage(img, options);
+  return canvasToBlob(canvas, mimeForFormat(options.format), options.quality);
+}
+
+export interface StitchOptions {
+  sources: string[];
+  direction: 'horizontal' | 'vertical';
+  gap: number;
+  background: string;
+  format: ImageOutputFormat;
+  quality?: number;
+}
+
+/** 多图拼接：横向 / 纵向，可设置间距与背景 */
+export async function renderStitchedImage(options: StitchOptions): Promise<Blob> {
+  if (options.sources.length === 0) throw new Error('请至少选择一张图片');
+  const imgs = await Promise.all(options.sources.map((src) => loadImageElement(src)));
+  const sizes = imgs.map((img) => ({
+    w: img.naturalWidth || img.width,
+    h: img.naturalHeight || img.height,
+  }));
+  const horizontal = options.direction === 'horizontal';
+  const gap = Math.max(0, Math.round(options.gap));
+  const totalW = horizontal
+    ? sizes.reduce((sum, s) => sum + s.w, 0) + gap * (imgs.length - 1)
+    : Math.max(...sizes.map((s) => s.w));
+  const totalH = horizontal
+    ? Math.max(...sizes.map((s) => s.h))
+    : sizes.reduce((sum, s) => sum + s.h, 0) + gap * (imgs.length - 1);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, totalW);
+  canvas.height = Math.max(1, totalH);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('当前环境不支持 canvas');
+  const bg = options.background || 'transparent';
+  if (bg !== 'transparent') {
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+
+  let cursor = 0;
+  imgs.forEach((img, idx) => {
+    const { w, h } = sizes[idx];
+    if (horizontal) {
+      const y = Math.round((totalH - h) / 2);
+      ctx.drawImage(img, cursor, y, w, h);
+      cursor += w + gap;
+    } else {
+      const x = Math.round((totalW - w) / 2);
+      ctx.drawImage(img, x, cursor, w, h);
+      cursor += h + gap;
+    }
+  });
+  return canvasToBlob(canvas, mimeForFormat(options.format), options.quality);
+}

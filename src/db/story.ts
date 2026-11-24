@@ -43,13 +43,16 @@ export async function listStories(): Promise<Story[]> {
 /**
  * 一次性返回所有作品 + 统计数据（wordCount/sectionCount/chapterCount）。
  * 替代前端双层 N+1 循环，桌面端走主进程聚合（3 次文件读 vs N×M 次）。
- * 浏览器/内存降级：返回 listStories 结果，统计字段为 0（前端按需回退）。
+ * 浏览器端（Capacitor / Web）走 IndexedDB 聚合，语义与桌面端一致。
  */
 export async function listStoriesWithStats(): Promise<any[]> {
   if (window.dbAPI) {
     return window.dbAPI.listStoriesWithStats()
   }
-  // 浏览器/内存模式降级：返回基础 story，统计字段置 0
+  if (isBrowserDBAvailable()) {
+    return BROWSER_DB.listStoriesWithStats()
+  }
+  // 内存引擎降级：返回基础 story，统计字段置 0
   const stories = await listStories()
   return stories.map((s) => ({ ...s, wordCount: 0, sectionCount: 0, chapterCount: 0 }))
 }

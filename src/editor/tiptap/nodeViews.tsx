@@ -35,6 +35,7 @@ import { rollDice } from '../../utils/diceEngine'
 import { playDiceRollSound } from '../../utils/diceSound'
 import { useSettingStore } from '../../store/settingStore'
 import { resolveImageSrc } from '../../utils/imageSrc'
+import { buildNgaUrlCandidates } from '../../utils/ngaUrl'
 import { recordImageEvent } from '../../utils/imageDebug'
 
 // ------------------------------------------------------------
@@ -321,11 +322,14 @@ class ImageBlockNodeView implements NodeView {
   }
 
   private attachFallback(src: string): void {
-    void resolveImageSrc(src, {
+    // 不完整地址按设置规则补全；加载失败时 attachImageErrorHandler 会依次尝试后续前缀
+    const candidates = buildNgaUrlCandidates(src)
+    const primary = candidates[0] ?? src
+    void resolveImageSrc(primary, {
       readAsDataUrl: (path) => window.electronAPI?.readAsDataUrl?.(path) ?? Promise.resolve(undefined),
     }).then((resolved) => {
       this.img.src = resolved.src
-      attachImageErrorHandler(this.img, resolved.src, {
+      attachImageErrorHandler(this.img, src, {
         reason: resolved.reason,
         fileName: src.split(/[\\/]/).pop(),
         onReselect: () => {
@@ -492,6 +496,8 @@ class AudioBlockNodeView implements NodeView {
   dom: HTMLElement
   private props: NodeViewRendererProps
   private audio: HTMLAudioElement
+  private candidates: string[] = []
+  private candidateIdx = 0
 
   constructor(props: NodeViewRendererProps) {
     this.props = props
@@ -515,6 +521,8 @@ class AudioBlockNodeView implements NodeView {
     audio.controls = true
     audio.preload = 'none'
     audio.style.cssText = 'flex:1;min-width:0;height:32px;'
+    // 前缀/镜像失效时依次切换候选地址
+    audio.addEventListener('error', () => this.tryNextSource())
 
     const del = document.createElement('button')
     del.type = 'button'
@@ -543,11 +551,24 @@ class AudioBlockNodeView implements NodeView {
     this.syncFromNode(props.node)
   }
 
+  private tryNextSource(): void {
+    while (this.candidateIdx < this.candidates.length) {
+      const next = this.candidates[this.candidateIdx++]
+      if (!next || next === (this.audio.getAttribute('src') || '')) continue
+      this.audio.setAttribute('src', next)
+      return
+    }
+  }
+
   private syncFromNode(node: PMNode): void {
     const src = String(node.attrs.src ?? '')
     this.dom.setAttribute('data-src', src)
-    if (this.audio.getAttribute('src') !== src) {
-      this.audio.setAttribute('src', src)
+    // 按设置规则生成候选地址（不完整地址补前缀 + NGA 镜像回退）
+    this.candidates = buildNgaUrlCandidates(src)
+    this.candidateIdx = 0
+    const primary = this.candidates[0] ?? src
+    if (this.audio.getAttribute('src') !== primary) {
+      this.audio.setAttribute('src', primary)
     }
   }
 

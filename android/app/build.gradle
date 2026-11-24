@@ -13,8 +13,9 @@ android {
         applicationId "com.ankecreator.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 2
-        versionName "2.0"
+        // 与 package.json 的 version(4.0.0) 对齐，避免安装包显示的版本落后于实际版本
+        versionCode 400
+        versionName "4.0.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

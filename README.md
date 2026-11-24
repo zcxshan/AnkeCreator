@@ -105,7 +105,7 @@ npm run keystore:gen       # 交互式生成（密码、DN、有效期）
 所有用户数据（作品、人物、世界观、模板等）存储在应用数据目录下，使用 JSON 文件格式自动保存。
 
 - **Windows**：默认 `<安装目录>/data`（dev 模式为 `<项目根>/data`）。安装目录无写权限时自动回退到 `%APPDATA%/com.shanshian.ankecreator/data`；也可在「设置 → 数据目录与备份 → 迁移位置…」更换，迁移前会自动建快照
-- **Android**: `/data/data/com.shanshian.ankecreator/`
+- **Android**：WebView IndexedDB（位于应用私有目录 `/data/data/com.ankecreator.app/`，清数据即清空作品）
 - **Web 模式**：浏览器 IndexedDB（`anke-creator` 库）
 
 > 正文按节拆到 `data/sections/<sectionId>.json`（content / bbcode / word_count），作品文件只存元数据；`data/snapshots/<YYYY-MM-DD>/` 保留最近 7 天自动快照。

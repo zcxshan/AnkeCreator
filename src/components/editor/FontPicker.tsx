@@ -65,7 +65,7 @@ export function FontPicker({ value, onChange, className = '' }: FontPickerProps)
         <div
           role="listbox"
           aria-label="字体"
-          className="an-pop-in absolute left-0 top-full mt-1 z-50 p-1.5"
+          className="tb-popover an-pop-in absolute left-0 top-full mt-1 z-50 p-1.5"
           style={{
             minWidth: 190,
             maxHeight: 300,

@@ -36,6 +36,7 @@ import { bbcodeToHtml } from '../../utils/ngaBBCodeToHtml';
 import { htmlToNGABBCode } from '../../utils/ngaHtmlToBBCode';
 import { exportSectionAsImages } from '../../utils/sectionImageExport';
 import { isCapacitor, isElectron } from '../../utils/platform';
+import { Keyboard } from '@capacitor/keyboard';
 import { BBCodeEditor } from '../editor/BBCodeEditor';
 import { RightPanel } from '../editor/EditorRightPanel';
 import { EditorBreadcrumb, BottomStatusBar } from '../editor/EditorStatusBar';
@@ -412,7 +413,10 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
   // 移动端：全屏专注编辑模式（键盘弹出时编辑区占据全部可视空间）
   const [focusMode, setFocusMode] = useState(false);
   // 移动端：键盘弹出检测（智能折叠面包屑/底状态条/右面板）
+  // Android 上 windowSoftInputMode=adjustNothing，visualViewport 不会变化，
+  // 因此以 @capacitor/keyboard 事件为主、visualViewport 兜底。
   const [keyboardOpen, setKeyboardOpen] = useState(false);
+  const prevKeyboardOpenRef = useRef(false);
   // 全屏专注编辑模式下的可视区域高度（跟随 visualViewport.height，避免被键盘遮挡）
   const [focusModeViewportHeight, setFocusModeViewportHeight] = useState<number>(
     typeof window !== 'undefined' && window.visualViewport
@@ -426,22 +430,96 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
   }, []);
   useEffect(() => {
     if (!isMobile) return;
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const update = () => {
-      const isOpen = window.innerHeight - vv.height > 100;
+    let nativeHeight = 0;
+    const apply = () => {
+      const vvGap = window.visualViewport
+        ? window.innerHeight - window.visualViewport.height
+        : 0;
+      const isOpen = nativeHeight > 100 || vvGap > 100;
       setKeyboardOpen(isOpen);
-      setFocusModeViewportHeight(vv.height);
-      // 键盘弹出时自动收起右面板，避免挤占编辑区
-      if (isOpen && mobilePanelOpen) setMobilePanelOpen(false);
+      setFocusModeViewportHeight(
+        window.visualViewport ? window.visualViewport.height : window.innerHeight,
+      );
+      // 键盘弹出时自动收起右面板，避免挤占编辑区；
+      // 但焦点本来就在面板内（如在面板里输入搜索词）时保持展开，
+      // 否则面板会被卸载 → 焦点丢失 → 键盘收起，用户无法在面板里输入。
+      if (isOpen && mobilePanelOpen) {
+        const active = document.activeElement as HTMLElement | null;
+        const inPanel = !!active?.closest?.('[data-mobile-panel]');
+        if (!inPanel) setMobilePanelOpen(false);
+      }
+      // 键盘刚弹出时，把光标所在位置滚动到可视区内（布局收缩后容易把光标留在下方）
+      if (isOpen && !prevKeyboardOpenRef.current) {
+        window.setTimeout(() => {
+          try {
+            const sel = window.getSelection();
+            if (!sel || sel.rangeCount === 0) return;
+            const node = sel.getRangeAt(0).startContainer;
+            const el =
+              node.nodeType === Node.TEXT_NODE
+                ? (node.parentElement as HTMLElement | null)
+                : (node as HTMLElement);
+            el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+          } catch {
+            /* 忽略：选区不可用时不影响输入 */
+          }
+        }, 240);
+      }
+      prevKeyboardOpenRef.current = isOpen;
     };
-    vv.addEventListener('resize', update);
-    vv.addEventListener('scroll', update);
+    const listeners = isCapacitor
+      ? [
+          Keyboard.addListener('keyboardWillShow', (info) => {
+            nativeHeight = info.keyboardHeight;
+            apply();
+          }),
+          Keyboard.addListener('keyboardDidShow', (info) => {
+            nativeHeight = info.keyboardHeight;
+            apply();
+          }),
+          Keyboard.addListener('keyboardWillHide', () => {
+            nativeHeight = 0;
+            apply();
+          }),
+        ]
+      : [];
+    const vv = window.visualViewport;
+    if (vv) {
+      vv.addEventListener('resize', apply);
+      vv.addEventListener('scroll', apply);
+    }
     return () => {
-      vv.removeEventListener('resize', update);
-      vv.removeEventListener('scroll', update);
+      listeners.forEach((p) => p.then((l) => l.remove()).catch(() => {}));
+      if (vv) {
+        vv.removeEventListener('resize', apply);
+        vv.removeEventListener('scroll', apply);
+      }
+      prevKeyboardOpenRef.current = false;
     };
   }, [isMobile, mobilePanelOpen]);
+
+  // Android 物理返回键：优先关闭移动端抽屉/面板/专注模式，而不是直接退页或退出应用
+  useEffect(() => {
+    if (!isMobile) return;
+    const onAndroidBack = (e: Event) => {
+      if (leftDrawerOpen) {
+        e.preventDefault();
+        setLeftDrawerOpen(false);
+        return;
+      }
+      if (mobilePanelOpen) {
+        e.preventDefault();
+        setMobilePanelOpen(false);
+        return;
+      }
+      if (focusMode) {
+        e.preventDefault();
+        setFocusMode(false);
+      }
+    };
+    window.addEventListener('anke:android-back', onAndroidBack);
+    return () => window.removeEventListener('anke:android-back', onAndroidBack);
+  }, [isMobile, leftDrawerOpen, mobilePanelOpen, focusMode]);
 
   // 同步对话框状态（支持双向：目录→大纲、大纲→目录）
   // 目录 ↔ 大纲同步（状态与差异应用见 hooks/useStructureSync）
@@ -871,14 +949,14 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
           >
             <button aria-label="打开目录"
               onClick={() => setLeftDrawerOpen(true)}
-              className="text-[var(--text-secondary)] shrink-0 w-8 h-8 flex items-center justify-center rounded-lg"
+              className="text-[var(--text-secondary)] shrink-0 w-9 h-9 flex items-center justify-center rounded-lg"
               title="打开目录"
             >
               <Icon name="menu" size={16} />
             </button>
             <button
               onClick={onBack}
-              className="text-[var(--text-secondary)] shrink-0 w-8 h-8 flex items-center justify-center rounded-lg"
+              className="text-[var(--text-secondary)] shrink-0 w-9 h-9 flex items-center justify-center rounded-lg"
               title="返回"
             >
               ←
@@ -919,27 +997,32 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
               />
               <WordCount variant="compact" />
             </span>
-            <button
-              onClick={openNgaUpdateDialog}
-              className="text-[var(--text-secondary)] shrink-0 w-8 h-8 flex items-center justify-center rounded-lg"
-              title="从关联的 NGA 帖子爬取新楼层并追加到作品末尾"
-              aria-label="从 NGA 更新"
-            >
-              <Icon name="refresh" size={15} />
-            </button>
-            <button
-              onClick={() => openNgaSendDialog()}
-              disabled={ngaSending || !section}
-              className="text-[var(--accent)] shrink-0 w-8 h-8 flex items-center justify-center rounded-lg disabled:opacity-40"
-              title="发送至 NGA"
-              aria-label="发送至 NGA"
-            >
-              <Icon name="upload" size={15} />
-            </button>
+            {/* NGA 更新/发送依赖 Electron 主进程，移动端隐藏，避免出现点了没反应的死按钮 */}
+            {isElectron && (
+              <>
+                <button
+                  onClick={openNgaUpdateDialog}
+                  className="text-[var(--text-secondary)] shrink-0 w-9 h-9 flex items-center justify-center rounded-lg"
+                  title="从关联的 NGA 帖子爬取新楼层并追加到作品末尾"
+                  aria-label="从 NGA 更新"
+                >
+                  <Icon name="refresh" size={15} />
+                </button>
+                <button
+                  onClick={() => openNgaSendDialog()}
+                  disabled={ngaSending || !section}
+                  className="text-[var(--accent)] shrink-0 w-9 h-9 flex items-center justify-center rounded-lg disabled:opacity-40"
+                  title="发送至 NGA"
+                  aria-label="发送至 NGA"
+                >
+                  <Icon name="upload" size={15} />
+                </button>
+              </>
+            )}
             {section && (
               <button
                 onClick={() => setFocusMode(true)}
-                className="text-[var(--text-secondary)] shrink-0 w-8 h-8 flex items-center justify-center rounded-lg"
+                className="text-[var(--text-secondary)] shrink-0 w-9 h-9 flex items-center justify-center rounded-lg"
                 title="全屏编辑"
               >
                 ⤢
@@ -948,7 +1031,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
             {onOpenReader && (
               <button
                 onClick={onOpenReader}
-                className="text-[var(--text-secondary)] shrink-0 w-8 h-8 flex items-center justify-center rounded-lg"
+                className="text-[var(--text-secondary)] shrink-0 w-9 h-9 flex items-center justify-center rounded-lg"
                 title="阅读模式"
                 aria-label="阅读模式"
               >
@@ -956,27 +1039,50 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
               </button>
             )}
           </header>
-          {/* 移动端第二行：功能面板入口（弹窗打开，不占正文空间） */}
+          {/* 移动端第二行：常用操作合并为一行（大纲 / 人物 / 样式 / 导出），键盘弹出时隐藏 */}
+          {!keyboardOpen && (
           <nav
-            className="bg-[var(--bg-card)] border-[color:var(--border-color)] shrink-0 grid grid-cols-2 border-b"
+            className="bg-[var(--bg-card)] border-[color:var(--border-color)] shrink-0 flex items-stretch border-b"
           >
-            {(['大纲', '人物'] as const).map((label, idx) => {
-              const key: EditorPanelKey = ['outline', 'character'][idx] as EditorPanelKey;
-              const icons: IconName[] = ['pen', 'theater'];
-              return (
+            {([
+              { key: 'outline', icon: 'pen', label: '大纲' },
+              { key: 'character', icon: 'theater', label: '人物' },
+            ] as Array<{ key: EditorPanelKey; icon: IconName; label: string }>).map((item) => (
+              <button
+                key={item.label}
+                onClick={() => setPanelModal(item.key)}
+                className="flex-1 h-11 flex items-center justify-center gap-1.5 text-[12px] text-[var(--text-secondary)] active:bg-[var(--bg-hover)]"
+              >
+                <Icon name={item.icon} size={16} />
+                <span>{item.label}</span>
+              </button>
+            ))}
+            {editorMode === 'visual' && (
+              <>
                 <button
-                  key={label}
-                  onClick={() => setPanelModal(key)}
-                  className="flex flex-col items-center justify-center py-1.5 text-[12px] text-[var(--text-secondary)]"
+                  type="button"
+                  onClick={() => setStylePanelCollapsed((v) => !v)}
+                  className="flex-1 h-11 flex items-center justify-center gap-1.5 text-[12px] text-[var(--text-secondary)] active:bg-[var(--bg-hover)]"
+                  title={stylePanelCollapsed ? '展开样式工具栏' : '折叠样式工具栏'}
                 >
-                  <span className="text-base leading-none mb-0.5 flex items-center justify-center">
-                    <Icon name={icons[idx]} size={16} />
-                  </span>
-                  <span>{label}</span>
+                  <Icon name="palette" size={16} />
+                  <span>样式</span>
+                  <Icon name={stylePanelCollapsed ? 'chevronRight' : 'chevronDown'} size={12} />
                 </button>
-              );
-            })}
+                <button
+                  type="button"
+                  onClick={handleExportSectionAsImage}
+                  disabled={exportingImage}
+                  className="flex-1 h-11 flex items-center justify-center gap-1.5 text-[12px] text-[var(--text-secondary)] active:bg-[var(--bg-hover)] disabled:opacity-50"
+                  title="把当前节导出为图片"
+                >
+                  <Icon name={exportingImage ? 'hourglass' : 'camera'} size={16} />
+                  <span>{exportingImage ? '导出中' : '导出'}</span>
+                </button>
+              </>
+            )}
           </nav>
+          )}
         </>
       ) : (
       <header
@@ -1084,7 +1190,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
 
       {/* 主体：编辑区常驻；设定备忘录 / 大纲 / 人物角色 通过弹窗查看 */}
       {!focusMode && (
-        <div className="flex-1 flex overflow-hidden min-h-0 relative md:min-h-[500px]">
+        <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0 relative md:min-h-[500px]">
           {/* ===== 桌面端：3 列布局（目录 + 编辑区 + 右侧栏） ===== */}
           {!isMobile && (
             <>
@@ -1182,7 +1288,7 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                 )}
                 {editorMode === 'visual' ? (
                   <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative">
-                    {!(isMobile && keyboardOpen) && (
+                    {!isMobile && (
                       <div
                         className="bg-[var(--bg-card)] border-b border-b-[color:var(--border-color)] text-[var(--text-secondary)] shrink-0 flex items-center gap-2 px-3 py-1 text-xs"
                       >
@@ -1297,18 +1403,22 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
           )}
           </div>
 
-          {/* ===== 安卓版：右侧面板默认折叠（只露 tab 头，点击展开，不盖编辑区） ===== */}
-          {isMobile && (
+          {/* ===== 安卓版：右侧面板默认折叠（只露 tab 头，点击展开，不盖编辑区） =====
+              键盘弹出时隐藏面板头，把纵向空间让给正文输入；
+              例外：焦点在面板内（正在面板里输入）时保持展开，否则输入框会被卸载 */}
+          {isMobile && (!keyboardOpen || mobilePanelOpen) && (
             <aside
+              data-mobile-panel
               className="border-[color:var(--border-color)] bg-[var(--bg-card)] shrink-0 flex flex-col border-t"
+              style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
             >
-              {/* 移动端面板头：4 图标 tab（切换内容并自动展开）+ 独立▼/▲折叠按钮 */}
-              <div className="border-[color:var(--border-color)] shrink-0 flex items-center border-b">
+              {/* 移动端面板头：4 个带文字的 tab（切换内容并自动展开）+ 折叠按钮 */}
+              <div className="border-[color:var(--border-color)] shrink-0 flex items-stretch border-b">
                 <div className="flex-1 grid grid-cols-4">
                   {([
                     { key: 'properties', icon: 'settings', label: '属性' },
                     { key: 'dice', icon: 'dices', label: '骰子' },
-                    { key: 'gallery', icon: 'image', label: '图库' },
+                    { key: 'gallery', icon: 'image', label: '资源库' },
                     { key: 'characters', icon: 'theater', label: '人物' },
                   ] as const).map((t) => {
                     const active = rightPanelTab === t.key;
@@ -1316,18 +1426,20 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                       <button
                         key={t.key}
                         aria-label={t.label}
+                        aria-pressed={active}
                         title={t.label}
                         onClick={() => {
                           setRightPanelTab(t.key);
                           if (!mobilePanelOpen) setMobilePanelOpen(true);
                         }}
-                        className="flex items-center justify-center py-2.5"
+                        className="flex flex-col items-center justify-center gap-0.5 h-11"
                         style={{
                           color: active ? 'var(--accent)' : 'var(--text-secondary)',
                           background: active ? 'var(--accent-soft)' : 'transparent',
                         }}
                       >
                         <Icon name={t.icon} size={16} />
+                        <span className="text-[10px] leading-none">{t.label}</span>
                       </button>
                     );
                   })}
@@ -1335,10 +1447,17 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
                 {/* 独立展开/折叠按钮 */}
                 <button
                   onClick={() => setMobilePanelOpen(!mobilePanelOpen)}
-                  className="text-[var(--text-secondary)] border-l border-l-[color:var(--border-color)] shrink-0 w-10 flex items-center justify-center py-2.5"
+                  className="text-[var(--text-secondary)] border-l border-l-[color:var(--border-color)] shrink-0 w-11 h-11 flex items-center justify-center"
                   title={mobilePanelOpen ? '收起面板' : '展开面板'}
+                  aria-label={mobilePanelOpen ? '收起面板' : '展开面板'}
+                  aria-expanded={mobilePanelOpen}
                 >
-                  {mobilePanelOpen ? '▼' : '▲'}
+                  <span
+                    className="flex items-center justify-center"
+                    style={{ transform: mobilePanelOpen ? 'none' : 'rotate(180deg)' }}
+                  >
+                    <Icon name="chevronDown" size={16} />
+                  </span>
                 </button>
               </div>
               {/* 内容区：仅展开时渲染，max-h 限制 + 可滚动 */}
@@ -1652,7 +1771,13 @@ export function EditorPage({ onBack, onOpenReader }: EditorPageProps) {
       {focusMode && section && activeChapter && (
         <div
           className="fixed top-0 left-0 right-0 z-50 flex flex-col"
-          style={{ height: focusModeViewportHeight, background: 'var(--bg-page)' }}
+          style={{
+            // 键盘弹出时 fixed 浮层不随根容器收缩，需要自行减去键盘高度
+            height: keyboardOpen
+              ? 'calc(100dvh - var(--keyboard-height, 0px))'
+              : focusModeViewportHeight,
+            background: 'var(--bg-page)',
+          }}
         >
           <header
             className="bg-[var(--bg-card)] border-b border-b-[color:var(--border-color)] shrink-0 flex items-center gap-2 px-3 py-2"

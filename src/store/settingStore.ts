@@ -7,6 +7,12 @@
 // 持久化到 localStorage
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import {
+  DEFAULT_NGA_URL_CONFIG,
+  DEFAULT_NGA_URL_PREFIX,
+  normalizeNgaUrlPrefix,
+  type NgaUrlRule,
+} from '../utils/ngaUrl'
 
 export type ImageStoreMode = 'remote' | 'local'
 
@@ -20,9 +26,15 @@ interface SettingState {
   ngaCookies: string
   setNgaCookies: (c: string) => void
   clearNgaCookies: () => void
-  /** NGA 相对 URL（./mon_xxx）补全用的头部，默认 https://img.nga.cn/attachments */
+  /** NGA 相对 URL（./mon_xxx）补全用的头部，默认 https://img.nga.cn/attachments（= 第一条规则的前缀） */
   ngaUrlPrefix: string
   setNgaUrlPrefix: (v: string) => void
+  /** NGA url 规则：正则 + 前缀，按顺序尝试（前一条失效自动换下一个前缀） */
+  ngaUrlRules: NgaUrlRule[]
+  setNgaUrlRules: (rules: NgaUrlRule[]) => void
+  /** 编辑界面是否自动为不完整 url 补前缀 */
+  ngaAutoPrefixEnabled: boolean
+  setNgaAutoPrefixEnabled: (v: boolean) => void
   /** 掷骰音效开关（默认 true） */
   soundEnabled: boolean
   setSoundEnabled: (v: boolean) => void
@@ -44,8 +56,20 @@ export const useSettingStore = create<SettingState>()(
       ngaCookies: '',
       setNgaCookies: (c) => set({ ngaCookies: c }),
       clearNgaCookies: () => set({ ngaCookies: '' }),
-      ngaUrlPrefix: 'https://img.nga.cn/attachments',
+      ngaUrlPrefix: DEFAULT_NGA_URL_PREFIX,
       setNgaUrlPrefix: (v) => set({ ngaUrlPrefix: v }),
+      ngaUrlRules: DEFAULT_NGA_URL_CONFIG.rules,
+      setNgaUrlRules: (rules) => {
+        const list = rules.length > 0 ? rules : DEFAULT_NGA_URL_CONFIG.rules
+        const primary = list.find((r) => r.enabled && r.prefix.trim())
+        set({
+          ngaUrlRules: list,
+          // 主前缀跟随第一条可用规则，兼容旧的单前缀调用方
+          ngaUrlPrefix: normalizeNgaUrlPrefix(primary?.prefix ?? DEFAULT_NGA_URL_PREFIX),
+        })
+      },
+      ngaAutoPrefixEnabled: true,
+      setNgaAutoPrefixEnabled: (v) => set({ ngaAutoPrefixEnabled: v }),
       soundEnabled: true,
       setSoundEnabled: (v) => set({ soundEnabled: v }),
       diceSoundName: 'dice-roll.mp3',
@@ -55,7 +79,7 @@ export const useSettingStore = create<SettingState>()(
     }),
     {
       name: 'anke-creator-settings',
-      version: 5,
+      version: 6,
       migrate: (persisted: any, version: number) => {
         let next = persisted
         // v3 → v4：新增 diceSoundName + availableDiceSounds
@@ -70,7 +94,24 @@ export const useSettingStore = create<SettingState>()(
         if (version < 5) {
           next = {
             ...next,
-            ngaUrlPrefix: 'https://img.nga.cn/attachments',
+            ngaUrlPrefix: DEFAULT_NGA_URL_PREFIX,
+          }
+        }
+        // v5 → v6：单前缀升级为「规则列表 + 自动补全开关」
+        if (version < 6) {
+          const legacyPrefix = normalizeNgaUrlPrefix(next?.ngaUrlPrefix)
+          next = {
+            ...next,
+            ngaUrlPrefix: legacyPrefix,
+            ngaUrlRules: [
+              {
+                id: 'default-mon',
+                pattern: 'mon_',
+                prefix: legacyPrefix,
+                enabled: true,
+              },
+            ],
+            ngaAutoPrefixEnabled: true,
           }
         }
         return next

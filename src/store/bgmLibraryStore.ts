@@ -8,7 +8,7 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { expandNgaUrl } from '../utils/ngaUrl';
+import { expandNgaUrl, buildNgaUrlCandidates } from '../utils/ngaUrl';
 
 export interface BgmItem {
   id: string;
@@ -34,12 +34,20 @@ function createId(): string {
   return `bgm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/** 支持 http(s) 绝对地址，或 NGA 相对地址（./mon_xxx / mon_xxx） */
+/** 支持 http(s) 绝对地址，或 NGA 相对地址（./mon_xxx / mon_xxx / attachments/xxx） */
 export function isValidBgmUrl(url: string): boolean {
   const value = url.trim();
   if (!value) return false;
   if (/^https?:\/\/\S+$/i.test(value)) return true;
-  return /^\.?\/(?:mon_|attachments\/)/i.test(value) || /^mon_[^\s]+$/i.test(value);
+  // 相对地址交给「NGA url 规则」补全，默认规则匹配含 mon_ 的附件
+  return /^\.\//.test(value) || /^\/?attachments\//i.test(value) || /^mon_[^\s]+$/i.test(value);
+}
+
+/** 生成 BGM 的候选播放地址（前缀失效时依次回退） */
+export function getBgmCandidateUrls(item: Pick<BgmItem, 'url' | 'raw'>): string[] {
+  const candidates = buildNgaUrlCandidates(item.raw || item.url);
+  if (candidates.length === 0) return [item.url];
+  return candidates;
 }
 
 function deriveName(url: string): string {
@@ -56,7 +64,7 @@ export const useBgmLibraryStore = create<BgmState>()(
         if (!isValidBgmUrl(raw)) {
           return { ok: false, error: '请输入 http(s):// 或 ./mon_ 开头的音频地址' };
         }
-        const full = expandNgaUrl(raw);
+        const full = buildNgaUrlCandidates(raw)[0] ?? expandNgaUrl(raw);
         const finalName = name.trim() || deriveName(raw);
         if (get().items.some((item) => item.url === full)) {
           return { ok: false, error: '该 BGM 已在资源库中' };
