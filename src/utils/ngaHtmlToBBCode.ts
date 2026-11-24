@@ -291,7 +291,7 @@ function collapseBbCode(input: string): string {
 const SUPPORTED_BBCODE_TAGS = new Set([
   'b', 'i', 'u', 'del', 's', 'sup', 'sub',
   'color', 'size', 'font', 'align',
-  'url', 'img', 'quote', 'collapse', 'code',
+  'url', 'img', 'flash', 'quote', 'collapse', 'code',
   'list', '*', 'table', 'tr', 'td', 'th',
   'h', 'hr', 'br',
 ]);
@@ -648,7 +648,7 @@ function processBlockChildren(container: Node): string[] {
 /** 判断是否为内联元素（无自定义块 data-type 且 tag 在内联集合中） */
 function isInlineElement(el: HTMLElement): boolean {
   const dt = el.dataset?.type;
-  if (dt === 'dice-card' || dt === 'image-block' || dt === 'collapse-block' || dt === 'quote-block' || dt === 'quote-line' || dt === 'table-block') {
+  if (dt === 'dice-card' || dt === 'image-block' || dt === 'audio-block' || dt === 'collapse-block' || dt === 'quote-block' || dt === 'quote-line' || dt === 'table-block') {
     return false; // 自定义块
   }
   const tag = el.tagName.toLowerCase();
@@ -665,7 +665,7 @@ function containsBlockChild(container: Node): boolean {
         return true;
       }
       const dt = el.dataset?.type;
-      if (dt === 'dice-card' || dt === 'image-block' || dt === 'collapse-block' || dt === 'quote-line' || dt === 'table-block') return true;
+      if (dt === 'dice-card' || dt === 'image-block' || dt === 'audio-block' || dt === 'collapse-block' || dt === 'quote-line' || dt === 'table-block') return true;
       // 后备：通过类名识别（data-type 被浏览器 drag/drop 剥离时使用）
       if (tag === 'div' && el.querySelector('.collapse-head')) return true;
       if (tag === 'div' && el.querySelector('.dice-card')) return true;
@@ -687,6 +687,7 @@ function processBlockElement(el: HTMLElement): string[] {
 
   if (dt === 'dice-card') return processDiceCard(el);
   if (dt === 'image-block') return processImageBlock(el);
+  if (dt === 'audio-block') return processAudioBlock(el);
   if (dt === 'collapse-block') return processCollapseBlock(el);
   if (dt === 'quote-block' || dt === 'quote-line' || el.classList?.contains('quote-line')) return processQuoteLine(el);
   if (dt === 'table-block') {
@@ -889,6 +890,14 @@ function processInlineElement(el: HTMLElement): string {
 const NGA_ATTACHMENT_URL_RE =
   /^(?:https?:)?\/\/(?:img[0-9]*|pic)\.nga(?:\.178\.com|\.cn)\/attachments\/(.+)$/i
 
+/** 音频地址反解为 NGA 相对路径（无法反解时原样返回） */
+function toNgaRelativeUrl(src: string): string {
+  if (!src) return src;
+  const m = NGA_ATTACHMENT_URL_RE.exec(src);
+  if (!m) return src;
+  return `./${m[1].replace(/^\/+/, '')}`;
+}
+
 /**
  * NGA 站内附件图片转 BBCode 时必须用相对路径（如 `./mon_202508/18/xxx.webp`），
  * 绝对地址会受防盗链/域名容灾影响，导致回帖里不显示。
@@ -912,6 +921,14 @@ function processDiceCard(el: HTMLElement): string[] {
   } catch {
     return [];
   }
+}
+
+function processAudioBlock(el: HTMLElement): string[] {
+  const audio = el.querySelector('audio');
+  const src = (el.getAttribute('data-src') || audio?.getAttribute('src') || '').trim();
+  if (!src) return [];
+  // NGA 站内附件用相对路径更稳（与图片同口径）
+  return [`[flash=audio]${toNgaRelativeUrl(src)}[/flash]`];
 }
 
 function processImageBlock(el: HTMLElement): string[] {

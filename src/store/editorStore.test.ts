@@ -101,4 +101,33 @@ describe('editorStore 保存状态机', () => {
     );
     expect(useEditorStore.getState().saveStatus).toBe('saved');
   });
+
+  it('丢弃内容归属与当前节不一致的回传，避免切节覆盖', async () => {
+    (db.setSectionContent as Mock).mockResolvedValue(undefined);
+    const { useEditorStore, flushDebouncedSave } = await loadStore();
+    useEditorStore.setState({ sectionId: 's-b', sectionContent: '<p>B 正文</p>' });
+
+    // 旧节 A 的迟到回传：归属节是 s-a，当前节是 s-b → 必须丢弃
+    useEditorStore.getState().setSectionContent('<p>A 旧正文</p>', undefined, 's-a');
+    expect(useEditorStore.getState().sectionContent).toBe('<p>B 正文</p>');
+    expect(useEditorStore.getState().saveStatus).toBe('idle');
+
+    const ok = await flushDebouncedSave();
+    expect(ok).toBe(true);
+    expect(db.setSectionContent).not.toHaveBeenCalled();
+  });
+
+  it('归属节与当前节一致时正常保存', async () => {
+    (db.setSectionContent as Mock).mockResolvedValue(undefined);
+    const { useEditorStore, flushDebouncedSave } = await loadStore();
+    useEditorStore.setState({ sectionId: 's-b', sectionContent: '<p>B</p>' });
+
+    useEditorStore.getState().setSectionContent('<p>B 新正文</p>', undefined, 's-b');
+    await flushDebouncedSave();
+    expect(db.setSectionContent).toHaveBeenCalledWith(
+      's-b',
+      '<p>B 新正文</p>',
+      htmlToNGABBCode('<p>B 新正文</p>'),
+    );
+  });
 });

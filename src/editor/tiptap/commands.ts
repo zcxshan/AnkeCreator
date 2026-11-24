@@ -140,6 +140,15 @@ export function createAnkeCommands(deps: AnkeCommandsDeps): RichTextEditorComman
       })
     },
 
+    insertAudio(src: string) {
+      const editor = getEditor()
+      if (!editor || !src) return
+      insertBlockAndKeepCaret(editor, {
+        type: 'audioBlock',
+        attrs: { src },
+      })
+    },
+
     insertDice(payload: DiceBlockPayloadV2) {
       const editor = getEditor()
       if (!editor) return

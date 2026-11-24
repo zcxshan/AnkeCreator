@@ -39,6 +39,7 @@ import {
   NGA_LINK_COLOR,
   percentToCssFontSize,
 } from '../types';
+import { expandNgaUrl } from './ngaUrl';
 
 /**
  * bbcodeToHtml 显式支持的 BBCode 标签集合。
@@ -491,6 +492,14 @@ function buildOpenNode(tag: string, attrRaw: string): Node {
         return `<div data-type="image-block" data-size="original" style="display:inline-block;margin:2px 4px;vertical-align:middle;outline:none;user-select:none"><img src="${escapeHtml(url)}" data-original-src="${escapeHtml(url)}" onerror="${onerror}" style="max-width:100%;height:auto;display:inline-block;cursor:pointer;user-select:none" alt=""></div>`;
       });
     }
+    case 'flash': {
+      // [flash=audio]相对/绝对地址[/flash] → 音频原子块（导出时还原为 BBCode）
+      const kind = (attrRaw || '').split(',')[0].trim().toLowerCase();
+      return elNode('flash', { kind }, (_inner, innerBBCode) => {
+        const url = expandNgaUrl((innerBBCode || '').trim());
+        return `<div data-type="audio-block" data-src="${escapeHtml(url)}"></div>`;
+      });
+    }
     case 'quote': {
       const title = attrRaw || '';
       void title;
@@ -604,20 +613,11 @@ export function getNgaImageAltHost(url: string): string | null {
 /**
  * 把 NGA 论坛里的相对图片路径补全为可访问的完整 URL
  * - 已带 http(s):// 或 // 开头 → 归一化域名后返回
- * - 以 ./ 开头（如 ./mon_xxx）→ 补全为 https://img.nga.cn/attachments/...
- * - 以 mon_ 开头（无 ./）→ 同样补全
+ * - 以 ./ 或 mon_ 开头 → 拼接设置中的「NGA url 头部」（默认 img.nga.cn/attachments）
  * - 其余（带 [img] 属性的）原样返回
  */
 export function expandNgaImageUrl(url: string): string {
-  if (!url) return '';
-  if (/^https?:\/\//i.test(url) || url.startsWith('//')) return normalizeNgaImageHost(url);
-  if (url.startsWith('./')) {
-    return `https://img.nga.cn/attachments/${url.slice(2)}`;
-  }
-  if (url.startsWith('mon_')) {
-    return `https://img.nga.cn/attachments/${url}`;
-  }
-  return url;
+  return expandNgaUrl(url);
 }
 
 function collapseBlankLines(s: string): string {

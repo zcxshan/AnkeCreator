@@ -17,6 +17,7 @@ import { getImagesDir, getDataRoot, getDataDir, getDefaultDataDir, isDataRootFal
 import { migrateDataDir } from './dataMigration'
 import {
   createManualSnapshot,
+  deleteSnapshot,
   ensureDailySnapshot,
   listSnapshots,
   requestRestore,
@@ -246,6 +247,20 @@ export function registerDataIpc(getWindow: () => BrowserWindow | null): void {
       return { ok: false }
     }
   })
+
+  // data:deleteSnapshot：删除指定快照（不可恢复）
+  ipcMain.handle(
+    'data:deleteSnapshot',
+    async (_e, name: string): Promise<{ ok: boolean; error?: string; deleted?: boolean }> => {
+      try {
+        const deleted = deleteSnapshot(getDataDir(), name)
+        if (!deleted) return { ok: false, error: `快照不存在：${name}` }
+        return { ok: true, deleted }
+      } catch (e) {
+        return { ok: false, error: (e as Error).message || '删除快照失败' }
+      }
+    },
+  )
 
   // data:restoreSnapshot：记录恢复请求 → 立刻重启；真正的覆盖发生在下次启动、DB 初始化之前
   ipcMain.handle(

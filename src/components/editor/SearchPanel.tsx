@@ -515,9 +515,9 @@ export function SearchPanel({
           style={{
             flex: 1,
             padding: '5px 8px',
-            border: '1px solid var(--border-color)',
-            borderRadius: 'var(--radius-sm)',
-            background: 'var(--bg-input, var(--bg-card))',
+            border: '2px solid var(--an-ink)',
+            borderRadius: 'var(--an-radius-sm)',
+            background: 'var(--an-card)',
             color: 'var(--text-primary)',
             fontSize: 13,
             outline: 'none',
@@ -529,9 +529,9 @@ export function SearchPanel({
           disabled={btnDisabled}
           style={{
             padding: '4px 8px',
-            background: 'var(--bg-hover)',
-            border: '1px solid var(--border-color)',
-            borderRadius: 'var(--radius-sm)',
+            background: 'var(--an-paper)',
+            border: '2px solid var(--an-ink)',
+            borderRadius: 'var(--an-radius-sm)',
             color: 'var(--text-primary)',
             cursor: btnDisabled ? 'not-allowed' : 'pointer',
             fontSize: 12,
@@ -577,9 +577,9 @@ export function SearchPanel({
               style={{
                 width: 56,
                 padding: '4px 4px',
-                background: 'var(--bg-input, var(--bg-card))',
-                border: '1px solid var(--border-color)',
-                borderRadius: 'var(--radius-sm)',
+                background: 'var(--an-card)',
+                border: '2px solid var(--an-ink)',
+                borderRadius: 'var(--an-radius-sm)',
                 color: 'var(--text-primary)',
                 fontSize: 12,
                 textAlign: 'center',
@@ -596,9 +596,9 @@ export function SearchPanel({
           disabled={btnDisabled}
           style={{
             padding: '4px 8px',
-            background: 'var(--accent)',
-            border: '1px solid var(--accent)',
-            borderRadius: 'var(--radius-sm)',
+            background: 'var(--an-pink)',
+            border: '2px solid var(--an-ink)',
+            borderRadius: 'var(--an-radius-sm)',
             color: 'var(--text-on-accent)',
             cursor: btnDisabled ? 'not-allowed' : 'pointer',
             fontSize: 12,
@@ -630,9 +630,9 @@ export function SearchPanel({
             style={{
               flex: 1,
               padding: '5px 8px',
-              border: '1px solid var(--border-color)',
-              borderRadius: 'var(--radius-sm)',
-              background: 'var(--bg-input, var(--bg-card))',
+              border: '2px solid var(--an-ink)',
+              borderRadius: 'var(--an-radius-sm)',
+              background: 'var(--an-card)',
               color: 'var(--text-primary)',
               fontSize: 13,
               outline: 'none',
@@ -644,9 +644,9 @@ export function SearchPanel({
             disabled={replaceBtnDisabled}
             style={{
               padding: '4px 8px',
-              background: 'var(--bg-hover)',
-              border: '1px solid var(--border-color)',
-              borderRadius: 'var(--radius-sm)',
+              background: 'var(--an-paper)',
+              border: '2px solid var(--an-ink)',
+              borderRadius: 'var(--an-radius-sm)',
               color: 'var(--text-primary)',
               cursor: replaceBtnDisabled ? 'not-allowed' : 'pointer',
               fontSize: 12,
@@ -679,9 +679,9 @@ export function SearchPanel({
             disabled={replaceBtnDisabled}
             style={{
               padding: '4px 8px',
-              background: 'var(--bg-hover)',
-              border: '1px solid var(--border-color)',
-              borderRadius: 'var(--radius-sm)',
+              background: 'var(--an-paper)',
+              border: '2px solid var(--an-ink)',
+              borderRadius: 'var(--an-radius-sm)',
               color: 'var(--text-primary)',
               cursor: replaceBtnDisabled ? 'not-allowed' : 'pointer',
               fontSize: 12,

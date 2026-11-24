@@ -466,12 +466,14 @@ describe('normalizeImportPayload', () => {
     expect(result.data.sections[0].extras.layout_hint).toBe('wide');
   });
 
-  it('缺正文时报中文错误', () => {
+  it('空节（缺正文）按空正文导入，不阻断整份作品', () => {
     const result = normalizeImportPayload(
-      { title: '坏节', sections: [{ title: '空节' }] },
-      'bad-section.json',
+      { title: '含空节', sections: [{ title: '空节' }] },
+      'empty-section.json',
     );
-    expect(result).toEqual({ ok: false, error: '第 1 节「空节」缺少正文' });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.sections[0]).toMatchObject({ title: '空节', content: null, bbcode: null });
   });
 
   it('拒绝未知 format', () => {

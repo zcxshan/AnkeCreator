@@ -30,6 +30,7 @@ import { stripImageFilenameExtension } from '../../utils/imageFilename';
 import { Icon } from '../common/Icon';
 import { askConfirm } from '../common/confirmPrompt';
 import { Modal as BaseModal } from '../common/Modal';
+import { ImageProcessDialog } from '../image/ImageProcessDialog';
 
 interface Breadcrumb {
   id: string | null;
@@ -55,6 +56,8 @@ export function ImageLibraryPanel() {
   // 改动 v3：图片重命名弹窗
   const [renameItemTarget, setRenameItemTarget] = useState<ImageLibraryItem | null>(null);
   const [renameItemText, setRenameItemText] = useState('');
+  // 图片处理（改尺寸 / 转格式）弹窗
+  const [processTarget, setProcessTarget] = useState<ImageLibraryItem | null>(null);
   // 改动 v3：搜索框（按图片名过滤）
   const [searchQuery, setSearchQuery] = useState('');
   // 改动 v3：拖动到文件夹时的视觉反馈
@@ -747,6 +750,13 @@ export function ImageLibraryPanel() {
                       </div>
                       <div className="absolute top-1 right-1 flex gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
                         {/* 改动 v3：图片重命名按钮 */}
+                        <button aria-label="处理图片"
+                          onClick={(e) => { e.stopPropagation(); setProcessTarget(item); }}
+                          className="px-1.5 py-1 text-xs rounded-[7px] text-[var(--an-ink)]" style={{ background: 'var(--an-card)', border: '2px solid var(--an-ink)' }}
+                          title="处理图片（改尺寸 / 转格式）"
+                        >
+                          <Icon name="settings" size={14} />
+                        </button>
                         <button aria-label="重命名"
                           onClick={(e) => { e.stopPropagation(); setRenameItemTarget(item); setRenameItemText(item.filename); }}
                           className="px-1.5 py-1 text-xs rounded-[7px] text-[var(--an-ink)]" style={{ background: 'var(--an-card)', border: '2px solid var(--an-ink)' }}
@@ -773,6 +783,18 @@ export function ImageLibraryPanel() {
           </>
         )}
       </div>
+
+      {/* 图片处理弹窗：改尺寸 / 转格式 */}
+      {processTarget && (
+        <ImageProcessDialog
+          open
+          item={processTarget}
+          folderId={processTarget.folderId}
+          folderName={processTarget.folderId ? breadcrumb[breadcrumb.length - 1]?.name : undefined}
+          onClose={() => setProcessTarget(null)}
+          onSaved={refresh}
+        />
+      )}
 
       {/* 新建文件夹弹窗 */}
       {showNewFolderModal && (

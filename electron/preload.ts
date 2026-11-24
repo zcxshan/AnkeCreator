@@ -348,6 +348,8 @@ const dataAPI = {
   getDataInfo: (): Promise<any> => ipcRenderer.invoke('data:getInfo'),
   createSnapshot: (): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('data:createSnapshot'),
+  deleteSnapshot: (name: string): Promise<{ ok: boolean; error?: string; deleted?: boolean }> =>
+    ipcRenderer.invoke('data:deleteSnapshot', name),
   restoreSnapshot: (name: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('data:restoreSnapshot', name),
   pickDataDir: (): Promise<{ ok: boolean; canceled?: boolean; dir?: string; error?: string }> =>
@@ -475,6 +477,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   }> => ipcRenderer.invoke('data:getInfo'),
   createSnapshot: (): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('data:createSnapshot'),
+  deleteSnapshot: (name: string): Promise<{ ok: boolean; error?: string; deleted?: boolean }> =>
+    ipcRenderer.invoke('data:deleteSnapshot', name),
   restoreSnapshot: (name: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('data:restoreSnapshot', name),
   openDataDirectory: (): Promise<{ ok: boolean; error?: string }> =>

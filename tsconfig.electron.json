@@ -17,6 +17,7 @@
     "src/utils/syncDiskToDb.ts",
     "src/utils/ngaCrawler.ts",
     "src/utils/ngaBBCodeToHtml.ts",
+    "src/utils/ngaUrl.ts",
     "src/utils/storyImport.ts"
   ],
   "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/**/*.spec.ts", "src/**/*.spec.tsx"]

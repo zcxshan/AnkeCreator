@@ -21,7 +21,7 @@ const PM_MARKER = 'ProseMirror-';
 const PM_PLACEHOLDER_MARKER = 'mark-placeholder';
 
 /** 业务块节点类型：这些元素是文档模型的一部分，只清洗其 PM 痕迹，不整块删除 */
-const BUSINESS_BLOCK_TYPES = new Set(['image-block', 'dice-card', 'collapse-block']);
+const BUSINESS_BLOCK_TYPES = new Set(['image-block', 'audio-block', 'dice-card', 'collapse-block']);
 
 /** 快速路径：两类标记均不存在时无需解析 */
 function mayContainArtifacts(html: string): boolean {

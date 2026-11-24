@@ -484,6 +484,96 @@ function rollDiceInCard(block: HTMLElement, commit: (payload: DiceBlockPayloadV2
   }, total)
 }
 
+/**
+ * audioBlock —— BGM / 音频块。
+ * 用原生 <audio controls> 播放；删除按钮走事务删除，避免退格误触。
+ */
+class AudioBlockNodeView implements NodeView {
+  dom: HTMLElement
+  private props: NodeViewRendererProps
+  private audio: HTMLAudioElement
+
+  constructor(props: NodeViewRendererProps) {
+    this.props = props
+    const block = document.createElement('div')
+    block.setAttribute('data-type', 'audio-block')
+    block.setAttribute('contenteditable', 'false')
+    block.setAttribute('draggable', 'true')
+    block.setAttribute('tabindex', '-1')
+    block.style.cssText = [
+      'display:flex',
+      'align-items:center',
+      'gap:8px',
+      'padding:6px 8px',
+      'margin:6px 0',
+      'border:2px solid var(--an-ink, #2b2b2b)',
+      'border-radius:10px',
+      'background:var(--an-card, #fff)',
+    ].join(';')
+
+    const audio = document.createElement('audio')
+    audio.controls = true
+    audio.preload = 'none'
+    audio.style.cssText = 'flex:1;min-width:0;height:32px;'
+
+    const del = document.createElement('button')
+    del.type = 'button'
+    del.textContent = '删除'
+    del.setAttribute('data-role', 'audio-delete')
+    del.style.cssText = [
+      'shrink:0',
+      'padding:2px 8px',
+      'font-size:12px',
+      'color:var(--an-ink, #2b2b2b)',
+      'background:var(--an-paper, #fff)',
+      'border:2px solid var(--an-ink, #2b2b2b)',
+      'border-radius:8px',
+      'cursor:pointer',
+    ].join(';')
+    del.addEventListener('mousedown', (event) => event.preventDefault())
+    del.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      deleteNode(this.props)
+    })
+
+    block.append(audio, del)
+    this.dom = block
+    this.audio = audio
+    this.syncFromNode(props.node)
+  }
+
+  private syncFromNode(node: PMNode): void {
+    const src = String(node.attrs.src ?? '')
+    this.dom.setAttribute('data-src', src)
+    if (this.audio.getAttribute('src') !== src) {
+      this.audio.setAttribute('src', src)
+    }
+  }
+
+  update(node: PMNode): boolean {
+    if (node.type.name !== 'audioBlock') return false
+    this.props = { ...this.props, node }
+    this.syncFromNode(node)
+    return true
+  }
+
+  /** 让音频控件与删除按钮自己处理事件，编辑器不拦截 */
+  stopEvent(event: Event): boolean {
+    const target = event.target as HTMLElement | null
+    return !!target?.closest('audio,button')
+  }
+
+  ignoreMutation(): boolean {
+    return true
+  }
+
+  destroy(): void {
+    this.audio.pause()
+    this.audio.removeAttribute('src')
+  }
+}
+
 class DiceCardNodeView implements NodeView {
   dom: HTMLElement
   private props: NodeViewRendererProps
@@ -760,12 +850,14 @@ class CollapseBlockNodeView implements NodeView {
 // ============================================================
 export interface AnkeNodeViewFactory {
   imageBlock: () => NodeViewRenderer
+  audioBlock: () => NodeViewRenderer
   diceCard: () => NodeViewRenderer
   collapseBlock: () => NodeViewRenderer
 }
 
 export const ankeNodeViews: AnkeNodeViewFactory = {
   imageBlock: () => (props) => new ImageBlockNodeView(props),
+  audioBlock: () => (props) => new AudioBlockNodeView(props),
   diceCard: () => (props) => new DiceCardNodeView(props),
   collapseBlock: () => (props) => new CollapseBlockNodeView(props),
 }

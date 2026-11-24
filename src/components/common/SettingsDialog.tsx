@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useSettingStore, type ImageStoreMode } from '../../store/settingStore';
 import { useToastStore } from '../../store/toastStore';
 import { isElectron } from '../../utils/platform';
+import { DEFAULT_NGA_URL_PREFIX, normalizeNgaUrlPrefix } from '../../utils/ngaUrl';
 import { Icon } from './Icon';
 import { Modal } from './Modal';
 import { askConfirm } from './confirmPrompt';
@@ -27,6 +28,8 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   const ngaCookies = useSettingStore((s) => s.ngaCookies);
   const setNgaCookies = useSettingStore((s) => s.setNgaCookies);
   const clearNgaCookies = useSettingStore((s) => s.clearNgaCookies);
+  const ngaUrlPrefix = useSettingStore((s) => s.ngaUrlPrefix);
+  const setNgaUrlPrefix = useSettingStore((s) => s.setNgaUrlPrefix);
   const soundEnabled = useSettingStore((s) => s.soundEnabled);
   const setSoundEnabled = useSettingStore((s) => s.setSoundEnabled);
   const diceSoundName = useSettingStore((s) => s.diceSoundName);
@@ -35,8 +38,14 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   const showToast = useToastStore((s) => s.showToast);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [cookieDraft, setCookieDraft] = useState('');
+  const [prefixDraft, setPrefixDraft] = useState(ngaUrlPrefix);
   const [ngaLoggingIn, setNgaLoggingIn] = useState(false);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
+
+  // 打开时同步外部设置到本地草稿
+  useEffect(() => {
+    if (open) setPrefixDraft(ngaUrlPrefix);
+  }, [open, ngaUrlPrefix]);
 
   // 重新扫描音效列表（上传/删除后调用）
   const refreshSounds = async () => {
@@ -242,6 +251,34 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     }
   };
 
+  const handleDeleteSnapshot = async (name: string) => {
+    if (!isElectron || !window.electronAPI?.deleteSnapshot) {
+      showToast('删除快照仅在桌面端支持', 'error');
+      return;
+    }
+    const confirmed = await askConfirm({
+      title: '删除快照',
+      message: `确定删除快照「${name}」吗？\n\n删除后无法恢复，当前数据不受影响。`,
+      confirmText: '删除',
+      danger: true,
+    });
+    if (!confirmed) return;
+    setSnapshotBusy(true);
+    try {
+      const res = await window.electronAPI.deleteSnapshot(name);
+      if (res?.ok) {
+        showToast('已删除快照', 'success');
+        await refreshDataInfo();
+      } else {
+        showToast(`删除失败：${res?.error || '未知错误'}`, 'error');
+      }
+    } catch (e) {
+      showToast(`删除失败：${(e as Error).message}`, 'error');
+    } finally {
+      setSnapshotBusy(false);
+    }
+  };
+
   const handleRestoreSnapshot = async (name: string) => {
     if (!isElectron || !window.electronAPI?.restoreSnapshot) return;
     const confirmed = await askConfirm({
@@ -392,7 +429,48 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
           </div>
         </Section>
 
-        {/* 分组：图片存储模式 */}
+        {/* 分组：NGA url 头部（相对图片 / BGM 地址补全） */}
+        <Section title="NGA 的 url 头部">
+          <div className="px-1.5 pt-1">
+            <div className="text-[12px] text-[var(--text-secondary)] mb-2 leading-normal">
+              正文里以 <code className="bg-[var(--bg-input)] px-1 rounded-[var(--radius-chip)]">./mon_</code> 或
+              <code className="bg-[var(--bg-input)] px-1 rounded-[var(--radius-chip)]">mon_</code> 开头的图片 / BGM 地址，
+              会自动拼接此头部组成完整 URL。
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <input
+                value={prefixDraft}
+                onChange={(e) => setPrefixDraft(e.target.value)}
+                placeholder={DEFAULT_NGA_URL_PREFIX}
+                className="flex-1 min-w-[220px] px-2.5 py-[6px] text-[12px] font-mono rounded-[var(--radius-sm)] bg-[var(--bg-input)] border border-[var(--border-color)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
+              />
+              <SettingsBtn
+                variant="primary"
+                onClick={() => {
+                  const next = normalizeNgaUrlPrefix(prefixDraft);
+                  setPrefixDraft(next);
+                  setNgaUrlPrefix(next);
+                  showToast('已保存 NGA url 头部', 'success');
+                }}
+                disabled={normalizeNgaUrlPrefix(prefixDraft) === ngaUrlPrefix}
+              >
+                保存
+              </SettingsBtn>
+              <SettingsBtn
+                variant="ghost"
+                onClick={() => {
+                  setPrefixDraft(DEFAULT_NGA_URL_PREFIX);
+                  setNgaUrlPrefix(DEFAULT_NGA_URL_PREFIX);
+                  showToast('已恢复默认头部', 'success');
+                }}
+                disabled={ngaUrlPrefix === DEFAULT_NGA_URL_PREFIX}
+              >
+                恢复默认
+              </SettingsBtn>
+            </div>
+          </div>
+        </Section>
+
         <Section title="图片存储模式">
           {/* 本地上传总开关（统一控制 4 个上传入口） */}
           <div className="flex items-center gap-2.5 px-1.5 pt-1 pb-2.5 border-b border-dashed border-[var(--border-color)] mb-2.5">
@@ -637,6 +715,14 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                           title={`恢复到 ${snap.name}`}
                         >
                           <span className="inline-flex items-center gap-1"><Icon name="refresh" size={12} /> 恢复</span>
+                        </SettingsBtn>
+                        <SettingsBtn
+                          variant="danger"
+                          onClick={() => handleDeleteSnapshot(snap.name)}
+                          disabled={snapshotBusy}
+                          title={`删除快照 ${snap.name}`}
+                        >
+                          <span className="inline-flex items-center gap-1"><Icon name="trash" size={12} /> 删除</span>
                         </SettingsBtn>
                       </div>
                     ))}

@@ -207,6 +207,18 @@ export function listSnapshots(dataDir: string): SnapshotInfo[] {
 }
 
 /**
+ * 删除指定快照。
+ * @returns true = 已删除；false = 快照不存在
+ */
+export function deleteSnapshot(dataDir: string, name: string): boolean {
+  if (!isSafeSnapshotName(name)) throw new Error(`非法快照名称：${name}`)
+  const snapDir = path.join(snapshotRoot(dataDir), name)
+  if (!fs.existsSync(snapDir)) return false
+  fs.rmSync(snapDir, { recursive: true, force: true })
+  return true
+}
+
+/**
  * 恢复指定快照。
  * 安全保证：先把当前数据完整复制到 backup/pre-restore-<时间戳>/，
  * 再删除并重建 stories/、sections/ 等条目（复制而非硬链接，避免与快照共享 inode）。

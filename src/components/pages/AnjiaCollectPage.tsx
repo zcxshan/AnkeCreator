@@ -119,8 +119,8 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
     }
     const start = parseInt(startFloor, 10);
     const end = parseInt(endFloor, 10);
-    if (isNaN(start) || isNaN(end) || start < 1 || end < 1) {
-      return { ok: false, message: '楼层数必须为正整数' };
+    if (isNaN(start) || isNaN(end) || start < 0 || end < 0) {
+      return { ok: false, message: '楼层数必须为非负整数' };
     }
     if (end < start) {
       return { ok: false, message: '末尾楼层必须 >= 起始楼层' };
@@ -552,11 +552,11 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-medium mb-1.5 text-[var(--text-secondary)]">
-                        起始楼层
+                        起始楼层 <span className="text-[var(--text-secondary)] text-[12px]">（NGA 含 0 楼）</span>
                       </label>
                       <input
                         type="number"
-                        min={1}
+                        min={0}
                         value={startFloor}
                         onChange={(e) => setStartFloor(e.target.value)}
                         disabled={status === 'collecting'}
@@ -569,7 +569,7 @@ export function AnjiaCollectPage({ onBack }: AnjiaCollectPageProps) {
                       </label>
                       <input
                         type="number"
-                        min={1}
+                        min={0}
                         value={endFloor}
                         onChange={(e) => {
                           setEndFloor(e.target.value);

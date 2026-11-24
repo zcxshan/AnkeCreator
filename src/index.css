@@ -371,6 +371,9 @@
   --reader-border: #e5e5e5;
   --reader-accent: #2563eb;
   --reader-accent-soft: rgba(37, 99, 235, 0.07);
+  /* 贴纸手账风：墨线描边 + 卡片底色（跟随阅读主题，不随应用主题） */
+  --reader-ink: #1a1a1a;
+  --reader-card: #ffffff;
 }
 
 .reader-theme-dark {
@@ -380,6 +383,8 @@
   --reader-border: #333333;
   --reader-accent: #60a5fa;
   --reader-accent-soft: rgba(96, 165, 250, 0.1);
+  --reader-ink: #e0e0e0;
+  --reader-card: #242424;
 }
 
 .reader-theme-sepia {
@@ -389,6 +394,8 @@
   --reader-border: #d9ccb8;
   --reader-accent: #8b6914;
   --reader-accent-soft: rgba(139, 105, 20, 0.08);
+  --reader-ink: #3a2a1a;
+  --reader-card: #fbf7ee;
 }
 
 /* 主题色卡（始终展示各自主题的背景色，不随当前主题变化） */

@@ -33,16 +33,23 @@ export const VisualEditorPane = React.memo(function VisualEditorPane({
   onToggleStylePanel,
 }: VisualEditorPaneProps) {
   const content = useEditorStore((s) => s.sectionContent);
+  const sectionId = useEditorStore((s) => s.sectionId);
   const setSectionContent = useEditorStore((s) => s.setSectionContent);
   const sectionLoading = useEditorStore((s) => s.sectionLoading);
   const openDiceDialog = useDiceStore((s) => s.openDialog);
 
   const handleInsertDiceRequest = useCallback(() => openDiceDialog(), [openDiceDialog]);
+  // 回传携带“内容归属节”，store 会丢弃属于其他节的迟到回传
+  const handleChangeContent = useCallback(
+    (html: string, ownerId?: string | null) => setSectionContent(html, undefined, ownerId),
+    [setSectionContent],
+  );
 
   return (
     <RichTextEditor
       content={content ?? ''}
-      onChangeContent={setSectionContent}
+      sectionId={sectionId}
+      onChangeContent={handleChangeContent}
       onInsertDiceRequest={handleInsertDiceRequest}
       onDiceRolled={onDiceRolled}
       onEditDiceBlock={onEditDiceBlock}

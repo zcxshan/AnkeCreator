@@ -27,7 +27,6 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import {
-  NGA_FONTS,
   NGA_COLORS,
   NGA_IMAGE_SIZES,
   NGA_DEFAULT_FONT,
@@ -54,6 +53,7 @@ import { useThemeStore } from '../../store/themeStore';
 import { uploadImagesWithProgress, ensureLocalWarning, type UploadProgressEvent } from '../../utils/uploadImage';
 import { UploadProgressDialog } from '../common/UploadProgressDialog';
 import { DiceNGAImportDialog } from '../dice/DiceNGAImportDialog';
+import { FontPicker } from './FontPicker';
 import {
   cssColorToNga,
   cssFontToNga,
@@ -990,27 +990,15 @@ export function EditorToolbar({
             <span className="text-[12px] text-[var(--text-muted)] mr-[2px]">%</span>
           </div>
 
-          {/* 字体：16 字体 */}
+          {/* 字体：16 字体（贴纸风下拉，替代原生 select） */}
           <span className="tb-label">字体</span>
-          <select
+          <FontPicker
             value={activeFontNga}
-            onChange={(e) => {
-              const v = e.target.value;
+            onChange={(v) => {
               if (!v) return;
-              if (ttCmd) {
-                ttCmd.setFontFamily(v);
-                return;
-              }
+              ttCmd?.setFontFamily(v);
             }}
-            style={{ ...selectNga, minWidth: 96 }}
-            title="字体"
-          >
-            {NGA_FONTS.map((f) => (
-              <option key={f.value} value={f.value}>
-                {f.label}
-              </option>
-            ))}
-          </select>
+          />
         </div>
 
         <GroupDivider />
@@ -1193,10 +1181,10 @@ export function EditorToolbar({
         </ToolbarBtn>
 
         <ToolbarBtn
-          title="从 NGA 文本导入选项（粘贴收集的安价文本，自动生成选项骰子）"
+          title="导入安价：粘贴文本，或直接选择「收集安价」的历史记录"
           onClick={() => setShowNGAImport(true)}
         >
-          <Import size={14} /> <span className="tb-label">导入安价</span>
+          <Import size={14} /> <span className="tb-label">安价</span>
         </ToolbarBtn>
 
         <GroupDivider />

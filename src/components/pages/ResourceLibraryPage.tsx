@@ -3,10 +3,11 @@
 // 高内聚：本页只负责顶栏 + 顶部 Tab 切换 + 渲染对应子面板
 // 低耦合：不侵入图片库/模板库内部逻辑，仅组合现有面板
 //
-// 3 个顶级 Tab：
+// 4 个顶级 Tab：
 // - 🖼️ 图片         → ImageLibraryPanel
 // - 📋 人物模板     → TemplatesPanel
 // - 🔍 寻找素材     → FindMaterialPanel（素材网站推荐，增删改查）
+// - 🎵 BGM          → BgmLibraryPanel（URL 添加，插入正文为 [flash=audio]）
 // ============================================================
 
 import { useState } from 'react';
@@ -14,18 +15,20 @@ import { Icon, type IconName } from '../common/Icon';
 import { ImageLibraryPanel } from './ImageLibraryPage';
 import { TemplatesPanel } from './TemplatesPage';
 import { FindMaterialPanel } from './FindMaterialPanel';
+import { BgmLibraryPanel } from '../resource/BgmLibraryPanel';
 
 interface ResourceLibraryPageProps {
   onBack: () => void;
   onShowAuthor?: () => void;
 }
 
-type ResourceTab = 'image' | 'template' | 'material';
+type ResourceTab = 'image' | 'template' | 'material' | 'bgm';
 
 const TABS: { key: ResourceTab; label: string; icon: IconName }[] = [
   { key: 'image', label: '图片', icon: 'bookText' },
   { key: 'template', label: '人物模板', icon: 'copy' },
   { key: 'material', label: '寻找素材', icon: 'search' },
+  { key: 'bgm', label: 'BGM', icon: 'music' },
 ];
 
 export function ResourceLibraryPage({ onBack, onShowAuthor }: ResourceLibraryPageProps) {
@@ -56,7 +59,7 @@ export function ResourceLibraryPage({ onBack, onShowAuthor }: ResourceLibraryPag
         </div>
       </div>
 
-      {/* 顶部主 Tab 切换（3 个：图片 / 人物模板 / 寻找素材） */}
+      {/* 顶部主 Tab 切换（4 个：图片 / 人物模板 / 寻找素材 / BGM） */}
       <div
         className="flex items-center gap-2 px-6 py-3"
         style={{ borderBottom: '3px solid var(--an-ink)', background: 'var(--an-paper)' }}
@@ -82,6 +85,11 @@ export function ResourceLibraryPage({ onBack, onShowAuthor }: ResourceLibraryPag
           {activeTab === 'image' && <ImageLibraryPanel />}
           {activeTab === 'template' && <TemplatesPanel onShowAuthor={onShowAuthor} />}
           {activeTab === 'material' && <FindMaterialPanel />}
+          {activeTab === 'bgm' && (
+            <div className="h-full overflow-y-auto p-4">
+              <BgmLibraryPanel />
+            </div>
+          )}
         </div>
       </div>
     </div>

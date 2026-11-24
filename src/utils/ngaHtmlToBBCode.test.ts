@@ -998,3 +998,28 @@ describe('v23: BBCode 用户场景回归测试 - text-decoration 组合 + 重复
     expect(result).toContain('x');
   });
 });
+
+describe('htmlToNGABBCode - 音频块 [flash=audio]', () => {
+  it('audio-block 的 NGA 附件地址反解为 ./ 相对路径', () => {
+    const html =
+      '<div data-type="audio-block" data-src="https://img.nga.cn/attachments/mon_202403/17/a.mp3"></div>';
+    expect(trim(htmlToNGABBCode(html))).toBe('[flash=audio]./mon_202403/17/a.mp3[/flash]');
+  });
+
+  it('audio-block 的站外地址保持完整 URL', () => {
+    const html =
+      '<div data-type="audio-block" data-src="https://x.com/a.mp3"></div>';
+    expect(trim(htmlToNGABBCode(html))).toBe('[flash=audio]https://x.com/a.mp3[/flash]');
+  });
+
+  it('只有内嵌 audio 标签时也能导出 BBCode', () => {
+    const html =
+      '<div data-type="audio-block"><audio src="https://x.com/b.mp3" controls></audio></div>';
+    expect(trim(htmlToNGABBCode(html))).toBe('[flash=audio]https://x.com/b.mp3[/flash]');
+  });
+
+  it('无 src 的音频块不产生空标签', () => {
+    const html = '<div data-type="audio-block"></div>';
+    expect(trim(htmlToNGABBCode(html))).not.toContain('[flash=audio]');
+  });
+});

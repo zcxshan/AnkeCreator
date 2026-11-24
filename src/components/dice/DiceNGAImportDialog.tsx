@@ -14,12 +14,15 @@
 
 import { useEffect, useState } from 'react';
 import { Icon } from '../common/Icon';
+import { formatHistoryTime, loadHistory, type AnjiaHistoryEntry } from '../../utils/anjiaHistory';
 
 export interface DiceNGAOption {
   displayValue: string;
   content: string;
   ok: boolean;
 }
+
+type ImportSource = 'paste' | 'history';
 
 interface DiceNGAImportDialogProps {
   open: boolean;
@@ -56,12 +59,16 @@ export function DiceNGAImportDialog({
 }: DiceNGAImportDialogProps) {
   const [text, setText] = useState('');
   const [parsed, setParsed] = useState<DiceNGAOption[]>([]);
+  const [source, setSource] = useState<ImportSource>('paste');
+  const [history, setHistory] = useState<AnjiaHistoryEntry[]>([]);
 
-  // 打开时清空状态
+  // 打开时清空状态，并读取「收集安价」保存的抓取历史
   useEffect(() => {
     if (open) {
       setText('');
       setParsed([]);
+      setSource('paste');
+      setHistory(loadHistory());
     }
   }, [open]);
 
@@ -89,6 +96,23 @@ export function DiceNGAImportDialog({
   const handlePasteSample = () => {
     setText('1楼 用户A：选项一的内容描述\n2楼 用户B：选项二的内容描述\n3楼 用户C：选项三的内容描述');
     setParsed([]);
+  };
+
+  /** 从「收集安价」历史载入：同时填充文本框与预览，便于二次编辑 */
+  const handlePickHistory = (entry: AnjiaHistoryEntry) => {
+    setParsed(
+      entry.items.map((item, i) => ({
+        displayValue: String(i + 1),
+        content: item.content,
+        ok: true,
+      })),
+    );
+    setText(
+      entry.items
+        .map((item) => `${item.floor}楼 ${item.author}：${item.content.replace(/\s+/g, ' ')}`)
+        .join('\n'),
+    );
+    setSource('paste');
   };
 
   return (
@@ -120,7 +144,7 @@ export function DiceNGAImportDialog({
           <p
             className="text-[var(--text-muted)] text-xs mt-1"
           >
-            粘贴 <code className="bg-[var(--bg-hover)] py-[1px] px-[4px] rounded-[var(--radius-chip)]">1楼 用户名：内容</code> 格式文本（每行一个选项）
+            粘贴 <code className="bg-[var(--bg-hover)] py-[1px] px-[4px] rounded-[var(--radius-chip)]">1楼 用户名：内容</code> 格式文本，或直接从「收集安价」历史载入
           </p>
         </div>
 
@@ -128,6 +152,55 @@ export function DiceNGAImportDialog({
         <div
           className="min-h-[0px] px-6 py-4 overflow-y-auto flex-1"
         >
+          <div className="flex items-center gap-2 mb-3">
+            <button
+              onClick={() => setSource('paste')}
+              className="px-3 py-1 rounded-lg text-xs font-medium transition-colors"
+              style={
+                source === 'paste'
+                  ? { background: 'var(--accent-bg)', color: 'var(--accent)', border: '1px solid var(--accent)' }
+                  : { background: 'var(--bg-hover)', color: 'var(--text-secondary)', border: '1px solid transparent' }
+              }
+            >
+              粘贴文本
+            </button>
+            <button
+              onClick={() => setSource('history')}
+              className="px-3 py-1 rounded-lg text-xs font-medium transition-colors"
+              style={
+                source === 'history'
+                  ? { background: 'var(--accent-bg)', color: 'var(--accent)', border: '1px solid var(--accent)' }
+                  : { background: 'var(--bg-hover)', color: 'var(--text-secondary)', border: '1px solid transparent' }
+              }
+            >
+              收集历史{history.length > 0 ? `（${history.length}）` : ''}
+            </button>
+          </div>
+          {source === 'history' && (
+            <div className="space-y-2">
+              {history.length === 0 ? (
+                <div className="text-[var(--text-muted)] text-sm py-8 text-center">
+                  还没有收集记录。先到「收集安价」抓取楼层，结果会自动出现在这里。
+                </div>
+              ) : (
+                history.map((entry) => (
+                  <button
+                    key={entry.id}
+                    onClick={() => handlePickHistory(entry)}
+                    className="w-full text-left bg-[var(--bg-base)] border border-[color:var(--border-color)] rounded-lg px-3 py-2 transition-colors"
+                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; }}
+                  >
+                    <div className="text-[var(--text-primary)] text-sm">{entry.label}</div>
+                    <div className="text-[var(--text-muted)] text-xs mt-0.5">
+                      {formatHistoryTime(entry.createdAt)} · {entry.items.length} 条
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+          {source === 'paste' && (
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <label
@@ -217,6 +290,7 @@ export function DiceNGAImportDialog({
               </div>
             )}
           </div>
+          )}
         </div>
 
         {/* 底部按钮 */}

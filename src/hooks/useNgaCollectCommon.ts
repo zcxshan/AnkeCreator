@@ -30,7 +30,7 @@ export function useNgaCollectCommon({ mode, active }: UseNgaCollectCommonOptions
 
   // 表单状态
   const [url, setUrl] = useState('');
-  const [startFloor, setStartFloor] = useState('1');
+  const [startFloor, setStartFloor] = useState('0');
   const [endFloor, setEndFloor] = useState('20');
   const [endFloorManuallyEdited, setEndFloorManuallyEdited] = useState(false);
   const [detecting, setDetecting] = useState(false);

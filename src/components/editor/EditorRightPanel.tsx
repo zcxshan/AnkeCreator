@@ -8,6 +8,7 @@ import type { RichTextEditorCommands } from '../../editor/tiptap/TiptapEditorPan
 import { SearchPanel } from './SearchPanel';
 import { GlobalSearchPanel } from './GlobalSearchPanel';
 import { CompactImageLibraryPanel } from './CompactImageLibraryPanel';
+import { BgmLibraryPanel } from '../resource/BgmLibraryPanel';
 import { QuickDicePanel, DiceHistoryPanel } from './DicePanels';
 import { CompactCharacterPanel } from './CharacterPanels';
 
@@ -65,6 +66,8 @@ export const RightPanel = memo(function RightPanel({
   const activeStoryId = useStoryStore((s) => s.activeStoryId);
   // 搜索模式：'current' = 当前节内搜索（SearchPanel）；'global' = 全作品搜索（GlobalSearchPanel）
   const [searchMode, setSearchMode] = useState<'current' | 'global'>('current');
+  // 图库 Tab 内的资源类型：'image' = 图片库；'bgm' = BGM 库
+  const [galleryMode, setGalleryMode] = useState<'image' | 'bgm'>('image');
   // 跨节搜索（GlobalSearchPanel）跳转时携带的 query；SearchPanel 消费后清空
   const [pendingSearchQuery, setPendingSearchQuery] = useState('');
   // 全作品搜索跳转：切换到对应作品 + 节，并切回当前节搜索便于继续编辑
@@ -379,16 +382,54 @@ export const RightPanel = memo(function RightPanel({
             />
           )}
         {activeTab === 'gallery' && (
-          <CompactImageLibraryPanel
-            onInsertImage={(url) => {
-              if (richTextEditorCommandsRef.current) {
-                richTextEditorCommandsRef.current.insertImage(url, NGA_DEFAULT_IMAGE_SIZE);
-                onShowToast?.('已插入图片');
-              } else {
-                onShowToast?.('没有可用的编辑器');
-              }
-            }}
-          />
+          <div className="flex flex-col h-full">
+            {/* 图片 / BGM 分段切换 */}
+            <div className="shrink-0 flex gap-2 px-3 pt-3 pb-2">
+              {([
+                { key: 'image', label: '图片', icon: 'image' },
+                { key: 'bgm', label: 'BGM', icon: 'music' },
+              ] as const).map((m) => {
+                const active = galleryMode === m.key;
+                return (
+                  <button
+                    key={m.key}
+                    onClick={() => setGalleryMode(m.key)}
+                    className={`an-pill flex-1 h-8 ${active ? 'is-active' : ''}`}
+                  >
+                    <Icon name={m.icon} size={14} />
+                    {m.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex-1 overflow-y-auto px-2 pb-3">
+              {galleryMode === 'image' && (
+                <CompactImageLibraryPanel
+                  onInsertImage={(url) => {
+                    if (richTextEditorCommandsRef.current) {
+                      richTextEditorCommandsRef.current.insertImage(url, NGA_DEFAULT_IMAGE_SIZE);
+                      onShowToast?.('已插入图片');
+                    } else {
+                      onShowToast?.('没有可用的编辑器');
+                    }
+                  }}
+                />
+              )}
+              {galleryMode === 'bgm' && (
+                <BgmLibraryPanel
+                  compact
+                  onPick={(item) => {
+                    if (richTextEditorCommandsRef.current) {
+                      richTextEditorCommandsRef.current.insertAudio(item.url);
+                      onShowToast?.('已插入 BGM');
+                    } else {
+                      onShowToast?.('没有可用的编辑器');
+                    }
+                  }}
+                />
+              )}
+            </div>
+          </div>
         )}
         {activeTab === 'characters' && (
           <CompactCharacterPanel

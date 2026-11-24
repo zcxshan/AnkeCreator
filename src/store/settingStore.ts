@@ -20,6 +20,9 @@ interface SettingState {
   ngaCookies: string
   setNgaCookies: (c: string) => void
   clearNgaCookies: () => void
+  /** NGA 相对 URL（./mon_xxx）补全用的头部，默认 https://img.nga.cn/attachments */
+  ngaUrlPrefix: string
+  setNgaUrlPrefix: (v: string) => void
   /** 掷骰音效开关（默认 true） */
   soundEnabled: boolean
   setSoundEnabled: (v: boolean) => void
@@ -41,6 +44,8 @@ export const useSettingStore = create<SettingState>()(
       ngaCookies: '',
       setNgaCookies: (c) => set({ ngaCookies: c }),
       clearNgaCookies: () => set({ ngaCookies: '' }),
+      ngaUrlPrefix: 'https://img.nga.cn/attachments',
+      setNgaUrlPrefix: (v) => set({ ngaUrlPrefix: v }),
       soundEnabled: true,
       setSoundEnabled: (v) => set({ soundEnabled: v }),
       diceSoundName: 'dice-roll.mp3',
@@ -50,17 +55,25 @@ export const useSettingStore = create<SettingState>()(
     }),
     {
       name: 'anke-creator-settings',
-      version: 4,
+      version: 5,
       migrate: (persisted: any, version: number) => {
+        let next = persisted
         // v3 → v4：新增 diceSoundName + availableDiceSounds
         if (version < 4) {
-          return {
-            ...persisted,
+          next = {
+            ...next,
             diceSoundName: 'dice-roll.mp3',
             availableDiceSounds: ['dice-roll.mp3'],
           }
         }
-        return persisted
+        // v4 → v5：新增 NGA url 头部
+        if (version < 5) {
+          next = {
+            ...next,
+            ngaUrlPrefix: 'https://img.nga.cn/attachments',
+          }
+        }
+        return next
       },
     },
   ),

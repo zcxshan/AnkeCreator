@@ -365,6 +365,47 @@ export const AnkeImageBlock = Node.create({
 })
 
 /**
+ * audioBlock —— BGM / 音频（原子块）。
+ *
+ * 对应 NGA 的 [flash=audio]URL[/flash]；正文存 div[data-type="audio-block"]，
+ * 内嵌 <audio controls>。导出 BBCode 时读 data-src。
+ */
+export const AnkeAudioBlock = Node.create({
+  name: 'audioBlock',
+  group: 'block',
+  atom: true,
+  defining: true,
+  addAttributes() {
+    return {
+      src: {
+        default: null,
+        parseHTML: (el) => readAttr(el, 'data-src') ?? readAttr(el.querySelector('audio'), 'src'),
+        renderHTML: () => ({}),
+      },
+    }
+  },
+  parseHTML() {
+    return [
+      { tag: 'div[data-type="audio-block"]', priority: ATOMIC_RULE_PRIORITY },
+      { tag: 'audio', priority: ATOMIC_RULE_PRIORITY },
+    ]
+  },
+  renderHTML({ node, HTMLAttributes }) {
+    return [
+      'div',
+      mergeAttributes(HTMLAttributes, {
+        'data-type': 'audio-block',
+        'data-src': node.attrs.src ?? '',
+        contenteditable: 'false',
+        draggable: 'true',
+        tabindex: '-1',
+      }),
+      ['audio', { src: node.attrs.src ?? '', controls: 'true', preload: 'none' }],
+    ]
+  },
+})
+
+/**
  * diceCard —— 骰子卡（原子块）。
  *
  * 真实数据 0 条（历史内容没有骰子卡），但 BBCode 导入（ngaBBCodeToHtml）
@@ -708,6 +749,7 @@ export function createAnkeExtensions(): Extensions {
 
     // 原子块
     AnkeImageBlock,
+    AnkeAudioBlock,
     AnkeDiceCard,
     AnkeCollapseBlock,
 

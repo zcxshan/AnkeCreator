@@ -199,9 +199,9 @@ export function GlobalSearchPanel({ onNavigate, currentStoryId }: GlobalSearchPa
           style={{
             flex: 1,
             padding: '5px 8px',
-            border: '1px solid var(--border-color)',
-            borderRadius: 'var(--radius-sm)',
-            background: 'var(--bg-input, var(--bg-card))',
+            border: '2px solid var(--an-ink)',
+            borderRadius: 'var(--an-radius-sm)',
+            background: 'var(--an-card)',
             color: 'var(--text-primary)',
             fontSize: 13,
             outline: 'none',
@@ -213,9 +213,9 @@ export function GlobalSearchPanel({ onNavigate, currentStoryId }: GlobalSearchPa
           disabled={!query.trim() || loading}
           style={{
             padding: '4px 10px',
-            background: 'var(--accent)',
-            border: '1px solid var(--accent)',
-            borderRadius: 'var(--radius-sm)',
+            background: 'var(--an-pink)',
+            border: '2px solid var(--an-ink)',
+            borderRadius: 'var(--an-radius-sm)',
             color: 'var(--text-on-accent)',
             cursor: !query.trim() || loading ? 'not-allowed' : 'pointer',
             fontSize: 12,
@@ -247,9 +247,9 @@ export function GlobalSearchPanel({ onNavigate, currentStoryId }: GlobalSearchPa
                 style={{
                   textAlign: 'left',
                   padding: '6px 8px',
-                  background: isCurrent ? 'var(--bg-hover)' : 'transparent',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: 'var(--radius-sm)',
+                  background: isCurrent ? 'var(--an-paper)' : 'transparent',
+                  border: '2px solid var(--an-ink)',
+                  borderRadius: 'var(--an-radius-sm)',
                   cursor: 'pointer',
                   color: 'var(--text-primary)',
                   transition: 'background 0.1s',

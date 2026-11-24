@@ -16,6 +16,7 @@ import * as os from 'os';
 import {
   createSnapshot,
   createManualSnapshot,
+  deleteSnapshot,
   ensureDailySnapshot,
   listSnapshots,
   pruneSnapshots,
@@ -135,6 +136,20 @@ describe('snapshot 自动快照', () => {
     expect(() => createSnapshot(dataDir, '../evil')).toThrow();
     expect(() => restoreSnapshot(dataDir, '../../etc')).toThrow();
     expect(() => requestRestore(dataDir, '../evil')).toThrow();
+    expect(() => deleteSnapshot(dataDir, '../evil')).toThrow();
+  });
+
+  it('删除快照：返回 true 且目录被移除，重复删除返回 false', () => {
+    createSnapshot(dataDir, '2026-12-01');
+    const snapDir = path.join(dataDir, 'snapshots', '2026-12-01');
+    expect(fs.existsSync(snapDir)).toBe(true);
+
+    expect(deleteSnapshot(dataDir, '2026-12-01')).toBe(true);
+    expect(fs.existsSync(snapDir)).toBe(false);
+    expect(listSnapshots(dataDir).map((s) => s.name)).not.toContain('2026-12-01');
+
+    // 已删除的快照再次删除：幂等返回 false
+    expect(deleteSnapshot(dataDir, '2026-12-01')).toBe(false);
   });
 
   it('恢复请求：写入标记，下次启动时消费并清理标记', () => {

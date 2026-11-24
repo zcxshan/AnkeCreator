@@ -3,9 +3,9 @@
 //
 // 导入端的 normalizeImportPayload 只接受单个 JSON 文件，因此导出端
 // 必须把卷/章/节（正文内嵌 content）、角色、关系、大纲、
-// 骰子记录统一塞进 data 下。大作品按节读取正文，并每 50 节回报进度；
-// 任一节读不到正文时立即抛出带节序号与标题的中文错误，避免导出
-// 残缺文件。
+// 骰子记录统一塞进 data 下。大作品按节读取正文，并每 50 节回报进度。
+// 空节（新建后尚未填写正文）导出为空字符串而非 null：null 会让
+// 导入端把后续节当成残缺数据截断，导致整份作品无法导入。
 // ============================================================
 
 import type { Chapter, SectionMeta, StoryWithAll, Volume } from '../types/story'
@@ -189,9 +189,8 @@ export async function exportStoryBundle(
     const sections: ExportSection[] = []
     for (const meta of metadata) {
       let content = await repo.getSectionContent(meta.id)
-      if (content == null) {
-        throw new Error(`第 ${current + 1} 节「${meta.title}」缺少正文`)
-      }
+      // 空节合法：统一写空字符串，保证 JSON 结构稳定、导入不截断
+      if (content == null) content = ''
       if (options.readImageAsDataUrl) {
         content = await inlineLocalImages(
           content,

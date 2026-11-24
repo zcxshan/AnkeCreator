@@ -377,7 +377,7 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
       }}
     >
       {/* 全宽顶栏（正常文档流，不悬浮，避免与 overflow:hidden 父容器冲突） */}
-      <div className="reader-toolbar" style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', background: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+      <div className="reader-toolbar" style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', background: colors.bg, borderBottom: '3px solid var(--reader-ink)' }}>
         <button onClick={onBack} title="返回" style={{ ...toolbarBtnStyle(colors), display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="back" size={14} /> 返回</button>
         <span className="font-semibold">{story.title}</span>
       </div>
@@ -395,7 +395,7 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
         style={{
           width: leftDrawerOpen ? 260 : 0,
           flexShrink: 0,
-          borderRight: `1px solid ${colors.border}`,
+          borderRight: '3px solid var(--reader-ink)',
           overflow: 'auto',
           background: colors.bg,
           position: isCapacitor ? 'absolute' : 'relative',
@@ -405,7 +405,7 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
           transition: 'width 0.25s ease',
         }}
       >
-        <div style={{ padding: '16px 20px', borderBottom: `1px solid ${colors.border}` }}>
+        <div style={{ padding: '16px 20px', borderBottom: '2px solid var(--reader-ink)' }}>
           <div style={{ fontSize: 12, color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 1 }}>目录</div>
           <div style={{ fontSize: 18, fontWeight: 700, fontFamily: SERIF_FONT, marginTop: 4 }}>{story.title}</div>
         </div>
@@ -505,7 +505,7 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
           alignItems: 'center',
           gap: 8,
           padding: '8px 16px',
-          borderBottom: `1px solid ${colors.border}`,
+          borderBottom: '2px solid var(--reader-ink)',
           background: colors.bg,
           flexWrap: 'nowrap',
           overflowX: 'auto',
@@ -563,10 +563,10 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
                     right: 8,
                     zIndex: 41,
                     background: colors.bg,
-                    border: `1px solid ${colors.border}`,
-                    borderRadius: 'var(--radius-md)',
+                    border: '2px solid var(--reader-ink)',
+                    borderRadius: 'var(--an-radius-md)',
                     padding: 12,
-                    boxShadow: 'var(--shadow-tooltip)',
+                    boxShadow: 'var(--an-shadow-pop)',
                     display: 'flex',
                     flexDirection: 'column',
                     gap: 12,
@@ -581,11 +581,12 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
                           onClick={() => setFontSize(fs)}
                           style={{
                             ...toolbarBtnStyle(colors),
-                            padding: '4px 8px',
+                            padding: '2px 10px',
                             fontSize: fs === 'small' ? 11 : fs === 'medium' ? 13 : 15,
-                            fontWeight: fontSize === fs ? 700 : 400,
+                            fontWeight: 700,
                             color: fontSize === fs ? colors.accent : colors.textSecondary,
-                            borderBottom: fontSize === fs ? `2px solid ${colors.accent}` : '2px solid transparent',
+                            background: fontSize === fs ? colors.accentSoft : 'transparent',
+                            borderColor: fontSize === fs ? colors.accent : 'transparent',
                           }}
                         >
                           {fs === 'small' ? '小' : fs === 'medium' ? '中' : '大'}
@@ -603,7 +604,8 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
                           className={`reader-swatch-${t}`}
                           style={{
                             width: 24, height: 24, borderRadius: '50%',
-                            border: theme === t ? `2px solid ${colors.accent}` : `2px solid ${colors.border}`,
+                            border: theme === t ? `2px solid ${colors.accent}` : '2px solid var(--reader-ink)',
+                            boxShadow: theme === t ? 'none' : '0 2px 0 var(--reader-ink)',
                             cursor: 'pointer',
                           }}
                         />
@@ -636,11 +638,12 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
                     onClick={() => setFontSize(fs)}
                     style={{
                       ...toolbarBtnStyle(colors),
-                      padding: '4px 8px',
+                      padding: '2px 10px',
                       fontSize: fs === 'small' ? 11 : fs === 'medium' ? 13 : 15,
-                      fontWeight: fontSize === fs ? 700 : 400,
+                      fontWeight: 700,
                       color: fontSize === fs ? colors.accent : colors.textSecondary,
-                      borderBottom: fontSize === fs ? `2px solid ${colors.accent}` : '2px solid transparent',
+                      background: fontSize === fs ? colors.accentSoft : 'transparent',
+                      borderColor: fontSize === fs ? colors.accent : 'transparent',
                     }}
                   >
                     {fs === 'small' ? '小' : fs === 'medium' ? '中' : '大'}
@@ -658,7 +661,8 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
                     className={`reader-swatch-${t}`}
                     style={{
                       width: 24, height: 24, borderRadius: '50%',
-                      border: theme === t ? `2px solid ${colors.accent}` : `2px solid ${colors.border}`,
+                      border: theme === t ? `2px solid ${colors.accent}` : '2px solid var(--reader-ink)',
+                            boxShadow: theme === t ? 'none' : '0 2px 0 var(--reader-ink)',
                       cursor: 'pointer',
                     }}
                   />
@@ -714,8 +718,9 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
                       textAlign: 'center',
                       color: colors.textSecondary,
                       padding: 32,
-                      border: `1px solid ${colors.border}`,
-                      borderRadius: 'var(--radius-xl)',
+                      border: '2px solid var(--reader-ink)',
+                      borderRadius: 'var(--an-radius-md)',
+                      background: 'var(--reader-card)',
                     }}
                   >
                     <div className="text-[32px] mb-[8px]"><Icon name="alert" size={32} /></div>
@@ -760,7 +765,7 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '8px 16px',
-          borderTop: `1px solid ${colors.border}`,
+          borderTop: '2px solid var(--reader-ink)',
           background: colors.bg,
           paddingBottom: isCapacitor ? 'calc(8px + env(safe-area-inset-bottom))' : 8,
         }}>
@@ -811,13 +816,17 @@ export function ReaderPage({ onBack }: ReaderPageProps) {
 }
 
 function toolbarBtnStyle(colors: { text: string; textSecondary: string; border: string; bg: string }) {
+  // 与主应用一致的贴纸手账风：2px 墨线描边 + 胶囊圆角 + 2px 硬阴影
   return {
-    padding: '6px 12px',
-    border: `1px solid ${colors.border}`,
-    background: 'transparent',
+    padding: '4px 12px',
+    border: '2px solid var(--reader-ink)',
+    background: 'var(--reader-card)',
     color: colors.text,
-    borderRadius: 'var(--radius-control)',
+    borderRadius: 999,
     cursor: 'pointer',
     fontSize: 13,
+    fontWeight: 600,
+    lineHeight: 1.5,
+    boxShadow: '0 2px 0 var(--reader-ink)',
   } as React.CSSProperties;
 }

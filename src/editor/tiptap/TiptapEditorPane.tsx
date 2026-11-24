@@ -163,7 +163,10 @@ function syncEmptyState(el: HTMLElement): void {
 
 export interface RichTextEditorProps {
   content: string | null | undefined;
-  onChangeContent: (htmlStr: string) => void;
+  /** 当前内容所属的节 id（跨节回传保护用；null 表示尚未选择节） */
+  sectionId?: string | null;
+  /** 第二参为内容归属的节 id，供 store 丢弃跨节回传 */
+  onChangeContent: (htmlStr: string, sectionId?: string | null) => void;
   onInsertDiceRequest: () => void;
   onDiceRolled?: (payload: any) => void;
   /** 需求4:编辑已有骰子块(由 dice-card 编辑按钮触发) */
@@ -195,6 +198,8 @@ export interface RichTextEditorProps {
 
 export interface RichTextEditorCommands {
   insertImage: (src: string, size?: string) => void;
+  /** 插入 BGM / 音频块（资源库 BGM 模块调用） */
+  insertAudio: (src: string) => void;
   insertDice: (payload: DiceBlockPayloadV2) => void;
   /** 需求4:更新已有骰子块的 payload(编辑保存后回填) */
   updateDiceBlock: (blockId: string, payload: DiceBlockPayloadV2) => void;
@@ -216,6 +221,7 @@ export interface RichTextEditorCommands {
 
 export function TiptapEditorPane({
   content,
+  sectionId = null,
   onChangeContent,
   onInsertDiceRequest,
   onDiceRolled,
@@ -236,6 +242,12 @@ export function TiptapEditorPane({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   /** 最近一次与外部同步过的 content 字符串（避免回声重写 + 误清撤销栈） */
   const lastContentRef = useRef<string>('');
+  /** 当前 DOM 中内容真正所属的节。切节时 store.sectionId 会先变，
+   *  但 DOM 仍是旧节内容，期间产生的 onUpdate 必须丢弃，否则会把旧节
+   *  正文排进新节的保存队列（切节覆盖 bug 根因之一）。 */
+  const appliedSectionIdRef = useRef<string | null>(sectionId);
+  const sectionIdRef = useRef<string | null>(sectionId);
+  sectionIdRef.current = sectionId;
   /** 输入法组合期间不打断候选框：此时跳过外部内容同步 */
   const composingRef = useRef(false);
   /** 保存编辑器内的选区（工具栏按钮点击后编辑器失焦时沿用） */
@@ -424,6 +436,10 @@ export function TiptapEditorPane({
       },
     },
     onUpdate: ({ editor: current }) => {
+      // DOM 仍属于上一个节时不回传：此期间 store.sectionId 可能已切到新节，
+      // 回传会把旧节正文排进新节的防抖保存队列（切节覆盖 bug）。
+      const owner = appliedSectionIdRef.current;
+      if (owner !== sectionIdRef.current) return;
       const el = current.view.dom;
       // 序列化出口清洗：剥除 PM 渲染层临时 DOM（separator 等）并补齐业务块属性，
       // 防止其随 innerHTML 存库后无限增殖（见 serialize.ts 模块注释）
@@ -431,9 +447,10 @@ export function TiptapEditorPane({
       if (html === lastContentRef.current) return;
       lastContentRef.current = html;
       syncEmptyState(el);
-      onChangeContentRef.current(html);
+      onChangeContentRef.current(html, owner);
     },
     onCreate: ({ editor: current }) => {
+      appliedSectionIdRef.current = sectionIdRef.current;
       syncEmptyState(current.view.dom);
     },
   });
@@ -466,8 +483,11 @@ export function TiptapEditorPane({
   });
 
   // editable 变化 -> 同步
+  // 注意：Tiptap v3 的 setEditable(editable, emitUpdate = true) 默认会 emit
+  // 一次 update；切节时 editable 随 sectionLoading 翻转，若不传 false，
+  // 会用旧节 DOM 触发 onUpdate 并被排进新节的保存队列（切节覆盖 bug）。
   useEffect(() => {
-    if (editor) editor.setEditable(editable);
+    if (editor) editor.setEditable(editable, false);
   }, [editor, editable]);
 
   // ------------------------------------------------------------
@@ -492,14 +512,23 @@ export function TiptapEditorPane({
         lastApplied: lastContentRef.current,
       })
     ) {
+      // 内容相同（例如两节都为空）但归属节已切换：把归属权交给新节，
+      // 否则新节后续输入会因「DOM 归属不一致」被全部丢弃。
+      if (lastContentRef.current === cleaned) {
+        appliedSectionIdRef.current = sectionIdRef.current;
+      }
       return;
     }
     const healed = hasProseMirrorArtifacts(safe) && cleaned !== safe;
-    if (lastContentRef.current === cleaned) return;
+    if (lastContentRef.current === cleaned) {
+      appliedSectionIdRef.current = sectionIdRef.current;
+      return;
+    }
     if (domShowsContent(el, cleaned)) {
       lastContentRef.current = cleaned;
+      appliedSectionIdRef.current = sectionIdRef.current;
       syncEmptyState(el);
-      if (healed) onChangeContentRef.current(cleaned);
+      if (healed) onChangeContentRef.current(cleaned, sectionIdRef.current);
       return;
     }
     if (shouldRecreateHistory(lastContentRef.current, cleaned)) {
@@ -514,9 +543,11 @@ export function TiptapEditorPane({
       );
     }
     lastContentRef.current = cleaned;
+    // DOM 已切换为新节内容，此后输入才允许回传到新节
+    appliedSectionIdRef.current = sectionIdRef.current;
     syncEmptyState(editor.view.dom);
-    if (healed) onChangeContentRef.current(cleaned);
-  }, [content, editor]);
+    if (healed) onChangeContentRef.current(cleaned, sectionIdRef.current);
+  }, [content, editor, sectionId]);
 
   // ------------------------------------------------------------
   // NodeView 回调桥接（NodeView 无法直接拿到 React props）

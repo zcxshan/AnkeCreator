@@ -1,5 +1,16 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
 import { bbcodeToHtml, expandNgaImageUrl } from './ngaBBCodeToHtml';
+import { useSettingStore } from '../store/settingStore';
+import { setNgaUrlPrefixProvider } from './ngaUrl';
+
+const DEFAULT_PREFIX = 'https://img.nga.cn/attachments';
+
+// 模拟渲染层入口注入的设置读取器
+setNgaUrlPrefixProvider(() => useSettingStore.getState().ngaUrlPrefix);
+
+afterEach(() => {
+  useSettingStore.getState().setNgaUrlPrefix(DEFAULT_PREFIX);
+});
 
 describe('expandNgaImageUrl', () => {
   it('保持 https 完整 URL 不变', () => {
@@ -41,6 +52,15 @@ describe('expandNgaImageUrl', () => {
       'https://img.nga.cn/attachments/mon_1.jpg',
     );
   });
+  it('使用设置中的 NGA url 头部补全相对路径', () => {
+    useSettingStore.getState().setNgaUrlPrefix('https://example.com/att');
+    expect(expandNgaImageUrl('./mon_1.jpg')).toBe('https://example.com/att/mon_1.jpg');
+    expect(expandNgaImageUrl('mon_2.jpg')).toBe('https://example.com/att/mon_2.jpg');
+  });
+  it('设置头部为空时回退默认值', () => {
+    useSettingStore.getState().setNgaUrlPrefix('   ');
+    expect(expandNgaImageUrl('./mon_1.jpg')).toBe(`${DEFAULT_PREFIX}/mon_1.jpg`);
+  });
 });
 
 describe('bbcodeToHtml - [img] URL 补全', () => {
@@ -62,6 +82,27 @@ describe('bbcodeToHtml - [img] URL 补全', () => {
     expect(html).toContain('data-type="image-block"');
     expect(html).toContain('src="https://img.nga.cn/attachments/mon_202606/19/lsQ86-jmorK2cT3cSxc-mu.webp.medium.jpg"');
     expect(html).not.toContain('src="./mon_');
+  });
+});
+
+describe('bbcodeToHtml - [flash=audio] 音频块', () => {
+  it('[flash=audio]./mon_xxx.mp3[/flash] 输出 audio-block 并补全 URL', () => {
+    const html = bbcodeToHtml('[flash=audio]./mon_202403/17/lsQ2t-db02X10Za0.mp3[/flash]');
+    expect(html).toContain('data-type="audio-block"');
+    expect(html).toContain(
+      'data-src="https://img.nga.cn/attachments/mon_202403/17/lsQ2t-db02X10Za0.mp3"',
+    );
+  });
+
+  it('[flash=audio]https://x.com/a.mp3[/flash] 完整 URL 不变', () => {
+    const html = bbcodeToHtml('[flash=audio]https://x.com/a.mp3[/flash]');
+    expect(html).toContain('data-src="https://x.com/a.mp3"');
+  });
+
+  it('自定义 NGA 头部时音频相对地址同样补全', () => {
+    useSettingStore.getState().setNgaUrlPrefix('https://example.com/att');
+    const html = bbcodeToHtml('[flash=audio]./mon_1.mp3[/flash]');
+    expect(html).toContain('data-src="https://example.com/att/mon_1.mp3"');
   });
 });
 

@@ -52,11 +52,15 @@ describe('exportStoryBundle', () => {
     })
   })
 
-  it('任一节缺少正文时抛出带章节序号的中文错误', async () => {
-    const repo = makeRepo(10, 's3')
-    await expect(
-      exportStoryBundle(repo, 'story-1', {}),
-    ).rejects.toThrow('第 4 节「第4节」缺少正文')
+  it('空节导出为空字符串且不中断导出', async () => {
+    const messages: Array<{ current: number; total: number; message: string }> = []
+    const bundle = await exportStoryBundle(makeRepo(10, 's3'), 'story-1', {
+      onProgress: (progress) => messages.push(progress),
+    })
+    expect(bundle.data.chapters[0].sections).toHaveLength(10)
+    expect(bundle.data.chapters[0].sections[3].content).toBe('')
+    expect(bundle.data.chapters[0].sections[4].content).toBe('<p>正文-s4</p>')
+    expect(messages[messages.length - 1].message).toBe('导出完成：10/10 节')
   })
 
   it('把 local:// 图片内嵌为 data URL，且同一张图片只读取一次', async () => {

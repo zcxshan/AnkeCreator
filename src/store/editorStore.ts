@@ -70,8 +70,10 @@ interface EditorState {
    * 更新正文并触发防抖保存。
    * - bbcode 省略：保存时按 content 派生 BBCode（可视化编辑路径）
    * - bbcode 显式传入：原样写入（BBCode 编辑路径，保留用户原文格式）
+   * - forSectionId：内容归属的节 id。传入且与当前节不一致时直接丢弃，
+   *   避免切节瞬间旧节 DOM 的迟到回传覆盖新节（切节覆盖 bug 的第二道保险）。
    */
-  setSectionContent: (content: string, bbcode?: string | null) => void;
+  setSectionContent: (content: string, bbcode?: string | null, forSectionId?: string | null) => void;
   flushSectionContent: () => Promise<boolean>; // 立即写回数据库（例如切换节、退出前）
 
   // 活动样式（contenteditable）
@@ -318,10 +320,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       selectionStats: null,
     }),
 
-  setSectionContent: (content, bbcode) => {
+  setSectionContent: (content, bbcode, forSectionId) => {
+    const { sectionId } = get();
+    // 跨节回传保护：切节时 DOM 仍显示旧节内容，此时迟到的 onUpdate
+    // 若被写入当前（新）节，会在 500ms 后覆盖新节正文。
+    if (forSectionId !== undefined && forSectionId !== sectionId) return;
     // 更新内存状态 + 防抖保存到数据库（content 与 bbcode 在同一次落盘写入）
     set(bbcode === undefined ? { sectionContent: content } : { sectionContent: content, sectionBbcode: bbcode });
-    const { sectionId } = get();
     if (sectionId) {
       scheduleDebouncedSave(sectionId, content, bbcode);
     }

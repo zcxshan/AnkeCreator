@@ -184,7 +184,7 @@ export async function ensureDefaultVolumeAndChapter(
             secRows.push({
               chapter_id: newChapterId,
               title: sec?.title ?? '未命名节',
-              content: sec?.content,
+              content: sec?.content ?? '',
               order_index: sec?.order_index,
               _oldId: sec?.id,
             });
@@ -221,7 +221,7 @@ export async function ensureDefaultVolumeAndChapter(
             const newSection = await createSection({
               chapter_id: newChapter.id,
               title: sec?.title ?? '未命名节',
-              content: sec?.content,
+              content: sec?.content ?? '',
               order_index: sec?.order_index,
             });
             if (sec?.id) sectionIdMap[sec.id] = newSection.id;
@@ -246,7 +246,7 @@ export async function ensureDefaultVolumeAndChapter(
         const newSection = await createSection({
           chapter_id: fallbackChapterId,
           title: sec?.title ?? '第1节',
-          content: sec?.content,
+          content: sec?.content ?? '',
           order_index: sec?.order_index,
         });
         if (sec?.id) sectionIdMap[sec.id] = newSection.id;
@@ -443,12 +443,8 @@ export function normalizeImportPayload(raw: unknown, fileName: string): Normaliz
     const { row, index, chapterId } = sourceSections[flatIndex];
     const content = typeof row.content === 'string' ? row.content : null;
     const bbcode = typeof row.bbcode === 'string' ? row.bbcode : null;
-    if (!content && !bbcode) {
-      return {
-        ok: false,
-        error: `第 ${flatIndex + 1} 节「${text(row.title, '未命名')}」缺少正文`,
-      };
-    }
+    // 空节（新建后尚未填写正文）是合法数据：旧版导出里 content / bbcode 可能
+    // 都是 null。此前这里直接报「缺少正文」，会让含空节的整份作品无法导入。
     const knownChapter = chapters.some((chapter) => chapter.id === chapterId);
     sections.push({
       id: text(row.id, `import-sec-${flatIndex + 1}`),
