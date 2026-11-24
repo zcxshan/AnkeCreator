@@ -11,6 +11,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Icon } from '../common/Icon';
 import { saveToHistory } from '../../utils/anjiaHistory';
+import type { MatchMode } from '../../utils/ngaCrawler';
 import { useNgaCollectCommon } from '../../hooks/useNgaCollectCommon';
 import { useStoryStore } from '../../store/storyStore';
 import { CollectDecisionDialog } from '../common/CollectDecisionDialog';
@@ -66,6 +67,9 @@ export function DiceNGAImportDialog({
   const [collecting, setCollecting] = useState(false);
   const [collectError, setCollectError] = useState('');
   const [collectSummary, setCollectSummary] = useState('');
+  // 与「收集安价」页面一致的匹配文本 / 匹配模式
+  const [prefix, setPrefix] = useState('安价');
+  const [matchMode, setMatchMode] = useState<MatchMode>('prefix');
   const activeStoryId = useStoryStore((s) => s.activeStoryId);
 
   const {
@@ -96,6 +100,8 @@ export function DiceNGAImportDialog({
     setCollecting(false);
     setCollectError('');
     setCollectSummary('');
+    setPrefix('安价');
+    setMatchMode('prefix');
     setUrl('');
     setStartFloor('0');
     setEndFloor('20');
@@ -155,7 +161,8 @@ export function DiceNGAImportDialog({
         url: threadUrl,
         startFloor: start,
         endFloor: end,
-        prefix: '',
+        prefix: prefix.trim(),
+        matchMode,
         cookies: cookies || undefined,
       });
       if (!res.ok) {
@@ -164,13 +171,19 @@ export function DiceNGAImportDialog({
       }
       const items = (res.items ?? []) as { floor: number; author: string; content: string }[];
       if (items.length === 0) {
-        setCollectError('未收集到楼层，请检查楼层范围或登录 Cookie');
+        const modeLabel =
+          matchMode === 'prefix' ? '前缀匹配' : matchMode === 'contains' ? '包含匹配' : '正则匹配';
+        setCollectError(
+          `未收集到楼层：请检查楼层范围、匹配文本（${modeLabel}：${
+            prefix.trim() || '留空=全部'
+          }）是否与帖子一致，或是否需要在设置中配置 NGA Cookie。`,
+        );
         return;
       }
       setText(formatCollectedText(items));
       setCollectSummary(`已收集 ${items.length} 条，已填入下方文本框`);
       // 与「收集安价」共用同一份历史记录
-      saveToHistory({ url: threadUrl, startFloor: start, endFloor: end, prefix: '', items });
+      saveToHistory({ url: threadUrl, startFloor: start, endFloor: end, prefix: prefix.trim(), items });
     } catch (e) {
       setCollectError((e as Error).message || '收集失败');
     } finally {
@@ -286,12 +299,36 @@ export function DiceNGAImportDialog({
                 </button>
               </div>
 
+              {/* 匹配文本 + 匹配模式（与「收集安价」页面一致） */}
+              <div className="flex items-end gap-2 flex-wrap">
+                <label className="flex-1 min-w-[200px] text-[var(--text-secondary)] text-xs font-medium">
+                  匹配文本（可留空）
+                  <input
+                    value={prefix}
+                    onChange={(e) => setPrefix(e.target.value)}
+                    disabled={collecting}
+                    placeholder={matchMode === 'regex' ? '正则表达式，如 ^安价\\d+' : '留空则匹配所有楼层'}
+                    className={`mt-1 ${inputClass}`}
+                  />
+                </label>
+                <select
+                  value={matchMode}
+                  onChange={(e) => setMatchMode(e.target.value as MatchMode)}
+                  disabled={collecting}
+                  title="匹配模式"
+                  className="bg-[var(--bg-input)] border border-[color:var(--border-color)] text-[var(--text-primary)] px-2.5 py-2 text-xs rounded-lg outline-none cursor-pointer focus:border-[var(--accent)] disabled:opacity-50"
+                >
+                  <option value="prefix">前缀匹配</option>
+                  <option value="contains">包含匹配</option>
+                  <option value="regex">正则匹配</option>
+                </select>
+              </div>
+
               {!cookies && (
                 <div className="text-[var(--text-muted)] text-[11px]">
                   提示：需要登录的帖子请先在设置里粘贴 NGA Cookie。
                 </div>
               )}
-
               {collecting && (
                 <div className="space-y-1.5">
                   <div className="h-1.5 rounded-full bg-[var(--bg-hover)] overflow-hidden">
